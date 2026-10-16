@@ -66,9 +66,20 @@ claude-ollama 35b [args...]
 Both sizes:
 
 ```sh
-claude-ollama -p "hello"      # other args go straight to claude
+claude-custom ollama 27b      # same as claude-ollama 27b: launches 27b directly
+claude-custom ollama          # pick a size in a menu
+claude-ollama -p "hello"      # no size: menu, then the args go straight to claude
 claude-ollama --help          # usage and the list of sizes
 ```
+
+With no size, or a word that isn't a configured size (`28b`), `claude-ollama`
+opens a picker ([model-picker-tui](model-picker-tui/README.md)) and drops the
+unknown word. Without a terminal (scripts, pipes) it uses 27b instead. The
+picker needs Go 1.26+; passing a size never does.
+
+Sizes come from the files in `ollama/`: a size is configured when both
+`settings.<size>.json` and `Modelfile.<size>` exist. The picker and `--help`
+pick up a new size without any script change.
 
 `claude-custom install` creates the `-cc` models from `ollama/Modelfile.<size>`
 once the base models are pulled. `claude-ollama` also does this itself for

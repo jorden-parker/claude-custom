@@ -63,7 +63,7 @@ run_capture() {
 
 copy_repo() {
   mkdir -p "$1"
-  cp -R "$repo/bin" "$repo/personal" "$repo/shared" "$repo/ollama" "$1/"
+  cp -R "$repo/bin" "$repo/personal" "$repo/shared" "$repo/ollama" "$repo/model-picker-tui" "$1/"
 }
 
 make_all_rc_files() {
@@ -393,6 +393,39 @@ run_capture "$repo/bin/claude-ollama" --help
 check_eq "claude-ollama help exit status" 0 "$?"
 check_that "claude-ollama help lists sizes" grep -qxF "sizes: 27b 35b" "$sandbox/out"
 check_not "claude-ollama help does not launch claude" grep -q '^ARGS:' "$sandbox/out"
+run_capture "$repo/bin/claude-ollama" 28b -p hi </dev/null
+check_that "claude-ollama unknown size without a tty falls back to 27b" grep -qF -- "$ollama_settings" "$sandbox/out"
+check_not "claude-ollama drops an unknown size" grep -qF "28b" "$sandbox/out"
+check_that "claude-ollama unknown size keeps claude args" grep -qF -- "Glob,Grep -p hi" "$sandbox/out"
+
+new_sandbox
+copy_repo "$sandbox/repo"
+cp "$sandbox/repo/ollama/settings.27b.json" "$sandbox/repo/ollama/settings.9b.json"
+cp "$sandbox/repo/ollama/Modelfile.27b" "$sandbox/repo/ollama/Modelfile.9b"
+cp "$sandbox/repo/ollama/settings.27b.json" "$sandbox/repo/ollama/settings.70b.json"
+run_capture "$sandbox/repo/bin/claude-ollama" 9b -p hi
+check_that "claude-ollama accepts a newly configured size" grep -qF -- "--settings $sandbox/repo/ollama/settings.9b.json" "$sandbox/out"
+check_not "claude-ollama does not pass a configured size to claude" grep -qF -- "Grep 9b" "$sandbox/out"
+run_capture "$sandbox/repo/bin/claude-ollama" --help
+check_that "claude-ollama help lists sizes from config" grep -qxF "sizes: 27b 35b 9b" "$sandbox/out"
+
+cat > "$sandbox/stubbin/go" <<'STUB'
+#!/bin/sh
+printf '#!/bin/sh\necho 35b\n' > "$3"
+chmod +x "$3"
+STUB
+chmod +x "$sandbox/stubbin/go"
+script -q /dev/null "$sandbox/repo/bin/claude-ollama" -p hi >"$sandbox/out" 2>&1 </dev/null
+check_that "claude-ollama with a tty and no size launches the picked size" grep -qF -- "--settings $sandbox/repo/ollama/settings.35b.json" "$sandbox/out"
+script -q /dev/null "$sandbox/repo/bin/claude-ollama" 28b >"$sandbox/out" 2>&1 </dev/null
+check_that "claude-ollama with a tty and an unknown size launches the picked size" grep -qF -- "--settings $sandbox/repo/ollama/settings.35b.json" "$sandbox/out"
+cat > "$sandbox/stubbin/go" <<'STUB'
+#!/bin/sh
+printf '#!/bin/sh\nexit 1\n' > "$3"
+chmod +x "$3"
+STUB
+script -q /dev/null "$sandbox/repo/bin/claude-ollama" >"$sandbox/out" 2>&1 </dev/null
+check_not "claude-ollama cancelled picker does not launch claude" grep -q 'ARGS:' "$sandbox/out"
 run_capture "$installer" ollama -p hi
 check_that "claude-custom ollama runs claude-ollama" grep -qF -- "$ollama_settings" "$sandbox/out"
 

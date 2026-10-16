@@ -1,21 +1,43 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-profile_dir="$(cd "$(dirname "$(readlink -f "$0")")/../ollama" && pwd)"
-sizes="27b 35b"
-size=27b
+repo_dir="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+profile_dir="$repo_dir/ollama"
+picker_dir="$repo_dir/model-picker-tui"
+default_size=27b
+tools="Bash,Read,Edit,Write,Glob,Grep"
 
-case "${1:-}" in
-  -h|--help)
-    echo "usage: claude-ollama [size] [claude args...]"
-    echo "sizes: $sizes"
-    exit 0 ;;
-  27b|35b) size="$1"; shift ;;
-esac
+configured_sizes() {
+  local settings size
+  for settings in "$profile_dir"/settings.*.json; do
+    size="${settings##*/settings.}"
+    size="${size%.json}"
+    if is_configured_size "$size"; then
+      printf '%s\n' "$size"
+    fi
+  done
+}
 
-case "$size" in
-  27b|35b) tools="Bash,Read,Edit,Write,Glob,Grep"; extra_flags=() ;;
-esac
+is_configured_size() {
+  [ -f "$profile_dir/settings.$1.json" ] && [ -f "$profile_dir/Modelfile.$1" ]
+}
+
+pick_size() {
+  if ! command -v go >/dev/null 2>&1; then
+    echo "claude-ollama: the model picker needs Go 1.26+ (https://go.dev/dl); or pass a size: $(configured_sizes | tr '\n' ' ')" >&2
+    exit 1
+  fi
+  (cd "$picker_dir" && go build -o model-picker .) >&2
+  "$picker_dir/model-picker" "$profile_dir" || exit 130
+}
+
+choose_size() {
+  if [ -t 0 ] && [ -t 2 ]; then
+    pick_size
+  else
+    printf '%s\n' "$default_size"
+  fi
+}
 
 ensure_model() {
   local modelfile="$profile_dir/Modelfile.$size"
@@ -27,6 +49,25 @@ ensure_model() {
   ollama create "$name" -f "$modelfile"
 }
 
+case "${1:-}" in
+  -h|--help)
+    echo "usage: claude-ollama [size] [claude args...]"
+    echo "sizes: $(configured_sizes | tr '\n' ' ' | sed 's/ $//')"
+    echo "no size: pick one in a menu (or $default_size without a terminal)"
+    exit 0 ;;
+esac
+
+if [ $# -gt 0 ] && is_configured_size "$1"; then
+  size="$1"
+  shift
+else
+  case "${1:-}" in
+    ''|-*) ;;
+    *) shift ;;
+  esac
+  size="$(choose_size)"
+fi
+
 ensure_model
 
 unset ANTHROPIC_API_KEY
@@ -35,5 +76,4 @@ exec claude \
   --append-system-prompt-file "$profile_dir/CLAUDE.$size.md" \
   --strict-mcp-config \
   --tools "$tools" \
-  ${extra_flags[@]+"${extra_flags[@]}"} \
   "$@"

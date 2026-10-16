@@ -38,6 +38,9 @@ gets applied.
   `~/.zshenv` or `~/.local/bin/claude`, and derives Ollama model names from
   `ollama/settings.<size>.json` and `ollama/Modelfile.<size>`. Adding a size
   means adding both files; the installer picks it up.
+- Model picker (Go, `model-picker-tui/`):
+  `cd model-picker-tui && go test ./...`; `claude-ollama` builds and runs it
+  when no size is given on a terminal.
 - Tools TUI (Go, `tools-tui/`): `cd tools-tui && go test ./...` (one test:
   `go test ./ui -run TestSwitching`), run with `go run .`. See
   `tools-tui/README.md`.
@@ -70,6 +73,12 @@ The ESLint/TypeScript/React config is unused boilerplate from
   `--strict-mcp-config`, and restricts tools with `--tools`. Before launching,
   it pulls the base model and creates the `-cc` model when `ollama show` can't
   find the `-cc` model.
+- `bin/claude-ollama` reads the configured sizes from `ollama/` (a
+  `settings.<size>.json` plus a `Modelfile.<size>`), never a hardcoded list. A
+  first arg that matches launches that size. Otherwise, on a terminal it runs
+  `model-picker-tui` (which renders on stderr and prints the chosen size on
+  stdout); without one it uses 27b. A first arg that is neither a size nor a
+  flag is dropped so it doesn't reach `claude` as a prompt.
 - `ollama/server.env` documents the Ollama server env the profiles expect. The
   Homebrew service sets the same values. Nothing in this repo applies it.
 - `ollama/CLAUDE.<size>.md` files are appended system prompts for small local

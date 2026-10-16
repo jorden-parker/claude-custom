@@ -10,3 +10,4 @@ coverage/
 .husky/_/
 plans/
 tools-tui/claude-tools
+model-picker-tui/model-picker
