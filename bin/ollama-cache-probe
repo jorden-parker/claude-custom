@@ -1,0 +1,293 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
+from dataclasses import dataclass
+from pathlib import Path
+from typing import List, Optional
+
+REPO_DIR = Path(os.path.realpath(__file__)).parents[1]
+PROFILE_DIR = REPO_DIR / "ollama"
+DEFAULT_MODEL = "27b"
+DEFAULT_BASE_URL = "http://localhost:11434"
+DEFAULT_PREFIX_TOKENS = 20000
+DEFAULT_SIDE_MODEL = "qwen3.5:4b"
+NUM_CTX = 65536
+CHARS_PER_TOKEN = 4
+LATE_EDIT_FRACTION = 0.8
+EARLY_EDIT_CHAR = 40
+NANOSECONDS_PER_SECOND = 1_000_000_000
+FILLER_LINE = "Section {number}: fixed filler text so every probe run sends the same bytes.\n"
+QUESTION_ONE = "Question one: summarise section one in one sentence."
+QUESTION_TWO = "Question two: summarise section two in one sentence."
+ANSWER_ONE = "Section one is filler text about the probe."
+UNRELATED_PROMPT = "Reply with the word OK."
+TABLE_HEADER = ("scenario", "prompt", "evaluated", "hit %", "prefill s")
+
+
+@dataclass
+class Probe:
+    base_url: str
+    model: str
+    prefix: str
+    side_model: str
+
+
+def positive_int(text):
+    value = int(text)
+    if value < 1:
+        raise argparse.ArgumentTypeError("must be at least 1")
+    return value
+
+
+def parse_args(argv):
+    parser = argparse.ArgumentParser(description="Measure how much prompt prefill Ollama's cache skips.")
+    parser.add_argument("model", nargs="?", default=DEFAULT_MODEL, help="a size (27b, 35b) or a model name")
+    parser.add_argument("--prefix-tokens", type=positive_int, default=DEFAULT_PREFIX_TOKENS)
+    parser.add_argument("--side-model", default=DEFAULT_SIDE_MODEL)
+    parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
+    parser.add_argument("--json", action="store_true")
+    return parser.parse_args(argv)
+
+
+def is_configured_size(size):
+    return (PROFILE_DIR / f"settings.{size}.json").is_file() and (PROFILE_DIR / f"Modelfile.{size}").is_file()
+
+
+def resolve_model(argument):
+    if not is_configured_size(argument):
+        return argument
+    return json.loads((PROFILE_DIR / f"settings.{argument}.json").read_text())["model"]
+
+
+def build_prefix(prefix_tokens):
+    wanted = prefix_tokens * CHARS_PER_TOKEN
+    repeats = wanted // len(FILLER_LINE.format(number=0)) + 1
+    text = "".join(FILLER_LINE.format(number=number) for number in range(repeats))
+    return text[:wanted]
+
+
+def with_char_changed(text, index):
+    replacement = "X" if text[index] != "X" else "Y"
+    return text[:index] + replacement + text[index + 1 :]
+
+
+def late_edit_index(prefix):
+    return min(int(len(prefix) * LATE_EDIT_FRACTION), len(prefix) - 1)
+
+
+def early_edit_index(prefix):
+    return min(EARLY_EDIT_CHAR, len(prefix) - 1)
+
+
+def post_json(base_url, path, payload):
+    request = urllib.request.Request(
+        base_url + path,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(request, timeout=900) as response:
+        return json.loads(response.read())
+
+
+def get_json(base_url, path):
+    with urllib.request.urlopen(base_url + path, timeout=30) as response:
+        return json.loads(response.read())
+
+
+def user_message(content):
+    return {"role": "user", "content": content}
+
+
+def assistant_message(content):
+    return {"role": "assistant", "content": content}
+
+
+def question_prompt(prefix, question):
+    return f"{prefix}\n{question}"
+
+
+def send_chat(probe, model, messages):
+    response = post_json(
+        probe.base_url,
+        "/api/chat",
+        {
+            "model": model,
+            "messages": messages,
+            "stream": False,
+            "options": {"num_ctx": NUM_CTX, "num_predict": 1, "temperature": 0},
+        },
+    )
+    return {
+        "evaluated": response.get("prompt_eval_count", 0),
+        "prefill_seconds": response.get("prompt_eval_duration", 0) / NANOSECONDS_PER_SECOND,
+    }
+
+
+def ask(probe, prefix, question):
+    return send_chat(probe, probe.model, [user_message(question_prompt(prefix, question))])
+
+
+def unload_model(probe):
+    post_json(probe.base_url, "/api/chat", {"model": probe.model, "messages": [], "keep_alive": 0})
+
+
+def cold(probe):
+    unload_model(probe)
+    return ask(probe, probe.prefix, QUESTION_ONE)
+
+
+def same_prefix(probe):
+    return ask(probe, probe.prefix, QUESTION_TWO)
+
+
+def growing_chat(probe):
+    messages = [
+        user_message(question_prompt(probe.prefix, QUESTION_ONE)),
+        assistant_message(ANSWER_ONE),
+        user_message(QUESTION_TWO),
+    ]
+    return send_chat(probe, probe.model, messages)
+
+
+def late_edit(probe):
+    return ask(probe, with_char_changed(probe.prefix, late_edit_index(probe.prefix)), QUESTION_TWO)
+
+
+def early_edit(probe):
+    return ask(probe, with_char_changed(probe.prefix, early_edit_index(probe.prefix)), QUESTION_TWO)
+
+
+def eviction(probe):
+    ask(probe, probe.prefix, QUESTION_TWO)
+    send_chat(probe, probe.model, [user_message(UNRELATED_PROMPT)])
+    return ask(probe, probe.prefix, QUESTION_TWO)
+
+
+def side_model(probe):
+    send_chat(probe, probe.side_model, [user_message(UNRELATED_PROMPT)])
+    return ask(probe, probe.prefix, QUESTION_TWO)
+
+
+def scenario_list(has_side_model):
+    scenarios = [
+        ("Cold", cold),
+        ("Same prefix", same_prefix),
+        ("Growing chat", growing_chat),
+        ("Late edit", late_edit),
+        ("Early edit", early_edit),
+        ("Eviction", eviction),
+    ]
+    if has_side_model:
+        scenarios.append(("Side model", side_model))
+    return scenarios
+
+
+def hit_percent(baseline, evaluated):
+    if baseline <= 0:
+        return 0.0
+    return round(max(0.0, 100.0 * (1 - evaluated / baseline)), 1)
+
+
+def scenario_row(name, baseline, measured):
+    return {
+        "scenario": name,
+        "prompt_tokens": baseline,
+        "evaluated_tokens": measured["evaluated"],
+        "hit_percent": hit_percent(baseline, measured["evaluated"]),
+        "prefill_seconds": measured["prefill_seconds"],
+    }
+
+
+def run_scenarios(probe, has_side_model):
+    measurements = [(name, scenario(probe)) for name, scenario in scenario_list(has_side_model)]
+    baseline = measurements[0][1]["evaluated"]
+    return [scenario_row(name, baseline, measured) for name, measured in measurements]
+
+
+def lists_model(base_url, name):
+    return name in [entry.get("name") for entry in get_json(base_url, "/api/tags").get("models", [])]
+
+
+def loaded_models(base_url):
+    return [entry.get("name", "?") for entry in get_json(base_url, "/api/ps").get("models", [])]
+
+
+def format_row(cells):
+    return f"{cells[0]:<16}{cells[1]:>10}{cells[2]:>11}{cells[3]:>8}{cells[4]:>11}"
+
+
+def print_table(rows):
+    print(format_row(TABLE_HEADER))
+    for row in rows:
+        print(
+            format_row(
+                (
+                    row["scenario"],
+                    row["prompt_tokens"],
+                    row["evaluated_tokens"],
+                    f"{row['hit_percent']:.1f}",
+                    f"{row['prefill_seconds']:.2f}",
+                )
+            )
+        )
+
+
+def print_settings(probe, prefix_tokens, loaded: List[str]):
+    print(f"server: {probe.base_url}")
+    print(f"model: {probe.model}  num_ctx: {NUM_CTX}  prefix: ~{prefix_tokens} tokens ({len(probe.prefix)} chars)")
+    print(f"loaded before run: {', '.join(loaded) or 'none'}")
+    print("OLLAMA_NUM_PARALLEL is read at server start: restart the server to compare 1 against 2.")
+    print()
+
+
+def json_report(args, probe, loaded: List[str], rows):
+    return {
+        "model": probe.model,
+        "num_ctx": NUM_CTX,
+        "prefix_tokens": args.prefix_tokens,
+        "loaded_models": loaded,
+        "scenarios": rows,
+    }
+
+
+def make_probe(args):
+    return Probe(
+        base_url=args.base_url,
+        model=resolve_model(args.model),
+        prefix=build_prefix(args.prefix_tokens),
+        side_model=args.side_model,
+    )
+
+
+def report(args):
+    probe = make_probe(args)
+    has_side_model = lists_model(probe.base_url, probe.side_model)
+    loaded = loaded_models(probe.base_url)
+    if not args.json:
+        print_settings(probe, args.prefix_tokens, loaded)
+    rows = run_scenarios(probe, has_side_model)
+    if args.json:
+        print(json.dumps(json_report(args, probe, loaded, rows), indent=2))
+    else:
+        print_table(rows)
+    return 0
+
+
+def main(argv=None):
+    args = parse_args(argv)
+    try:
+        return report(args)
+    except urllib.error.HTTPError as error:
+        print(f"ollama-cache-probe: Ollama answered HTTP {error.code} at {error.url} (is the model pulled?)", file=sys.stderr)
+        return 1
+    except urllib.error.URLError as error:
+        print(f"ollama-cache-probe: cannot reach Ollama at {args.base_url} ({error.reason})", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

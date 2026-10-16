@@ -5,5 +5,6 @@ shared/hooks/bash-output-trim.test.sh
 shared/hooks/edit-check.test.sh
 shared/hooks/stop-verify.test.sh
 personal/install.test.sh
+bin/ollama-cache-probe.test.sh
 (cd tools-tui && go test ./...)
 (cd model-picker-tui && go test ./...)

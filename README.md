@@ -168,11 +168,24 @@ Keys, sync and write rules: `tools-tui/README.md`.
 `claude-custom` also runs both launchers: `claude-custom ollama [...]` is
 `claude-ollama [...]`, and `claude-custom tools [...]` is `claude-tools [...]`.
 
+## Prompt-cache probe
+
+`bin/ollama-cache-probe` measures how much prefill the local Ollama server skips
+through its prompt cache. It sends seven fixed scenarios (cold, same prefix,
+growing chat, early and late edits, eviction, side model) and prints one row
+each. It changes no settings.
+
+```sh
+bin/ollama-cache-probe 27b                   # or 35b, or any model name
+bin/ollama-cache-probe 27b --prefix-tokens 8000 --json
+```
+
 ## Tests
 
 - Everything: `.claude/verify`
 - Hooks: `shared/hooks/*.test.sh`
 - Installer: `personal/install.test.sh`
+- Cache probe: `bin/ollama-cache-probe.test.sh`
 - Tools TUI: `cd tools-tui && go test ./...`
 - Model picker: `cd model-picker-tui && go test ./...`
 

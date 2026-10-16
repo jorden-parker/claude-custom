@@ -31,6 +31,9 @@ gets applied.
   lines and exits 1)
 - Everything at once: `.claude/verify` (the Stop hook runs it too)
 - Installer tests: `personal/install.test.sh` (prints `all passed`)
+- Cache probe: `bin/ollama-cache-probe [27b|35b|MODEL] [--prefix-tokens N]`
+  measures prompt-cache reuse on a live Ollama; its tests are
+  `bin/ollama-cache-probe.test.sh` (stub server, no real Ollama)
 - Feed the hook one command by hand:
   `printf '{"tool_input":{"command":"git log"}}' | shared/hooks/bash-output-guard.py`
 - Validate JSON after editing: `jq . ollama/settings.*.json >/dev/null`
