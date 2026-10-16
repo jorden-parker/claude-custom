@@ -12,7 +12,7 @@ consumers:
   `~/.claude/settings.json` and `~/.claude/CLAUDE.md` to cut token usage on the
   normal Anthropic-backed `claude`.
 - **Work harness** (`bin/claude-ollama`, `ollama/`): starts `claude` against a
-  local Ollama server (`localhost:11434`) running Qwen 27b or 9b. The overlay
+  local Ollama server (`localhost:11434`) running Qwen 27b. The overlay
   only applies to that launch.
 
 Every file is additive. Nothing here replaces a base config. The layer order and
@@ -27,7 +27,7 @@ gets applied.
 - Feed the hook one command by hand:
   `printf '{"tool_input":{"command":"git log"}}' | shared/hooks/bash-output-guard.py`
 - Validate JSON after editing: `jq . ollama/settings.27b.json >/dev/null`
-- Launch the work harness: `claude-ollama 27b|9b [claude args...]`
+- Launch the work harness: `claude-ollama 27b [claude args...]`
 - `bin/claude-custom` must stay bash-3.2 compatible (macOS `/bin/bash`), must
   never write `~/.zshenv` or `~/.local/bin/claude`, and derives Ollama model
   names from `ollama/settings.<size>.json` and `ollama/Modelfile.<size>`. Adding
@@ -46,26 +46,21 @@ unused boilerplate from `git-precommit-setup`; there is no `src/`.
   `UNBOUNDED_COMMANDS`. Every regex starts with `COMMAND_START`, so it only
   matches at the start of a command segment and ignores text inside arguments. A
   new rule needs both `expect deny` and `expect allow` cases in the test script.
-- All three settings files (`personal/settings.tokens.json`,
-  `ollama/settings.27b.json`, `ollama/settings.9b.json`) point to the hook at
+- Both settings files (`personal/settings.tokens.json`,
+  `ollama/settings.27b.json`) point to the hook at
   `~/.claude/hooks/bash-output-guard.py`, not at a path in this repo. They rely
   on the symlink that `bin/claude-custom install` creates, and the Ollama
   harness needs it too.
-- The Read `permissions.deny` globs and the hook entry are copied into all three
-  settings files. Change all three together.
+- The Read `permissions.deny` globs and the hook entry are copied into both
+  settings files. Change both together.
 - `bin/claude-ollama` resolves its own symlink to find `ollama/`. It unsets
   `ANTHROPIC_API_KEY`, passes `--settings ollama/settings.<size>.json`,
   `--append-system-prompt-file ollama/CLAUDE.<size>.md`, and
-  `--strict-mcp-config`, and restricts tools with `--tools`. The 9b launch also
-  adds `--disable-slash-commands`.
+  `--strict-mcp-config`, and restricts tools with `--tools`.
 - `ollama/CLAUDE.<size>.md` files are appended system prompts for small local
-  models, not memory files. Keep them terse: the 9b has a 32k context and the
-  27b has 64k. Context sizes must match across `Modelfile.<size>` (`num_ctx`),
+  models, not memory files. Keep them terse: the 27b has a 64k context. Context sizes must match across `Modelfile.<size>` (`num_ctx`),
   `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, and the `ollama create` names that `model`
   and the `ANTHROPIC_DEFAULT_*_MODEL` vars refer to.
-- The 9b profile excludes the user's global `~/.claude/CLAUDE.md`
-  (`claudeMdExcludes`) and turns off thinking two ways:
-  `alwaysThinkingEnabled: false` and `CLAUDE_CODE_EXTRA_BODY`.
 - The personal overlay is loaded with `--settings` by the `claude` shell
   function (`personal/claude.sh` for bash/zsh/ksh, `personal/claude.fish` for
   fish), wired into rc files by `bin/claude-custom install`, never merged into

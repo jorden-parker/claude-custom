@@ -42,13 +42,12 @@ Revert: `claude-custom uninstall`.
 
 ```sh
 ollama pull qwen3.8:27b-mlx
-ollama pull qwen3.8:9b-mlx
 claude-custom install
 claude-ollama 27b
 ```
 
 `claude-custom install` creates the `-cc` models from `ollama/Modelfile.<size>`
-once the base models are pulled. Use `claude-ollama 9b` for the small model.
+once the base models are pulled.
 
 Plain `claude` stays on the personal setup. The profile only exists for that
 launch.

@@ -244,7 +244,7 @@ new_sandbox
 run_capture "$installer" install
 check_that "ollama show is run for 27b base" grep -qxF "show qwen3.8:27b-mlx" "$sandbox/ollama.log"
 check_that "ollama create 27b model" grep -qxF "create qwen3.8-27b-cc -f $repo/ollama/Modelfile.27b" "$sandbox/ollama.log"
-check_that "ollama create 9b model" grep -qxF "create qwen3.8-9b-cc -f $repo/ollama/Modelfile.9b" "$sandbox/ollama.log"
+check_not "no 9b model is created" grep -qF "qwen3.8-9b-cc" "$sandbox/ollama.log"
 
 new_sandbox
 STUB_OLLAMA_SHOW_EXIT=1 run_capture "$installer" install
