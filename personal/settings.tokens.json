@@ -42,6 +42,15 @@
             "timeout": 120
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/bash-output-trim.py"
+          }
+        ]
       }
     ],
     "Stop": [

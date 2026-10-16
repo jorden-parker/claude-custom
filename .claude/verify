@@ -1,6 +1,7 @@
 #!/bin/sh
 set -e
 shared/hooks/bash-output-guard.test.sh
+shared/hooks/bash-output-trim.test.sh
 shared/hooks/edit-check.test.sh
 shared/hooks/stop-verify.test.sh
 personal/install.test.sh

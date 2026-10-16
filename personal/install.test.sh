@@ -183,6 +183,7 @@ check_that "claude-ollama link" test "$(readlink "$HOME/.local/bin/claude-ollama
 check_eq "claude-custom link" "$repo/bin/claude-custom" "$(readlink "$HOME/.local/bin/claude-custom")"
 check_eq "claude-tools link" "$repo/bin/claude-tools" "$(readlink "$HOME/.local/bin/claude-tools")"
 check_eq "hook link" "$repo/shared/hooks/bash-output-guard.py" "$(readlink "$HOME/.claude/hooks/bash-output-guard.py")"
+check_eq "bash-output-trim hook link" "$repo/shared/hooks/bash-output-trim.py" "$(readlink "$HOME/.claude/hooks/bash-output-trim.py")"
 check_eq "edit-check hook link" "$repo/shared/hooks/edit-check.py" "$(readlink "$HOME/.claude/hooks/edit-check.py")"
 check_eq "stop-verify hook link" "$repo/shared/hooks/stop-verify.py" "$(readlink "$HOME/.claude/hooks/stop-verify.py")"
 
@@ -293,6 +294,7 @@ check_not "round trip removes ollama link" test -L "$HOME/.local/bin/claude-olla
 check_not "round trip removes claude-custom link" test -L "$HOME/.local/bin/claude-custom"
 check_not "round trip removes claude-tools link" test -L "$HOME/.local/bin/claude-tools"
 check_not "round trip removes hook link" test -L "$HOME/.claude/hooks/bash-output-guard.py"
+check_not "round trip removes bash-output-trim link" test -L "$HOME/.claude/hooks/bash-output-trim.py"
 check_not "round trip removes edit-check link" test -L "$HOME/.claude/hooks/edit-check.py"
 check_not "round trip removes stop-verify link" test -L "$HOME/.claude/hooks/stop-verify.py"
 

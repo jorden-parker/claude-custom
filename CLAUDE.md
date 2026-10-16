@@ -67,6 +67,11 @@ there is no `src/`.
   `UNBOUNDED_COMMANDS`. Every regex starts with `COMMAND_START`, so it only
   matches at the start of a command segment and ignores text inside arguments. A
   new rule needs both `expect deny` and `expect allow` cases in the test script.
+- `shared/hooks/bash-output-trim.py` is a `PostToolUse` hook on Bash. It
+  shortens long stdout/stderr through `updatedToolOutput`, keeping head, tail
+  and error/fail lines plus a marker naming the hidden line range. The reply
+  must keep the Bash output shape (`stdout`, `stderr`, `interrupted`, `isImage`)
+  or Claude Code ignores it.
 - `shared/hooks/edit-check.py` (PostToolUse on Edit/Write/MultiEdit) runs the
   edited file's project-local formatter/linter and rejects newly added comments.
   `shared/hooks/stop-verify.py` (Stop) runs Fallow in JS/TS projects and the
