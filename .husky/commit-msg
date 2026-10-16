@@ -1,0 +1,2 @@
+# managed by git-precommit-setup
+commitlint --edit "$1"

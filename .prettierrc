@@ -1,0 +1,11 @@
+{
+  "overrides": [
+    {
+      "files": ["*.md", "*.mdx", "*.markdown"],
+      "options": {
+        "proseWrap": "always",
+        "printWidth": 80
+      }
+    }
+  ]
+}

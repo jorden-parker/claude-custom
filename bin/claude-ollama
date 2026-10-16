@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+profile_dir="$(cd "$(dirname "$(readlink -f "$0")")/../ollama" && pwd)"
+size="${1:-}"
+
+case "$size" in
+  27b) tools="Bash,Read,Edit,Write,Glob,Grep"; extra_flags=() ;;
+  9b)  tools="Bash,Read,Edit,Write,Glob,Grep"; extra_flags=(--disable-slash-commands) ;;
+  *)   echo "usage: claude-ollama 27b|9b [claude args...]" >&2; exit 2 ;;
+esac
+shift
+
+unset ANTHROPIC_API_KEY
+exec claude \
+  --settings "$profile_dir/settings.$size.json" \
+  --append-system-prompt-file "$profile_dir/CLAUDE.$size.md" \
+  --strict-mcp-config \
+  --tools "$tools" \
+  ${extra_flags[@]+"${extra_flags[@]}"} \
+  "$@"

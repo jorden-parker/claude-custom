@@ -1,0 +1,6 @@
+{
+  "disableClaudeAiConnectors": true,
+  "permissions": {
+    "deny": ["Read(./vendor/**)", "Read(./build/**)", "Read(./target/**)"]
+  }
+}

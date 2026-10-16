@@ -1,0 +1,36 @@
+{
+  "bashOutputMaxChars": 15000,
+  "promptSuggestionEnabled": false,
+  "skillListingMaxDescChars": 300,
+  "env": {
+    "MAX_MCP_OUTPUT_TOKENS": "10000",
+    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "70",
+    "npm_config_fund": "false",
+    "npm_config_update_notifier": "false",
+    "npm_config_progress": "false",
+    "PIP_DISABLE_PIP_VERSION_CHECK": "1"
+  },
+  "permissions": {
+    "deny": [
+      "Read(**/node_modules/**)",
+      "Read(**/dist/**)",
+      "Read(**/.next/**)",
+      "Read(**/coverage/**)",
+      "Read(**/*.min.js)",
+      "Read(**/*.map)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/bash-output-guard.py"
+          }
+        ]
+      }
+    ]
+  }
+}
