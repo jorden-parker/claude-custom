@@ -180,6 +180,10 @@ bin/ollama-cache-probe 27b                   # or 35b, or any model name
 bin/ollama-cache-probe 27b --prefix-tokens 8000 --json
 ```
 
+Hit % comes from uncached token counts. If the server reports full counts
+instead, the probe warns and scores by prefill time per token. The late edit
+sits at 80% of the prefix, about 16k tokens at the default 20000.
+
 ## Tests
 
 - Everything: `.claude/verify`

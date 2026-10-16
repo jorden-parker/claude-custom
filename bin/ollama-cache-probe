@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import http.client
 import json
 import os
 import sys
@@ -7,7 +8,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional
+from typing import Callable
 
 REPO_DIR = Path(os.path.realpath(__file__)).parents[1]
 PROFILE_DIR = REPO_DIR / "ollama"
@@ -19,6 +20,7 @@ NUM_CTX = 65536
 CHARS_PER_TOKEN = 4
 LATE_EDIT_FRACTION = 0.8
 EARLY_EDIT_CHAR = 40
+SAME_PREFIX_LIMIT = 0.5
 NANOSECONDS_PER_SECOND = 1_000_000_000
 FILLER_LINE = "Section {number}: fixed filler text so every probe run sends the same bytes.\n"
 QUESTION_ONE = "Question one: summarise section one in one sentence."
@@ -26,6 +28,16 @@ QUESTION_TWO = "Question two: summarise section two in one sentence."
 ANSWER_ONE = "Section one is filler text about the probe."
 UNRELATED_PROMPT = "Reply with the word OK."
 TABLE_HEADER = ("scenario", "prompt", "evaluated", "hit %", "prefill s")
+BASIS_TOKEN_COUNT = "token_count"
+BASIS_PREFILL_TIME = "prefill_time"
+BASIS_LABELS = {
+    BASIS_TOKEN_COUNT: "uncached token count",
+    BASIS_PREFILL_TIME: "prefill time per token vs Cold",
+}
+
+
+class ProbeError(Exception):
+    pass
 
 
 @dataclass
@@ -34,6 +46,14 @@ class Probe:
     model: str
     prefix: str
     side_model: str
+
+
+@dataclass
+class Scenario:
+    name: str
+    run: Callable[[Probe], dict]
+    extra_tokens: int = 0
+    estimated: bool = False
 
 
 def positive_int(text):
@@ -60,7 +80,11 @@ def is_configured_size(size):
 def resolve_model(argument):
     if not is_configured_size(argument):
         return argument
-    return json.loads((PROFILE_DIR / f"settings.{argument}.json").read_text())["model"]
+    settings_path = PROFILE_DIR / f"settings.{argument}.json"
+    model = json.loads(settings_path.read_text()).get("model")
+    if not model:
+        raise ProbeError(f'{settings_path} has no "model" key')
+    return model
 
 
 def build_prefix(prefix_tokens):
@@ -68,6 +92,10 @@ def build_prefix(prefix_tokens):
     repeats = wanted // len(FILLER_LINE.format(number=0)) + 1
     text = "".join(FILLER_LINE.format(number=number) for number in range(repeats))
     return text[:wanted]
+
+
+def estimate_tokens(text):
+    return (len(text) + CHARS_PER_TOKEN - 1) // CHARS_PER_TOKEN
 
 
 def with_char_changed(text, index):
@@ -140,10 +168,6 @@ def cold(probe):
     return ask(probe, probe.prefix, QUESTION_ONE)
 
 
-def same_prefix(probe):
-    return ask(probe, probe.prefix, QUESTION_TWO)
-
-
 def growing_chat(probe):
     messages = [
         user_message(question_prompt(probe.prefix, QUESTION_ONE)),
@@ -151,6 +175,10 @@ def growing_chat(probe):
         user_message(QUESTION_TWO),
     ]
     return send_chat(probe, probe.model, messages)
+
+
+def same_prefix(probe):
+    return ask(probe, probe.prefix, QUESTION_TWO)
 
 
 def late_edit(probe):
@@ -174,38 +202,92 @@ def side_model(probe):
 
 def scenario_list(has_side_model):
     scenarios = [
-        ("Cold", cold),
-        ("Same prefix", same_prefix),
-        ("Growing chat", growing_chat),
-        ("Late edit", late_edit),
-        ("Early edit", early_edit),
-        ("Eviction", eviction),
+        Scenario("Cold", cold),
+        Scenario("Growing chat", growing_chat, estimate_tokens(ANSWER_ONE + QUESTION_TWO), estimated=True),
+        Scenario("Same prefix", same_prefix),
+        Scenario("Late edit", late_edit),
+        Scenario("Early edit", early_edit),
+        Scenario("Eviction", eviction),
     ]
     if has_side_model:
-        scenarios.append(("Side model", side_model))
+        scenarios.append(Scenario("Side model", side_model))
     return scenarios
 
 
-def hit_percent(baseline, evaluated):
-    if baseline <= 0:
+def measure_scenarios(probe, has_side_model):
+    return [(scenario, scenario.run(probe)) for scenario in scenario_list(has_side_model)]
+
+
+def measurement_named(measurements, name):
+    return next(measured for scenario, measured in measurements if scenario.name == name)
+
+
+def cache_counts_look_full(measurements):
+    baseline = measurements[0][1]["evaluated"]
+    same_prefix_evaluated = measurement_named(measurements, "Same prefix")["evaluated"]
+    return same_prefix_evaluated > baseline * SAME_PREFIX_LIMIT
+
+
+def count_hit_percent(total, evaluated):
+    if total <= 0:
         return 0.0
-    return round(max(0.0, 100.0 * (1 - evaluated / baseline)), 1)
+    return round(100.0 * (1 - evaluated / total), 1)
 
 
-def scenario_row(name, baseline, measured):
+def time_hit_percent(cold_rate, total, seconds):
+    if cold_rate <= 0 or total <= 0:
+        return 0.0
+    return round(100.0 * (1 - (seconds / total) / cold_rate), 1)
+
+
+def scenario_row(scenario, baseline, measured, basis, cold_rate):
+    total = baseline + scenario.extra_tokens
+    if basis == BASIS_PREFILL_TIME:
+        hit = time_hit_percent(cold_rate, total, measured["prefill_seconds"])
+    else:
+        hit = count_hit_percent(total, measured["evaluated"])
     return {
-        "scenario": name,
-        "prompt_tokens": baseline,
+        "scenario": scenario.name,
+        "prompt_tokens": total,
+        "prompt_tokens_estimated": scenario.estimated,
         "evaluated_tokens": measured["evaluated"],
-        "hit_percent": hit_percent(baseline, measured["evaluated"]),
+        "hit_percent": hit,
         "prefill_seconds": measured["prefill_seconds"],
     }
 
 
+def build_rows(measurements, basis):
+    cold_scenario, cold_measured = measurements[0]
+    baseline = cold_measured["evaluated"]
+    cold_rate = cold_measured["prefill_seconds"] / baseline if baseline > 0 else 0.0
+    return [scenario_row(scenario, baseline, measured, basis, cold_rate) for scenario, measured in measurements]
+
+
+def warn_full_counts():
+    print(
+        "ollama-cache-probe: warning: this Ollama appears to report full prompt counts "
+        "(Same prefix re-evaluated most of the prompt), so hit % uses prefill time per token",
+        file=sys.stderr,
+    )
+
+
+def warn_negative_hits(rows):
+    for row in rows:
+        if row["hit_percent"] < 0:
+            print(
+                f"ollama-cache-probe: warning: {row['scenario']} evaluated more tokens than its prompt holds; hit % is negative",
+                file=sys.stderr,
+            )
+
+
 def run_scenarios(probe, has_side_model):
-    measurements = [(name, scenario(probe)) for name, scenario in scenario_list(has_side_model)]
-    baseline = measurements[0][1]["evaluated"]
-    return [scenario_row(name, baseline, measured) for name, measured in measurements]
+    measurements = measure_scenarios(probe, has_side_model)
+    basis = BASIS_PREFILL_TIME if cache_counts_look_full(measurements) else BASIS_TOKEN_COUNT
+    if basis == BASIS_PREFILL_TIME:
+        warn_full_counts()
+    rows = build_rows(measurements, basis)
+    warn_negative_hits(rows)
+    return basis, rows
 
 
 def lists_model(base_url, name):
@@ -220,23 +302,25 @@ def format_row(cells):
     return f"{cells[0]:<16}{cells[1]:>10}{cells[2]:>11}{cells[3]:>8}{cells[4]:>11}"
 
 
-def print_table(rows):
+def table_cells(row):
+    prompt = f"~{row['prompt_tokens']}" if row["prompt_tokens_estimated"] else str(row["prompt_tokens"])
+    return (
+        row["scenario"],
+        prompt,
+        str(row["evaluated_tokens"]),
+        f"{row['hit_percent']:.1f}",
+        f"{row['prefill_seconds']:.2f}",
+    )
+
+
+def print_table(basis, rows):
+    print(f"hit % basis: {BASIS_LABELS[basis]}")
     print(format_row(TABLE_HEADER))
     for row in rows:
-        print(
-            format_row(
-                (
-                    row["scenario"],
-                    row["prompt_tokens"],
-                    row["evaluated_tokens"],
-                    f"{row['hit_percent']:.1f}",
-                    f"{row['prefill_seconds']:.2f}",
-                )
-            )
-        )
+        print(format_row(table_cells(row)))
 
 
-def print_settings(probe, prefix_tokens, loaded: List[str]):
+def print_settings(probe, prefix_tokens, loaded: list[str]):
     print(f"server: {probe.base_url}")
     print(f"model: {probe.model}  num_ctx: {NUM_CTX}  prefix: ~{prefix_tokens} tokens ({len(probe.prefix)} chars)")
     print(f"loaded before run: {', '.join(loaded) or 'none'}")
@@ -244,12 +328,13 @@ def print_settings(probe, prefix_tokens, loaded: List[str]):
     print()
 
 
-def json_report(args, probe, loaded: List[str], rows):
+def json_report(args, probe, loaded: list[str], basis, rows):
     return {
         "model": probe.model,
         "num_ctx": NUM_CTX,
         "prefix_tokens": args.prefix_tokens,
         "loaded_models": loaded,
+        "hit_basis": basis,
         "scenarios": rows,
     }
 
@@ -269,11 +354,11 @@ def report(args):
     loaded = loaded_models(probe.base_url)
     if not args.json:
         print_settings(probe, args.prefix_tokens, loaded)
-    rows = run_scenarios(probe, has_side_model)
+    basis, rows = run_scenarios(probe, has_side_model)
     if args.json:
-        print(json.dumps(json_report(args, probe, loaded, rows), indent=2))
+        print(json.dumps(json_report(args, probe, loaded, basis, rows), indent=2))
     else:
-        print_table(rows)
+        print_table(basis, rows)
     return 0
 
 
@@ -281,11 +366,17 @@ def main(argv=None):
     args = parse_args(argv)
     try:
         return report(args)
+    except ProbeError as error:
+        print(f"ollama-cache-probe: {error}", file=sys.stderr)
+        return 1
     except urllib.error.HTTPError as error:
         print(f"ollama-cache-probe: Ollama answered HTTP {error.code} at {error.url} (is the model pulled?)", file=sys.stderr)
         return 1
     except urllib.error.URLError as error:
         print(f"ollama-cache-probe: cannot reach Ollama at {args.base_url} ({error.reason})", file=sys.stderr)
+        return 1
+    except (OSError, http.client.HTTPException) as error:
+        print(f"ollama-cache-probe: request to Ollama at {args.base_url} failed ({error})", file=sys.stderr)
         return 1
 
 
