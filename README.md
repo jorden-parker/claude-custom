@@ -112,6 +112,21 @@ launch.
 Plain `claude` stays on the personal setup. The profile only exists for that
 launch.
 
+### Model picker
+
+`model-picker-tui/` is the terminal menu `claude-ollama` opens to choose a size.
+Each `settings.<size>.json` in `ollama/` with a matching `Modelfile.<size>` is
+one entry, showing the size, its `-cc` model and its base model.
+
+```sh
+claude-custom ollama                       # opens the picker, then launches the chosen size
+cd model-picker-tui && go run . ../ollama  # the picker on its own; prints the chosen size
+```
+
+Keys: `↑/k`, `↓/j`, `enter` to launch, `esc`/`q`/`ctrl+c` to cancel. Cancelling
+launches nothing. `claude-ollama` rebuilds the picker on each launch (instant
+when nothing changed). Details: `model-picker-tui/README.md`.
+
 ### Ollama server settings
 
 The profiles expect an Ollama server on `localhost:11434` with the settings in
