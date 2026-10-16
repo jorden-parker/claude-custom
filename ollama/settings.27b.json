@@ -1,5 +1,6 @@
 {
   "model": "qwen3.8-27b-cc",
+  "apiKeyHelper": "",
   "disableClaudeAiConnectors": true,
   "disableBundledSkills": true,
   "autoMemoryEnabled": false,
