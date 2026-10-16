@@ -168,11 +168,28 @@ Keys, sync and write rules: `tools-tui/README.md`.
 `claude-custom` also runs both launchers: `claude-custom ollama [...]` is
 `claude-ollama [...]`, and `claude-custom tools [...]` is `claude-tools [...]`.
 
+## Prompt-cache probe
+
+`bin/ollama-cache-probe` measures how much prefill the local Ollama server skips
+through its prompt cache. It sends seven fixed scenarios (cold, same prefix,
+growing chat, early and late edits, eviction, side model) and prints one row
+each. It changes no settings.
+
+```sh
+bin/ollama-cache-probe 27b                   # or 35b, or any model name
+bin/ollama-cache-probe 27b --prefix-tokens 8000 --json
+```
+
+Hit % comes from uncached token counts. If the server reports full counts
+instead, the probe warns and scores by prefill time per token. The late edit
+sits at 80% of the prefix, about 16k tokens at the default 20000.
+
 ## Tests
 
 - Everything: `.claude/verify`
 - Hooks: `shared/hooks/*.test.sh`
 - Installer: `personal/install.test.sh`
+- Cache probe: `bin/ollama-cache-probe.test.sh`
 - Tools TUI: `cd tools-tui && go test ./...`
 - Model picker: `cd model-picker-tui && go test ./...`
 
