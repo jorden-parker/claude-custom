@@ -46,7 +46,8 @@
       "WebFetch",
       "WebSearch",
       "Workflow"
-    ]
+    ],
+    "allow": ["mcp__code-search__semantic_search"]
   },
   "hooks": {
     "PreToolUse": [

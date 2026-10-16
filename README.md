@@ -184,12 +184,29 @@ Hit % comes from uncached token counts. If the server reports full counts
 instead, the probe warns and scores by prefill time per token. The late edit
 sits at 80% of the prefix, about 16k tokens at the default 20000.
 
+## Semantic code search
+
+`claude-ollama` starts `shared/mcp/code-search.py`, a stdlib-only MCP server
+with one tool, `semantic_search`. It embeds the repo with `qwen3-embedding:0.6b`
+(pulled on launch if missing) and returns `file:start-end` ranges with a score
+and a one-line preview, so the model reads only those lines.
+
+- Files: `git ls-files` plus untracked, non-ignored files. Lockfiles, minified
+  files, images, binaries and files over 200 KB are skipped.
+- Chunks: 40-line windows every 30 lines, vectors cut to 256 dimensions.
+- Index: `.git/code-search/index.json`. Each search re-embeds only files whose
+  content changed, so the first search in a repo is slow (about a minute for
+  this one) and later ones take well under a second.
+- `CODE_SEARCH_OLLAMA_URL` and `CODE_SEARCH_MODEL` override the server and
+  model.
+
 ## Tests
 
 - Everything: `.claude/verify`
 - Hooks: `shared/hooks/*.test.sh`
 - Installer: `personal/install.test.sh`
 - Cache probe: `bin/ollama-cache-probe.test.sh`
+- Code search: `shared/mcp/code-search.test.sh`
 - Tools TUI: `cd tools-tui && go test ./...`
 - Model picker: `cd model-picker-tui && go test ./...`
 

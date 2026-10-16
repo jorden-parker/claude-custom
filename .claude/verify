@@ -6,5 +6,6 @@ shared/hooks/edit-check.test.sh
 shared/hooks/stop-verify.test.sh
 personal/install.test.sh
 bin/ollama-cache-probe.test.sh
+shared/mcp/code-search.test.sh
 (cd tools-tui && go test ./...)
 (cd model-picker-tui && go test ./...)

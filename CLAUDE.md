@@ -34,6 +34,8 @@ gets applied.
 - Cache probe: `bin/ollama-cache-probe [27b|35b|MODEL] [--prefix-tokens N]`
   measures prompt-cache reuse on a live Ollama; its tests are
   `bin/ollama-cache-probe.test.sh` (stub server, no real Ollama)
+- Code search MCP server: `shared/mcp/code-search.py`; its tests are
+  `shared/mcp/code-search.test.sh` (stub embedding server, temp git repo)
 - Feed the hook one command by hand:
   `printf '{"tool_input":{"command":"git log"}}' | shared/hooks/bash-output-guard.py`
 - Validate JSON after editing: `jq . ollama/settings.*.json >/dev/null`
@@ -97,15 +99,21 @@ there is no `src/`.
   `ANTHROPIC_API_KEY`, passes `--settings ollama/settings.<size>.json`,
   `--system-prompt-file ollama/system-prompt.md` (replacing Claude Code's
   default system prompt), `--append-system-prompt-file ollama/CLAUDE.<size>.md`,
-  and `--strict-mcp-config`, and restricts tools with `--tools`. Before
-  launching, it pulls the base model and creates the `-cc` model when
-  `ollama show` can't find the `-cc` model.
+  `--strict-mcp-config` plus an inline `--mcp-config` for the code-search
+  server, and restricts tools with `--tools` (built-in tools only; MCP tools
+  still load). Before launching, it pulls the base model and creates the `-cc`
+  model when `ollama show` can't find the `-cc` model.
 - `bin/claude-ollama` reads the configured sizes from `ollama/` (a
   `settings.<size>.json` plus a `Modelfile.<size>`), never a hardcoded list. A
   first arg that matches launches that size. Otherwise, on a terminal it runs
   `model-picker-tui` (which renders on stderr and prints the chosen size on
   stdout); without one it uses 27b. A first arg that is neither a size nor a
   flag is dropped so it doesn't reach `claude` as a prompt.
+- `shared/mcp/code-search.py` is the `semantic_search` MCP server (JSON-RPC over
+  stdio, stdlib only). It embeds chunks through Ollama `/api/embed`, keeps its
+  index in `.git/code-search/index.json` and re-embeds only changed files.
+  `bin/claude-ollama` pulls its model; the Ollama profiles allow the tool in
+  `permissions.allow`.
 - `ollama/server.env` documents the Ollama server env the profiles expect. The
   Homebrew service sets the same values. Nothing in this repo applies it.
 - `ollama/CLAUDE.<size>.md` files are appended system prompts for small local

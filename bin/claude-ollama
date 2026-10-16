@@ -6,6 +6,7 @@ profile_dir="$repo_dir/ollama"
 picker_dir="$repo_dir/model-picker-tui"
 default_size=27b
 tools="Bash,Read,Edit,Write,Glob,Grep"
+embedding_model="qwen3-embedding:0.6b"
 
 configured_sizes() {
   local settings size
@@ -49,6 +50,17 @@ ensure_model() {
   ollama create "$name" -f "$modelfile"
 }
 
+ensure_embedding_model() {
+  ollama show "$embedding_model" >/dev/null 2>&1 && return 0
+  ollama pull "$embedding_model" ||
+    echo "claude-ollama: could not pull $embedding_model; semantic_search will fail until it is pulled" >&2
+}
+
+mcp_config() {
+  printf '{"mcpServers":{"code-search":{"command":"python3","args":["%s"]}}}' \
+    "$repo_dir/shared/mcp/code-search.py"
+}
+
 case "${1:-}" in
   -h|--help)
     echo "usage: claude-ollama [size] [claude args...]"
@@ -69,6 +81,7 @@ else
 fi
 
 ensure_model
+ensure_embedding_model
 
 unset ANTHROPIC_API_KEY
 exec claude \
@@ -76,5 +89,6 @@ exec claude \
   --system-prompt-file "$profile_dir/system-prompt.md" \
   --append-system-prompt-file "$profile_dir/CLAUDE.$size.md" \
   --strict-mcp-config \
+  --mcp-config "$(mcp_config)" \
   --tools "$tools" \
   "$@"

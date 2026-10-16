@@ -1,6 +1,7 @@
 # Working rules
 
-- Grep/Glob first. Read with offset/limit; files over 300 lines only in ranges.
+- Find code first: semantic_search for behaviour, Grep/Glob for exact names.
+  Read with offset/limit; files over 300 lines only in ranges.
 - Bound shell output: `| head -50`, `git log --oneline -n 20`, tests quiet or
   failures only.
 - Smallest edit that works. Use Edit; never rewrite a whole file.
