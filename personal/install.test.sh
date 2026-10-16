@@ -180,6 +180,7 @@ new_sandbox
 run_capture "$installer" install
 check_that "claude-ollama link" test "$(readlink "$HOME/.local/bin/claude-ollama")" = "$repo/bin/claude-ollama"
 check_eq "claude-custom link" "$repo/bin/claude-custom" "$(readlink "$HOME/.local/bin/claude-custom")"
+check_eq "claude-tools link" "$repo/bin/claude-tools" "$(readlink "$HOME/.local/bin/claude-tools")"
 check_eq "hook link" "$repo/shared/hooks/bash-output-guard.py" "$(readlink "$HOME/.claude/hooks/bash-output-guard.py")"
 
 new_sandbox
@@ -278,17 +279,20 @@ check_that "round trip bashrc is identical" cmp -s "$HOME/.bashrc" "$sandbox/bas
 check_not "round trip removes fish drop-in" test -e "$HOME/.config/fish/conf.d/claude-custom.fish"
 check_not "round trip removes ollama link" test -L "$HOME/.local/bin/claude-ollama"
 check_not "round trip removes claude-custom link" test -L "$HOME/.local/bin/claude-custom"
+check_not "round trip removes claude-tools link" test -L "$HOME/.local/bin/claude-tools"
 check_not "round trip removes hook link" test -L "$HOME/.claude/hooks/bash-output-guard.py"
 
 new_sandbox
 mkdir -p "$HOME/.local/bin" "$HOME/.claude/hooks"
 ln -s "$sandbox/elsewhere" "$HOME/.local/bin/claude-ollama"
 printf 'mine\n' > "$HOME/.local/bin/claude-custom"
+printf 'old build\n' > "$HOME/.local/bin/claude-tools"
 ln -s "$sandbox/elsewhere-hook" "$HOME/.claude/hooks/bash-output-guard.py"
 run_capture "$installer" install
 run_capture "$installer" uninstall
 check_eq "foreign link survives uninstall" "$sandbox/elsewhere" "$(readlink "$HOME/.local/bin/claude-ollama")"
 check_eq "regular file survives uninstall" "mine" "$(cat "$HOME/.local/bin/claude-custom")"
+check_eq "old claude-tools binary survives install and uninstall" "old build" "$(cat "$HOME/.local/bin/claude-tools")"
 check_eq "foreign hook link survives uninstall" "$sandbox/elsewhere-hook" \
   "$(readlink "$HOME/.claude/hooks/bash-output-guard.py")"
 
@@ -348,6 +352,30 @@ git -C "$sandbox/solo" -c user.name=t -c user.email=t@t commit -qm initial
 run_capture "$sandbox/solo/bin/claude-custom" update
 check_eq "no upstream exit status" 1 "$?"
 check_that "no upstream message" grep -q 'update: git pull failed' "$sandbox/err"
+
+new_sandbox
+ollama_settings="--settings $repo/ollama/settings.27b.json"
+run_capture "$repo/bin/claude-ollama" -p hi
+check_that "claude-ollama defaults to 27b" grep -qF -- "$ollama_settings" "$sandbox/out"
+check_that "claude-ollama passes claude args through" grep -qF -- "--tools Bash,Read,Edit,Write,Glob,Grep -p hi" "$sandbox/out"
+run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_that "claude-ollama keeps the explicit size form" grep -qF -- "--tools Bash,Read,Edit,Write,Glob,Grep -p hi" "$sandbox/out"
+run_capture "$repo/bin/claude-ollama" --help
+check_eq "claude-ollama help exit status" 0 "$?"
+check_that "claude-ollama help lists sizes" grep -qxF "sizes: 27b" "$sandbox/out"
+check_not "claude-ollama help does not launch claude" grep -q '^ARGS:' "$sandbox/out"
+run_capture "$installer" ollama -p hi
+check_that "claude-custom ollama runs claude-ollama" grep -qF -- "$ollama_settings" "$sandbox/out"
+
+new_sandbox
+run_capture "$repo/bin/claude-tools" local
+check_eq "claude-tools without go exit status" 1 "$?"
+check_that "claude-tools without go message" grep -qF "claude-tools: needs Go 1.26+" "$sandbox/err"
+run_capture "$installer" tools
+check_that "claude-custom tools runs claude-tools" grep -qF "claude-tools: needs Go 1.26+" "$sandbox/err"
+run_capture "$installer" bogus
+check_eq "unknown subcommand exit status" 2 "$?"
+check_that "usage lists the new subcommands" grep -qF "install|update|uninstall|ollama|tools" "$sandbox/err"
 
 if [ "$failures" -eq 0 ]; then
   echo "all passed"

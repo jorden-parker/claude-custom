@@ -2,13 +2,20 @@
 set -euo pipefail
 
 profile_dir="$(cd "$(dirname "$(readlink -f "$0")")/../ollama" && pwd)"
-size="${1:-}"
+sizes="27b"
+size=27b
+
+case "${1:-}" in
+  -h|--help)
+    echo "usage: claude-ollama [size] [claude args...]"
+    echo "sizes: $sizes"
+    exit 0 ;;
+  27b) size="$1"; shift ;;
+esac
 
 case "$size" in
   27b) tools="Bash,Read,Edit,Write,Glob,Grep"; extra_flags=() ;;
-  *)   echo "usage: claude-ollama 27b [claude args...]" >&2; exit 2 ;;
 esac
-shift
 
 unset ANTHROPIC_API_KEY
 exec claude \

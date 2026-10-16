@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+tui_dir="$(cd "$(dirname "$(readlink -f "$0")")/../tools-tui" && pwd)"
+
+if ! command -v go >/dev/null 2>&1; then
+  echo "claude-tools: needs Go 1.26+ (https://go.dev/dl)" >&2
+  exit 1
+fi
+
+(cd "$tui_dir" && go build -o claude-tools .)
+exec "$tui_dir/claude-tools" "$@"

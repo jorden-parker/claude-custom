@@ -200,6 +200,7 @@ remove_link() {
 place_links() {
   place_link "$repo_dir/bin/claude-ollama" "$HOME/.local/bin/claude-ollama"
   place_link "$repo_dir/bin/claude-custom" "$HOME/.local/bin/claude-custom"
+  place_link "$repo_dir/bin/claude-tools" "$HOME/.local/bin/claude-tools"
   place_link "$repo_dir/shared/hooks/bash-output-guard.py" "$HOME/.claude/hooks/bash-output-guard.py"
 }
 
@@ -279,6 +280,7 @@ uninstall_all() {
   rm -f "$(fish_dropin_path)"
   remove_link "$repo_dir/bin/claude-ollama" "$HOME/.local/bin/claude-ollama"
   remove_link "$repo_dir/bin/claude-custom" "$HOME/.local/bin/claude-custom"
+  remove_link "$repo_dir/bin/claude-tools" "$HOME/.local/bin/claude-tools"
   remove_link "$repo_dir/shared/hooks/bash-output-guard.py" "$HOME/.claude/hooks/bash-output-guard.py"
   remove_import_lines
   echo "open a new terminal; current shells keep the claude function until they exit"
@@ -297,7 +299,9 @@ main() {
     install) install_all ;;
     update) update_repo ;;
     uninstall) uninstall_all ;;
-    *) echo "usage: claude-custom [install|update|uninstall]" >&2; exit 2 ;;
+    ollama) shift; exec "$repo_dir/bin/claude-ollama" "$@" ;;
+    tools) shift; exec "$repo_dir/bin/claude-tools" "$@" ;;
+    *) echo "usage: claude-custom [install|update|uninstall|ollama|tools]" >&2; exit 2 ;;
   esac
   exit "$status"
 }
