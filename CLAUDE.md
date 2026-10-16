@@ -33,7 +33,10 @@ gets applied.
   names from `ollama/settings.<size>.json` and `ollama/Modelfile.<size>`. Adding
   a size means adding both files; the installer picks it up.
 
-There is no build step and no linter.
+There is no build step. `pnpm install` enables git hooks (husky): lint-staged
+runs Prettier on staged `.md`/`.json`, and commitlint enforces conventional
+commits (`feat:`, `fix:`, `chore:`). The ESLint/TypeScript/React config is
+unused boilerplate from `git-precommit-setup`; there is no `src/`.
 
 ## How the pieces connect
 
@@ -71,3 +74,6 @@ There is no build step and no linter.
   overlay (the Ollama profiles carry their own deny globs and hook). Top-level
   scalars in the overlay override the user file, so don't add keys to the
   overlay that `~/.claude/settings.json` already sets.
+- `personal/CLAUDE.tokens.md` reaches every personal session through an `@`
+  import that `bin/claude-custom install` adds to `~/.claude/CLAUDE.md`. Keep
+  it short: it loads on every turn.
