@@ -5,15 +5,19 @@ code in this repository.
 
 ## What this repo is
 
-Configuration overlays for Claude Code itself, plus one small Go app. There are
-three parts:
+Configuration overlays for Claude Code itself, plus two small Go apps. There are
+four parts:
 
-- **Personal setup** (`personal/`, `project/`, `shared/`): merged into
-  `~/.claude/settings.json` and `~/.claude/CLAUDE.md` to cut token usage on the
-  normal Anthropic-backed `claude`.
-- **Work harness** (`bin/claude-ollama`, `ollama/`): starts `claude` against a
-  local Ollama server (`localhost:11434`) running Qwen 3.8 27b or Qwen 3.6 35b.
-  The overlay only applies to that launch.
+- **Personal setup** (`personal/`, `project/`): loaded with `--settings` by the
+  `claude` shell function and `@`-imported into `~/.claude/CLAUDE.md` to cut
+  token usage on the normal Anthropic-backed `claude`.
+- **Preference enforcement** (`shared/hooks/`, `shared/preferences/`): hooks and
+  a short rules file that both the personal setup and the work harness load, so
+  the same checks run whichever model is driving.
+- **Work harness** (`bin/claude-ollama`, `ollama/`, `model-picker-tui/`): starts
+  `claude` against a local Ollama server (`localhost:11434`) running Qwen 3.8
+  27b or Qwen 3.6 35b. The overlay only applies to that launch.
+  `model-picker-tui/` is a Go/Bubble Tea menu for choosing the size.
 - **Tools TUI** (`tools-tui/`): a Go/Bubble Tea app that edits the
   bare-tool-name permission rules in a Claude Code settings file.
 
@@ -46,12 +50,14 @@ gets applied.
   `go test ./ui -run TestSwitching`), run with `go run .`. See
   `tools-tui/README.md`.
 
-There is no build step outside `tools-tui/`. `pnpm install` enables git hooks
-(husky): pre-commit checks staged files for conflict markers, files over 1 MB
-and secrets, then lint-staged runs Prettier on staged `.md`/`.json` (plus ESLint
-on JS/TS). commitlint enforces conventional commits (`feat:`, `fix:`, `chore:`).
-The ESLint/TypeScript/React config is unused boilerplate from
-`git-precommit-setup`; there is no `src/`.
+There is no build step outside the two Go apps. `claude-tools` builds
+`tools-tui/` and `claude-ollama` builds `model-picker-tui/model-picker`
+(gitignored) on launch. `pnpm install` enables git hooks (husky): pre-commit
+checks staged files for conflict markers, files over 1 MB and secrets, then
+lint-staged runs Prettier on staged `.md`/`.json` (plus ESLint on JS/TS).
+commitlint enforces conventional commits (`feat:`, `fix:`, `chore:`). The
+ESLint/TypeScript/React config is unused boilerplate from `git-precommit-setup`;
+there is no `src/`.
 
 ## How the pieces connect
 
@@ -100,12 +106,15 @@ The ESLint/TypeScript/React config is unused boilerplate from
   fish), wired into rc files by `bin/claude-custom install`, never merged into
   `~/.claude/settings.json`. `--settings` holds one file: a second `--settings`
   replaces the first, so `bin/claude-ollama` launches don't get the personal
-  overlay (the Ollama profiles carry their own deny globs and hook). Top-level
+  overlay (the Ollama profiles carry their own deny globs and hooks). Top-level
   scalars in the overlay override the user file, so don't add keys to the
   overlay that `~/.claude/settings.json` already sets.
 - `personal/CLAUDE.tokens.md` reaches every personal session through an `@`
-  import that `bin/claude-custom install` adds to `~/.claude/CLAUDE.md`. Keep it
-  short: it loads on every turn.
+  import that `bin/claude-custom install` adds to `~/.claude/CLAUDE.md` (the
+  imported files are listed in `imported_files`). Keep it short: it loads on
+  every turn.
+- `model-picker-tui/` has two packages: `profiles` (`Load` reads the configured
+  sizes from `ollama/`) and `ui` (the Bubble Tea model).
 - `tools-tui/` has three packages:
   - `catalog`: fetches the tool table from the Claude Code docs and caches it in
     the user cache dir.
