@@ -379,6 +379,7 @@ check_that "claude-ollama keeps the explicit size form" grep -qF -- "--tools Bas
 run_capture "$repo/bin/claude-ollama" 35b -p hi
 check_that "claude-ollama 35b uses the 35b settings" grep -qF -- "--settings $repo/ollama/settings.35b.json" "$sandbox/out"
 check_that "claude-ollama 35b uses the 35b prompt" grep -qF -- "--append-system-prompt-file $repo/ollama/CLAUDE.35b.md" "$sandbox/out"
+check_that "claude-ollama replaces the default system prompt" grep -qF -- "--system-prompt-file $repo/ollama/system-prompt.md --append-system-prompt-file $repo/ollama/CLAUDE.35b.md" "$sandbox/out"
 check_that "claude-ollama 35b passes claude args through" grep -qF -- "--tools Bash,Read,Edit,Write,Glob,Grep -p hi" "$sandbox/out"
 check_not "claude-ollama 35b skips pull when the model exists" grep -sqE '^(pull|create) ' "$sandbox/ollama.log"
 STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" 35b -p hi

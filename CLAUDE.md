@@ -89,10 +89,11 @@ there is no `src/`.
   the `hooks` blocks differ.
 - `bin/claude-ollama` resolves its own symlink to find `ollama/`. It unsets
   `ANTHROPIC_API_KEY`, passes `--settings ollama/settings.<size>.json`,
-  `--append-system-prompt-file ollama/CLAUDE.<size>.md`, and
-  `--strict-mcp-config`, and restricts tools with `--tools`. Before launching,
-  it pulls the base model and creates the `-cc` model when `ollama show` can't
-  find the `-cc` model.
+  `--system-prompt-file ollama/system-prompt.md` (replacing Claude Code's
+  default system prompt), `--append-system-prompt-file ollama/CLAUDE.<size>.md`,
+  and `--strict-mcp-config`, and restricts tools with `--tools`. Before
+  launching, it pulls the base model and creates the `-cc` model when
+  `ollama show` can't find the `-cc` model.
 - `bin/claude-ollama` reads the configured sizes from `ollama/` (a
   `settings.<size>.json` plus a `Modelfile.<size>`), never a hardcoded list. A
   first arg that matches launches that size. Otherwise, on a terminal it runs
@@ -105,7 +106,9 @@ there is no `src/`.
   models, not memory files. Keep them terse: both sizes have a 64k context.
   Context sizes must match across `Modelfile.<size>` (`num_ctx`),
   `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, and the `ollama create` names that `model`
-  and the `ANTHROPIC_DEFAULT_*_MODEL` vars refer to.
+  and the `ANTHROPIC_DEFAULT_*_MODEL` vars refer to. `ollama/system-prompt.md`
+  replaces Claude Code's default system prompt for both sizes; keep it short and
+  don't put size-specific rules in it.
 - The personal overlay is loaded with `--settings` by the `claude` shell
   function (`personal/claude.sh` for bash/zsh/ksh, `personal/claude.fish` for
   fish), wired into rc files by `bin/claude-custom install`, never merged into

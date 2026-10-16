@@ -73,6 +73,7 @@ ensure_model
 unset ANTHROPIC_API_KEY
 exec claude \
   --settings "$profile_dir/settings.$size.json" \
+  --system-prompt-file "$profile_dir/system-prompt.md" \
   --append-system-prompt-file "$profile_dir/CLAUDE.$size.md" \
   --strict-mcp-config \
   --tools "$tools" \
