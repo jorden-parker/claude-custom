@@ -9,3 +9,4 @@ coverage/
 .DS_Store
 .husky/_/
 plans/
+tools-tui/claude-tools
