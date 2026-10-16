@@ -1,0 +1,304 @@
+#!/usr/bin/env bash
+set -u
+
+repo_dir="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+status=0
+wired=""
+
+report_unmanaged() {
+  echo "skip: $1 exists and is not managed by claude-custom" >&2
+  status=1
+}
+
+login_shell_name() {
+  local shell_path="${SHELL:-}"
+  printf '%s' "${shell_path##*/}"
+}
+
+rc_block() {
+  cat <<EOF
+# >>> claude-custom >>>
+case ":\$PATH:" in *":\$HOME/.local/bin:"*) ;; *) PATH="\$HOME/.local/bin:\$PATH"; export PATH ;; esac
+CLAUDE_CUSTOM_HOME='$repo_dir'
+[ -r "\$CLAUDE_CUSTOM_HOME/personal/claude.sh" ] && . "\$CLAUDE_CUSTOM_HOME/personal/claude.sh"
+# <<< claude-custom <<<
+EOF
+}
+
+fish_config_dir() {
+  printf '%s' "${XDG_CONFIG_HOME:-$HOME/.config}/fish"
+}
+
+fish_dropin_path() {
+  printf '%s/conf.d/claude-custom.fish' "$(fish_config_dir)"
+}
+
+fish_dropin_body() {
+  cat <<EOF
+fish_add_path -g \$HOME/.local/bin
+set -g CLAUDE_CUSTOM_HOME '$repo_dir'
+test -r \$CLAUDE_CUSTOM_HOME/personal/claude.fish; and source \$CLAUDE_CUSTOM_HOME/personal/claude.fish
+EOF
+}
+
+claude_md_path() {
+  printf '%s/CLAUDE.md' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+}
+
+import_line() {
+  printf '@%s/personal/CLAUDE.tokens.md' "$repo_dir"
+}
+
+tilde_import_line() {
+  case "$repo_dir" in
+    "$HOME"/*) printf '@~%s/personal/CLAUDE.tokens.md' "${repo_dir#"$HOME"}" ;;
+    *) import_line ;;
+  esac
+}
+
+has_import_line() {
+  [ -f "$1" ] && { grep -qxF "$(import_line)" "$1" || grep -qxF "$(tilde_import_line)" "$1"; }
+}
+
+has_unmatched_marker() {
+  local starts ends
+  starts="$(grep -c '^# >>> claude-custom >>>$' "$1")"
+  ends="$(grep -c '^# <<< claude-custom <<<$' "$1")"
+  [ "$starts" != "$ends" ]
+}
+
+has_block() {
+  grep -q '^# >>> claude-custom >>>$' "$1"
+}
+
+strip_block() {
+  [ -f "$1" ] || return 0
+  awk '/^# >>> claude-custom >>>$/{skip=1} !skip{print} /^# <<< claude-custom <<<$/{skip=0}' "$1"
+}
+
+install_sh_block() {
+  local file="$1" tmp
+  if has_unmatched_marker "$file"; then
+    echo "skip: unmatched claude-custom marker in $file" >&2
+    status=1
+    return 1
+  fi
+  mkdir -p "$(dirname "$file")"
+  tmp="$(mktemp)"
+  strip_block "$file" > "$tmp"
+  if [ -s "$tmp" ] && [ -n "$(tail -c 1 "$tmp")" ]; then
+    printf '\n' >> "$tmp"
+  fi
+  rc_block >> "$tmp"
+  cat "$tmp" > "$file"
+  rm -f "$tmp"
+}
+
+remove_sh_block() {
+  local file="$1" tmp
+  [ -f "$file" ] || return 0
+  if has_unmatched_marker "$file"; then
+    echo "skip: unmatched claude-custom marker in $file" >&2
+    status=1
+    return 0
+  fi
+  has_block "$file" || return 0
+  tmp="$(mktemp)"
+  strip_block "$file" > "$tmp"
+  cat "$tmp" > "$file"
+  rm -f "$tmp"
+}
+
+wire_zsh() {
+  local file="${ZDOTDIR:-$HOME}/.zshrc"
+  if [ -e "$file" ] || [ "$(login_shell_name)" = zsh ]; then
+    if install_sh_block "$file"; then
+      wired="$wired zsh"
+    fi
+  fi
+}
+
+wire_bash() {
+  local file
+  for file in "$HOME/.bashrc" "$HOME/.bash_profile"; do
+    if [ -e "$file" ] && install_sh_block "$file"; then
+      wired="$wired bash"
+    fi
+  done
+  if [ "$(login_shell_name)" = bash ] && [ ! -e "$HOME/.bashrc" ] && [ ! -e "$HOME/.bash_profile" ]; then
+    if install_sh_block "$HOME/.bashrc"; then
+      wired="$wired bash"
+    fi
+  fi
+}
+
+wire_ksh() {
+  local file="$HOME/.kshrc"
+  if [ -e "$file" ] || [ "$(login_shell_name)" = ksh ]; then
+    if install_sh_block "$file"; then
+      wired="$wired ksh"
+    fi
+  fi
+}
+
+wire_fish() {
+  local dropin
+  dropin="$(fish_dropin_path)"
+  if [ -d "$(fish_config_dir)" ] || [ "$(login_shell_name)" = fish ]; then
+    mkdir -p "$(dirname "$dropin")"
+    fish_dropin_body > "$dropin"
+    wired="$wired fish"
+  fi
+}
+
+wire_shells() {
+  wired=""
+  wire_zsh
+  wire_bash
+  wire_ksh
+  wire_fish
+}
+
+print_activation() {
+  case " $wired " in *" zsh "*) echo "zsh:  run 'exec zsh' or open a new terminal" ;; esac
+  case " $wired " in *" bash "*) echo "bash: run 'exec bash' or open a new terminal" ;; esac
+  case " $wired " in *" ksh "*) echo "ksh:  run 'exec ksh' or open a new terminal" ;; esac
+  case " $wired " in *" fish "*) echo "fish: run 'source $(fish_dropin_path)' or open a new terminal" ;; esac
+  case ":$PATH:" in
+    *":$HOME/.local/bin:"*) ;;
+    *) printf '%s/.local/bin was not on PATH; the shells above add it on next start\n' '~' ;;
+  esac
+}
+
+place_link() {
+  local target="$1" link="$2" current
+  mkdir -p "$(dirname "$link")"
+  if [ -L "$link" ]; then
+    current="$(readlink "$link")"
+    if [ "$current" = "$target" ]; then
+      return 0
+    fi
+    case "$current" in
+      "$repo_dir"/*) rm "$link" ;;
+      *) report_unmanaged "$link"; return 0 ;;
+    esac
+  elif [ -e "$link" ]; then
+    report_unmanaged "$link"
+    return 0
+  fi
+  ln -s "$target" "$link"
+}
+
+remove_link() {
+  local target="$1" link="$2"
+  if [ -L "$link" ] && [ "$(readlink "$link")" = "$target" ]; then
+    rm "$link"
+  fi
+}
+
+place_links() {
+  place_link "$repo_dir/bin/claude-ollama" "$HOME/.local/bin/claude-ollama"
+  place_link "$repo_dir/bin/claude-custom" "$HOME/.local/bin/claude-custom"
+  place_link "$repo_dir/shared/hooks/bash-output-guard.py" "$HOME/.claude/hooks/bash-output-guard.py"
+}
+
+add_import_line() {
+  local file
+  file="$(claude_md_path)"
+  if has_import_line "$file"; then
+    return 0
+  fi
+  mkdir -p "$(dirname "$file")"
+  if [ -s "$file" ] && [ -n "$(tail -c 1 "$file")" ]; then
+    printf '\n' >> "$file"
+  fi
+  printf '%s\n' "$(import_line)" >> "$file"
+}
+
+remove_import_lines() {
+  local file tmp
+  file="$(claude_md_path)"
+  has_import_line "$file" || return 0
+  tmp="$(mktemp)"
+  awk -v absolute="$(import_line)" -v tilde="$(tilde_import_line)" '$0 != absolute && $0 != tilde' "$file" > "$tmp"
+  cat "$tmp" > "$file"
+  rm -f "$tmp"
+}
+
+retire_plan_001_fish_link() {
+  remove_link "$repo_dir/personal/claude.fish" "$(fish_config_dir)/functions/claude.fish"
+}
+
+refresh_ollama_models() {
+  command -v ollama >/dev/null 2>&1 || return 0
+  local modelfile size base name verb='pull'
+  for modelfile in "$repo_dir"/ollama/Modelfile.*; do
+    [ -f "$modelfile" ] || continue
+    size="${modelfile##*/Modelfile.}"
+    base="$(sed -n 's/^FROM //p' "$modelfile")"
+    name="$(jq -r .model "$repo_dir/ollama/settings.$size.json")"
+    if [ -z "$name" ] || [ "$name" = null ]; then
+      echo "fail: no model name in ollama/settings.$size.json" >&2
+      status=1
+      continue
+    fi
+    if ! ollama show "$base" >/dev/null 2>&1; then
+      echo "skip: ollama base model $base not available; run 'ollama $verb $base' (and make sure 'ollama serve' is running), then re-run claude-custom install" >&2
+      continue
+    fi
+    if ! ollama create "$name" -f "$modelfile"; then
+      echo "fail: ollama create $name" >&2
+      status=1
+    fi
+  done
+}
+
+guard_repo_path() {
+  case "$repo_dir" in
+    *"'"*) echo "claude-custom path must not contain a single quote" >&2; exit 2 ;;
+  esac
+}
+
+install_all() {
+  guard_repo_path
+  place_links
+  add_import_line
+  retire_plan_001_fish_link
+  wire_shells
+  refresh_ollama_models
+  print_activation
+}
+
+uninstall_all() {
+  guard_repo_path
+  remove_sh_block "${ZDOTDIR:-$HOME}/.zshrc"
+  remove_sh_block "$HOME/.bashrc"
+  remove_sh_block "$HOME/.bash_profile"
+  remove_sh_block "$HOME/.kshrc"
+  rm -f "$(fish_dropin_path)"
+  remove_link "$repo_dir/bin/claude-ollama" "$HOME/.local/bin/claude-ollama"
+  remove_link "$repo_dir/bin/claude-custom" "$HOME/.local/bin/claude-custom"
+  remove_link "$repo_dir/shared/hooks/bash-output-guard.py" "$HOME/.claude/hooks/bash-output-guard.py"
+  remove_import_lines
+  echo "open a new terminal; current shells keep the claude function until they exit"
+}
+
+update_repo() {
+  if ! git -C "$repo_dir" pull --ff-only; then
+    echo "update: git pull failed; fix the repo state, then run: $repo_dir/bin/claude-custom install" >&2
+    exit 1
+  fi
+  exec "$repo_dir/bin/claude-custom" install
+}
+
+main() {
+  case "${1:-install}" in
+    install) install_all ;;
+    update) update_repo ;;
+    uninstall) uninstall_all ;;
+    *) echo "usage: claude-custom [install|update|uninstall]" >&2; exit 2 ;;
+  esac
+  exit "$status"
+}
+
+main "$@"

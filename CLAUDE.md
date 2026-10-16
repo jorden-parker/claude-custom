@@ -23,10 +23,15 @@ gets applied.
 
 - Hook tests: `shared/hooks/bash-output-guard.test.sh` (prints `all passed`, or
   `FAIL:` lines and exits 1)
+- Installer tests: `personal/install.test.sh` (prints `all passed`)
 - Feed the hook one command by hand:
   `printf '{"tool_input":{"command":"git log"}}' | shared/hooks/bash-output-guard.py`
 - Validate JSON after editing: `jq . ollama/settings.27b.json >/dev/null`
 - Launch the work harness: `claude-ollama 27b|9b [claude args...]`
+- `bin/claude-custom` must stay bash-3.2 compatible (macOS `/bin/bash`), must
+  never write `~/.zshenv` or `~/.local/bin/claude`, and derives Ollama model
+  names from `ollama/settings.<size>.json` and `ollama/Modelfile.<size>`. Adding
+  a size means adding both files; the installer picks it up.
 
 There is no build step and no linter.
 
@@ -41,8 +46,8 @@ There is no build step and no linter.
 - All three settings files (`personal/settings.tokens.json`,
   `ollama/settings.27b.json`, `ollama/settings.9b.json`) point to the hook at
   `~/.claude/hooks/bash-output-guard.py`, not at a path in this repo. They rely
-  on the symlink from the README install step, and the Ollama harness needs it
-  too.
+  on the symlink that `bin/claude-custom install` creates, and the Ollama
+  harness needs it too.
 - The Read `permissions.deny` globs and the hook entry are copied into all three
   settings files. Change all three together.
 - `bin/claude-ollama` resolves its own symlink to find `ollama/`. It unsets
@@ -58,10 +63,11 @@ There is no build step and no linter.
 - The 9b profile excludes the user's global `~/.claude/CLAUDE.md`
   (`claudeMdExcludes`) and turns off thinking two ways:
   `alwaysThinkingEnabled: false` and `CLAUDE_CODE_EXTRA_BODY`.
-- The personal overlay is loaded with `--settings` by the fish function
-  `personal/claude.fish`, never merged into `~/.claude/settings.json`.
-  `--settings` holds one file: a second `--settings` replaces the first, so
-  `bin/claude-ollama` launches don't get the personal overlay (the Ollama
-  profiles carry their own deny globs and hook). Top-level scalars in the
-  overlay override the user file, so don't add keys to the overlay that
-  `~/.claude/settings.json` already sets.
+- The personal overlay is loaded with `--settings` by the `claude` shell
+  function (`personal/claude.sh` for bash/zsh/ksh, `personal/claude.fish` for
+  fish), wired into rc files by `bin/claude-custom install`, never merged into
+  `~/.claude/settings.json`. `--settings` holds one file: a second `--settings`
+  replaces the first, so `bin/claude-ollama` launches don't get the personal
+  overlay (the Ollama profiles carry their own deny globs and hook). Top-level
+  scalars in the overlay override the user file, so don't add keys to the
+  overlay that `~/.claude/settings.json` already sets.

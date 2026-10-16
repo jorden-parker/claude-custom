@@ -19,31 +19,36 @@ Claude Code or applied per launch.
 ## Personal install
 
 ```sh
-mkdir -p ~/.claude/hooks ~/.config/fish/functions
-ln -s ~/src/.claude-custom/shared/hooks/bash-output-guard.py ~/.claude/hooks/bash-output-guard.py
-ln -s ~/src/.claude-custom/personal/claude.fish ~/.config/fish/functions/claude.fish
-echo '@~/src/.claude-custom/personal/CLAUDE.tokens.md' >> ~/.claude/CLAUDE.md
+~/src/.claude-custom/bin/claude-custom install
 ```
 
-`~/.claude/settings.json` is left as is. The overlay loads on top of it on every
-`claude` launch from fish. It only adds keys the user file doesn't set. Lists
-and hooks concatenate, and `env` merges per key. Launches outside fish (IDE
-extensions, the desktop app, scripts calling `claude` directly) don't get the
-overlay. Run `command claude` to skip it.
+This wires every shell it finds: zsh (`~/.zshrc`), bash (`~/.bashrc`,
+`~/.bash_profile`), ksh (`~/.kshrc`) and fish
+(`~/.config/fish/conf.d/claude-custom.fish`). Rc edits sit between
+`# >>> claude-custom >>>` markers and put `~/.local/bin` on PATH. It also links
+`claude-ollama`, `claude-custom` and the Bash output hook, adds the `@` import
+to `~/.claude/CLAUDE.md`, and rebuilds the Ollama models whose base model is
+pulled. Re-running it is safe. `~/.claude/settings.json` is left as is: the
+overlay loads on top of it via `--settings` on every interactive `claude`
+launch. Scripts, IDE extensions, the desktop app and `claude-ollama` don't get
+it. Run `command claude` to skip it once.
 
 Per repo, when you don't need claude.ai connectors there:
 `cp project/settings.local.json <repo>/.claude/settings.local.json`.
 
-Revert: remove the two symlinks and delete the `@` line.
+Revert: `claude-custom uninstall`.
 
 ## Work harness (Ollama)
 
 ```sh
-ln -s ~/src/.claude-custom/bin/claude-ollama ~/.local/bin/claude-ollama
-ollama pull qwen3.8:27b-mlx && ollama create qwen3.8-27b-cc -f ollama/Modelfile.27b
-ollama pull qwen3.8:9b-mlx  && ollama create qwen3.8-9b-cc  -f ollama/Modelfile.9b
-claude-ollama 27b    # or: claude-ollama 9b
+ollama pull qwen3.8:27b-mlx
+ollama pull qwen3.8:9b-mlx
+claude-custom install
+claude-ollama 27b
 ```
+
+`claude-custom install` creates the `-cc` models from `ollama/Modelfile.<size>`
+once the base models are pulled. Use `claude-ollama 9b` for the small model.
 
 Plain `claude` stays on the personal setup. The profile only exists for that
 launch.
@@ -51,3 +56,17 @@ launch.
 ## Hook test
 
 `shared/hooks/bash-output-guard.test.sh`
+
+## Another machine / updating
+
+Clone anywhere and install once:
+
+```sh
+git clone <remote> ~/src/.claude-custom
+~/src/.claude-custom/bin/claude-custom install
+```
+
+After that, `claude-custom update` pulls (fast-forward only) and re-runs
+install. Most changes are live after a plain `git pull`, because every link and
+rc block points into the repo. `update` also picks up new links and rebuilds
+changed Ollama models.
