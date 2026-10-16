@@ -3,32 +3,38 @@
 Additive overlays. Nothing here replaces a base file; each layer is merged by
 Claude Code or applied per launch.
 
-## Layer order (later wins for scalars; arrays concatenate; `env` merges per key)
+## Layer order (higher number wins for scalars; lists such as `permissions.*` and `hooks.*` concatenate; `env` merges per key)
 
-1. `~/.claude/settings.json` (user) + `personal/settings.tokens.json` merged in
+1. `~/.claude/settings.json` (user, never edited by this repo)
 2. `<repo>/.claude/settings.json` (project, untouched)
 3. `<repo>/.claude/settings.local.json` (local) ← `project/settings.local.json`
-4. `--settings ollama/settings.<size>.json` (CLI flag layer, work harness only)
+4. `--settings` (CLI layer, one file only): `personal/settings.tokens.json` via
+   the fish `claude` function, or `ollama/settings.<size>.json` via
+   `claude-ollama`
 5. Managed policy (untouched, always wins)
+
+`--settings` is a single slot. Passing it twice keeps only the last file, so
+`claude --settings other.json` drops the personal overlay for that session.
 
 ## Personal install
 
 ```sh
-mkdir -p ~/.claude/hooks
+mkdir -p ~/.claude/hooks ~/.config/fish/functions
 ln -s ~/src/.claude-custom/shared/hooks/bash-output-guard.py ~/.claude/hooks/bash-output-guard.py
-cp ~/.claude/settings.json ~/.claude/settings.json.bak
-jq -s '.[0] * .[1]' ~/.claude/settings.json.bak ~/src/.claude-custom/personal/settings.tokens.json > ~/.claude/settings.json
+ln -s ~/src/.claude-custom/personal/claude.fish ~/.config/fish/functions/claude.fish
 echo '@~/src/.claude-custom/personal/CLAUDE.tokens.md' >> ~/.claude/CLAUDE.md
 ```
 
-`jq *` replaces arrays instead of concatenating them. Your current base has no
-`permissions` or `hooks`, so this is safe today; if that changes, merge those
-arrays by hand.
+`~/.claude/settings.json` is left as is. The overlay loads on top of it on every
+`claude` launch from fish. It only adds keys the user file doesn't set. Lists
+and hooks concatenate, and `env` merges per key. Launches outside fish (IDE
+extensions, the desktop app, scripts calling `claude` directly) don't get the
+overlay. Run `command claude` to skip it.
 
 Per repo, when you don't need claude.ai connectors there:
 `cp project/settings.local.json <repo>/.claude/settings.local.json`.
 
-Revert: restore `settings.json.bak`, delete the `@` line, remove the symlink.
+Revert: remove the two symlinks and delete the `@` line.
 
 ## Work harness (Ollama)
 

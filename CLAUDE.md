@@ -58,6 +58,10 @@ There is no build step and no linter.
 - The 9b profile excludes the user's global `~/.claude/CLAUDE.md`
   (`claudeMdExcludes`) and turns off thinking two ways:
   `alwaysThinkingEnabled: false` and `CLAUDE_CODE_EXTRA_BODY`.
-- The personal install merges settings with `jq -s '.[0] * .[1]'`, which
-  replaces arrays instead of concatenating them. Adding `permissions` or `hooks`
-  arrays to the base settings later means merging those arrays by hand.
+- The personal overlay is loaded with `--settings` by the fish function
+  `personal/claude.fish`, never merged into `~/.claude/settings.json`.
+  `--settings` holds one file: a second `--settings` replaces the first, so
+  `bin/claude-ollama` launches don't get the personal overlay (the Ollama
+  profiles carry their own deny globs and hook). Top-level scalars in the
+  overlay override the user file, so don't add keys to the overlay that
+  `~/.claude/settings.json` already sets.
