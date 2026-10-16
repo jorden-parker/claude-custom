@@ -43,10 +43,11 @@ gets applied.
   `tools-tui/README.md`.
 
 There is no build step outside `tools-tui/`. `pnpm install` enables git hooks
-(husky): lint-staged runs Prettier on staged `.md`/`.json`, and commitlint
-enforces conventional commits (`feat:`, `fix:`, `chore:`). The
-ESLint/TypeScript/React config is unused boilerplate from `git-precommit-setup`;
-there is no `src/`.
+(husky): pre-commit checks staged files for conflict markers, files over 1 MB
+and secrets, then lint-staged runs Prettier on staged `.md`/`.json` (plus ESLint
+on JS/TS). commitlint enforces conventional commits (`feat:`, `fix:`, `chore:`).
+The ESLint/TypeScript/React config is unused boilerplate from
+`git-precommit-setup`; there is no `src/`.
 
 ## How the pieces connect
 

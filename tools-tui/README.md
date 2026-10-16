@@ -7,7 +7,7 @@ Built with [Bubble Tea](https://charm.land/libs/), Bubbles and Lip Gloss.
 ## Run
 
 ```sh
-claude-tools                  # edits ~/.claude/settings.json
+claude-tools                  # edits ~/.claude/settings.json (same as claude-tools user)
 claude-tools project          # ./.claude/settings.json in the current directory
 claude-tools local            # ./.claude/settings.local.json
 claude-tools path/to.json     # any settings file (same as -settings path/to.json)
@@ -30,18 +30,18 @@ Changes take effect in Claude Code from the next request; no restart needed.
 | Key             | Action                                          |
 | --------------- | ----------------------------------------------- |
 | `↑`/`k` `↓`/`j` | Move                                            |
-| `g` / `G`       | Top / bottom                                    |
+| `g` / `G`       | Top / bottom (also `home` / `end`)              |
 | `a`             | Allow (never prompts)                           |
 | `p`             | Ask (always prompts)                            |
 | `d`             | Deny                                            |
 | `r`             | Default: remove the TUI's rules for the tool    |
-| `space`         | Cycle default → allow → ask → deny              |
+| `space`/`tab`   | Cycle default → allow → ask → deny              |
 | `x`             | Disable / enable (take the tool out of context) |
-| `w`             | Save                                            |
+| `w`/`ctrl+s`    | Save                                            |
 | `u`             | Sync the tool list from the docs                |
 | `f`             | Switch settings file                            |
 | `?`             | Show every key                                  |
-| `q`             | Quit (asks again if there are unsaved changes)  |
+| `q`/`ctrl+c`    | Quit (asks again if there are unsaved changes)  |
 
 In the file list, `↑`/`↓` move, `enter` opens the file and `esc` cancels.
 
@@ -52,14 +52,15 @@ taken from the docs' "Permission required" column.
 
 Press `f` to list the settings files and open another one without restarting.
 The title line shows which one is active. The list holds Claude Code's scope
-locations, plus the `-settings` path if it is none of them:
+locations, plus the file you passed (`FILE` or `-settings`) if it is none of
+them:
 
-| Label   | Path                                |
-| ------- | ----------------------------------- |
-| custom  | the `-settings` path (listed first) |
-| user    | `~/.claude/settings.json`           |
-| project | `./.claude/settings.json`           |
-| local   | `./.claude/settings.local.json`     |
+| Label   | Path                               |
+| ------- | ---------------------------------- |
+| custom  | the file you passed (listed first) |
+| user    | `~/.claude/settings.json`          |
+| project | `./.claude/settings.json`          |
+| local   | `./.claude/settings.local.json`    |
 
 - `project` and `local` are relative to the directory you launch from.
 - A file that doesn't exist yet is marked `(new)`. You can open it, and the
