@@ -61,6 +61,7 @@ has_import_line() {
 }
 
 has_unmatched_marker() {
+  [ -f "$1" ] || return 1
   local starts ends
   starts="$(grep -c '^# >>> claude-custom >>>$' "$1")"
   ends="$(grep -c '^# <<< claude-custom <<<$' "$1")"

@@ -107,6 +107,7 @@ check_eq "fresh home: zshrc block count" 1 "$(block_count "$HOME/.zshrc")"
 check_not "fresh home: no bashrc" test -e "$HOME/.bashrc"
 check_not "fresh home: no kshrc" test -e "$HOME/.kshrc"
 check_not "fresh home: no fish drop-in" test -e "$HOME/.config/fish/conf.d/claude-custom.fish"
+check_not "fresh home: no grep noise on stderr" grep -q 'No such file' "$sandbox/err"
 
 new_sandbox
 make_all_rc_files
