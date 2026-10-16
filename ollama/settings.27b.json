@@ -29,7 +29,23 @@
       "Read(**/.next/**)",
       "Read(**/coverage/**)",
       "Read(**/*.min.js)",
-      "Read(**/*.map)"
+      "Read(**/*.map)",
+      "Agent",
+      "CronCreate",
+      "CronDelete",
+      "CronList",
+      "EnterWorktree",
+      "ExitWorktree",
+      "ListAgents",
+      "NotebookEdit",
+      "ReportFindings",
+      "ScheduleWakeup",
+      "SendMessage",
+      "Skill",
+      "TaskStop",
+      "WebFetch",
+      "WebSearch",
+      "Workflow"
     ]
   },
   "hooks": {

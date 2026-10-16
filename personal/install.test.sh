@@ -224,6 +224,16 @@ for settings in "$repo"/ollama/settings.*.json; do
     "$(jq -S .hooks "$repo/personal/settings.tokens.json")" "$(jq -S .hooks "$settings")"
 done
 
+for settings in "$repo"/ollama/settings.*.json; do
+  check_eq "deny list in ${settings##*/} matches settings.27b.json" \
+    "$(jq -S .permissions.deny "$repo/ollama/settings.27b.json")" "$(jq -S .permissions.deny "$settings")"
+  check_that "${settings##*/} denies Workflow" \
+    test "$(jq -r '.permissions.deny | index("Workflow") != null' "$settings")" = true
+  check_eq "${settings##*/} keeps the personal Read globs" \
+    "$(jq -S '[.permissions.deny[] | select(startswith("Read("))]' "$repo/personal/settings.tokens.json")" \
+    "$(jq -S '[.permissions.deny[] | select(startswith("Read("))]' "$settings")"
+done
+
 new_sandbox
 copy_repo "$HOME/src/.claude-custom"
 mkdir -p "$HOME/.claude"

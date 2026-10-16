@@ -84,9 +84,12 @@ there is no `src/`.
   point to the hooks at `~/.claude/hooks/<name>`, not at paths in this repo.
   They rely on the symlinks that `bin/claude-custom install` creates (names in
   `hook_names`).
-- The Read `permissions.deny` globs and the `hooks` block are copied into all
+- The Read `permissions.deny` globs and the `hooks` block are shared by all
   settings files. Change them together; `personal/install.test.sh` fails when
-  the `hooks` blocks differ.
+  the `hooks` blocks differ. `ollama/settings.*.json` also deny unused tools by
+  bare name, so their schemas never reach the local model's context. `--tools`
+  in `bin/claude-ollama` is the primary allowlist and that deny list is the
+  backstop. `personal/install.test.sh` fails when the Ollama deny lists differ.
 - `bin/claude-ollama` resolves its own symlink to find `ollama/`. It unsets
   `ANTHROPIC_API_KEY`, passes `--settings ollama/settings.<size>.json`,
   `--system-prompt-file ollama/system-prompt.md` (replacing Claude Code's
