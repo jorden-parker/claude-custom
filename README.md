@@ -40,20 +40,61 @@ Revert: `claude-custom uninstall`.
 
 ## Work harness (Ollama)
 
+Each size has its own base model, `-cc` model and profile files:
+
+| Size  | Model                 | Base model        | `-cc` model      |
+| ----- | --------------------- | ----------------- | ---------------- |
+| `27b` | Qwen 3.8 27B, dense   | `qwen3.8:27b-mlx` | `qwen3.8-27b-cc` |
+| `35b` | Qwen 3.6 35B-A3B, MoE | `qwen3.6:35b-mlx` | `qwen3.6-35b-cc` |
+
+27b (the default size):
+
 ```sh
-ollama pull qwen3.8:27b-mlx
-claude-custom install
-claude-ollama                 # 27b is the default size
+ollama pull qwen3.8:27b-mlx   # 18 GB; optional, see below
+claude-custom install         # creates qwen3.8-27b-cc
+claude-ollama 27b [args...]   # or plain claude-ollama
+```
+
+35b:
+
+```sh
+ollama pull qwen3.6:35b-mlx   # 24 GB; optional, see below
+claude-custom install         # creates qwen3.6-35b-cc
+claude-ollama 35b [args...]
+```
+
+Both sizes:
+
+```sh
 claude-ollama -p "hello"      # other args go straight to claude
-claude-ollama 27b [args...]   # explicit size
 claude-ollama --help          # usage and the list of sizes
 ```
 
 `claude-custom install` creates the `-cc` models from `ollama/Modelfile.<size>`
-once the base models are pulled.
+once the base models are pulled. `claude-ollama` also does this itself for
+either size: when the `-cc` model is missing, it pulls the base model and
+creates the `-cc` model before starting `claude`. A failed pull stops the
+launch.
 
 Plain `claude` stays on the personal setup. The profile only exists for that
 launch.
+
+### Ollama server settings
+
+The profiles expect an Ollama server on `localhost:11434` with the settings in
+`ollama/server.env`. Nothing in this repo applies them. The Homebrew service
+(`brew services start ollama`) sets the same values, and uses these paths:
+
+| What        | Homebrew value                                      |
+| ----------- | --------------------------------------------------- |
+| Binary      | `/opt/homebrew/opt/ollama/bin/ollama`               |
+| Command     | `ollama serve`                                      |
+| Working dir | `/opt/homebrew/var`                                 |
+| Log         | `/opt/homebrew/var/log/ollama.log`                  |
+| Service     | `~/Library/LaunchAgents/homebrew.mxcl.ollama.plist` |
+
+Without Homebrew, start the server with the same settings:
+`env $(cat ollama/server.env) ollama serve`.
 
 ## Tools TUI
 

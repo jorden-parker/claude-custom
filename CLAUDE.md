@@ -12,8 +12,8 @@ three parts:
   `~/.claude/settings.json` and `~/.claude/CLAUDE.md` to cut token usage on the
   normal Anthropic-backed `claude`.
 - **Work harness** (`bin/claude-ollama`, `ollama/`): starts `claude` against a
-  local Ollama server (`localhost:11434`) running Qwen 27b. The overlay only
-  applies to that launch.
+  local Ollama server (`localhost:11434`) running Qwen 3.8 27b or Qwen 3.6 35b.
+  The overlay only applies to that launch.
 - **Tools TUI** (`tools-tui/`): a Go/Bubble Tea app that edits the
   bare-tool-name permission rules in a Claude Code settings file.
 
@@ -28,9 +28,9 @@ gets applied.
 - Installer tests: `personal/install.test.sh` (prints `all passed`)
 - Feed the hook one command by hand:
   `printf '{"tool_input":{"command":"git log"}}' | shared/hooks/bash-output-guard.py`
-- Validate JSON after editing: `jq . ollama/settings.27b.json >/dev/null`
-- Launch the work harness: `claude-ollama [27b] [claude args...]` (27b is the
-  default size; `--help` lists sizes)
+- Validate JSON after editing: `jq . ollama/settings.*.json >/dev/null`
+- Launch the work harness: `claude-ollama [27b|35b] [claude args...]` (27b is
+  the default size; `--help` lists sizes)
 - Launch the tools TUI: `claude-tools [user|project|local|FILE]`. Both are also
   `claude-custom ollama|tools [...]`.
 - `bin/claude-custom`, `bin/claude-ollama` and `bin/claude-tools` must stay
@@ -67,10 +67,14 @@ The ESLint/TypeScript/React config is unused boilerplate from
 - `bin/claude-ollama` resolves its own symlink to find `ollama/`. It unsets
   `ANTHROPIC_API_KEY`, passes `--settings ollama/settings.<size>.json`,
   `--append-system-prompt-file ollama/CLAUDE.<size>.md`, and
-  `--strict-mcp-config`, and restricts tools with `--tools`.
+  `--strict-mcp-config`, and restricts tools with `--tools`. Before launching,
+  it pulls the base model and creates the `-cc` model when `ollama show` can't
+  find the `-cc` model.
+- `ollama/server.env` documents the Ollama server env the profiles expect. The
+  Homebrew service sets the same values. Nothing in this repo applies it.
 - `ollama/CLAUDE.<size>.md` files are appended system prompts for small local
-  models, not memory files. Keep them terse: the 27b has a 64k context. Context
-  sizes must match across `Modelfile.<size>` (`num_ctx`),
+  models, not memory files. Keep them terse: both sizes have a 64k context.
+  Context sizes must match across `Modelfile.<size>` (`num_ctx`),
   `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, and the `ollama create` names that `model`
   and the `ANTHROPIC_DEFAULT_*_MODEL` vars refer to.
 - The personal overlay is loaded with `--settings` by the `claude` shell

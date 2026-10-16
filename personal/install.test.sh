@@ -43,13 +43,14 @@ new_sandbox() {
   sandboxes="$sandboxes $sandbox"
   export HOME="$sandbox/home"
   mkdir -p "$HOME" "$sandbox/stubbin"
-  unset ZDOTDIR XDG_CONFIG_HOME CLAUDE_CONFIG_DIR STUB_OLLAMA_SHOW_EXIT
+  unset ZDOTDIR XDG_CONFIG_HOME CLAUDE_CONFIG_DIR STUB_OLLAMA_SHOW_EXIT STUB_OLLAMA_PULL_EXIT
   export SHELL=/bin/zsh
   printf '#!/bin/sh\necho "ARGS: $*"\n' > "$sandbox/stubbin/claude"
   cat > "$sandbox/stubbin/ollama" <<EOF
 #!/bin/sh
 echo "\$*" >> "$sandbox/ollama.log"
 if [ "\$1" = show ]; then exit "\${STUB_OLLAMA_SHOW_EXIT:-0}"; fi
+if [ "\$1" = pull ]; then exit "\${STUB_OLLAMA_PULL_EXIT:-0}"; fi
 exit 0
 EOF
   chmod +x "$sandbox/stubbin/claude" "$sandbox/stubbin/ollama"
@@ -246,6 +247,8 @@ run_capture "$installer" install
 check_that "ollama show is run for 27b base" grep -qxF "show qwen3.8:27b-mlx" "$sandbox/ollama.log"
 check_that "ollama create 27b model" grep -qxF "create qwen3.8-27b-cc -f $repo/ollama/Modelfile.27b" "$sandbox/ollama.log"
 check_not "no 9b model is created" grep -qF "qwen3.8-9b-cc" "$sandbox/ollama.log"
+check_that "ollama show is run for 35b base" grep -qxF "show qwen3.6:35b-mlx" "$sandbox/ollama.log"
+check_that "ollama create 35b model" grep -qxF "create qwen3.6-35b-cc -f $repo/ollama/Modelfile.35b" "$sandbox/ollama.log"
 
 new_sandbox
 STUB_OLLAMA_SHOW_EXIT=1 run_capture "$installer" install
@@ -360,9 +363,35 @@ check_that "claude-ollama defaults to 27b" grep -qF -- "$ollama_settings" "$sand
 check_that "claude-ollama passes claude args through" grep -qF -- "--tools Bash,Read,Edit,Write,Glob,Grep -p hi" "$sandbox/out"
 run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "claude-ollama keeps the explicit size form" grep -qF -- "--tools Bash,Read,Edit,Write,Glob,Grep -p hi" "$sandbox/out"
+run_capture "$repo/bin/claude-ollama" 35b -p hi
+check_that "claude-ollama 35b uses the 35b settings" grep -qF -- "--settings $repo/ollama/settings.35b.json" "$sandbox/out"
+check_that "claude-ollama 35b uses the 35b prompt" grep -qF -- "--append-system-prompt-file $repo/ollama/CLAUDE.35b.md" "$sandbox/out"
+check_that "claude-ollama 35b passes claude args through" grep -qF -- "--tools Bash,Read,Edit,Write,Glob,Grep -p hi" "$sandbox/out"
+check_not "claude-ollama 35b skips pull when the model exists" grep -sqE '^(pull|create) ' "$sandbox/ollama.log"
+STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" 35b -p hi
+check_that "claude-ollama 35b pulls a missing base model" grep -qxF "pull qwen3.6:35b-mlx" "$sandbox/ollama.log"
+check_that "claude-ollama 35b creates the missing model" grep -qxF "create qwen3.6-35b-cc -f $repo/ollama/Modelfile.35b" "$sandbox/ollama.log"
+check_that "claude-ollama 35b launches after pulling" grep -qF -- "--settings $repo/ollama/settings.35b.json" "$sandbox/out"
+rm -f "$sandbox/ollama.log"
+STUB_OLLAMA_SHOW_EXIT=1 STUB_OLLAMA_PULL_EXIT=1 run_capture "$repo/bin/claude-ollama" 35b -p hi
+check_eq "claude-ollama 35b failed pull exit status" 1 "$?"
+check_not "claude-ollama 35b failed pull does not create" grep -sq '^create ' "$sandbox/ollama.log"
+check_not "claude-ollama 35b failed pull does not launch claude" grep -q '^ARGS:' "$sandbox/out"
+rm -f "$sandbox/ollama.log"
+run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_not "claude-ollama 27b skips pull when the model exists" grep -sqE '^(pull|create) ' "$sandbox/ollama.log"
+STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_that "claude-ollama 27b pulls a missing base model" grep -qxF "pull qwen3.8:27b-mlx" "$sandbox/ollama.log"
+check_that "claude-ollama 27b creates the missing model" grep -qxF "create qwen3.8-27b-cc -f $repo/ollama/Modelfile.27b" "$sandbox/ollama.log"
+check_that "claude-ollama 27b launches after pulling" grep -qF -- "--settings $repo/ollama/settings.27b.json" "$sandbox/out"
+rm -f "$sandbox/ollama.log"
+STUB_OLLAMA_SHOW_EXIT=1 STUB_OLLAMA_PULL_EXIT=1 run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_eq "claude-ollama 27b failed pull exit status" 1 "$?"
+check_not "claude-ollama 27b failed pull does not create" grep -sq '^create ' "$sandbox/ollama.log"
+check_not "claude-ollama 27b failed pull does not launch claude" grep -q '^ARGS:' "$sandbox/out"
 run_capture "$repo/bin/claude-ollama" --help
 check_eq "claude-ollama help exit status" 0 "$?"
-check_that "claude-ollama help lists sizes" grep -qxF "sizes: 27b" "$sandbox/out"
+check_that "claude-ollama help lists sizes" grep -qxF "sizes: 27b 35b" "$sandbox/out"
 check_not "claude-ollama help does not launch claude" grep -q '^ARGS:' "$sandbox/out"
 run_capture "$installer" ollama -p hi
 check_that "claude-custom ollama runs claude-ollama" grep -qF -- "$ollama_settings" "$sandbox/out"
