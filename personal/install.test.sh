@@ -183,6 +183,8 @@ check_that "claude-ollama link" test "$(readlink "$HOME/.local/bin/claude-ollama
 check_eq "claude-custom link" "$repo/bin/claude-custom" "$(readlink "$HOME/.local/bin/claude-custom")"
 check_eq "claude-tools link" "$repo/bin/claude-tools" "$(readlink "$HOME/.local/bin/claude-tools")"
 check_eq "hook link" "$repo/shared/hooks/bash-output-guard.py" "$(readlink "$HOME/.claude/hooks/bash-output-guard.py")"
+check_eq "edit-check hook link" "$repo/shared/hooks/edit-check.py" "$(readlink "$HOME/.claude/hooks/edit-check.py")"
+check_eq "stop-verify hook link" "$repo/shared/hooks/stop-verify.py" "$(readlink "$HOME/.claude/hooks/stop-verify.py")"
 
 new_sandbox
 mkdir -p "$HOME/.local/bin"
@@ -213,6 +215,13 @@ run_capture "$installer" install
 run_capture "$installer" install
 check_eq "import line appears once after two installs" 1 \
   "$(grep -cxF "@$repo/personal/CLAUDE.tokens.md" "$HOME/.claude/CLAUDE.md")"
+check_eq "preferences import appears once after two installs" 1 \
+  "$(grep -cxF "@$repo/shared/preferences/PREFERENCES.md" "$HOME/.claude/CLAUDE.md")"
+
+for settings in "$repo"/ollama/settings.*.json; do
+  check_eq "hooks in ${settings##*/} match the personal overlay" \
+    "$(jq -S .hooks "$repo/personal/settings.tokens.json")" "$(jq -S .hooks "$settings")"
+done
 
 new_sandbox
 copy_repo "$HOME/src/.claude-custom"
@@ -284,6 +293,8 @@ check_not "round trip removes ollama link" test -L "$HOME/.local/bin/claude-olla
 check_not "round trip removes claude-custom link" test -L "$HOME/.local/bin/claude-custom"
 check_not "round trip removes claude-tools link" test -L "$HOME/.local/bin/claude-tools"
 check_not "round trip removes hook link" test -L "$HOME/.claude/hooks/bash-output-guard.py"
+check_not "round trip removes edit-check link" test -L "$HOME/.claude/hooks/edit-check.py"
+check_not "round trip removes stop-verify link" test -L "$HOME/.claude/hooks/stop-verify.py"
 
 new_sandbox
 mkdir -p "$HOME/.local/bin" "$HOME/.claude/hooks"
@@ -302,7 +313,7 @@ check_eq "foreign hook link survives uninstall" "$sandbox/elsewhere-hook" \
 new_sandbox
 copy_repo "$HOME/src/.claude-custom"
 mkdir -p "$HOME/.claude"
-printf 'keep me\n@~/src/.claude-custom/personal/CLAUDE.tokens.md\n@%s/personal/CLAUDE.tokens.md\nkeep too\n' "$HOME/src/.claude-custom" > "$HOME/.claude/CLAUDE.md"
+printf 'keep me\n@~/src/.claude-custom/personal/CLAUDE.tokens.md\n@%s/personal/CLAUDE.tokens.md\n@~/src/.claude-custom/shared/preferences/PREFERENCES.md\nkeep too\n' "$HOME/src/.claude-custom" > "$HOME/.claude/CLAUDE.md"
 run_capture "$HOME/src/.claude-custom/bin/claude-custom" uninstall
 check_eq "uninstall removes import lines and keeps others" "keep me
 keep too" "$(cat "$HOME/.claude/CLAUDE.md")"

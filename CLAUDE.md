@@ -23,8 +23,9 @@ gets applied.
 
 ## Commands
 
-- Hook tests: `shared/hooks/bash-output-guard.test.sh` (prints `all passed`, or
-  `FAIL:` lines and exits 1)
+- Hook tests: `shared/hooks/*.test.sh` (each prints `all passed`, or `FAIL:`
+  lines and exits 1)
+- Everything at once: `.claude/verify` (the Stop hook runs it too)
 - Installer tests: `personal/install.test.sh` (prints `all passed`)
 - Feed the hook one command by hand:
   `printf '{"tool_input":{"command":"git log"}}' | shared/hooks/bash-output-guard.py`
@@ -60,13 +61,21 @@ The ESLint/TypeScript/React config is unused boilerplate from
   `UNBOUNDED_COMMANDS`. Every regex starts with `COMMAND_START`, so it only
   matches at the start of a command segment and ignores text inside arguments. A
   new rule needs both `expect deny` and `expect allow` cases in the test script.
-- Both settings files (`personal/settings.tokens.json`,
-  `ollama/settings.27b.json`) point to the hook at
-  `~/.claude/hooks/bash-output-guard.py`, not at a path in this repo. They rely
-  on the symlink that `bin/claude-custom install` creates, and the Ollama
-  harness needs it too.
-- The Read `permissions.deny` globs and the hook entry are copied into both
-  settings files. Change both together.
+- `shared/hooks/edit-check.py` (PostToolUse on Edit/Write/MultiEdit) runs the
+  edited file's project-local formatter/linter and rejects newly added comments.
+  `shared/hooks/stop-verify.py` (Stop) runs Fallow in JS/TS projects and the
+  project's `.claude/verify`; it blocks once per turn (`stop_hook_active`). Both
+  exit 2 so the model sees stderr.
+- `shared/preferences/PREFERENCES.md` holds the prose rules no tool can check.
+  `bin/claude-custom install` `@`-imports it into `~/.claude/CLAUDE.md`, so both
+  backends load it. Keep it short: Ollama has 64k context.
+- All settings files (`personal/settings.tokens.json`, `ollama/settings.*.json`)
+  point to the hooks at `~/.claude/hooks/<name>`, not at paths in this repo.
+  They rely on the symlinks that `bin/claude-custom install` creates (names in
+  `hook_names`).
+- The Read `permissions.deny` globs and the `hooks` block are copied into all
+  settings files. Change them together; `personal/install.test.sh` fails when
+  the `hooks` blocks differ.
 - `bin/claude-ollama` resolves its own symlink to find `ollama/`. It unsets
   `ANTHROPIC_API_KEY`, passes `--settings ollama/settings.<size>.json`,
   `--append-system-prompt-file ollama/CLAUDE.<size>.md`, and

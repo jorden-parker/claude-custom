@@ -45,19 +45,22 @@ claude_md_path() {
   printf '%s/CLAUDE.md' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 }
 
+hook_names='bash-output-guard.py edit-check.py stop-verify.py'
+imported_files='personal/CLAUDE.tokens.md shared/preferences/PREFERENCES.md'
+
 import_line() {
-  printf '@%s/personal/CLAUDE.tokens.md' "$repo_dir"
+  printf '@%s/%s' "$repo_dir" "$1"
 }
 
 tilde_import_line() {
   case "$repo_dir" in
-    "$HOME"/*) printf '@~%s/personal/CLAUDE.tokens.md' "${repo_dir#"$HOME"}" ;;
-    *) import_line ;;
+    "$HOME"/*) printf '@~%s/%s' "${repo_dir#"$HOME"}" "$1" ;;
+    *) import_line "$1" ;;
   esac
 }
 
 has_import_line() {
-  [ -f "$1" ] && { grep -qxF "$(import_line)" "$1" || grep -qxF "$(tilde_import_line)" "$1"; }
+  [ -f "$1" ] && { grep -qxF "$(import_line "$2")" "$1" || grep -qxF "$(tilde_import_line "$2")" "$1"; }
 }
 
 has_unmatched_marker() {
@@ -201,30 +204,47 @@ place_links() {
   place_link "$repo_dir/bin/claude-ollama" "$HOME/.local/bin/claude-ollama"
   place_link "$repo_dir/bin/claude-custom" "$HOME/.local/bin/claude-custom"
   place_link "$repo_dir/bin/claude-tools" "$HOME/.local/bin/claude-tools"
-  place_link "$repo_dir/shared/hooks/bash-output-guard.py" "$HOME/.claude/hooks/bash-output-guard.py"
+  local hook
+  for hook in $hook_names; do
+    place_link "$repo_dir/shared/hooks/$hook" "$HOME/.claude/hooks/$hook"
+  done
 }
 
 add_import_line() {
   local file
   file="$(claude_md_path)"
-  if has_import_line "$file"; then
+  if has_import_line "$file" "$1"; then
     return 0
   fi
   mkdir -p "$(dirname "$file")"
   if [ -s "$file" ] && [ -n "$(tail -c 1 "$file")" ]; then
     printf '\n' >> "$file"
   fi
-  printf '%s\n' "$(import_line)" >> "$file"
+  printf '%s\n' "$(import_line "$1")" >> "$file"
+}
+
+remove_import_line() {
+  local file tmp
+  file="$(claude_md_path)"
+  has_import_line "$file" "$1" || return 0
+  tmp="$(mktemp)"
+  awk -v absolute="$(import_line "$1")" -v tilde="$(tilde_import_line "$1")" '$0 != absolute && $0 != tilde' "$file" > "$tmp"
+  cat "$tmp" > "$file"
+  rm -f "$tmp"
+}
+
+add_import_lines() {
+  local imported
+  for imported in $imported_files; do
+    add_import_line "$imported"
+  done
 }
 
 remove_import_lines() {
-  local file tmp
-  file="$(claude_md_path)"
-  has_import_line "$file" || return 0
-  tmp="$(mktemp)"
-  awk -v absolute="$(import_line)" -v tilde="$(tilde_import_line)" '$0 != absolute && $0 != tilde' "$file" > "$tmp"
-  cat "$tmp" > "$file"
-  rm -f "$tmp"
+  local imported
+  for imported in $imported_files; do
+    remove_import_line "$imported"
+  done
 }
 
 retire_plan_001_fish_link() {
@@ -264,7 +284,7 @@ guard_repo_path() {
 install_all() {
   guard_repo_path
   place_links
-  add_import_line
+  add_import_lines
   retire_plan_001_fish_link
   wire_shells
   refresh_ollama_models
@@ -272,6 +292,7 @@ install_all() {
 }
 
 uninstall_all() {
+  local hook
   guard_repo_path
   remove_sh_block "${ZDOTDIR:-$HOME}/.zshrc"
   remove_sh_block "$HOME/.bashrc"
@@ -281,7 +302,9 @@ uninstall_all() {
   remove_link "$repo_dir/bin/claude-ollama" "$HOME/.local/bin/claude-ollama"
   remove_link "$repo_dir/bin/claude-custom" "$HOME/.local/bin/claude-custom"
   remove_link "$repo_dir/bin/claude-tools" "$HOME/.local/bin/claude-tools"
-  remove_link "$repo_dir/shared/hooks/bash-output-guard.py" "$HOME/.claude/hooks/bash-output-guard.py"
+  for hook in $hook_names; do
+    remove_link "$repo_dir/shared/hooks/$hook" "$HOME/.claude/hooks/$hook"
+  done
   remove_import_lines
   echo "open a new terminal; current shells keep the claude function until they exit"
 }
