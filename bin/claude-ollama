@@ -44,12 +44,22 @@ choose_size() {
   fi
 }
 
+base_model() {
+  sed -n 's/^FROM //p' "$profile_dir/Modelfile.$size"
+}
+
+modelfile_num_ctx() {
+  sed -n 's/^PARAMETER num_ctx //p' "$profile_dir/Modelfile.$size"
+}
+
+profile_context_tokens() {
+  jq -r .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS "$profile_dir/settings.$size.json"
+}
+
 ensure_model() {
   local modelfile="$profile_dir/Modelfile.$size"
-  local base
   ollama show "$model" >/dev/null 2>&1 && return 0
-  base="$(sed -n 's/^FROM //p' "$modelfile")"
-  ollama pull "$base"
+  ollama pull "$(base_model)"
   ollama create "$model" -f "$modelfile"
 }
 
@@ -97,14 +107,138 @@ warm_model() {
     -d "{\"model\":\"$model\",\"keep_alive\":\"$keep_alive\"}" >/dev/null 2>&1 &
 }
 
+claude_command() {
+  printf 'claude --settings %s --system-prompt-file %s --append-system-prompt-file %s --strict-mcp-config --mcp-config %s --model %s --tools %s' \
+    "$settings_file" "$profile_dir/system-prompt.md" "$profile_dir/CLAUDE.$size.md" "$(mcp_config)" "$model" "$tools"
+}
+
+print_config() {
+  echo "size: $size"
+  echo "model: $model"
+  echo "base: $(base_model)"
+  echo "side model: $(side_model_name)"
+  echo "embedding model: $embedding_model"
+  echo "num_ctx: $(modelfile_num_ctx)"
+  echo "max context tokens: $(profile_context_tokens)"
+  echo "settings: $settings_file"
+  echo "tools: $tools"
+  echo "command: $(claude_command)"
+}
+
+report() {
+  printf '%-4s %s\n' "$1" "$2"
+  [ "$1" != fail ]
+}
+
+check_model_present() {
+  local label="$1" name="$2" fix="$3" level="${4:-fail}"
+  if ollama show "$name" >/dev/null 2>&1; then
+    report ok "$label $name"
+  else
+    report "$level" "$label $name missing ($fix)"
+  fi
+}
+
+check_context_sizes() {
+  local ctx tokens
+  ctx="$(modelfile_num_ctx)"
+  tokens="$(profile_context_tokens)"
+  if [ "$ctx" = "$tokens" ]; then
+    report ok "num_ctx $ctx matches CLAUDE_CODE_MAX_CONTEXT_TOKENS"
+  else
+    report fail "num_ctx $ctx differs from CLAUDE_CODE_MAX_CONTEXT_TOKENS $tokens"
+  fi
+}
+
+hook_names() {
+  jq -r '.hooks[]?[]?.hooks[]?.command' "$profile_dir/settings.$size.json" |
+    sed -n 's#.*/shared/hooks/##p' | sort -u
+}
+
+check_hooks_present() {
+  local hook status=0
+  while IFS= read -r hook; do
+    if [ -x "$repo_dir/shared/hooks/$hook" ]; then
+      report ok "hook $hook present"
+    else
+      report fail "hook $hook missing or not executable in shared/hooks"
+      status=1
+    fi
+  done < <(hook_names)
+  return "$status"
+}
+
+check_reachable() {
+  if curl -sf -m 2 "$ollama_url/api/version" >/dev/null 2>&1; then
+    report ok "ollama reachable at $ollama_url"
+  else
+    report fail "ollama not reachable at $ollama_url (brew services start ollama)"
+  fi
+}
+
+running_server_env() {
+  local pid
+  pid="$(pgrep -x ollama | head -n 1)" || true
+  [ -n "$pid" ] || return 1
+  if [ -r "/proc/$pid/environ" ]; then
+    tr '\0' '\n' < "/proc/$pid/environ"
+  else
+    ps -Eo command -p "$pid" | tr ' ' '\n'
+  fi
+}
+
+check_server_env() {
+  local env_lines wanted status=0
+  if ! env_lines="$(running_server_env)"; then
+    report fail "ollama server not running (brew services start ollama)"
+    return 1
+  fi
+  while IFS= read -r wanted; do
+    [ -n "$wanted" ] || continue
+    if printf '%s\n' "$env_lines" | grep -qxF "$wanted"; then
+      report ok "server env $wanted"
+    else
+      report fail "server env $wanted not set on the running server"
+      status=1
+    fi
+  done < "$profile_dir/server.env"
+  return "$status"
+}
+
+doctor() {
+  local status=0
+  report ok "jq on PATH"
+  check_model_present model "$model" "run claude-ollama $size to pull and create it" || status=1
+  check_model_present "side model" "$(side_model_name)" "pick 'Set up side model' in claude-ollama" warn || status=1
+  check_model_present "embedding model" "$embedding_model" "pick 'Set up embedding model' in claude-ollama" || status=1
+  check_context_sizes || status=1
+  check_hooks_present || status=1
+  check_reachable || status=1
+  check_server_env || status=1
+  exit "$status"
+}
+
 case "${1:-}" in
   -h|--help)
     echo "usage: claude-ollama [size] [claude args...]"
     echo "sizes: $(configured_sizes | tr '\n' ' ' | sed 's/ $//')"
     echo "no size: pick one in a menu (or $default_size without a terminal)"
     echo "--require-side-model: exit 1 instead of using the main model for subagents"
+    echo "doctor [size]: check models, context sizes, hooks, Ollama and the server env"
+    echo "--print-config [size]: print the resolved settings and the claude command"
     exit 0 ;;
 esac
+
+mode=launch
+case "${1:-}" in
+  doctor) mode=doctor; shift ;;
+  --print-config) mode=print-config; shift ;;
+esac
+
+if ! command -v jq >/dev/null 2>&1; then
+  echo "claude-ollama: jq is required (brew install jq)" >&2
+  exit 1
+fi
 
 while [ "${1:-}" = --require-side-model ]; do
   require_side_model=1
@@ -129,6 +263,11 @@ done
 
 model="$(jq -r .model "$profile_dir/settings.$size.json")"
 settings_file="$profile_dir/settings.$size.json"
+
+case "$mode" in
+  print-config) print_config; exit 0 ;;
+  doctor) doctor ;;
+esac
 
 ensure_model
 ensure_embedding_model
