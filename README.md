@@ -2,334 +2,35 @@
 
 ![verify](https://github.com/jorden-parker/claude-custom/actions/workflows/verify.yml/badge.svg)
 
-Additive overlays. Nothing here replaces a base file; each layer is merged by
-Claude Code or applied per launch.
+Additive overlays: settings, hooks and prompts for Claude Code, plus a launcher
+that runs it against local Ollama models. Nothing here replaces a base file;
+each layer is merged by Claude Code or applied per launch.
 
-## Layer order (higher number wins for scalars; lists such as `permissions.*` and `hooks.*` concatenate; `env` merges per key)
-
-1. `~/.claude/settings.json` (user, never edited by this repo)
-2. `<repo>/.claude/settings.json` (project, untouched)
-3. `<repo>/.claude/settings.local.json` (local) ← `project/settings.local.json`
-4. `--settings` (CLI layer, one file only): `personal/settings.tokens.json` via
-   the `claude` shell function, or `ollama/settings.<size>.json` via
-   `claude-ollama`
-5. Managed policy (untouched, always wins)
-
-`--settings` is a single slot. Passing it twice keeps only the last file, so
-`claude --settings other.json` drops the personal overlay for that session. The
-overlay denies tools you never use by bare name, so their schemas stay out of
-the context; to get one back, delete its name from the deny list or run
-`claude-tools <path>` and press `x`.
-
-To get a tool back on one machine only, list its name (one per line) in
-`~/.config/claude-custom/enabled-tools`. `personal/settings-path` then writes a
-copy of the overlay without those denies to
-`~/.cache/claude-custom/settings.tokens.json`, and the `claude` function loads
-that copy instead (or the shared overlay if `jq` fails).
-
-## Prerequisites
-
-| Tool                                        | Needed by                                                                                                       | Without it                                                              |
-| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `bash`                                      | `bin/claude-custom`, `bin/claude-ollama`, `bin/claude-tools` and every hook (macOS `/bin/bash` 3.2 is enough)   | nothing starts                                                          |
-| `python3`                                   | every `.py` hook, `shared/mcp/code-search.py`, the Python tests                                                 | hooks fail to start; no semantic search                                 |
-| `jq`                                        | `bin/claude-custom`, `bin/claude-ollama` (`doctor` needs it), `personal/settings-path`, the `fallow-*.sh` hooks | the fallow hooks exit silently and allow everything; `doctor` won't run |
-| `go` 1.26+                                  | `go/`: the model picker (`claude-ollama` with no size) and `claude-tools`                                       | `claude-ollama <size>` still works; the menu and `claude-tools` don't   |
-| `ollama`                                    | the work harness: `claude-ollama`, `bin/ollama-cache-probe`                                                     | the work harness can't run a model                                      |
-| `node` (`npx`) and `pnpm`                   | Prettier in `bin/ollama-profiles`; `pnpm install` enables the husky and lint-staged git hooks                   | `bin/ollama-profiles` fails; no git hooks                               |
-| `make` and `shellcheck`                     | `make test`, which the Stop hook and CI run                                                                     | `make test` fails                                                       |
-| optional: `ruff`, `gofmt` (ships with `go`) | `edit-check.py`                                                                                                 | that check is skipped                                                   |
-| optional: `fallow`                          | the fallow hooks and `stop-verify.py`                                                                           | fetched with `npx --yes fallow` on first use                            |
-| optional: `gitleaks`                        | the pre-commit secret check                                                                                     | a grep-based secret check                                               |
-
-On macOS: `brew install jq ollama go shellcheck node pnpm`. `make` and
-`/bin/bash` come with macOS and the Xcode command line tools.
-
-## Personal install
-
-```sh
-~/src/.claude-custom/bin/claude-custom install
-```
-
-This wires every shell it finds: zsh (`~/.zshrc`), bash (`~/.bashrc`,
-`~/.bash_profile`), ksh (`~/.kshrc`) and fish
-(`~/.config/fish/conf.d/claude-custom.fish`). Rc edits sit between
-`# >>> claude-custom >>>` markers and put `~/.local/bin` on PATH. It also links
-`claude-ollama`, `claude-tools` and `claude-custom` into `~/.local/bin`, removes
-hook links an older install left in `~/.claude/hooks/` (the hooks, see
-[Enforced preferences](#enforced-preferences), now run straight from
-`shared/hooks/`), adds an `@` import for `shared/preferences/PREFERENCES.md` to
-`~/.claude/CLAUDE.md` (and removes the retired `personal/CLAUDE.tokens.md`
-import), and rebuilds the Ollama models whose base model is pulled. Re-running
-it is safe. `~/.claude/settings.json` is left as is: the overlay loads on top of
-it via `--settings` on every interactive `claude` launch. Scripts, IDE
-extensions, the desktop app and `claude-ollama` don't get it. Run
-`command claude` to skip it once.
-
-Per repo, when you don't need claude.ai connectors there:
-`cp project/settings.local.json <repo>/.claude/settings.local.json`.
-
-Revert: `claude-custom uninstall`.
-
-## Enforced preferences
-
-Coding preferences are checked by hooks that Claude Code runs itself, so they
-apply the same way with Claude and with the local Ollama models. The personal
-overlay and both Ollama profiles wire the same core hooks (from
-`shared/settings/hooks.json`); the Ollama profiles add `tool-nudge.py`:
-
-| Hook                      | When                                                                       | What it does                                                                                                                                                                                                                                                                       |
-| ------------------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `bash-output-guard.py`    | Before a Bash command                                                      | Denies commands that would flood the context (unbounded `git log`, `cat` on a lockfile, recursive `ls`)                                                                                                                                                                            |
-| `bash-output-trim.py`     | After a Bash command                                                       | Trims output over 150 lines to the first 30, error/fail and test-summary lines from the middle (up to 40) and the last 60, clips lines over 400 chars, and says what was hidden                                                                                                    |
-| `read-range-guard.py`     | Before a Read                                                              | Denies reading a file over 300 lines unless the call asks for a range of 300 lines or fewer, and says to find the lines first                                                                                                                                                      |
-| `edit-check.py`           | After an Edit or Write                                                     | Runs the project's prettier and eslint from `node_modules/.bin`, and gofmt, go vet, ruff, shellcheck and `bash -n` from PATH when installed; rejects newly added comments; names the tool that failed and skips tools for file content that already passed                         |
-| `stop-verify.py`          | Before the model finishes                                                  | Runs Fallow (`audit` and `architecture`) in JS/TS projects and the project's `.claude/verify` script, if present, otherwise `make test`, `go test ./...` or `pnpm test` when the repo declares one (`.claude/no-verify` opts out); blocks at most once per turn                    |
-| `fallow-command-guard.sh` | Before a Bash command                                                      | Denies `fallow` without `--format json` and `fallow fix --yes` before a `--dry-run` in the same session (any repo); in JS/TS projects also denies `git commit`/`git push` while `fallow audit` fails                                                                               |
-| `fallow-mark-preview.sh`  | After a Bash command                                                       | Records that `fallow fix --dry-run` ran in this session, which unlocks `fallow fix --yes`                                                                                                                                                                                          |
-| `fallow-after-edit.sh`    | After an Edit or Write                                                     | Adds Fallow's findings for the edited JS/TS file as context                                                                                                                                                                                                                        |
-| `tool-nudge.py`           | Before Bash and `semantic_search`; after Bash, Read, Agent; on each prompt | Ollama profiles only. Denies a Bash command that starts with a text search (`grep`, `rg`, `ag`, `ack`, `git grep`) until `mcp__code-search__semantic_search` has been called in the turn, at most twice per turn; after the 6th read/search adds a reminder to delegate to `Agent` |
-
-Every settings file runs them as `"$CLAUDE_CUSTOM_HOME"/shared/hooks/<name>`.
-The `claude` shell function and `claude-ollama` set that variable for the
-`claude` process, so no symlinks are needed. A check only runs when the project
-has that tool installed. A failed check sends its output back to the model.
-Rules no tool can check live in `shared/preferences/PREFERENCES.md`, which every
-session loads through `~/.claude/CLAUDE.md`.
-
-To have your tests run before the model finishes, add an executable
-`.claude/verify` script to a project. This repo's own one runs every test suite.
-Without one, the hook runs `make test` (if the Makefile has a `test` target),
-else `go test ./...` (if `go.mod` exists), else `pnpm test` (if `package.json`
-has a `test` script). An empty `.claude/no-verify` file turns the fallback off.
-
-## Work harness (Ollama)
-
-Each size has its own base model, `-cc` model and profile files:
-
-| Size  | Model                 | Base model        | `-cc` model      |
-| ----- | --------------------- | ----------------- | ---------------- |
-| `27b` | Qwen 3.8 27B, dense   | `qwen3.8:27b-mlx` | `qwen3.8-27b-cc` |
-| `35b` | Qwen 3.6 35B-A3B, MoE | `qwen3.6:35b-mlx` | `qwen3.6-35b-cc` |
-
-27b (the default size):
-
-```sh
-ollama pull qwen3.8:27b-mlx   # 18 GB; optional, see below
-claude-custom install         # creates qwen3.8-27b-cc
-claude-ollama 27b [args...]   # or plain claude-ollama
-```
-
-35b:
-
-```sh
-ollama pull qwen3.6:35b-mlx   # 24 GB; optional, see below
-claude-custom install         # creates qwen3.6-35b-cc
-claude-ollama 35b [args...]
-```
-
-Both sizes:
-
-```sh
-claude-custom ollama 27b      # same as claude-ollama 27b: launches 27b directly
-claude-custom ollama          # pick a size in a menu
-claude-ollama -p "hello"      # no size: menu, then the args go straight to claude
-claude-ollama --help          # usage and the list of sizes
-```
-
-With no size, or a word that isn't a configured size (`28b`), `claude-ollama`
-opens a picker ([model-picker](go/cmd/model-picker/README.md)) and drops the
-unknown word. Without a terminal (scripts, pipes) it uses 27b instead. The
-picker needs Go 1.26+; passing a size never does.
-
-Sizes are declared in `ollama/sizes.json`. `bin/ollama-profiles` renders
-`settings.<size>.json` and `Modelfile.<size>` from
-`ollama/profile-template.json` and `ollama/profile-template.Modelfile`; the
-rendered files are committed, and `bin/ollama-profiles --check` fails when they
-are stale. To add a size, add an entry to `sizes.json`, run
-`bin/ollama-profiles`, and commit. The picker and `--help` pick up a new size
-without any script change.
-
-`claude-custom install` creates the `-cc` models from `ollama/Modelfile.<size>`
-once the base models are pulled. `claude-ollama` also does this itself for
-either size: when the `-cc` model is missing, it pulls the base model and
-creates the `-cc` model before starting `claude`. A failed pull stops the
-launch.
-
-The Haiku slot and all subagents run on a small side model, `qwen3:4b` from
-`ollama/side.Modelfile`, created as `qwen3-4b-cc`. Set it up once from the
-picker's "Set up side model" row. When it is missing, `claude-ollama` says so
-and sends subagents and the Haiku slot to the main model for that session; pass
-`--require-side-model` to exit instead. The profiles name it by ID in
-`CLAUDE_CODE_SUBAGENT_MODEL` and map the full Claude Haiku IDs to it in
-`modelOverrides`. They map no Claude ID to the main model: Claude Code names the
-model after the ID that maps to it, so the banner would say Sonnet. Forcing
-every subagent onto it needs Claude Code v2.1.257 or later.
-
-Plain `claude` stays on the personal setup. The profile only exists for that
-launch.
-
-### Model picker
-
-`go/cmd/model-picker/` is the terminal menu `claude-ollama` opens to choose a
-size. Each `settings.<size>.json` in `ollama/` with a matching
-`Modelfile.<size>` is one entry, showing the size, its `-cc` model and its base
-model. When `ollama/side.Modelfile` exists, a last row "Set up side model" runs
-`ollama pull` and `ollama create` for it and stays in the menu.
-
-```sh
-claude-custom ollama                       # opens the picker, then launches the chosen size
-cd go && go run ./cmd/model-picker ../ollama  # the picker on its own; prints the chosen size
-```
-
-Keys: `↑/k`, `↓/j`, `enter` to launch, `esc`/`q`/`ctrl+c` to cancel. Cancelling
-launches nothing. The picker is built by `claude-custom install` and rebuilt on
-launch only when a Go source file is newer than the binary. Details:
-`go/cmd/model-picker/README.md`.
-
-### Ollama server settings
-
-The profiles expect an Ollama server on `localhost:11434` with the settings in
-`ollama/server.env`. Nothing in this repo applies them. The launcher also sends
-a warm-up request with `keep_alive` 30m (`CLAUDE_OLLAMA_KEEP_ALIVE` overrides)
-so the first prompt doesn't wait for the model to load. The Homebrew service
-(`brew services start ollama`) sets the same values, and uses these paths:
-
-| What        | Homebrew value                                      |
-| ----------- | --------------------------------------------------- |
-| Binary      | `/opt/homebrew/opt/ollama/bin/ollama`               |
-| Command     | `ollama serve`                                      |
-| Working dir | `/opt/homebrew/var`                                 |
-| Log         | `/opt/homebrew/var/log/ollama.log`                  |
-| Service     | `~/Library/LaunchAgents/homebrew.mxcl.ollama.plist` |
-
-Without Homebrew, start the server with the same settings:
-`env $(cat ollama/server.env) ollama serve`.
-
-### Checking the setup
-
-`claude-ollama doctor [size]` checks the environment without pulling or
-launching anything. It needs `jq` on PATH (`brew install jq`); without it the
-launcher exits with an error. It reports each model (main, side, embedding),
-whether `num_ctx` in the Modelfile matches `CLAUDE_CODE_MAX_CONTEXT_TOKENS`,
-whether each hook named in `ollama/settings.<size>.json` exists and is
-executable under `shared/hooks/`, whether Ollama answers at `OLLAMA_HOST`, and
-whether the running server has every variable from `ollama/server.env`. A
-missing side model is a warning; anything else missing exits 1. The server-env
-check is how to confirm `server.env` is applied. The server's environment is
-read with `pgrep`/`ps` (or `/proc` on Linux).
-
-`claude-ollama --print-config [size]` prints the resolved values (model, base
-model, side model, embedding model, context sizes, settings path, tools) and the
-exact `claude` command, without launching.
-
-Sample `doctor` output (all healthy):
-
-```
-ok   jq on PATH
-ok   model qwen3.8-27b-cc
-ok   side model qwen3-4b-cc
-ok   embedding model qwen3-embedding:0.6b
-ok   num_ctx 65536 matches CLAUDE_CODE_MAX_CONTEXT_TOKENS
-ok   hook bash-output-guard.py present
-ok   ollama reachable at http://localhost:11434
-ok   server env OLLAMA_FLASH_ATTENTION=1
-```
-
-## Tools TUI
-
-`go/cmd/claude-tools/` is a terminal UI for Claude Code's built-in tools. It
-sets each tool to allow, ask or deny, and disables the ones you don't need so
-they stop taking up context. Press `f` inside it to switch between the user,
-project and local settings files.
-
-```sh
-claude-tools              # edits ~/.claude/settings.json
-claude-tools project      # ./.claude/settings.json in the current directory
-claude-tools local        # ./.claude/settings.local.json
-claude-tools path/to.json # any settings file
-```
-
-`claude-tools` is built by `claude-custom install` and rebuilt on launch only
-when a Go source file is newer than the binary, so it is current after
-`git pull`. Requires Go 1.26 or later. Keys, sync and write rules:
-`go/cmd/claude-tools/README.md`.
-
-## One entry point
-
-`claude-custom` also runs both launchers: `claude-custom ollama [...]` is
-`claude-ollama [...]`, and `claude-custom tools [...]` is `claude-tools [...]`.
-
-## Prompt-cache probe
-
-`bin/ollama-cache-probe` measures how much prefill the local Ollama server skips
-through its prompt cache. It sends seven fixed scenarios (cold, same prefix,
-growing chat, early and late edits, eviction, side model) and prints one row
-each. It changes no settings.
-
-```sh
-bin/ollama-cache-probe 27b                   # or 35b, or any model name
-bin/ollama-cache-probe 27b --prefix-tokens 8000 --json
-```
-
-Hit % comes from uncached token counts. If the server reports full counts
-instead, the probe warns and scores by prefill time per token. The late edit
-sits at 80% of the prefix, about 16k tokens at the default 20000.
-
-While it runs, it prints each step on stderr
-(`[n/7] <scenario>: <what it is doing>`) and how long it took; the cold step
-unloads and reloads the model, so it is the slowest. If the model is already
-loaded, it notes that requests queue behind any other session using it. After
-the table it prints one plain verdict line each for the cache, growing chat,
-eviction and side model. A failed eviction suggests `OLLAMA_NUM_PARALLEL=2`; a
-cache that isn't reused suggests a GGUF build.
-
-## Semantic code search
-
-`claude-ollama` starts `shared/mcp/code-search.py`, a stdlib-only MCP server
-with one tool, `semantic_search`. It embeds the repo with `qwen3-embedding:0.6b`
-(pulled on launch if missing) and returns `file:start-end` ranges with a score
-and a one-line preview, so the model reads only those lines. `claude-ollama`
-drops Grep and Glob (`--tools Bash,Read,Edit,Write,Agent`, plus bare deny
-rules), and `tool-nudge.py` refuses the first two Bash text searches of a turn
-until the tool has been called; exact names go through `git grep -n` after that.
-
-- Files: `git ls-files` plus untracked, non-ignored files. Lockfiles, minified
-  files, images, binaries and files over 200 KB are skipped.
-- Chunks: 40-line windows every 30 lines, vectors cut to 256 dimensions.
-- Index: `.git/code-search/index.json`. Each search re-embeds only files whose
-  content changed, so the first search in a repo is slow (about a minute for
-  this one) and later ones take well under a second. `claude-ollama` starts
-  `code-search.py --index` in the background on launch (set
-  `CLAUDE_OLLAMA_NO_INDEX=1` to skip), so the first search is usually fast.
-- `CODE_SEARCH_OLLAMA_URL` and `CODE_SEARCH_MODEL` override the server and
-  model. `claude-ollama` and the model picker follow `CODE_SEARCH_MODEL` too.
-- If the pull on launch fails, run `claude-ollama` and pick "Set up embedding
-  model" in the menu.
-- `ollama/CLAUDE.local.md` tells the model when to search (questions about what
-  code does), when to use `git grep -n` (exact names), and to fall back to
-  `git grep` and point you at that menu row when the search errors.
-
-## Tests
-
-- Everything: `make test` (or `.claude/verify`, which the Stop hook runs)
-- One suite: `make test-hooks`, `make test-install`, `make test-launcher`,
-  `make check-config`, `make check-profiles`, `make test-profiles`,
-  `make test-probe`, `make test-search`, `make test-go`
-- Installer: `personal/install.test.sh`; launcher: `bin/claude-ollama.test.sh`;
-  config invariants: `bin/check-config`
-- Lint: `make shellcheck`, `make check-json`
-
-## Another machine / updating
-
-Clone anywhere and install once:
+## Install
 
 ```sh
 git clone <remote> ~/src/.claude-custom
 ~/src/.claude-custom/bin/claude-custom install
 ```
 
-After that, `claude-custom update` pulls (fast-forward only) and re-runs
-install. Most changes are live after a plain `git pull`, because every link and
-rc block points into the repo. `update` also picks up new links and rebuilds
-changed Ollama models.
+`install` wires the `claude` shell function into zsh, bash, ksh and fish, and
+links `claude-ollama`, `claude-tools` and `claude-custom` into `~/.local/bin`.
+Revert with `claude-custom uninstall`. Prerequisites and what else install
+changes are in [install](docs/install.md).
+
+## Use
+
+- `claude`: the personal overlay (hooks, token discipline).
+- `claude-ollama [27b|35b]`: Claude Code on a local model.
+- `claude-tools`: edit which built-in tools Claude Code loads.
+- `make test`: every test suite, the same one the Stop hook and CI run.
+
+## Read more
+
+- [How settings layer](docs/layers.md)
+- [Install details and updating](docs/install.md)
+- [Enforced preferences, hooks and tests](docs/hooks.md)
+- [Work harness (Ollama)](docs/ollama.md)
+- [Tools TUI](docs/tools-tui.md)
+- [Prompt-cache probe](docs/cache-probe.md)
+- [Semantic code search](docs/code-search.md)

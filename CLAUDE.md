@@ -22,9 +22,9 @@ four parts:
 - **Tools TUI** (`go/cmd/claude-tools/`): a Go/Bubble Tea app that edits the
   bare-tool-name permission rules in a Claude Code settings file.
 
-Every file is additive. Nothing here replaces a base config. The layer order and
-install/revert steps are in `README.md`. Read it before changing how any file
-gets applied.
+Every file is additive. Nothing here replaces a base config. The layer order is
+in `docs/layers.md` and install/revert steps in `docs/install.md`. Read them
+before changing how any file gets applied.
 
 ## Commands
 

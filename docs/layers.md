@@ -1,0 +1,21 @@
+# Layer order (higher number wins for scalars; lists such as `permissions.*` and `hooks.*` concatenate; `env` merges per key)
+
+1. `~/.claude/settings.json` (user, never edited by this repo)
+2. `<repo>/.claude/settings.json` (project, untouched)
+3. `<repo>/.claude/settings.local.json` (local) ← `project/settings.local.json`
+4. `--settings` (CLI layer, one file only): `personal/settings.tokens.json` via
+   the `claude` shell function, or `ollama/settings.<size>.json` via
+   `claude-ollama`
+5. Managed policy (untouched, always wins)
+
+`--settings` is a single slot. Passing it twice keeps only the last file, so
+`claude --settings other.json` drops the personal overlay for that session. The
+overlay denies tools you never use by bare name, so their schemas stay out of
+the context; to get one back, delete its name from the deny list or run
+`claude-tools <path>` and press `x`.
+
+To get a tool back on one machine only, list its name (one per line) in
+`~/.config/claude-custom/enabled-tools`. `personal/settings-path` then writes a
+copy of the overlay without those denies to
+`~/.cache/claude-custom/settings.tokens.json`, and the `claude` function loads
+that copy instead (or the shared overlay if `jq` fails).
