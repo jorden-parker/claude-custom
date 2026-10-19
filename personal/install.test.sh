@@ -68,7 +68,7 @@ run_capture() {
 
 copy_repo() {
   mkdir -p "$1"
-  cp -R "$repo/bin" "$repo/personal" "$repo/shared" "$repo/ollama" "$repo/model-picker-tui" "$1/"
+  cp -R "$repo/bin" "$repo/personal" "$repo/shared" "$repo/ollama" "$repo/model-picker-tui" "$repo/tools-tui" "$1/"
 }
 
 make_all_rc_files() {
@@ -382,6 +382,34 @@ git -C "$sandbox/solo" -c user.name=t -c user.email=t@t commit -qm initial
 run_capture "$sandbox/solo/bin/claude-custom" update
 check_eq "no upstream exit status" 1 "$?"
 check_that "no upstream message" grep -q 'update: git pull failed' "$sandbox/err"
+
+new_sandbox
+copy_repo "$sandbox/repo"
+cat > "$sandbox/stubbin/go" <<'STUB'
+#!/bin/sh
+echo "$*" >> "$(dirname "$3")/../go.log"
+printf '#!/bin/sh\necho built\n' > "$3"
+chmod +x "$3"
+STUB
+chmod +x "$sandbox/stubbin/go"
+run_capture "$sandbox/repo/bin/claude-custom" install
+check_that "install builds the model picker" test -x "$sandbox/repo/model-picker-tui/model-picker"
+check_that "install builds claude-tools" test -x "$sandbox/repo/tools-tui/claude-tools"
+rm -f "$sandbox/repo/go.log"
+run_capture "$sandbox/repo/bin/claude-tools" local
+check_not "fresh binary is not rebuilt on launch" test -e "$sandbox/repo/go.log"
+check_that "claude-tools runs the prebuilt binary" grep -qxF built "$sandbox/out"
+touch "$sandbox/repo/tools-tui/main.go"
+run_capture "$sandbox/repo/bin/claude-tools" local
+check_that "newer source triggers a rebuild" grep -q 'build' "$sandbox/repo/go.log"
+rm "$sandbox/stubbin/go"
+run_capture "$sandbox/repo/bin/claude-tools" local
+check_eq "prebuilt binary runs without go" 0 "$?"
+check_that "prebuilt binary output without go" grep -qxF built "$sandbox/out"
+rm "$sandbox/repo/tools-tui/claude-tools"
+run_capture "$sandbox/repo/bin/claude-tools" local
+check_eq "no binary and no go exit status" 1 "$?"
+check_that "no binary and no go message" grep -qF "claude-tools: needs Go 1.26+" "$sandbox/err"
 
 if [ "$failures" -eq 0 ]; then
   echo "all passed"

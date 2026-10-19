@@ -89,7 +89,7 @@ run_capture() {
 
 copy_repo() {
   mkdir -p "$1"
-  cp -R "$repo/bin" "$repo/personal" "$repo/shared" "$repo/ollama" "$repo/model-picker-tui" "$1/"
+  cp -R "$repo/bin" "$repo/personal" "$repo/shared" "$repo/ollama" "$repo/model-picker-tui" "$repo/tools-tui" "$1/"
 }
 
 new_sandbox
@@ -209,16 +209,19 @@ cat > "$sandbox/stubbin/go" <<'STUB'
 printf '#!/bin/sh\nexit 1\n' > "$3"
 chmod +x "$3"
 STUB
+rm -f "$sandbox/repo/model-picker-tui/model-picker"
 script -q /dev/null "$sandbox/repo/bin/claude-ollama" >"$sandbox/out" 2>&1 </dev/null
 check_not "claude-ollama cancelled picker does not launch claude" grep -q 'ARGS:' "$sandbox/out"
 run_capture "$installer" ollama -p hi
 check_that "claude-custom ollama runs claude-ollama" grep -qF -- "$ollama_settings" "$sandbox/out"
 
 new_sandbox
-run_capture "$repo/bin/claude-tools" local
+copy_repo "$sandbox/repo"
+rm -f "$sandbox/repo/tools-tui/claude-tools"
+run_capture "$sandbox/repo/bin/claude-tools" local
 check_eq "claude-tools without go exit status" 1 "$?"
 check_that "claude-tools without go message" grep -qF "claude-tools: needs Go 1.26+" "$sandbox/err"
-run_capture "$installer" tools
+run_capture "$sandbox/repo/bin/claude-custom" tools
 check_that "claude-custom tools runs claude-tools" grep -qF "claude-tools: needs Go 1.26+" "$sandbox/err"
 run_capture "$installer" bogus
 check_eq "unknown subcommand exit status" 2 "$?"

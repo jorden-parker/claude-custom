@@ -27,12 +27,24 @@ is_configured_size() {
   [ -f "$profile_dir/settings.$1.json" ] && [ -f "$profile_dir/Modelfile.$1" ]
 }
 
-pick_size() {
+binary_is_current() {
+  local dir="$1" binary="$2"
+  [ -x "$binary" ] || return 1
+  [ -z "$(find "$dir" \( -name '*.go' -o -name 'go.mod' -o -name 'go.sum' \) -newer "$binary" -print -quit)" ]
+}
+
+ensure_built() {
+  local dir="$1" binary="$2" label="$3" hint="${4:-}"
+  binary_is_current "$dir" "$binary" && return 0
   if ! command -v go >/dev/null 2>&1; then
-    echo "claude-ollama: the model picker needs Go 1.26+ (https://go.dev/dl); or pass a size: $(configured_sizes | tr '\n' ' ')" >&2
-    exit 1
+    echo "$label: needs Go 1.26+ (https://go.dev/dl) to build $binary$hint" >&2
+    return 1
   fi
-  (cd "$picker_dir" && go build -o model-picker .) >&2
+  (cd "$dir" && go build -o "$(basename "$binary")" .) >&2
+}
+
+pick_size() {
+  ensure_built "$picker_dir" "$picker_dir/model-picker" claude-ollama "; or pass a size: $(configured_sizes | tr '\n' ' ')" || exit 1
   "$picker_dir/model-picker" "$profile_dir" || exit 130
 }
 

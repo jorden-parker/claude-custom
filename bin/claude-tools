@@ -3,10 +3,21 @@ set -euo pipefail
 
 tui_dir="$(cd "$(dirname "$(readlink -f "$0")")/../tools-tui" && pwd)"
 
-if ! command -v go >/dev/null 2>&1; then
-  echo "claude-tools: needs Go 1.26+ (https://go.dev/dl)" >&2
-  exit 1
-fi
+binary_is_current() {
+  local dir="$1" binary="$2"
+  [ -x "$binary" ] || return 1
+  [ -z "$(find "$dir" \( -name '*.go' -o -name 'go.mod' -o -name 'go.sum' \) -newer "$binary" -print -quit)" ]
+}
 
-(cd "$tui_dir" && go build -o claude-tools .)
+ensure_built() {
+  local dir="$1" binary="$2" label="$3" hint="${4:-}"
+  binary_is_current "$dir" "$binary" && return 0
+  if ! command -v go >/dev/null 2>&1; then
+    echo "$label: needs Go 1.26+ (https://go.dev/dl) to build $binary$hint" >&2
+    return 1
+  fi
+  (cd "$dir" && go build -o "$(basename "$binary")" .) >&2
+}
+
+ensure_built "$tui_dir" "$tui_dir/claude-tools" claude-tools || exit 1
 exec "$tui_dir/claude-tools" "$@"
