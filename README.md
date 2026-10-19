@@ -152,8 +152,9 @@ cd model-picker-tui && go run . ../ollama  # the picker on its own; prints the c
 ```
 
 Keys: `↑/k`, `↓/j`, `enter` to launch, `esc`/`q`/`ctrl+c` to cancel. Cancelling
-launches nothing. `claude-ollama` rebuilds the picker on each launch (instant
-when nothing changed). Details: `model-picker-tui/README.md`.
+launches nothing. The picker is built by `claude-custom install` and rebuilt on
+launch only when a Go source file is newer than the binary. Details:
+`model-picker-tui/README.md`.
 
 ### Ollama server settings
 
@@ -218,9 +219,10 @@ claude-tools local        # ./.claude/settings.local.json
 claude-tools path/to.json # any settings file
 ```
 
-`claude-tools` rebuilds the TUI from the repo on each launch (instant when
-nothing changed), so it is current after `git pull`. Requires Go 1.26 or later.
-Keys, sync and write rules: `tools-tui/README.md`.
+`claude-tools` is built by `claude-custom install` and rebuilt on launch only
+when a Go source file is newer than the binary, so it is current after
+`git pull`. Requires Go 1.26 or later. Keys, sync and write rules:
+`tools-tui/README.md`.
 
 ## One entry point
 

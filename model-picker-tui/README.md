@@ -11,9 +11,9 @@ claude-ollama 28b             # unknown size: opens the picker too
 go run . ../ollama            # the picker on its own; prints the chosen size
 ```
 
-`claude-ollama` rebuilds the binary on each launch (instant when nothing
-changed). Keys: `↑/k`, `↓/j`, `enter` to launch or set up, `esc`/`q`/`ctrl+c` to
-cancel.
+`claude-custom install` builds the binary, and `claude-ollama` rebuilds it on
+launch only when a Go source file is newer than the binary. Keys: `↑/k`, `↓/j`,
+`enter` to launch or set up, `esc`/`q`/`ctrl+c` to cancel.
 
 ## Profiles
 

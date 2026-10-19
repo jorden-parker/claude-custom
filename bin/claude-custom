@@ -294,6 +294,12 @@ guard_repo_path() {
   esac
 }
 
+build_go_apps() {
+  command -v go >/dev/null 2>&1 || { echo "skip: go not installed; TUIs build on first launch" >&2; return 0; }
+  (cd "$repo_dir/model-picker-tui" && go build -o model-picker .) || { echo "fail: build model-picker" >&2; status=1; }
+  (cd "$repo_dir/tools-tui" && go build -o claude-tools .) || { echo "fail: build claude-tools" >&2; status=1; }
+}
+
 install_all() {
   guard_repo_path
   place_links
@@ -303,6 +309,7 @@ install_all() {
   retire_plan_001_fish_link
   wire_shells
   refresh_ollama_models
+  build_go_apps
   print_activation
 }
 
