@@ -39,6 +39,12 @@ expect deny  'ls -la -R'
 expect deny  'ls --recursive src'
 expect allow 'ls -la --color'
 expect allow 'echo "ls -R is slow"'
+expect deny  'git log | head'
+expect allow 'git log -n 5 --stat'
+expect allow 'echo "cat package-lock.json"'
+expect deny  'less go.sum'
+expect allow 'ls -l -a'
+expect deny  'find . | ls -R'
 
 if [ "$failures" -eq 0 ]; then
   echo "all passed"

@@ -71,10 +71,11 @@ conventional commits (`feat:`, `fix:`, `chore:`).
 
 - `shared/hooks/bash-output-guard.py` is a `PreToolUse` hook on Bash. It denies
   commands that would flood the context (unbounded `git log`, `cat` on a
-  lockfile, recursive `ls`). Each rule is one `(regex, reason)` entry in
-  `UNBOUNDED_COMMANDS`. Every regex starts with `COMMAND_START`, so it only
-  matches at the start of a command segment and ignores text inside arguments. A
-  new rule needs both `expect deny` and `expect allow` cases in the test script.
+  lockfile, recursive `ls`). Each rule in `UNBOUNDED_COMMANDS` is built by
+  `needs_bounding_flag`, `must_not_open` or `must_not_use_flag`, which prepend
+  `COMMAND_START` so a rule only matches at the start of a command segment and
+  ignores text inside arguments. A new rule needs both `expect deny` and
+  `expect allow` cases in the test script.
 - `shared/hooks/bash-output-trim.py` is a `PostToolUse` hook on Bash. It
   shortens long stdout/stderr through `updatedToolOutput`, keeping head, tail
   and error/fail lines plus a marker naming the hidden line range. The reply
