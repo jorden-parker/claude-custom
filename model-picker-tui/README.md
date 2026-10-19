@@ -27,15 +27,15 @@ runs `ollama pull <FROM>` and `ollama create <name> -f side.Modelfile`, where
 the name is the `ANTHROPIC_DEFAULT_HAIKU_MODEL` all settings files share. The
 output goes to stderr, and the menu stays open with a ready or failed status.
 
-The last row is always "Set up embedding model". Enter on it runs
-`ollama pull` for the model `semantic_search` uses: `CODE_SEARCH_MODEL` when
-set, otherwise `qwen3-embedding:0.6b`. It needs no config file. Output and
-status work the same as the side model row.
+The last row is always "Set up embedding model". Enter on it runs `ollama pull`
+for the model `semantic_search` uses: `CODE_SEARCH_MODEL` when set, otherwise
+`qwen3-embedding:0.6b`. It needs no config file. Output and status work the same
+as the side model row.
 
 The menu renders on stderr in the alternate screen, so a setup run's output
-doesn't leave a second copy of the menu behind. Only the chosen size goes to stdout. Exit codes: 0
-when a size is chosen, 1 when the menu is cancelled, 2 for usage errors or when
-no profiles are configured.
+doesn't leave a second copy of the menu behind. Only the chosen size goes to
+stdout. Exit codes: 0 when a size is chosen, 1 when the menu is cancelled, 2 for
+usage errors or when no profiles are configured.
 
 ## Test
 
