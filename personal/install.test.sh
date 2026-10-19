@@ -3,6 +3,7 @@ set -u
 repo="$(cd "$(dirname "$0")/.." && pwd -P)"
 installer="$repo/bin/claude-custom"
 fish_bin="$(command -v fish 2>/dev/null || true)"
+jq_bin="$(command -v jq)"
 failures=0
 sandboxes=""
 remove_sandboxes() {
@@ -107,6 +108,27 @@ if [ -n "$fish_bin" ]; then
   check_eq "fish function exports CLAUDE_CUSTOM_HOME to claude" "$repo" "$(cat "$sandbox/custom-home-env")"
 else
   echo "skip: fish not installed"
+fi
+
+new_sandbox
+mkdir -p "$HOME/.config/claude-custom"
+printf 'Artifact\n' > "$HOME/.config/claude-custom/enabled-tools"
+local_overlay="$HOME/.cache/claude-custom/settings.tokens.json"
+printf '#!/bin/sh\nexit 1\n' > "$sandbox/stubbin/jq"
+chmod +x "$sandbox/stubbin/jq"
+check_eq "failed machine overlay keeps the shared overlay" "$want_args" \
+  "$(CLAUDE_CUSTOM_HOME="$repo" sh -c ". \"$repo/personal/claude.sh\"; claude a 'b c'" 2>/dev/null)"
+ln -sf "$jq_bin" "$sandbox/stubbin/jq"
+check_eq "sh function uses the machine overlay" "ARGS: --settings $local_overlay a b c" \
+  "$(CLAUDE_CUSTOM_HOME="$repo" sh -c ". \"$repo/personal/claude.sh\"; claude a 'b c'" 2>&1)"
+check_eq "machine overlay drops the enabled tool" "[]" \
+  "$(jq -c '.permissions.deny | map(select(. == "Artifact"))' "$local_overlay")"
+check_eq "machine overlay keeps the other denies" \
+  "$(jq -c '.permissions.deny - ["Artifact"]' "$repo/personal/settings.tokens.json")" \
+  "$(jq -c '.permissions.deny' "$local_overlay")"
+if [ -n "$fish_bin" ]; then
+  check_eq "fish function uses the machine overlay" "ARGS: --settings $local_overlay a b c" \
+    "$("$fish_bin" --no-config -c "set -g CLAUDE_CUSTOM_HOME $repo; source $repo/personal/claude.fish; claude a 'b c'" 2>&1)"
 fi
 
 new_sandbox

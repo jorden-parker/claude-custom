@@ -1,0 +1,23 @@
+#!/bin/sh
+set -u
+repo_dir="$(cd "$(dirname "$0")/.." && pwd -P)"
+shared_overlay="$repo_dir/personal/settings.tokens.json"
+enabled_tools="${XDG_CONFIG_HOME:-$HOME/.config}/claude-custom/enabled-tools"
+machine_overlay="${XDG_CACHE_HOME:-$HOME/.cache}/claude-custom/settings.tokens.json"
+
+write_machine_overlay() {
+  mkdir -p "${machine_overlay%/*}" &&
+    jq --rawfile enabled "$enabled_tools" \
+      '.permissions.deny -= ($enabled | split("\n") | map(gsub("^\\s+|\\s+$"; "")) | map(select(. != "")))' \
+      "$shared_overlay" > "$machine_overlay.tmp" &&
+    mv "$machine_overlay.tmp" "$machine_overlay"
+}
+
+if [ ! -r "$enabled_tools" ]; then
+  echo "$shared_overlay"
+elif write_machine_overlay; then
+  echo "$machine_overlay"
+else
+  echo "claude-custom: could not apply $enabled_tools" >&2
+  echo "$shared_overlay"
+fi

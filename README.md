@@ -19,6 +19,12 @@ overlay denies tools you never use by bare name, so their schemas stay out of
 the context; to get one back, delete its name from the deny list or run
 `claude-tools <path>` and press `x`.
 
+To get a tool back on one machine only, list its name (one per line) in
+`~/.config/claude-custom/enabled-tools`. `personal/settings-path` then writes a
+copy of the overlay without those denies to
+`~/.cache/claude-custom/settings.tokens.json`, and the `claude` function loads
+that copy instead (or the shared overlay if `jq` fails).
+
 ## Personal install
 
 ```sh

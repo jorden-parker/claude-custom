@@ -205,7 +205,9 @@ commitlint enforces conventional commits (`feat:`, `fix:`, `chore:`).
   replaces the first, so `bin/claude-ollama` launches don't get the personal
   overlay (the Ollama profiles carry their own deny globs and hooks). Top-level
   scalars in the overlay override the user file, so don't add keys to the
-  overlay that `~/.claude/settings.json` already sets.
+  overlay that `~/.claude/settings.json` already sets. Both functions get the
+  file from `personal/settings-path`, which drops the bare denies listed in
+  `~/.config/claude-custom/enabled-tools` (per machine, outside the repo).
 - `go/internal/picker/` has two packages: `profiles` (`Load` reads the
   configured sizes from `ollama/`, `EmbeddingModel` the search model) and `ui`
   (the Bubble Tea model).
