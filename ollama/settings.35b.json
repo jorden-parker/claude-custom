@@ -131,7 +131,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/tool-telemetry.py"
+            "command": "[ -z \"$CLAUDE_TOOL_TELEMETRY\" ] || \"$CLAUDE_CUSTOM_HOME\"/shared/hooks/tool-telemetry.py"
           }
         ]
       },

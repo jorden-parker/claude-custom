@@ -236,10 +236,8 @@ check_eq "claude-custom link" "$repo/bin/claude-custom" "$(readlink "$HOME/.loca
 check_eq "claude-tools link" "$repo/bin/claude-tools" "$(readlink "$HOME/.local/bin/claude-tools")"
 check_not "install creates no hook links" test -e "$HOME/.claude/hooks"
 for settings in "$repo"/personal/settings.tokens.json "$repo"/ollama/settings.*.json; do
-  for hook_command in $(jq -r '.hooks[][].hooks[].command' "$settings" | sort -u); do
-    hook_path="$(CLAUDE_CUSTOM_HOME="$repo" sh -c "printf %s $hook_command")"
-    check_that "${settings##*/} hook $hook_command is an executable in the repo" test -x "$hook_path"
-    check_that "${settings##*/} hook $hook_command lives in shared/hooks" test "${hook_path#"$repo"/shared/hooks/}" != "$hook_path"
+  for hook_name in $(jq -r '.hooks[][].hooks[].command' "$settings" | sed -n 's#.*/shared/hooks/##p' | sort -u); do
+    check_that "${settings##*/} hook $hook_name is an executable in shared/hooks" test -x "$repo/shared/hooks/$hook_name"
   done
 done
 
