@@ -154,6 +154,19 @@ printf 'def draw_chart(points, password):\n    return render_svg_axis(points)\n'
 search "password check" >/dev/null
 check "a changed file is embedded again on its own" [ "$(embedded_inputs_last_call)" = "2" ]
 
+index_file="$repo/.git/code-search/index.json"
+modified_time() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1"; }
+before="$(modified_time "$index_file")"
+sleep 2
+search "password check" >/dev/null
+after="$(modified_time "$index_file")"
+check "the index is not rewritten when nothing changed" [ "$before" = "$after" ]
+
+chmod 000 "$repo/src/chart.py"
+still="$(search "chart" | reply_text)"
+chmod 644 "$repo/src/chart.py"
+check "an unchanged file is served from the index without being read" contains "$still" "src/chart.py"
+
 rm "$repo/src/auth.py"
 gone="$(search "password check" | reply_text)"
 check "deleted files drop out of results" lacks "$gone" "src/auth.py"

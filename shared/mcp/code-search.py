@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import hashlib
+import heapq
 import json
 import os
 import subprocess
@@ -171,28 +172,40 @@ def preview(chunk_text):
     return next((line[:PREVIEW_CHARS] for line in meaningful), "")
 
 
+def file_signature(path):
+    info = path.stat()
+    return [info.st_size, info.st_mtime_ns]
+
+
+def refreshed_entry(name, root, known):
+    signature = file_signature(root / name)
+    if known and known.get("stat") == signature:
+        return known
+    text = read_text(root / name)
+    if text is None:
+        return None
+    digest = hashlib.sha1(text.encode("utf-8")).hexdigest()
+    if known and known["hash"] == digest:
+        return {**known, "stat": signature}
+    return {"hash": digest, "stat": signature, "chunks": indexed_file(name, text)}
+
+
 def refreshed_index(root, files):
     current = {}
     for name in candidate_files(root):
-        text = read_text(root / name)
-        if text is None:
-            continue
-        digest = hashlib.sha1(text.encode("utf-8")).hexdigest()
-        known = files.get(name)
-        if known and known["hash"] == digest:
-            current[name] = known
-        else:
-            current[name] = {"hash": digest, "chunks": indexed_file(name, text)}
+        entry = refreshed_entry(name, root, files.get(name))
+        if entry is not None:
+            current[name] = entry
     return current
 
 
-def ranked_chunks(files, query_vector):
-    scored = [
+def ranked_chunks(files, query_vector, limit):
+    scored = (
         (sum(a * b for a, b in zip(query_vector, chunk["vector"])), name, chunk)
         for name, entry in files.items()
         for chunk in entry["chunks"]
-    ]
-    return sorted(scored, key=lambda item: item[0], reverse=True)
+    )
+    return heapq.nlargest(limit, scored, key=lambda item: item[0])
 
 
 def result_line(score, name, chunk):
@@ -201,8 +214,10 @@ def result_line(score, name, chunk):
 
 def refreshed_files(root):
     path = index_path(root)
-    files = refreshed_index(root, load_index(path))
-    save_index(path, files)
+    known = load_index(path)
+    files = refreshed_index(root, known)
+    if files != known:
+        save_index(path, files)
     return files
 
 
@@ -215,7 +230,7 @@ def search(query, limit):
     query_vectors = embed([QUERY_INSTRUCTION + query])
     if not query_vectors:
         raise SearchError(f"{EMBED_MODEL} returned no embedding for the query.")
-    lines = [result_line(*item) for item in ranked_chunks(files, query_vectors[0])[:limit]]
+    lines = [result_line(*item) for item in ranked_chunks(files, query_vectors[0], limit)]
     return "\n".join(lines) or "No indexed code yet."
 
 
