@@ -1,6 +1,2 @@
-# managed by git-precommit-setup
 .husky/staged-checks.sh
 lint-staged
-if [ -f tsconfig.json ] && git diff --cached --name-only --diff-filter=AM | grep -qE '\.(ts|tsx)$'; then
-  tsc --noEmit -p tsconfig.json
-fi

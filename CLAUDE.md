@@ -59,10 +59,8 @@ There is no build step outside the two Go apps. `claude-tools` builds
 `tools-tui/` and `claude-ollama` builds `model-picker-tui/model-picker`
 (gitignored) on launch. `pnpm install` enables git hooks (husky): pre-commit
 checks staged files for conflict markers, files over 1 MB and secrets, then
-lint-staged runs Prettier on staged `.md`/`.json` (plus ESLint on JS/TS).
-commitlint enforces conventional commits (`feat:`, `fix:`, `chore:`). The
-ESLint/TypeScript/React config is unused boilerplate from `git-precommit-setup`;
-there is no `src/`.
+lint-staged runs Prettier on staged `.md`/`.json`/`.yml`. commitlint enforces
+conventional commits (`feat:`, `fix:`, `chore:`).
 
 ## How the pieces connect
 
