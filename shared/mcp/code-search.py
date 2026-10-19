@@ -192,11 +192,19 @@ def result_line(score, name, chunk):
     return f"{name}:{chunk['start']}-{chunk['end']}  {score:.2f}  {chunk['preview']}"
 
 
-def search(query, limit):
-    root = repo_root()
+def refreshed_files(root):
     path = index_path(root)
     files = refreshed_index(root, load_index(path))
     save_index(path, files)
+    return files
+
+
+def build_index():
+    return len(refreshed_files(repo_root()))
+
+
+def search(query, limit):
+    files = refreshed_files(repo_root())
     query_vector = embed([QUERY_INSTRUCTION + query])[0]
     lines = [result_line(*item) for item in ranked_chunks(files, query_vector)[:limit]]
     return "\n".join(lines) or "No indexed code yet."
@@ -247,6 +255,13 @@ def response(message):
 
 
 def main():
+    if sys.argv[1:] == ["--index"]:
+        try:
+            print(f"indexed {build_index()} files")
+        except SearchError as error:
+            print(error, file=sys.stderr)
+            sys.exit(1)
+        return
     for line in sys.stdin:
         if not line.strip():
             continue

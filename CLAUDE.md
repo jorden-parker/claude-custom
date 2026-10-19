@@ -114,8 +114,8 @@ conventional commits (`feat:`, `fix:`, `chore:`).
 - `shared/hooks/tool-nudge.py` is wired only in the Ollama profiles
   (UserPromptSubmit resets its per-session state under
   `~/.claude/cache/tool-nudge/`). As PreToolUse on Bash and
-  `mcp__code-search__semantic_search` it denies a Bash command that leads with
-  a text search (`grep`, `rg`, `ag`, `ack`, `git grep`) until the MCP tool has
+  `mcp__code-search__semantic_search` it denies a Bash command that leads with a
+  text search (`grep`, `rg`, `ag`, `ack`, `git grep`) until the MCP tool has
   been called in the turn, at most twice per turn so a dead server can't lock
   the model out. As PostToolUse on Bash, Read and Agent it adds
   `additionalContext` once per turn after the 6th read-or-search (delegate to
@@ -175,12 +175,13 @@ conventional commits (`feat:`, `fix:`, `chore:`).
 - `shared/mcp/code-search.py` is the `semantic_search` MCP server (JSON-RPC over
   stdio, stdlib only). It embeds chunks through Ollama `/api/embed`, keeps its
   index in `.git/code-search/index.json` and re-embeds only changed files.
-  `bin/claude-ollama` pulls its model (`CODE_SEARCH_MODEL`, default
-  `qwen3-embedding:0.6b`); the model picker's "Set up embedding model" row pulls
-  it too. The default name appears once in each of `bin/claude-ollama`,
-  `code-search.py` and `model-picker-tui/profiles/embedding.go`, and
-  `bin/check-config` checks they agree. The Ollama profiles allow the tool in
-  `permissions.allow`.
+  `claude-ollama` starts `code-search.py --index` in the background on launch
+  (`CLAUDE_OLLAMA_NO_INDEX=1` skips it). `bin/claude-ollama` pulls its model
+  (`CODE_SEARCH_MODEL`, default `qwen3-embedding:0.6b`); the model picker's "Set
+  up embedding model" row pulls it too. The default name appears once in each of
+  `bin/claude-ollama`, `code-search.py` and
+  `model-picker-tui/profiles/embedding.go`, and `bin/check-config` checks they
+  agree. The Ollama profiles allow the tool in `permissions.allow`.
 - `ollama/server.env` documents the Ollama server env the profiles expect. The
   Homebrew service sets the same values. Nothing in this repo applies it.
   `bin/claude-ollama` sends a background warm-up `keep_alive` request to

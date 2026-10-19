@@ -165,6 +165,15 @@ check "long files are split into line ranges" contains "$long" "src/long.py:31-7
 limited="$(call semantic_search '{"query": "filler", "limit": 1}' | reply_text)"
 check "limit caps the number of results" [ "$(printf '%s\n' "$limited" | grep -c '^src/')" = "1" ]
 
+rm -f "$repo/.git/code-search/index.json"
+(cd "$repo" && python3 "$server" --index >"$tmp/index.out" 2>&1)
+check "index mode exit status" [ $? -eq 0 ]
+check "index mode writes the index" test -f "$repo/.git/code-search/index.json"
+check "index mode prints a summary" grep -qE '^indexed [0-9]+ files' "$tmp/index.out"
+(cd "$tmp" && python3 "$server" --index >"$tmp/index-nogit.out" 2>&1)
+check "index mode outside git exits 1" [ $? -eq 1 ]
+check "index mode outside git says why" grep -q 'git repository' "$tmp/index-nogit.out"
+
 stop_stub
 down="$(search "password check")"
 check "an unreachable Ollama is reported as a tool error" [ "$(printf '%s' "$down" | reply_is_error)" = "True" ]

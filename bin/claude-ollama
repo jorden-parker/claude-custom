@@ -107,6 +107,12 @@ warm_model() {
     -d "{\"model\":\"$model\",\"keep_alive\":\"$keep_alive\"}" >/dev/null 2>&1 &
 }
 
+warm_search_index() {
+  [ -z "${CLAUDE_OLLAMA_NO_INDEX:-}" ] || return 0
+  git rev-parse --show-toplevel >/dev/null 2>&1 || return 0
+  nohup python3 "$repo_dir/shared/mcp/code-search.py" --index >/dev/null 2>&1 &
+}
+
 claude_command() {
   printf 'claude --settings %s --system-prompt-file %s --append-system-prompt-file %s --strict-mcp-config --mcp-config %s --model %s --tools %s' \
     "$settings_file" "$profile_dir/system-prompt.md" "$profile_dir/CLAUDE.$size.md" "$(mcp_config)" "$model" "$tools"
@@ -271,6 +277,7 @@ esac
 
 ensure_model
 ensure_embedding_model
+warm_search_index
 ensure_side_model || settings_file="$(fallback_settings_file)"
 warm_model
 
