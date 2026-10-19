@@ -230,6 +230,19 @@ for settings in "$repo"/ollama/settings.*.json; do
     "$(jq -S .permissions.deny "$repo/ollama/settings.27b.json")" "$(jq -S .permissions.deny "$settings")"
   check_that "${settings##*/} denies Workflow" \
     test "$(jq -r '.permissions.deny | index("Workflow") != null' "$settings")" = true
+  check_that "${settings##*/} allows Agent" \
+    test "$(jq -r '.permissions.deny | index("Agent") == null' "$settings")" = true
+  check_eq "${settings##*/} sends Haiku to the side model" \
+    "$(jq -r .env.ANTHROPIC_DEFAULT_HAIKU_MODEL "$repo/ollama/settings.27b.json")" \
+    "$(jq -r .env.ANTHROPIC_DEFAULT_HAIKU_MODEL "$settings")"
+done
+
+check_eq "side model context matches the main models" \
+  "$(grep num_ctx "$repo/ollama/Modelfile.27b")" "$(grep num_ctx "$repo/ollama/side.Modelfile")"
+
+for settings in "$repo/personal/settings.tokens.json" "$repo"/ollama/settings.*.json; do
+  check_eq "${settings##*/} sets subagents to Haiku" haiku "$(jq -r .env.CLAUDE_CODE_SUBAGENT_MODEL "$settings")"
+  check_eq "${settings##*/} forces the subagent model" 1 "$(jq -r .env.CLAUDE_CODE_SUBAGENT_MODEL_FORCE "$settings")"
   check_eq "${settings##*/} keeps the personal Read globs" \
     "$(jq -S '[.permissions.deny[] | select(startswith("Read("))]' "$repo/personal/settings.tokens.json")" \
     "$(jq -S '[.permissions.deny[] | select(startswith("Read("))]' "$settings")"
@@ -393,20 +406,23 @@ for settings in "$repo"/ollama/settings.*.json; do
   done
 done
 check_that "claude-ollama defaults to 27b" grep -qF -- "$ollama_settings" "$sandbox/out"
-check_that "claude-ollama passes claude args through" grep -qF -- "--tools Bash,Read,Edit,Write -p hi" "$sandbox/out"
+check_that "claude-ollama passes claude args through" grep -qF -- "--tools Bash,Read,Edit,Write,Agent -p hi" "$sandbox/out"
 run_capture "$repo/bin/claude-ollama" 27b -p hi
-check_that "claude-ollama keeps the explicit size form" grep -qF -- "--tools Bash,Read,Edit,Write -p hi" "$sandbox/out"
+check_that "claude-ollama keeps the explicit size form" grep -qF -- "--tools Bash,Read,Edit,Write,Agent -p hi" "$sandbox/out"
 run_capture "$repo/bin/claude-ollama" 35b -p hi
 check_that "claude-ollama 35b uses the 35b settings" grep -qF -- "--settings $repo/ollama/settings.35b.json" "$sandbox/out"
 check_that "claude-ollama 35b uses the 35b prompt" grep -qF -- "--append-system-prompt-file $repo/ollama/CLAUDE.35b.md" "$sandbox/out"
 check_that "claude-ollama replaces the default system prompt" grep -qF -- "--system-prompt-file $repo/ollama/system-prompt.md --append-system-prompt-file $repo/ollama/CLAUDE.35b.md" "$sandbox/out"
-check_that "claude-ollama 35b passes claude args through" grep -qF -- "--tools Bash,Read,Edit,Write -p hi" "$sandbox/out"
+check_that "claude-ollama 35b passes claude args through" grep -qF -- "--tools Bash,Read,Edit,Write,Agent -p hi" "$sandbox/out"
 check_not "claude-ollama 35b skips pull when the model exists" grep -sqE '^(pull|create) ' "$sandbox/ollama.log"
+check_not "claude-ollama does not warn when the side model exists" grep -q 'side model' "$sandbox/err"
 check_that "claude-ollama starts the code-search MCP server" grep -qF -- "--strict-mcp-config --mcp-config {\"mcpServers\":{\"code-search\":{\"command\":\"python3\",\"args\":[\"$repo/shared/mcp/code-search.py\"]}}}" "$sandbox/out"
 STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" 35b -p hi
 check_that "claude-ollama 35b pulls a missing base model" grep -qxF "pull qwen3.6:35b-mlx" "$sandbox/ollama.log"
 check_that "claude-ollama 35b creates the missing model" grep -qxF "create qwen3.6-35b-cc -f $repo/ollama/Modelfile.35b" "$sandbox/ollama.log"
 check_that "claude-ollama 35b launches after pulling" grep -qF -- "--settings $repo/ollama/settings.35b.json" "$sandbox/out"
+check_that "claude-ollama warns about a missing side model" grep -qF "side model qwen3-4b-cc missing" "$sandbox/err"
+check_not "claude-ollama does not pull the side model itself" grep -qxF "pull qwen3:4b" "$sandbox/ollama.log"
 check_that "claude-ollama pulls a missing embedding model" grep -qxF "pull qwen3-embedding:0.6b" "$sandbox/ollama.log"
 rm -f "$sandbox/ollama.log"
 STUB_OLLAMA_SHOW_EXIT=1 STUB_OLLAMA_PULL_EXIT=1 run_capture "$repo/bin/claude-ollama" 35b -p hi
@@ -432,7 +448,7 @@ check_not "claude-ollama help does not launch claude" grep -q '^ARGS:' "$sandbox
 run_capture "$repo/bin/claude-ollama" 28b -p hi </dev/null
 check_that "claude-ollama unknown size without a tty falls back to 27b" grep -qF -- "$ollama_settings" "$sandbox/out"
 check_not "claude-ollama drops an unknown size" grep -qF "28b" "$sandbox/out"
-check_that "claude-ollama unknown size keeps claude args" grep -qF -- "Edit,Write -p hi" "$sandbox/out"
+check_that "claude-ollama unknown size keeps claude args" grep -qF -- "Agent -p hi" "$sandbox/out"
 
 new_sandbox
 copy_repo "$sandbox/repo"

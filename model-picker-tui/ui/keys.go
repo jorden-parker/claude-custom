@@ -13,7 +13,7 @@ func newKeyMap() keyMap {
 	return keyMap{
 		Up:     key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("↑/k", "up")),
 		Down:   key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("↓/j", "down")),
-		Select: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "launch")),
+		Select: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "select")),
 		Cancel: key.NewBinding(key.WithKeys("esc", "q", "ctrl+c"), key.WithHelp("esc/q", "cancel")),
 	}
 }

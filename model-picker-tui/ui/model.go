@@ -10,14 +10,16 @@ import (
 
 type Model struct {
 	profiles []profiles.Profile
+	side     profiles.SideModel
 	cursor   int
 	chosen   bool
+	status   string
 	keys     keyMap
 	help     help.Model
 }
 
-func New(configured []profiles.Profile) Model {
-	return Model{profiles: configured, keys: newKeyMap(), help: help.New()}
+func New(configured []profiles.Profile, side profiles.SideModel) Model {
+	return Model{profiles: configured, side: side, keys: newKeyMap(), help: help.New()}
 }
 
 func (m Model) Chosen() (profiles.Profile, bool) {
@@ -37,6 +39,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.help.SetWidth(msg.Width)
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
+	case sideSetupDoneMsg:
+		m.status = setupStatus(msg)
 	}
 	return m, nil
 }
@@ -46,12 +50,31 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.Up):
 		m.cursor = max(m.cursor-1, 0)
 	case key.Matches(msg, m.keys.Down):
-		m.cursor = min(m.cursor+1, len(m.profiles)-1)
+		m.cursor = min(m.cursor+1, m.rowCount()-1)
 	case key.Matches(msg, m.keys.Select):
-		m.chosen = true
-		return m, tea.Quit
+		return m.selectRow()
 	case key.Matches(msg, m.keys.Cancel):
 		return m, tea.Quit
 	}
 	return m, nil
+}
+
+func (m Model) selectRow() (tea.Model, tea.Cmd) {
+	if m.onSideRow() {
+		m.status = "setting up " + m.side.Name + "…"
+		return m, runSetup(m.side)
+	}
+	m.chosen = true
+	return m, tea.Quit
+}
+
+func (m Model) rowCount() int {
+	if m.side.Configured() {
+		return len(m.profiles) + 1
+	}
+	return len(m.profiles)
+}
+
+func (m Model) onSideRow() bool {
+	return m.side.Configured() && m.cursor == len(m.profiles)
 }

@@ -22,6 +22,12 @@ func (m Model) View() tea.View {
 	for i, profile := range m.profiles {
 		b.WriteString(m.row(profile, i == m.cursor) + "\n")
 	}
+	if m.side.Configured() {
+		b.WriteString(m.sideRow() + "\n")
+	}
+	if m.status != "" {
+		b.WriteString("\n" + mutedStyle.Render(m.status) + "\n")
+	}
 	b.WriteString("\n" + m.help.View(m.keys) + "\n")
 	return tea.NewView(b.String())
 }
@@ -32,4 +38,13 @@ func (m Model) row(profile profiles.Profile, selected bool) string {
 		return selectedStyle.Render("> "+sizeStyle.Render(profile.Size)) + details
 	}
 	return "  " + sizeStyle.Render(profile.Size) + details
+}
+
+func (m Model) sideRow() string {
+	label := "Set up side model  "
+	details := mutedStyle.Render(m.side.Base + " → " + m.side.Name)
+	if m.onSideRow() {
+		return selectedStyle.Render("> "+label) + details
+	}
+	return "  " + label + details
 }

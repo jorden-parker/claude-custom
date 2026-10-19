@@ -105,7 +105,16 @@ there is no `src/`.
   `--strict-mcp-config` plus an inline `--mcp-config` for the code-search
   server, and restricts tools with `--tools` (built-in tools only; MCP tools
   still load). Before launching, it pulls the base model and creates the `-cc`
-  model when `ollama show` can't find the `-cc` model.
+  model when `ollama show` can't find the `-cc` model. It only warns when the
+  side model is missing.
+- The **side model** (`ollama/side.Modelfile`, `qwen3:4b` created as
+  `qwen3-4b-cc`) fills the Haiku slot: every Ollama profile sets
+  `ANTHROPIC_DEFAULT_HAIKU_MODEL` to it. The file is not `Modelfile.side`
+  because `Modelfile.*` must pair with a `settings.<size>.json`. The model
+  picker's "Set up side model" row pulls and creates it. Both the Ollama
+  profiles and `personal/settings.tokens.json` force subagents onto Haiku with
+  `CLAUDE_CODE_SUBAGENT_MODEL=haiku` and `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1`,
+  so `Agent` is allowed in `--tools` and not in the deny list.
 - `bin/claude-ollama` reads the configured sizes from `ollama/` (a
   `settings.<size>.json` plus a `Modelfile.<size>`), never a hardcoded list. A
   first arg that matches launches that size. Otherwise, on a terminal it runs

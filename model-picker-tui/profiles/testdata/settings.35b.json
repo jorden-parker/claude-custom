@@ -1,1 +1,1 @@
-{ "model": "qwen3.6-35b-cc" }
+{ "model": "qwen3.6-35b-cc", "env": { "ANTHROPIC_DEFAULT_HAIKU_MODEL": "qwen3-4b-cc" } }

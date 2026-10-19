@@ -111,6 +111,10 @@ either size: when the `-cc` model is missing, it pulls the base model and
 creates the `-cc` model before starting `claude`. A failed pull stops the
 launch.
 
+The Haiku slot and all subagents run on a small side model, `qwen3:4b` from
+`ollama/side.Modelfile`, created as `qwen3-4b-cc`. Set it up once from the
+picker's "Set up side model" row. `claude-ollama` warns when it is missing.
+
 Plain `claude` stays on the personal setup. The profile only exists for that
 launch.
 
@@ -118,7 +122,9 @@ launch.
 
 `model-picker-tui/` is the terminal menu `claude-ollama` opens to choose a size.
 Each `settings.<size>.json` in `ollama/` with a matching `Modelfile.<size>` is
-one entry, showing the size, its `-cc` model and its base model.
+one entry, showing the size, its `-cc` model and its base model. When
+`ollama/side.Modelfile` exists, a last row "Set up side model" runs
+`ollama pull` and `ollama create` for it and stays in the menu.
 
 ```sh
 claude-custom ollama                       # opens the picker, then launches the chosen size
@@ -199,9 +205,9 @@ cache that isn't reused suggests a GGUF build.
 with one tool, `semantic_search`. It embeds the repo with `qwen3-embedding:0.6b`
 (pulled on launch if missing) and returns `file:start-end` ranges with a score
 and a one-line preview, so the model reads only those lines. `claude-ollama`
-drops Grep and Glob (`--tools Bash,Read,Edit,Write`, plus bare deny rules), and
-the working rules tell the model to always search first; exact names go through
-`git grep -n`.
+drops Grep and Glob (`--tools Bash,Read,Edit,Write,Agent`, plus bare deny
+rules), and the working rules tell the model to always search first; exact names
+go through `git grep -n`.
 
 - Files: `git ls-files` plus untracked, non-ignored files. Lockfiles, minified
   files, images, binaries and files over 200 KB are skipped.

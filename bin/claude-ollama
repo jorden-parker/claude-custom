@@ -5,7 +5,7 @@ repo_dir="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 profile_dir="$repo_dir/ollama"
 picker_dir="$repo_dir/model-picker-tui"
 default_size=27b
-tools="Bash,Read,Edit,Write"
+tools="Bash,Read,Edit,Write,Agent"
 embedding_model="qwen3-embedding:0.6b"
 
 configured_sizes() {
@@ -56,6 +56,13 @@ ensure_embedding_model() {
     echo "claude-ollama: could not pull $embedding_model; semantic_search will fail until it is pulled" >&2
 }
 
+ensure_side_model() {
+  local name
+  name="$(jq -r .env.ANTHROPIC_DEFAULT_HAIKU_MODEL "$profile_dir/settings.$size.json")"
+  ollama show "$name" >/dev/null 2>&1 && return 0
+  echo "claude-ollama: side model $name missing; subagents will fail until you run claude-ollama and pick 'Set up side model'" >&2
+}
+
 mcp_config() {
   printf '{"mcpServers":{"code-search":{"command":"python3","args":["%s"]}}}' \
     "$repo_dir/shared/mcp/code-search.py"
@@ -82,6 +89,7 @@ fi
 
 ensure_model
 ensure_embedding_model
+ensure_side_model
 
 unset ANTHROPIC_API_KEY
 exec claude \
