@@ -73,4 +73,22 @@ check "clipped lines say how much was cut" contains "$clipped" "chars hidden"
 no_response="$(printf '{"tool_name":"Bash","tool_input":{"command":"ls"}}' | python3 "$hook")"
 check "missing tool_response is ignored" [ -z "$no_response" ]
 
-[ "$failures" -eq 0 ] && echo "all passed" || { echo "$failures failed"; exit 1; }
+go_ok_line="$(printf 'ok\texample.com/pkg/a\t0.012s')"
+summary_output="$(numbered_lines 1000 \
+  | sed "s|^line 400$|$go_ok_line|" \
+  | sed 's|^line 450$|=== 13 passed in 0.40s ===|' \
+  | sed 's|^line 480$|Tests:       13 passed, 13 total|' \
+  | sed 's|^line 520$|PASS|')"
+kept="$(run_hook Bash "$summary_output" "" | field stdout)"
+check "go package ok line is kept" contains "$kept" "example.com/pkg/a"
+check "pytest summary is kept" contains "$kept" "13 passed in"
+check "jest totals line is kept" contains "$kept" "13 total"
+check "bare PASS line is kept" has_line "$kept" "PASS"
+check "summary lines count toward the budget" line_count_at_most "$kept" 140
+
+if [ "$failures" -eq 0 ]; then
+  echo "all passed"
+else
+  echo "$failures failed"
+  exit 1
+fi

@@ -9,7 +9,14 @@ TAIL_LINES = 60
 MAX_SIGNAL_LINES = 40
 MAX_LINE_CHARS = 400
 SIGNAL = re.compile(r"error|fail|panic|traceback|exception|fatal|assert", re.IGNORECASE)
+SUMMARY = re.compile(
+    r"^(?:ok|PASS|FAIL)\b|\b\d+ (?:passed|failed|skipped|total)\b|^Tests:|^Test Suites:|^=+ .* =+$"
+)
 STREAMS = ("stdout", "stderr")
+
+
+def is_signal(line):
+    return bool(SIGNAL.search(line) or SUMMARY.search(line))
 
 
 def clip_line(line):
@@ -29,7 +36,7 @@ def trim_lines(lines):
     if len(lines) <= MAX_LINES:
         return lines
     middle = lines[HEAD_LINES:-TAIL_LINES]
-    signals = [line for line in middle if SIGNAL.search(line)][:MAX_SIGNAL_LINES]
+    signals = [line for line in middle if is_signal(line)][:MAX_SIGNAL_LINES]
     marker = hidden_marker(len(middle) - len(signals), HEAD_LINES + 1, len(lines) - TAIL_LINES)
     return lines[:HEAD_LINES] + signals + [marker] + lines[-TAIL_LINES:]
 
