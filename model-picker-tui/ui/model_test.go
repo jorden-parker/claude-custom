@@ -2,7 +2,9 @@ package ui
 
 import (
 	"errors"
+	"io"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -124,7 +126,7 @@ func TestSetupResultShowsInView(t *testing.T) {
 }
 
 func TestSetupCommandPullsAndCreates(t *testing.T) {
-	cmd := setupCommand(side)
+	cmd := setupCommand(side, io.Discard)
 	if cmd.Stdout != os.Stderr {
 		t.Fatal("setup output must go to stderr; stdout carries the chosen size")
 	}
@@ -136,4 +138,37 @@ func TestSetupCommandPullsAndCreates(t *testing.T) {
 	if !strings.Contains(setupScript, "ollama pull") || !strings.Contains(setupScript, "ollama create") {
 		t.Fatalf("script does not pull and create: %s", setupScript)
 	}
+}
+
+func TestSetupFailureShowsOllamaError(t *testing.T) {
+	fakeOllama(t, "echo 'pulling manifest'; printf '\\033[KError: pull model manifest: file does not exist\\n' >&2; exit 1")
+	var output strings.Builder
+	cmd := setupCommand(side, &output)
+	cmd.Stdout = io.Discard
+	msg := setupResult(cmd.Run(), output.String())
+	updated, _ := New(configured, side).Update(msg)
+	view := updated.(Model).View().Content
+	if !strings.Contains(view, "side model setup failed: pull model manifest: file does not exist") {
+		t.Fatalf("view missing ollama error:\n%s", view)
+	}
+}
+
+func TestSetupFailureWithoutOllamaErrorShowsExitStatus(t *testing.T) {
+	fakeOllama(t, "exit 3")
+	var output strings.Builder
+	cmd := setupCommand(side, &output)
+	msg := setupResult(cmd.Run(), output.String())
+	if got := setupStatus(msg); got != "side model setup failed: exit status 3" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func fakeOllama(t *testing.T, body string) {
+	t.Helper()
+	dir := t.TempDir()
+	script := "#!/bin/sh\n" + body + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "ollama"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
