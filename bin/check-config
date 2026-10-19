@@ -107,6 +107,14 @@ for settings in "$repo"/ollama/settings.*.json; do
   check_that "${settings##*/} allows semantic_search" allows_semantic_search "$settings"
 done
 
+gates_text_search() {
+  jq -e '[.hooks.PreToolUse[] | select(.matcher | test("Bash") and test("semantic_search")) | .hooks[].command] | any(test("tool-nudge"))' "$1" >/dev/null
+}
+
+for settings in "$repo"/ollama/settings.*.json; do
+  check_that "${settings##*/} runs tool-nudge.py before Bash and semantic_search" gates_text_search "$settings"
+done
+
 if [ "$failures" -eq 0 ]; then
   echo "all passed"
 else
