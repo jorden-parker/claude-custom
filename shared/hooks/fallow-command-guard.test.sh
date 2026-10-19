@@ -32,4 +32,13 @@ expect_eq "git commit with failing audit" deny "$(failing_decision 'git commit -
 expect_eq "git push with failing audit" deny "$(failing_decision 'git -C . push')"
 expect_eq "git inside an argument" allow "$(failing_decision 'echo git commit')"
 expect_eq "git commit outside a js project" allow "$(failing_decision 'git commit' s1 "$sandbox")"
+expect_eq "pipe inside a quoted pattern" allow "$(decision 'grep -nE "a|fallow|b" README.md')"
+expect_eq "semicolon inside a commit message" allow "$(decision 'git commit -m "x; fallow audit"')"
+expect_eq "fallow after a newline" deny "$(decision $'echo x\nfallow audit')"
+expect_eq "env assignment before fallow" deny "$(decision 'FOO=1 fallow audit')"
+expect_eq "absolute npx" deny "$(decision '/opt/homebrew/bin/npx fallow audit')"
+expect_eq "global option before fix" deny "$(decision 'fallow --root . fix --yes --format json')"
+expect_eq "root option with explain" allow "$(decision 'fallow --root . explain unused-export')"
+expect_eq "heredoc body line starting with fallow" allow "$(decision $'cat > f <<\'EOF\'\n- 001: fallow hook\nfallow audit\nEOF\ngit status')"
+expect_eq "multi-line commit message with fallow line" allow "$(decision $'git commit -m "subject\n\nfallow line here"')"
 finish

@@ -49,3 +49,45 @@ fallow_audit_report() {
   [ "$verdict" = "fail" ] && return 1
   return 0
 }
+
+fallow_command_segments() {
+  python3 -I - "$1" <<'PY'
+import re
+import shlex
+import sys
+
+SEPARATOR_CHARS = ";|&()\n"
+HEREDOC_BODY = re.compile(r"(<<-?[ \t]*(['\"]?)(\w+)\2[^\n]*)\n.*?^[ \t]*\3[ \t]*$", re.S | re.M)
+
+
+def flatten(word):
+    return word.replace("\t", " ").replace("\n", " ")
+
+
+def is_separator(token):
+    return set(token) <= set(SEPARATOR_CHARS)
+
+
+def lex(command):
+    lexer = shlex.shlex(HEREDOC_BODY.sub(r"\1", command), posix=True, punctuation_chars=SEPARATOR_CHARS)
+    lexer.whitespace = " \t\r"
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    return lexer
+
+
+def emit(words):
+    if words:
+        print("\t".join(flatten(word) for word in words))
+
+
+current = []
+for token in lex(sys.argv[1]):
+    if is_separator(token):
+        emit(current)
+        current = []
+    else:
+        current.append(token)
+emit(current)
+PY
+}
