@@ -44,6 +44,7 @@ new_sandbox() {
   export HOME="$sandbox/home"
   mkdir -p "$HOME" "$sandbox/stubbin"
   unset ZDOTDIR XDG_CONFIG_HOME CLAUDE_CONFIG_DIR STUB_OLLAMA_SHOW_EXIT STUB_OLLAMA_PULL_EXIT
+  unset STUB_OLLAMA_PID STUB_OLLAMA_ENV STUB_CURL_EXIT STUB_OLLAMA_MISSING
   export SHELL=/bin/zsh
   cat > "$sandbox/stubbin/claude" <<EOF
 #!/bin/sh
@@ -54,15 +55,27 @@ EOF
   cat > "$sandbox/stubbin/ollama" <<EOF
 #!/bin/sh
 echo "\$*" >> "$sandbox/ollama.log"
-if [ "\$1" = show ]; then exit "\${STUB_OLLAMA_SHOW_EXIT:-0}"; fi
+if [ "\$1" = show ]; then
+  [ "\$2" = "\${STUB_OLLAMA_MISSING:-}" ] && exit 1
+  exit "\${STUB_OLLAMA_SHOW_EXIT:-0}"
+fi
 if [ "\$1" = pull ]; then exit "\${STUB_OLLAMA_PULL_EXIT:-0}"; fi
 exit 0
 EOF
   cat > "$sandbox/stubbin/curl" <<EOF
 #!/bin/sh
 echo "\$*" >> "$sandbox/curl.log"
+exit "\${STUB_CURL_EXIT:-0}"
 EOF
-  chmod +x "$sandbox/stubbin/claude" "$sandbox/stubbin/ollama" "$sandbox/stubbin/curl"
+  cat > "$sandbox/stubbin/pgrep" <<'EOF'
+#!/bin/sh
+[ -n "${STUB_OLLAMA_PID:-}" ] && echo "$STUB_OLLAMA_PID"
+EOF
+  cat > "$sandbox/stubbin/ps" <<'EOF'
+#!/bin/sh
+echo "ollama serve ${STUB_OLLAMA_ENV:-}"
+EOF
+  chmod +x "$sandbox/stubbin/claude" "$sandbox/stubbin/ollama" "$sandbox/stubbin/curl" "$sandbox/stubbin/pgrep" "$sandbox/stubbin/ps"
   export PATH="$sandbox/stubbin:/usr/bin:/bin"
 }
 
@@ -198,6 +211,84 @@ check_that "claude-custom tools runs claude-tools" grep -qF "claude-tools: needs
 run_capture "$installer" bogus
 check_eq "unknown subcommand exit status" 2 "$?"
 check_that "usage lists the new subcommands" grep -qF "install|update|uninstall|ollama|tools" "$sandbox/err"
+
+new_sandbox
+run_capture "$repo/bin/claude-ollama" --print-config 35b
+check_eq "print-config exit status" 0 "$?"
+check_not "print-config does not launch claude" grep -q '^ARGS:' "$sandbox/out"
+check_not "print-config does not pull or create" grep -sqE '^(pull|create) ' "$sandbox/ollama.log"
+check_that "print-config shows the size" grep -qxF "size: 35b" "$sandbox/out"
+check_that "print-config shows the model" grep -qxF "model: qwen3.6-35b-cc" "$sandbox/out"
+check_that "print-config shows the base model" grep -qxF "base: qwen3.6:35b-mlx" "$sandbox/out"
+check_that "print-config shows the side model" grep -qxF "side model: qwen3-4b-cc" "$sandbox/out"
+check_that "print-config shows the embedding model" grep -qxF "embedding model: qwen3-embedding:0.6b" "$sandbox/out"
+check_that "print-config shows num_ctx" grep -qxF "num_ctx: 65536" "$sandbox/out"
+check_that "print-config shows context tokens" grep -qxF "max context tokens: 65536" "$sandbox/out"
+check_that "print-config shows the settings path" grep -qxF "settings: $repo/ollama/settings.35b.json" "$sandbox/out"
+check_that "print-config shows the tools" grep -qxF "tools: Bash,Read,Edit,Write,Agent" "$sandbox/out"
+check_that "print-config shows the command" grep -q '^command: claude --settings ' "$sandbox/out"
+run_capture "$repo/bin/claude-ollama" --print-config </dev/null
+check_that "print-config without a size uses the default" grep -qxF "size: 27b" "$sandbox/out"
+
+new_sandbox
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m" run_capture "$repo/bin/claude-ollama" doctor 27b
+check_eq "doctor healthy exit status" 0 "$?"
+check_that "doctor reports jq" grep -qxF "ok   jq on PATH" "$sandbox/out"
+check_that "doctor reports the main model" grep -qxF "ok   model qwen3.8-27b-cc" "$sandbox/out"
+check_that "doctor reports the side model" grep -qxF "ok   side model qwen3-4b-cc" "$sandbox/out"
+check_that "doctor reports the embedding model" grep -qxF "ok   embedding model qwen3-embedding:0.6b" "$sandbox/out"
+check_that "doctor reports context sizes agree" grep -qxF "ok   num_ctx 65536 matches CLAUDE_CODE_MAX_CONTEXT_TOKENS" "$sandbox/out"
+check_that "doctor reports hooks" grep -qxF "ok   hook stop-verify.py present" "$sandbox/out"
+check_that "doctor reports reachability" grep -qxF "ok   ollama reachable at http://localhost:11434" "$sandbox/out"
+check_that "doctor reports server env" grep -qxF "ok   server env OLLAMA_KV_CACHE_TYPE=q8_0" "$sandbox/out"
+check_not "doctor does not launch claude" grep -q '^ARGS:' "$sandbox/out"
+check_not "doctor does not pull or create" grep -sqE '^(pull|create) ' "$sandbox/ollama.log"
+
+new_sandbox
+STUB_OLLAMA_SHOW_EXIT=1 STUB_OLLAMA_PID=42 run_capture "$repo/bin/claude-ollama" doctor 27b
+check_eq "doctor with missing models exit status" 1 "$?"
+check_that "doctor fails the main model" grep -qxF "fail model qwen3.8-27b-cc missing (run claude-ollama 27b to pull and create it)" "$sandbox/out"
+check_that "doctor warns about the side model" grep -qxF "warn side model qwen3-4b-cc missing (pick 'Set up side model' in claude-ollama)" "$sandbox/out"
+check_that "doctor fails the embedding model" grep -qxF "fail embedding model qwen3-embedding:0.6b missing (pick 'Set up embedding model' in claude-ollama)" "$sandbox/out"
+check_that "doctor fails server env" grep -qxF "fail server env OLLAMA_FLASH_ATTENTION=1 not set on the running server" "$sandbox/out"
+
+new_sandbox
+STUB_OLLAMA_MISSING=qwen3-4b-cc STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m" run_capture "$repo/bin/claude-ollama" doctor 27b
+check_eq "doctor with only the side model missing exits 0" 0 "$?"
+check_that "doctor warns only about the side model" grep -qxF "warn side model qwen3-4b-cc missing (pick 'Set up side model' in claude-ollama)" "$sandbox/out"
+
+new_sandbox
+copy_repo "$sandbox/repo"
+sed 's/num_ctx 65536/num_ctx 32768/' "$sandbox/repo/ollama/Modelfile.27b" > "$sandbox/Modelfile.27b"
+mv "$sandbox/Modelfile.27b" "$sandbox/repo/ollama/Modelfile.27b"
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m" run_capture "$sandbox/repo/bin/claude-ollama" doctor 27b
+check_eq "doctor with mismatched context sizes exit status" 1 "$?"
+check_that "doctor fails mismatched context sizes" grep -qxF "fail num_ctx 32768 differs from CLAUDE_CODE_MAX_CONTEXT_TOKENS 65536" "$sandbox/out"
+
+new_sandbox
+copy_repo "$sandbox/repo"
+rm "$sandbox/repo/shared/hooks/edit-check.py"
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m" run_capture "$sandbox/repo/bin/claude-ollama" doctor 27b
+check_eq "doctor with a missing hook exit status" 1 "$?"
+check_that "doctor fails a missing hook" grep -qxF "fail hook edit-check.py missing or not executable in shared/hooks" "$sandbox/out"
+
+new_sandbox
+STUB_CURL_EXIT=7 run_capture "$repo/bin/claude-ollama" doctor 27b
+check_eq "doctor with no server exit status" 1 "$?"
+check_that "doctor fails when the server is unreachable" grep -qxF "fail ollama not reachable at http://localhost:11434 (brew services start ollama)" "$sandbox/out"
+check_that "doctor fails when no server process runs" grep -qxF "fail ollama server not running (brew services start ollama)" "$sandbox/out"
+
+new_sandbox
+nojq="$sandbox/nojq"
+mkdir -p "$nojq"
+for tool in /usr/bin/* /bin/*; do
+  [ "${tool##*/}" = jq ] || ln -sf "$tool" "$nojq/"
+done
+PATH="$sandbox/stubbin:$nojq" run_capture "$repo/bin/claude-ollama" doctor 27b
+check_eq "doctor without jq exit status" 1 "$?"
+check_that "doctor without jq says jq is required" grep -qxF "claude-ollama: jq is required (brew install jq)" "$sandbox/err"
+check_not "doctor without jq does not launch claude" grep -q '^ARGS:' "$sandbox/out"
+
 if [ "$failures" -eq 0 ]; then
   echo "all passed"
 else

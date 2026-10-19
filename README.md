@@ -174,6 +174,36 @@ so the first prompt doesn't wait for the model to load. The Homebrew service
 Without Homebrew, start the server with the same settings:
 `env $(cat ollama/server.env) ollama serve`.
 
+### Checking the setup
+
+`claude-ollama doctor [size]` checks the environment without pulling or
+launching anything. It needs `jq` on PATH (`brew install jq`); without it the
+launcher exits with an error. It reports each model (main, side, embedding),
+whether `num_ctx` in the Modelfile matches `CLAUDE_CODE_MAX_CONTEXT_TOKENS`,
+whether each hook named in `ollama/settings.<size>.json` exists and is
+executable under `shared/hooks/`, whether Ollama answers at `OLLAMA_HOST`, and
+whether the running server has every variable from `ollama/server.env`. A
+missing side model is a warning; anything else missing exits 1. The server-env
+check is how to confirm `server.env` is applied. The server's environment is
+read with `pgrep`/`ps` (or `/proc` on Linux).
+
+`claude-ollama --print-config [size]` prints the resolved values (model, base
+model, side model, embedding model, context sizes, settings path, tools) and the
+exact `claude` command, without launching.
+
+Sample `doctor` output (all healthy):
+
+```
+ok   jq on PATH
+ok   model qwen3.8-27b-cc
+ok   side model qwen3-4b-cc
+ok   embedding model qwen3-embedding:0.6b
+ok   num_ctx 65536 matches CLAUDE_CODE_MAX_CONTEXT_TOKENS
+ok   hook bash-output-guard.py present
+ok   ollama reachable at http://localhost:11434
+ok   server env OLLAMA_FLASH_ATTENTION=1
+```
+
 ## Tools TUI
 
 `tools-tui/` is a terminal UI for Claude Code's built-in tools. It sets each
