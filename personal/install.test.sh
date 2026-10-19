@@ -60,7 +60,22 @@ if [ "\$1" = pull ]; then exit "\${STUB_OLLAMA_PULL_EXIT:-0}"; fi
 exit 0
 EOF
   chmod +x "$sandbox/stubbin/claude" "$sandbox/stubbin/ollama"
-  export PATH="$sandbox/stubbin:/usr/bin:/bin"
+  link_system_tools
+  export PATH="$sandbox/stubbin:$sandbox/sysbin"
+}
+
+link_system_tools() {
+  local entry name
+  mkdir -p "$sandbox/sysbin"
+  for entry in /usr/bin/* /bin/*; do
+    name="${entry##*/}"
+    case "$name" in
+      go|gofmt) continue ;;
+    esac
+    if [ -x "$entry" ] && [ ! -e "$sandbox/sysbin/$name" ]; then
+      ln -s "$entry" "$sandbox/sysbin/$name"
+    fi
+  done
 }
 
 run_capture() {
@@ -183,12 +198,12 @@ fi
 
 new_sandbox
 run_capture "$installer" install
-path_once="$(zsh -f -c "PATH=/usr/bin:/bin; . \"$HOME/.zshrc\"; echo \$PATH")"
+path_once="$(zsh -f -c "PATH=\"$sandbox/sysbin\"; . \"$HOME/.zshrc\"; echo \$PATH")"
 case "$path_once" in
   "$HOME/.local/bin:"*) ;;
   *) fail "zshrc puts ~/.local/bin first on PATH: $path_once" ;;
 esac
-path_twice="$(zsh -f -c "PATH=/usr/bin:/bin; . \"$HOME/.zshrc\"; . \"$HOME/.zshrc\"; echo \$PATH")"
+path_twice="$(zsh -f -c "PATH=\"$sandbox/sysbin\"; . \"$HOME/.zshrc\"; . \"$HOME/.zshrc\"; echo \$PATH")"
 check_eq "sourcing zshrc twice does not duplicate PATH entry" 1 \
   "$(printf '%s\n' "$path_twice" | tr ':' '\n' | grep -cxF "$HOME/.local/bin")"
 
