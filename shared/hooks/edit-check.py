@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
+import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 OUTPUT_LINE_LIMIT = 40
+CACHE_DIR = Path(os.environ.get("EDIT_CHECK_CACHE_DIR") or Path.home() / ".cache" / "claude-custom" / "edit-check")
+CACHE_MAX_FILES = 500
+CACHE_MAX_AGE_SECONDS = 7 * 24 * 60 * 60
 EXTENSION_LANGUAGES = {
     ".go": "go",
     ".ts": "js", ".tsx": "js", ".js": "js", ".jsx": "js", ".mjs": "js", ".cjs": "js",
@@ -85,6 +91,31 @@ def first_lines(text):
     return "\n".join(text.strip().splitlines()[:OUTPUT_LINE_LIMIT])
 
 
+def content_key(path):
+    digest = hashlib.sha1(path.read_bytes()).hexdigest()
+    return CACHE_DIR / f"{digest}-{path.name}"
+
+
+def already_passed(path):
+    return path.is_file() and content_key(path).exists()
+
+
+def prune_cache():
+    entries = list(CACHE_DIR.iterdir())
+    if len(entries) <= CACHE_MAX_FILES:
+        return
+    cutoff = time.time() - CACHE_MAX_AGE_SECONDS
+    for entry in entries:
+        if entry.stat().st_mtime < cutoff:
+            entry.unlink(missing_ok=True)
+
+
+def remember_pass(path):
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    content_key(path).touch()
+    prune_cache()
+
+
 def run_check(command, cwd, output_means_failure):
     result = subprocess.run(command, cwd=cwd, capture_output=True, text=True)
     output = (result.stdout + result.stderr).strip()
@@ -135,7 +166,7 @@ def comment_failure(comments):
 
 def failures_for(path, tool_input, language):
     failures = [comment_failure(added_comments(path, tool_input, language))]
-    if path.is_file():
+    if path.is_file() and not already_passed(path):
         failures += [run_check(*check) for check in LANGUAGE_CHECKS[language](path)]
     return [failure for failure in failures if failure]
 
@@ -150,6 +181,8 @@ def main():
     if failures:
         print(f"Checks failed for {path}. Fix them before moving on.\n\n" + "\n\n".join(failures), file=sys.stderr)
         sys.exit(2)
+    if path.is_file():
+        remember_pass(path)
 
 
 main()

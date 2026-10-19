@@ -87,9 +87,10 @@ conventional commits (`feat:`, `fix:`, `chore:`).
   disabled for the local models: Edit refuses files that weren't Read first.
 - `shared/hooks/edit-check.py` (PostToolUse on Edit/Write/MultiEdit) runs the
   edited file's project-local formatter/linter and rejects newly added comments.
-  `shared/hooks/stop-verify.py` (Stop) runs Fallow in JS/TS projects and the
-  project's `.claude/verify`; it blocks once per turn (`stop_hook_active`). Both
-  exit 2 so the model sees stderr.
+  It caches passes by content hash under `~/.cache/claude-custom/edit-check`
+  (`EDIT_CHECK_CACHE_DIR` overrides). `shared/hooks/stop-verify.py` (Stop) runs
+  Fallow in JS/TS projects and the project's `.claude/verify`; it blocks once
+  per turn (`stop_hook_active`). Both exit 2 so the model sees stderr.
 - The `fallow-*.sh` hooks gate Fallow use in JS/TS projects and share
   `shared/hooks/fallow-lib.sh` (sourced from the hook's own directory).
   `fallow-command-guard.sh` (PreToolUse on Bash) denies `fallow` calls without

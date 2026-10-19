@@ -34,14 +34,14 @@ run_write() {
   printf '%s' "$content" > "$file"
   printf '{"tool_name":"Write","tool_input":{"file_path":%s,"content":%s}}' \
     "$(json_string "$file")" "$(json_string "$content")" \
-    | PATH="$stubs:$PATH" python3 "$hook" >/dev/null 2>"$sandbox/stderr"
+    | PATH="$stubs:$PATH" EDIT_CHECK_CACHE_DIR="$sandbox/cache" python3 "$hook" >/dev/null 2>"$sandbox/stderr"
 }
 
 run_edit() {
   local file="$1" old="$2" new="$3"
   printf '{"tool_name":"Edit","tool_input":{"file_path":%s,"old_string":%s,"new_string":%s}}' \
     "$(json_string "$file")" "$(json_string "$old")" "$(json_string "$new")" \
-    | PATH="$stubs:$PATH" python3 "$hook" >/dev/null 2>"$sandbox/stderr"
+    | PATH="$stubs:$PATH" EDIT_CHECK_CACHE_DIR="$sandbox/cache" python3 "$hook" >/dev/null 2>"$sandbox/stderr"
 }
 
 verdict() {
@@ -105,5 +105,18 @@ expect deny  'extensionless bash'  run_write "$sandbox/bin/tool" $'#!/usr/bin/en
 
 expect allow 'markdown headings'   run_write "$sandbox/doc/README.md" $'# Title\n\n## Section\n'
 expect allow 'yaml is not checked' run_write "$sandbox/doc/a.yml" $'# comment\nkey: 1\n'
+
+rm -rf "$sandbox/cache"
+rm -f "$sandbox/go/main.go"
+expect allow 'first clean write runs gofmt' run_write "$sandbox/go/main.go" $'package main\n\nfunc main() {}\n'
+printf '' > "$sandbox/gofmt.log"
+make_stub gofmt 'echo "$2" >> "'"$sandbox"'/gofmt.log"; grep -l UNFORMATTED "$2" || true'
+expect allow 'same content again is allowed' run_write "$sandbox/go/main.go" $'package main\n\nfunc main() {}\n'
+check_eq_lines() { [ "$(wc -l < "$1" | tr -d ' ')" = "$2" ] || { echo "FAIL: $3"; failures=$((failures + 1)); }; }
+check_eq_lines "$sandbox/gofmt.log" 0 'unchanged content skips gofmt'
+expect allow 'changed content runs gofmt' run_write "$sandbox/go/main.go" $'package main\n\nfunc main() { run() }\n'
+check_eq_lines "$sandbox/gofmt.log" 1 'changed content runs gofmt once'
+expect deny  'failure is never cached' run_write "$sandbox/go/main.go" $'package main\n\nfunc main() {} // UNFORMATTED\n'
+expect deny  'failure is re-run next time' run_write "$sandbox/go/main.go" $'package main\n\nfunc main() {} // UNFORMATTED\n'
 
 [ "$failures" -eq 0 ] && echo "all passed" || { echo "$failures failed"; exit 1; }
