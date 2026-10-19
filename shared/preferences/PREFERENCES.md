@@ -26,3 +26,11 @@ These rules apply to every project and every language, with no exceptions.
   suppress it. (enforced by stop-verify hook)
 - UI changes: after tests pass, check the page in a real browser with
   `/cmux-browser` and read the console for errors.
+
+## Token discipline
+
+- Grep/Glob before Read. Read only the line range you need.
+- Bound shell output: `| head -50`, `-n 20`, `--oneline`, `-q`.
+- One targeted search beats several broad ones.
+- Wide searches go to a subagent; keep only its conclusion.
+- Lead with the result. No preamble, no recap.

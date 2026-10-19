@@ -45,7 +45,8 @@ claude_md_path() {
   printf '%s/CLAUDE.md' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 }
 
-imported_files='personal/CLAUDE.tokens.md shared/preferences/PREFERENCES.md'
+imported_files='shared/preferences/PREFERENCES.md'
+retired_imports='personal/CLAUDE.tokens.md'
 
 import_line() {
   printf '@%s/%s' "$repo_dir" "$1"
@@ -252,6 +253,13 @@ remove_import_lines() {
   done
 }
 
+remove_retired_imports() {
+  local retired
+  for retired in $retired_imports; do
+    remove_import_line "$retired"
+  done
+}
+
 retire_plan_001_fish_link() {
   remove_link "$repo_dir/personal/claude.fish" "$(fish_config_dir)/functions/claude.fish"
 }
@@ -291,6 +299,7 @@ install_all() {
   place_links
   remove_stale_hook_links
   add_import_lines
+  remove_retired_imports
   retire_plan_001_fish_link
   wire_shells
   refresh_ollama_models
@@ -309,6 +318,7 @@ uninstall_all() {
   remove_link "$repo_dir/bin/claude-tools" "$HOME/.local/bin/claude-tools"
   remove_stale_hook_links
   remove_import_lines
+  remove_retired_imports
   echo "open a new terminal; current shells keep the claude function until they exit"
 }
 

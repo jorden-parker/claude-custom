@@ -9,8 +9,9 @@ Configuration overlays for Claude Code itself, plus two small Go apps. There are
 four parts:
 
 - **Personal setup** (`personal/`, `project/`): loaded with `--settings` by the
-  `claude` shell function and `@`-imported into `~/.claude/CLAUDE.md` to cut
-  token usage on the normal Anthropic-backed `claude`.
+  `claude` shell function, and `shared/preferences/PREFERENCES.md` is
+  `@`-imported into `~/.claude/CLAUDE.md`, to cut token usage on the normal
+  Anthropic-backed `claude`.
 - **Preference enforcement** (`shared/hooks/`, `shared/preferences/`): hooks and
   a short rules file that both the personal setup and the work harness load, so
   the same checks run whichever model is driving.
@@ -100,9 +101,10 @@ conventional commits (`feat:`, `fix:`, `chore:`).
   file's audit findings as context. Tests stub `fallow` on PATH through
   `fallow-test-lib.sh`; `.shellcheckrc` lets shellcheck follow the sourced
   library.
-- `shared/preferences/PREFERENCES.md` holds the prose rules no tool can check.
-  `bin/claude-custom install` `@`-imports it into `~/.claude/CLAUDE.md`, so both
-  backends load it. Keep it short: Ollama has 64k context.
+- `shared/preferences/PREFERENCES.md` holds the prose rules no tool can check,
+  including token discipline. `bin/claude-custom install` `@`-imports it into
+  `~/.claude/CLAUDE.md`, so both backends load it. Keep it short: Ollama has 64k
+  context.
 - `shared/hooks/tool-nudge.py` is wired only in the Ollama profiles
   (UserPromptSubmit resets its per-session counters under
   `~/.claude/cache/tool-nudge/`; PostToolUse on Bash, Read, Agent and
@@ -180,10 +182,6 @@ conventional commits (`feat:`, `fix:`, `chore:`).
   overlay (the Ollama profiles carry their own deny globs and hooks). Top-level
   scalars in the overlay override the user file, so don't add keys to the
   overlay that `~/.claude/settings.json` already sets.
-- `personal/CLAUDE.tokens.md` reaches every personal session through an `@`
-  import that `bin/claude-custom install` adds to `~/.claude/CLAUDE.md` (the
-  imported files are listed in `imported_files`). Keep it short: it loads on
-  every turn.
 - `model-picker-tui/` has two packages: `profiles` (`Load` reads the configured
   sizes from `ollama/`, `EmbeddingModel` the search model) and `ui` (the Bubble
   Tea model).

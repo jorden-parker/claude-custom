@@ -225,7 +225,7 @@ check_eq "install through the linked command" 0 "$?"
 new_sandbox
 run_capture "$installer" install
 run_capture "$installer" install
-check_eq "import line appears once after two installs" 1 \
+check_eq "retired token import is absent after install" 0 \
   "$(grep -cxF "@$repo/personal/CLAUDE.tokens.md" "$HOME/.claude/CLAUDE.md")"
 check_eq "preferences import appears once after two installs" 1 \
   "$(grep -cxF "@$repo/shared/preferences/PREFERENCES.md" "$HOME/.claude/CLAUDE.md")"
@@ -233,17 +233,27 @@ check_eq "preferences import appears once after two installs" 1 \
 new_sandbox
 copy_repo "$HOME/src/.claude-custom"
 mkdir -p "$HOME/.claude"
-printf '@~/src/.claude-custom/personal/CLAUDE.tokens.md\n' > "$HOME/.claude/CLAUDE.md"
+printf '@~/src/.claude-custom/shared/preferences/PREFERENCES.md\n' > "$HOME/.claude/CLAUDE.md"
 run_capture "$HOME/src/.claude-custom/bin/claude-custom" install
-check_eq "tilde import line is not duplicated" 0 \
-  "$(grep -cxF "@$HOME/src/.claude-custom/personal/CLAUDE.tokens.md" "$HOME/.claude/CLAUDE.md")"
-check_eq "tilde import line is the only import" 1 \
+check_eq "tilde preferences import line is not duplicated" 0 \
+  "$(grep -cxF "@$HOME/src/.claude-custom/shared/preferences/PREFERENCES.md" "$HOME/.claude/CLAUDE.md")"
+check_eq "tilde preferences import line is the only import" 1 \
+  "$(grep -c 'PREFERENCES.md' "$HOME/.claude/CLAUDE.md")"
+
+new_sandbox
+copy_repo "$HOME/src/.claude-custom"
+mkdir -p "$HOME/.claude"
+printf '@%s/personal/CLAUDE.tokens.md\nkeep me\n' "$HOME/src/.claude-custom" > "$HOME/.claude/CLAUDE.md"
+run_capture "$HOME/src/.claude-custom/bin/claude-custom" install
+check_eq "install removes the retired token import line" 0 \
   "$(grep -c 'CLAUDE.tokens.md' "$HOME/.claude/CLAUDE.md")"
+check_eq "install keeps other lines when removing the retired import" 1 \
+  "$(grep -cxF "keep me" "$HOME/.claude/CLAUDE.md")"
 
 new_sandbox
 run_capture env CLAUDE_CONFIG_DIR="$sandbox/cfg" "$installer" install
 check_eq "CLAUDE_CONFIG_DIR receives import line" 1 \
-  "$(grep -cxF "@$repo/personal/CLAUDE.tokens.md" "$sandbox/cfg/CLAUDE.md")"
+  "$(grep -cxF "@$repo/shared/preferences/PREFERENCES.md" "$sandbox/cfg/CLAUDE.md")"
 check_not "default CLAUDE.md not created under CLAUDE_CONFIG_DIR" test -e "$HOME/.claude/CLAUDE.md"
 
 new_sandbox

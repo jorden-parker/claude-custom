@@ -29,13 +29,13 @@ This wires every shell it finds: zsh (`~/.zshrc`), bash (`~/.bashrc`,
 `claude-ollama`, `claude-tools` and `claude-custom` into `~/.local/bin`, removes
 hook links an older install left in `~/.claude/hooks/` (the hooks, see
 [Enforced preferences](#enforced-preferences), now run straight from
-`shared/hooks/`), adds `@` imports for `personal/CLAUDE.tokens.md` and
-`shared/preferences/PREFERENCES.md` to `~/.claude/CLAUDE.md`, and rebuilds the
-Ollama models whose base model is pulled. Re-running it is safe.
-`~/.claude/settings.json` is left as is: the overlay loads on top of it via
-`--settings` on every interactive `claude` launch. Scripts, IDE extensions, the
-desktop app and `claude-ollama` don't get it. Run `command claude` to skip it
-once.
+`shared/hooks/`), adds an `@` import for `shared/preferences/PREFERENCES.md` to
+`~/.claude/CLAUDE.md` (and removes the retired `personal/CLAUDE.tokens.md`
+import), and rebuilds the Ollama models whose base model is pulled. Re-running
+it is safe. `~/.claude/settings.json` is left as is: the overlay loads on top of
+it via `--settings` on every interactive `claude` launch. Scripts, IDE
+extensions, the desktop app and `claude-ollama` don't get it. Run
+`command claude` to skip it once.
 
 Per repo, when you don't need claude.ai connectors there:
 `cp project/settings.local.json <repo>/.claude/settings.local.json`.
