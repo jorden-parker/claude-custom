@@ -4,6 +4,7 @@ import http.client
 import json
 import os
 import sys
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -53,6 +54,7 @@ class Probe:
 class Scenario:
     name: str
     run: Callable[[Probe], dict]
+    doing: str
     extra_tokens: int = 0
     estimated: bool = False
 
@@ -203,15 +205,21 @@ def side_model(probe):
 
 def scenario_list(has_side_model):
     scenarios = [
-        Scenario("Cold", cold),
-        Scenario("Growing chat", growing_chat, estimate_tokens(ANSWER_ONE + QUESTION_TWO), estimated=True),
-        Scenario("Same prefix", same_prefix),
-        Scenario("Late edit", late_edit),
-        Scenario("Early edit", early_edit),
-        Scenario("Eviction", eviction),
+        Scenario("Cold", cold, "unloading and reloading the model, then processing the whole prompt (slowest step)"),
+        Scenario(
+            "Growing chat",
+            growing_chat,
+            "sending the prompt plus one more chat turn",
+            estimate_tokens(ANSWER_ONE + QUESTION_TWO),
+            estimated=True,
+        ),
+        Scenario("Same prefix", same_prefix, "sending the same prompt again"),
+        Scenario("Late edit", late_edit, "sending the prompt with a change near the end"),
+        Scenario("Early edit", early_edit, "sending the prompt with a change near the start"),
+        Scenario("Eviction", eviction, "sending an unrelated prompt, then the prompt again"),
     ]
     if has_side_model:
-        scenarios.append(Scenario("Side model", side_model))
+        scenarios.append(Scenario("Side model", side_model, "asking the side model, then the main prompt again"))
     return scenarios
 
 
@@ -221,8 +229,11 @@ def measure_scenarios(probe, has_side_model):
 
 
 def measure(probe, scenario, index, total):
-    print(f"[{index}/{total}] {scenario.name}: waiting for Ollama...", file=sys.stderr, flush=True)
-    return scenario, scenario.run(probe)
+    print(f"[{index}/{total}] {scenario.name}: {scenario.doing}...", file=sys.stderr, flush=True)
+    started = time.monotonic()
+    measured = scenario.run(probe)
+    print(f"      done in {time.monotonic() - started:.1f} s", file=sys.stderr, flush=True)
+    return scenario, measured
 
 
 def measurement_named(measurements, name):
@@ -303,6 +314,18 @@ def lists_model(base_url, name):
 
 def loaded_models(base_url):
     return [entry.get("name", "?") for entry in get_json(base_url, "/api/ps").get("models", [])]
+
+
+def is_loaded(model, loaded):
+    return model in loaded or model in [name.removesuffix(":latest") for name in loaded]
+
+
+def note_loaded_model(model):
+    print(
+        f"ollama-cache-probe: note: {model} is already loaded. The Cold step unloads it, and requests "
+        "queue behind any other session using it; close other sessions for clean numbers.",
+        file=sys.stderr,
+    )
 
 
 def format_row(cells):
@@ -404,6 +427,8 @@ def report(args):
     probe = make_probe(args)
     has_side_model = lists_model(probe.base_url, probe.side_model)
     loaded = loaded_models(probe.base_url)
+    if is_loaded(probe.model, loaded):
+        note_loaded_model(probe.model)
     if not args.json:
         print_settings(probe, args.prefix_tokens, loaded)
     basis, rows = run_scenarios(probe, has_side_model)

@@ -47,7 +47,7 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/api/tags":
             self.reply({"models": [{"name": name} for name in config["tags"]]})
         elif self.path == "/api/ps":
-            self.reply({"models": []})
+            self.reply({"models": [{"name": name} for name in config.get("loaded", [])]})
         else:
             self.send_error(404)
 
@@ -117,6 +117,7 @@ check() {
 has_row() { printf '%s\n' "$1" | grep -Eq -- "$2"; }
 lacks_row() { ! has_row "$1" "$2"; }
 lacks_warning() { ! grep -q warning "$1"; }
+lacks_text() { ! grep -qF -- "$2" "$1"; }
 appears_after() {
   local first second
   first="$(printf '%s\n' "$1" | grep -nE -- "$2" | head -1 | cut -d: -f1)"
@@ -150,6 +151,10 @@ check "side model row computes hit rate" has_row "$table" "^Side model +1000 +30
 check "normal counts print no warnings" lacks_warning "$tmp/table.err"
 check "progress names the first scenario on stderr" grep -qF "[1/7] Cold" "$tmp/table.err"
 check "progress names the last scenario on stderr" grep -qF "[7/7] Side model" "$tmp/table.err"
+check "progress says the cold step reloads the model" grep -qF "unloading and reloading the model" "$tmp/table.err"
+check "progress reports how long each step took" grep -qE "done in [0-9]+\.[0-9] s" "$tmp/table.err"
+check "progress no longer claims to wait for Ollama" lacks_text "$tmp/table.err" "waiting for Ollama"
+check "an unloaded model gets no loaded note" lacks_text "$tmp/table.err" "already loaded"
 check "progress stays off stdout" lacks_row "$table" "^\[1/7\]"
 check "cold scenario unloads the model first" logged '"keep_alive": 0'
 check "requests use the -cc model from the size profile" logged '"model": "qwen3.8-27b-cc"'
@@ -166,6 +171,11 @@ check "verdict says the growing chat is reused" has_row "$table" "^Growing chat:
 check "verdict says the eviction wiped the cache" has_row "$table" "^Eviction: .*wiped"
 check "a failed eviction suggests two slots after the table" appears_after "$table" "^Eviction +" "OLLAMA_NUM_PARALLEL=2"
 check "verdict says the side model kept the cache" has_row "$table" "^Side model: .*kept"
+
+start_stub '{"tags": ["qwen3.8-27b-cc"], "loaded": ["qwen3.8-27b-cc:latest"], "responses": []}'
+probe_output 27b > /dev/null 2> "$tmp/loaded.err"
+check "a loaded model gets a note before the run" grep -qF "qwen3.8-27b-cc is already loaded" "$tmp/loaded.err"
+check "the loaded note says other requests make the probe wait" grep -qF "close other sessions" "$tmp/loaded.err"
 
 start_stub "$table_config"
 json_output="$(probe_output --json 27b 2>/dev/null)"
