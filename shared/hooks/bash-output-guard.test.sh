@@ -29,5 +29,20 @@ expect allow 'grep lodash package-lock.json'
 expect deny  'ls -R'
 expect deny  'ls -laR src'
 expect allow 'ls -la'
+expect deny  $'echo start\ngit log'
+expect deny  '(git log)'
+expect deny  $'echo "$(git log)"'
+expect deny  'git --no-pager log'
+expect deny  'git -C . log'
+expect allow 'git -C . log -n 5'
+expect deny  'ls -la -R'
+expect deny  'ls --recursive src'
+expect allow 'ls -la --color'
+expect allow 'echo "ls -R is slow"'
 
-[ "$failures" -eq 0 ] && echo "all passed" || { echo "$failures failed"; exit 1; }
+if [ "$failures" -eq 0 ]; then
+  echo "all passed"
+else
+  echo "$failures failed"
+  exit 1
+fi
