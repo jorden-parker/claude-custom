@@ -15,11 +15,11 @@ four parts:
 - **Preference enforcement** (`shared/hooks/`, `shared/preferences/`): hooks and
   a short rules file that both the personal setup and the work harness load, so
   the same checks run whichever model is driving.
-- **Work harness** (`bin/claude-ollama`, `ollama/`, `model-picker-tui/`): starts
-  `claude` against a local Ollama server (`localhost:11434`) running Qwen 3.8
-  27b or Qwen 3.6 35b. The overlay only applies to that launch.
-  `model-picker-tui/` is a Go/Bubble Tea menu for choosing the size.
-- **Tools TUI** (`tools-tui/`): a Go/Bubble Tea app that edits the
+- **Work harness** (`bin/claude-ollama`, `ollama/`, `go/cmd/model-picker/`):
+  starts `claude` against a local Ollama server (`localhost:11434`) running Qwen
+  3.8 27b or Qwen 3.6 35b. The overlay only applies to that launch.
+  `go/cmd/model-picker/` is a Go/Bubble Tea menu for choosing the size.
+- **Tools TUI** (`go/cmd/claude-tools/`): a Go/Bubble Tea app that edits the
   bare-tool-name permission rules in a Claude Code settings file.
 
 Every file is additive. Nothing here replaces a base config. The layer order and
@@ -57,20 +57,21 @@ gets applied.
   `~/.zshenv` or `~/.local/bin/claude`, and derives Ollama model names from
   `ollama/settings.<size>.json` and `ollama/Modelfile.<size>`. Adding a size
   means adding both files; the installer picks it up.
-- Model picker (Go, `model-picker-tui/`):
-  `cd model-picker-tui && go test ./...`; `claude-ollama` builds and runs it
-  when no size is given on a terminal.
-- Tools TUI (Go, `tools-tui/`): `cd tools-tui && go test ./...` (one test:
-  `go test ./ui -run TestSwitching`), run with `go run .`. See
-  `tools-tui/README.md`.
+- Go module `go/` (both apps; `go/cmd/model-picker/`, `go/cmd/claude-tools/`):
+  `cd go && go test ./...`. One test:
+  `cd go && go test ./internal/tools/ui -run TestSwitching`. Run the picker or
+  the tools TUI with `cd go && go run ./cmd/model-picker` or
+  `cd go && go run ./cmd/claude-tools`. `claude-ollama` builds and runs the
+  picker when no size is given on a terminal. See
+  `go/cmd/claude-tools/README.md`.
 
-There is no build step outside the two Go apps. `claude-custom install` builds
-`tools-tui/claude-tools` and `model-picker-tui/model-picker` (both gitignored).
-Each launcher rebuilds its binary only when a Go source, `go.mod` or `go.sum` is
-newer than it. `pnpm install` enables git hooks (husky): pre-commit checks
-staged files for conflict markers, files over 1 MB and secrets, then lint-staged
-runs Prettier on staged `.md`/`.json`/`.yml`. commitlint enforces conventional
-commits (`feat:`, `fix:`, `chore:`).
+There is no build step outside the Go module. `claude-custom install` builds
+`go/cmd/claude-tools/claude-tools` and `go/cmd/model-picker/model-picker` (both
+gitignored). Each launcher rebuilds its binary only when a Go source, `go.mod`
+or `go.sum` is newer than it. `pnpm install` enables git hooks (husky):
+pre-commit checks staged files for conflict markers, files over 1 MB and
+secrets, then lint-staged runs Prettier on staged `.md`/`.json`/`.yml`.
+commitlint enforces conventional commits (`feat:`, `fix:`, `chore:`).
 
 ## How the pieces connect
 
@@ -170,7 +171,7 @@ commits (`feat:`, `fix:`, `chore:`).
 - `bin/claude-ollama` reads the configured sizes from `ollama/` (a
   `settings.<size>.json` plus a `Modelfile.<size>`), never a hardcoded list. A
   first arg that matches launches that size. Otherwise, on a terminal it runs
-  `model-picker-tui` (which renders on stderr and prints the chosen size on
+  `go/cmd/model-picker` (which renders on stderr and prints the chosen size on
   stdout); without one it uses 27b. A first arg that is neither a size nor a
   flag is dropped so it doesn't reach `claude` as a prompt.
 - `shared/mcp/code-search.py` is the `semantic_search` MCP server (JSON-RPC over
@@ -181,7 +182,7 @@ commits (`feat:`, `fix:`, `chore:`).
   (`CODE_SEARCH_MODEL`, default `qwen3-embedding:0.6b`); the model picker's "Set
   up embedding model" row pulls it too. The default name appears once in each of
   `bin/claude-ollama`, `code-search.py` and
-  `model-picker-tui/profiles/embedding.go`, and `bin/check-config` checks they
+  `go/internal/picker/profiles/embedding.go`, and `bin/check-config` checks they
   agree. The Ollama profiles allow the tool in `permissions.allow`.
 - `ollama/server.env` documents the Ollama server env the profiles expect. The
   Homebrew service sets the same values. Nothing in this repo applies it.
@@ -205,10 +206,10 @@ commits (`feat:`, `fix:`, `chore:`).
   overlay (the Ollama profiles carry their own deny globs and hooks). Top-level
   scalars in the overlay override the user file, so don't add keys to the
   overlay that `~/.claude/settings.json` already sets.
-- `model-picker-tui/` has two packages: `profiles` (`Load` reads the configured
-  sizes from `ollama/`, `EmbeddingModel` the search model) and `ui` (the Bubble
-  Tea model).
-- `tools-tui/` has three packages:
+- `go/internal/picker/` has two packages: `profiles` (`Load` reads the
+  configured sizes from `ollama/`, `EmbeddingModel` the search model) and `ui`
+  (the Bubble Tea model).
+- `go/internal/tools/` has three packages:
   - `catalog`: fetches the tool table from the Claude Code docs and caches it in
     the user cache dir.
   - `settings`: maps rules to and from `ToolState`, using gjson/sjson so other
@@ -218,4 +219,4 @@ commits (`feat:`, `fix:`, `chore:`).
 
   The TUI only touches rules that are a bare tool name. Scoped rules like
   `Bash(git log *)` are never changed. "Disable" means a bare deny rule. Write
-  rules are in `tools-tui/README.md`.
+  rules are in `go/cmd/claude-tools/README.md`.

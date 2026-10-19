@@ -26,8 +26,7 @@ test-search:
 	shared/mcp/code-search.test.sh
 
 test-go:
-	cd tools-tui && go test ./...
-	cd model-picker-tui && go test ./...
+	cd go && go test ./...
 
 check-json:
 	@for file in $(JSON_FILES); do jq . $$file >/dev/null || exit 1; done

@@ -20,8 +20,8 @@ file is newer than the binary. It runs in the directory you launched from. If
 you built `~/.local/bin/claude-tools` by hand before, delete it and re-run
 `claude-custom install`; the installer won't overwrite a file it doesn't manage.
 
-For development: `cd tools-tui && go run .`. Requires Go 1.26 or later. Tests:
-`go test ./...`.
+For development: `cd go && go run ./cmd/claude-tools`. Requires Go 1.26 or
+later. Tests: `cd go && go test ./...`.
 
 Changes take effect in Claude Code from the next request; no restart needed.
 

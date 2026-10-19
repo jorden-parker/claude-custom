@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-tui_dir="$(cd "$(dirname "$(readlink -f "$0")")/../tools-tui" && pwd)"
+go_dir="$(cd "$(dirname "$(readlink -f "$0")")/../go" && pwd)"
+tool_binary="$go_dir/cmd/claude-tools/claude-tools"
 
 binary_is_current() {
   local dir="$1" binary="$2"
@@ -10,14 +11,14 @@ binary_is_current() {
 }
 
 ensure_built() {
-  local dir="$1" binary="$2" label="$3" hint="${4:-}"
-  binary_is_current "$dir" "$binary" && return 0
+  local module_dir="$1" binary="$2" package="$3" label="$4" hint="${5:-}"
+  binary_is_current "$module_dir" "$binary" && return 0
   if ! command -v go >/dev/null 2>&1; then
     echo "$label: needs Go 1.26+ (https://go.dev/dl) to build $binary$hint" >&2
     return 1
   fi
-  (cd "$dir" && go build -o "$(basename "$binary")" .) >&2
+  (cd "$module_dir" && go build -o "$binary" "$package") >&2
 }
 
-ensure_built "$tui_dir" "$tui_dir/claude-tools" claude-tools || exit 1
-exec "$tui_dir/claude-tools" "$@"
+ensure_built "$go_dir" "$tool_binary" ./cmd/claude-tools claude-tools || exit 1
+exec "$tool_binary" "$@"

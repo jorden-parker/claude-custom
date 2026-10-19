@@ -3,7 +3,8 @@ set -euo pipefail
 
 repo_dir="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 profile_dir="$repo_dir/ollama"
-picker_dir="$repo_dir/model-picker-tui"
+go_dir="$repo_dir/go"
+picker_binary="$go_dir/cmd/model-picker/model-picker"
 default_size=27b
 tools="Bash,Read,Edit,Write,Agent"
 embedding_model="${CODE_SEARCH_MODEL:-qwen3-embedding:0.6b}"
@@ -34,18 +35,18 @@ binary_is_current() {
 }
 
 ensure_built() {
-  local dir="$1" binary="$2" label="$3" hint="${4:-}"
-  binary_is_current "$dir" "$binary" && return 0
+  local module_dir="$1" binary="$2" package="$3" label="$4" hint="${5:-}"
+  binary_is_current "$module_dir" "$binary" && return 0
   if ! command -v go >/dev/null 2>&1; then
     echo "$label: needs Go 1.26+ (https://go.dev/dl) to build $binary$hint" >&2
     return 1
   fi
-  (cd "$dir" && go build -o "$(basename "$binary")" .) >&2
+  (cd "$module_dir" && go build -o "$binary" "$package") >&2
 }
 
 pick_size() {
-  ensure_built "$picker_dir" "$picker_dir/model-picker" claude-ollama "; or pass a size: $(configured_sizes | tr '\n' ' ')" || exit 1
-  "$picker_dir/model-picker" "$profile_dir" || exit 130
+  ensure_built "$go_dir" "$picker_binary" ./cmd/model-picker claude-ollama "; or pass a size: $(configured_sizes | tr '\n' ' ')" || exit 1
+  "$picker_binary" "$profile_dir" || exit 130
 }
 
 choose_size() {

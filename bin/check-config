@@ -94,7 +94,7 @@ default_embedding() {
   grep -c 'qwen3-embedding:0.6b' "$1"
 }
 
-for source in bin/claude-ollama shared/mcp/code-search.py model-picker-tui/profiles/embedding.go; do
+for source in bin/claude-ollama shared/mcp/code-search.py go/internal/picker/profiles/embedding.go; do
   check_eq "$source names the default embedding model once" 1 "$(default_embedding "$repo/$source")"
 done
 

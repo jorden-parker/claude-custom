@@ -8,7 +8,7 @@ Built with [Bubble Tea](https://charm.land/libs/), Bubbles and Lip Gloss.
 ```sh
 claude-custom ollama          # opens the picker, then launches the chosen size
 claude-ollama 28b             # unknown size: opens the picker too
-go run . ../ollama            # the picker on its own; prints the chosen size
+cd go && go run ./cmd/model-picker ../ollama  # the picker on its own; prints the chosen size
 ```
 
 `claude-custom install` builds the binary, and `claude-ollama` rebuilds it on
@@ -40,5 +40,5 @@ usage errors or when no profiles are configured.
 ## Test
 
 ```sh
-go test ./...
+cd go && go test ./...
 ```

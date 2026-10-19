@@ -111,7 +111,7 @@ claude-ollama --help          # usage and the list of sizes
 ```
 
 With no size, or a word that isn't a configured size (`28b`), `claude-ollama`
-opens a picker ([model-picker-tui](model-picker-tui/README.md)) and drops the
+opens a picker ([model-picker](go/cmd/model-picker/README.md)) and drops the
 unknown word. Without a terminal (scripts, pipes) it uses 27b instead. The
 picker needs Go 1.26+; passing a size never does.
 
@@ -140,21 +140,21 @@ launch.
 
 ### Model picker
 
-`model-picker-tui/` is the terminal menu `claude-ollama` opens to choose a size.
-Each `settings.<size>.json` in `ollama/` with a matching `Modelfile.<size>` is
-one entry, showing the size, its `-cc` model and its base model. When
-`ollama/side.Modelfile` exists, a last row "Set up side model" runs
+`go/cmd/model-picker/` is the terminal menu `claude-ollama` opens to choose a
+size. Each `settings.<size>.json` in `ollama/` with a matching
+`Modelfile.<size>` is one entry, showing the size, its `-cc` model and its base
+model. When `ollama/side.Modelfile` exists, a last row "Set up side model" runs
 `ollama pull` and `ollama create` for it and stays in the menu.
 
 ```sh
 claude-custom ollama                       # opens the picker, then launches the chosen size
-cd model-picker-tui && go run . ../ollama  # the picker on its own; prints the chosen size
+cd go && go run ./cmd/model-picker ../ollama  # the picker on its own; prints the chosen size
 ```
 
 Keys: `↑/k`, `↓/j`, `enter` to launch, `esc`/`q`/`ctrl+c` to cancel. Cancelling
 launches nothing. The picker is built by `claude-custom install` and rebuilt on
 launch only when a Go source file is newer than the binary. Details:
-`model-picker-tui/README.md`.
+`go/cmd/model-picker/README.md`.
 
 ### Ollama server settings
 
@@ -207,10 +207,10 @@ ok   server env OLLAMA_FLASH_ATTENTION=1
 
 ## Tools TUI
 
-`tools-tui/` is a terminal UI for Claude Code's built-in tools. It sets each
-tool to allow, ask or deny, and disables the ones you don't need so they stop
-taking up context. Press `f` inside it to switch between the user, project and
-local settings files.
+`go/cmd/claude-tools/` is a terminal UI for Claude Code's built-in tools. It
+sets each tool to allow, ask or deny, and disables the ones you don't need so
+they stop taking up context. Press `f` inside it to switch between the user,
+project and local settings files.
 
 ```sh
 claude-tools              # edits ~/.claude/settings.json
@@ -222,7 +222,7 @@ claude-tools path/to.json # any settings file
 `claude-tools` is built by `claude-custom install` and rebuilt on launch only
 when a Go source file is newer than the binary, so it is current after
 `git pull`. Requires Go 1.26 or later. Keys, sync and write rules:
-`tools-tui/README.md`.
+`go/cmd/claude-tools/README.md`.
 
 ## One entry point
 

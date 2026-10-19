@@ -9,5 +9,5 @@ coverage/
 .DS_Store
 .husky/_/
 plans/
-tools-tui/claude-tools
-model-picker-tui/model-picker
+go/cmd/claude-tools/claude-tools
+go/cmd/model-picker/model-picker
