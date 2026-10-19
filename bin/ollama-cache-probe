@@ -213,7 +213,7 @@ def scenario_list(has_side_model):
             estimate_tokens(ANSWER_ONE + QUESTION_TWO),
             estimated=True,
         ),
-        Scenario("Same prefix", same_prefix, "sending the same prompt again"),
+        Scenario("Same prefix", same_prefix, "sending the same text with a different last question"),
         Scenario("Late edit", late_edit, "sending the prompt with a change near the end"),
         Scenario("Early edit", early_edit, "sending the prompt with a change near the start"),
         Scenario("Eviction", eviction, "sending an unrelated prompt, then the prompt again"),
@@ -255,7 +255,7 @@ def count_hit_percent(total, evaluated):
 def time_hit_percent(cold_rate, total, seconds):
     if cold_rate <= 0 or total <= 0:
         return 0.0
-    return round(100.0 * (1 - (seconds / total) / cold_rate), 1)
+    return max(0.0, round(100.0 * (1 - (seconds / total) / cold_rate), 1))
 
 
 def scenario_row(scenario, baseline, measured, basis, cold_rate):
@@ -370,6 +370,11 @@ def cache_verdict(rows):
     timing = f"repeating the prompt took {same['prefill_seconds']:.2f} s vs {cold['prefill_seconds']:.2f} s cold"
     if is_reused(same):
         return f"Cache: works; {timing}."
+    if is_reused(row_named(rows, "Growing chat")):
+        return (
+            f"Cache: append-only; {timing}. A prompt is reused only when it adds to an earlier one, "
+            "and any change re-processes the whole prompt. A GGUF (non-MLX) build also reuses the text before a change."
+        )
     return (
         f"Cache: NOT reused; {timing}. Every turn re-processes the whole prompt. "
         "Try a GGUF (non-MLX) build of the model."

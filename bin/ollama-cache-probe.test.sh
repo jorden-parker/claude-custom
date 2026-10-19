@@ -201,6 +201,13 @@ check "verdict says when the cache is not reused" has_row "$broken_table" "^Cach
 check "a broken cache suggests a GGUF build" has_row "$broken_table" "GGUF"
 check "verdict says when a growing chat is not reused" has_row "$broken_table" "^Growing chat: NOT reused"
 
+start_stub '{"tags": ["qwen3.8-27b-cc"], "responses": [[1000, 2.0], [1000, 0.02], [1000, 2.01], [1000, 2.0], [1000, 2.01], [1000, 2.0], [5, 0.01], [1000, 0.01]]}'
+append_table="$(probe_output 27b 2> "$tmp/append.err")"
+check "a cache that only reuses appended prompts says so" has_row "$append_table" "^Cache: append-only"
+check "an append-only cache suggests a GGUF build" has_row "$append_table" "GGUF"
+check "prefill time slower than cold scores zero" has_row "$append_table" "^Same prefix +1000 +1000 +0\.0 +2\.01$"
+check "prefill time noise prints no negative warning" lacks_text "$tmp/append.err" "hit % is negative"
+
 start_stub '{"tags": ["qwen3.8-27b-cc"], "responses": [[1000, 2.0], [2000, 0.12], [40, 0.08], [250, 0.5], [1000, 2.0], [1000, 2.0], [5, 0.01], [1000, 2.0]]}'
 negative_table="$(probe_output 27b 2> "$tmp/negative.err")"
 check "rows that evaluate more than their prompt show a negative hit" has_row "$negative_table" "^Growing chat +~1024 +2000 +-95\.3 +0\.12$"
