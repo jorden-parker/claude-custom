@@ -21,6 +21,7 @@ CHARS_PER_TOKEN = 4
 LATE_EDIT_FRACTION = 0.8
 EARLY_EDIT_CHAR = 40
 SAME_PREFIX_LIMIT = 0.5
+REUSED_PERCENT = 80.0
 NANOSECONDS_PER_SECOND = 1_000_000_000
 FILLER_LINE = "Section {number}: fixed filler text so every probe run sends the same bytes.\n"
 QUESTION_ONE = "Question one: summarise section one in one sentence."
@@ -215,7 +216,13 @@ def scenario_list(has_side_model):
 
 
 def measure_scenarios(probe, has_side_model):
-    return [(scenario, scenario.run(probe)) for scenario in scenario_list(has_side_model)]
+    scenarios = scenario_list(has_side_model)
+    return [measure(probe, scenario, index, len(scenarios)) for index, scenario in enumerate(scenarios, 1)]
+
+
+def measure(probe, scenario, index, total):
+    print(f"[{index}/{total}] {scenario.name}: waiting for Ollama...", file=sys.stderr, flush=True)
+    return scenario, scenario.run(probe)
 
 
 def measurement_named(measurements, name):
@@ -324,8 +331,53 @@ def print_settings(probe, prefix_tokens, loaded: list[str]):
     print(f"server: {probe.base_url}")
     print(f"model: {probe.model}  num_ctx: {NUM_CTX}  prefix: ~{prefix_tokens} tokens ({len(probe.prefix)} chars)")
     print(f"loaded before run: {', '.join(loaded) or 'none'}")
-    print("OLLAMA_NUM_PARALLEL is read at server start: restart the server to compare 1 against 2.")
+    print(flush=True)
+
+
+def row_named(rows, name):
+    return next((row for row in rows if row["scenario"] == name), None)
+
+
+def is_reused(row):
+    return row["hit_percent"] >= REUSED_PERCENT
+
+
+def cache_verdict(rows):
+    cold, same = row_named(rows, "Cold"), row_named(rows, "Same prefix")
+    timing = f"repeating the prompt took {same['prefill_seconds']:.2f} s vs {cold['prefill_seconds']:.2f} s cold"
+    if is_reused(same):
+        return f"Cache: works; {timing}."
+    return (
+        f"Cache: NOT reused; {timing}. Every turn re-processes the whole prompt. "
+        "Try a GGUF (non-MLX) build of the model."
+    )
+
+
+def growing_verdict(rows):
+    if is_reused(row_named(rows, "Growing chat")):
+        return "Growing chat: reused, so each new turn only processes the new text."
+    return "Growing chat: NOT reused, so each new turn re-processes the earlier turns."
+
+
+def eviction_verdict(rows):
+    if is_reused(row_named(rows, "Eviction")):
+        return "Eviction: the cache survived an unrelated request."
+    return "Eviction: an unrelated request wiped the cache. Set OLLAMA_NUM_PARALLEL=2, restart Ollama and rerun."
+
+
+def side_model_verdict(rows, side_model):
+    row = row_named(rows, "Side model")
+    if row is None:
+        return f"Side model: skipped ({side_model} is not pulled)."
+    if is_reused(row):
+        return f"Side model: using {side_model} kept the main model's cache."
+    return f"Side model: using {side_model} wiped the main model's cache."
+
+
+def print_verdict(rows, side_model):
     print()
+    for line in (cache_verdict(rows), growing_verdict(rows), eviction_verdict(rows), side_model_verdict(rows, side_model)):
+        print(line)
 
 
 def json_report(args, probe, loaded: list[str], basis, rows):
@@ -359,6 +411,7 @@ def report(args):
         print(json.dumps(json_report(args, probe, loaded, basis, rows), indent=2))
     else:
         print_table(basis, rows)
+        print_verdict(rows, probe.side_model)
     return 0
 
 

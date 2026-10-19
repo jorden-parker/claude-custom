@@ -185,6 +185,11 @@ Hit % comes from uncached token counts. If the server reports full counts
 instead, the probe warns and scores by prefill time per token. The late edit
 sits at 80% of the prefix, about 16k tokens at the default 20000.
 
+While it runs, it prints `[n/7] <scenario>` on stderr; the cold run is the
+slowest. After the table it prints one plain verdict line each for the cache,
+growing chat, eviction and side model. A failed eviction suggests
+`OLLAMA_NUM_PARALLEL=2`; a cache that isn't reused suggests a GGUF build.
+
 ## Semantic code search
 
 `claude-ollama` starts `shared/mcp/code-search.py`, a stdlib-only MCP server

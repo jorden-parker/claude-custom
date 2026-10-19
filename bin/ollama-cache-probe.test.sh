@@ -115,6 +115,14 @@ check() {
 }
 
 has_row() { printf '%s\n' "$1" | grep -Eq -- "$2"; }
+lacks_row() { ! has_row "$1" "$2"; }
+lacks_warning() { ! grep -q warning "$1"; }
+appears_after() {
+  local first second
+  first="$(printf '%s\n' "$1" | grep -nE -- "$2" | head -1 | cut -d: -f1)"
+  second="$(printf '%s\n' "$1" | grep -nF -- "$3" | head -1 | cut -d: -f1)"
+  [ -n "$first" ] && [ -n "$second" ] && [ "$second" -gt "$first" ]
+}
 request_has() { printf '%s\n' "$1" | grep -qF -- "$2"; }
 logged() { grep -qF -- "$1" "$run_dir/requests.log"; }
 request_at() { sed -n "${1}p" "$run_dir/requests.log"; }
@@ -139,7 +147,10 @@ check "late edit row computes hit rate" has_row "$table" "^Late edit +1000 +250 
 check "early edit row shows no reuse" has_row "$table" "^Early edit +1000 +1000 +0\.0 +2\.00$"
 check "eviction row shows no reuse" has_row "$table" "^Eviction +1000 +1000 +0\.0 +2\.00$"
 check "side model row computes hit rate" has_row "$table" "^Side model +1000 +30 +97\.0 +0\.06$"
-check "normal counts print nothing on stderr" [ ! -s "$tmp/table.err" ]
+check "normal counts print no warnings" lacks_warning "$tmp/table.err"
+check "progress names the first scenario on stderr" grep -qF "[1/7] Cold" "$tmp/table.err"
+check "progress names the last scenario on stderr" grep -qF "[7/7] Side model" "$tmp/table.err"
+check "progress stays off stdout" lacks_row "$table" "^\[1/7\]"
 check "cold scenario unloads the model first" logged '"keep_alive": 0'
 check "requests use the -cc model from the size profile" logged '"model": "qwen3.8-27b-cc"'
 check "requests are not streamed" logged '"stream": false'
@@ -150,16 +161,22 @@ late_at="$(first_difference 5 4)"
 check "late edit changes the prompt after 70 percent" in_range "$late_at" 56000 80000
 early_at="$(first_difference 6 4)"
 check "early edit changes the first 10 percent" in_range "$early_at" 0 8000
-check "reminds that OLLAMA_NUM_PARALLEL needs a restart" has_row "$table" "OLLAMA_NUM_PARALLEL"
+check "verdict says the cache works" has_row "$table" "^Cache: works"
+check "verdict says the growing chat is reused" has_row "$table" "^Growing chat: reused"
+check "verdict says the eviction wiped the cache" has_row "$table" "^Eviction: .*wiped"
+check "a failed eviction suggests two slots after the table" appears_after "$table" "^Eviction +" "OLLAMA_NUM_PARALLEL=2"
+check "verdict says the side model kept the cache" has_row "$table" "^Side model: .*kept"
 
 start_stub "$table_config"
-json_output="$(probe_output --json 27b)"
+json_output="$(probe_output --json 27b 2>/dev/null)"
 check "json output has seven scenarios, basis and hit percent" json_check "$json_output" "len(data['scenarios']) == 7 and data['hit_basis'] == 'token_count' and data['scenarios'][2]['hit_percent'] == 96.0"
 check "json marks the growing chat total as estimated" json_check "$json_output" "data['scenarios'][1]['prompt_tokens_estimated'] is True and data['scenarios'][1]['prompt_tokens'] == 1024"
 
-start_stub '{"tags": ["qwen3.8-27b-cc"], "responses": [[1000, 2.0], [60, 0.12], [40, 0.08], [250, 0.5], [1000, 2.0], [1000, 2.0], [5, 0.01], [1000, 2.0]]}'
-no_side_table="$(probe_output 27b)"
-check "side model row is skipped when the model is not pulled" [ "$(printf '%s\n' "$no_side_table" | grep -c '^Side model')" -eq 0 ]
+start_stub '{"tags": ["qwen3.8-27b-cc"], "responses": [[1000, 2.0], [60, 0.12], [40, 0.08], [250, 0.5], [1000, 2.0], [1000, 2.0], [5, 0.01], [40, 0.08]]}'
+no_side_table="$(probe_output 27b 2>/dev/null)"
+check "side model row is skipped when the model is not pulled" [ "$(printf '%s\n' "$no_side_table" | grep -cE '^Side model +')" -eq 0 ]
+check "verdict notes the skipped side model" has_row "$no_side_table" "^Side model: skipped"
+check "a surviving eviction does not suggest a restart" lacks_row "$no_side_table" "OLLAMA_NUM_PARALLEL"
 check "skipping the side model still prints the cold row" has_row "$no_side_table" "^Cold +1000 +1000 +0\.0 +2\.00$"
 
 start_stub '{"tags": ["qwen3.8-27b-cc"], "responses": [[1000, 2.0], [60, 0.12], [1000, 0.2], [1000, 0.2], [1000, 2.0], [1000, 2.0], [5, 0.01], [1000, 2.0]]}'
@@ -167,6 +184,12 @@ time_table="$(probe_output 27b 2> "$tmp/time.err")"
 check "full counts switch the hit % basis to prefill time" has_row "$time_table" "^hit % basis: prefill time per token vs Cold$"
 check "full counts are scored by prefill time per token" has_row "$time_table" "^Same prefix +1000 +1000 +90\.0 +0\.20$"
 check "full counts print a warning on stderr" grep -q "full prompt counts" "$tmp/time.err"
+
+start_stub '{"tags": ["qwen3.8-27b-cc"], "responses": [[1000, 2.0], [1000, 1.9], [1000, 2.0], [1000, 2.0], [1000, 2.0], [1000, 2.0], [5, 0.01], [1000, 2.0]]}'
+broken_table="$(probe_output 27b 2>/dev/null)"
+check "verdict says when the cache is not reused" has_row "$broken_table" "^Cache: NOT reused"
+check "a broken cache suggests a GGUF build" has_row "$broken_table" "GGUF"
+check "verdict says when a growing chat is not reused" has_row "$broken_table" "^Growing chat: NOT reused"
 
 start_stub '{"tags": ["qwen3.8-27b-cc"], "responses": [[1000, 2.0], [2000, 0.12], [40, 0.08], [250, 0.5], [1000, 2.0], [1000, 2.0], [5, 0.01], [1000, 2.0]]}'
 negative_table="$(probe_output 27b 2> "$tmp/negative.err")"
@@ -181,7 +204,7 @@ printf '{"model": "fake-cc"}' > "$fake/ollama/settings.xx.json"
 printf 'FROM base\n' > "$fake/ollama/Modelfile.xx"
 printf '{}' > "$fake/ollama/settings.yy.json"
 printf 'FROM base\n' > "$fake/ollama/Modelfile.yy"
-"$fake/bin/ollama-cache-probe" --base-url "$base_url" --side-model none xx > /dev/null
+"$fake/bin/ollama-cache-probe" --base-url "$base_url" --side-model none xx > /dev/null 2>&1
 check "a configured size resolves through its settings file" logged '"model": "fake-cc"'
 
 missing_status=0
@@ -190,14 +213,14 @@ check "a settings file without a model key exits non-zero" [ "$missing_status" -
 check "a settings file without a model key says so" grep -q 'has no "model" key' "$tmp/missing.err"
 
 start_stub '{"tags": ["custom:tag"], "responses": []}'
-"$probe" --base-url "$base_url" --side-model none custom:tag > /dev/null
+"$probe" --base-url "$base_url" --side-model none custom:tag > /dev/null 2>&1
 check "an unknown argument is used as the model name" logged '"model": "custom:tag"'
 
 start_stub '{"tags": [], "responses": []}'
-"$probe" --base-url "$base_url" --side-model none --prefix-tokens 10 27b > /dev/null
+"$probe" --base-url "$base_url" --side-model none --prefix-tokens 10 27b > /dev/null 2>&1
 first_log="$(cat "$run_dir/requests.log")"
 start_stub '{"tags": [], "responses": []}'
-"$probe" --base-url "$base_url" --side-model none --prefix-tokens 10 27b > /dev/null
+"$probe" --base-url "$base_url" --side-model none --prefix-tokens 10 27b > /dev/null 2>&1
 second_log="$(cat "$run_dir/requests.log")"
 check "identical runs send identical requests" [ "$first_log" = "$second_log" ]
 check "prefix-tokens sets a short prompt" prompt_under "$first_log" 200
@@ -214,4 +237,8 @@ check "unreachable server exits non-zero" [ "$unreachable_status" -ne 0 ]
 check "unreachable server gets a clear message" grep -q "cannot reach Ollama" "$tmp/unreachable.err"
 
 stop_stub
-[ "$failures" -eq 0 ] && echo "all passed" || { echo "$failures failed"; exit 1; }
+if [ "$failures" -ne 0 ]; then
+  echo "$failures failed"
+  exit 1
+fi
+echo "all passed"
