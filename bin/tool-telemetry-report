@@ -1,0 +1,66 @@
+#!/usr/bin/env python3
+import json
+import os
+import statistics
+import sys
+from collections import defaultdict
+from datetime import datetime
+
+TOP_CALLS = 5
+
+
+def log_path_from(arguments, environment):
+    if arguments:
+        return arguments[0]
+    return environment.get("CLAUDE_TOOL_TELEMETRY")
+
+
+def read_calls(path):
+    with open(path, encoding="utf-8") as log:
+        return [json.loads(line) for line in log if line.strip()]
+
+
+def tool_row(tool, calls):
+    sizes = [call["bytes"] for call in calls]
+    over_limit = sum(1 for call in calls if call["over_trim_limit"])
+    return (tool, len(calls), sum(sizes), statistics.median(sizes), max(sizes), over_limit)
+
+
+def tool_rows(calls):
+    by_tool = defaultdict(list)
+    for call in calls:
+        by_tool[call["tool"]].append(call)
+    rows = [tool_row(tool, group) for tool, group in by_tool.items()]
+    return sorted(rows, key=lambda row: row[2], reverse=True)
+
+
+def format_time(timestamp):
+    return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def print_tool_table(calls):
+    print(f"{'tool':<12}{'calls':>7}{'total':>12}{'median':>10}{'max':>10}{'over_limit':>12}")
+    for tool, count, total, median, largest, over_limit in tool_rows(calls):
+        print(f"{tool:<12}{count:>7}{total:>12}{median:>10.0f}{largest:>10}{over_limit:>12}")
+
+
+def print_largest_calls(calls):
+    print()
+    print("largest calls")
+    largest_first = sorted(calls, key=lambda call: call["bytes"], reverse=True)
+    for call in largest_first[:TOP_CALLS]:
+        print(f"{call['bytes']:>10}  {call['tool']:<12} {call['session']}  {format_time(call['time'])}")
+
+
+def main():
+    path = log_path_from(sys.argv[1:], os.environ)
+    if not path:
+        sys.exit("usage: tool-telemetry-report LOG (or set CLAUDE_TOOL_TELEMETRY)")
+    if not os.path.isfile(path):
+        sys.exit(f"no telemetry log at {path}")
+    calls = read_calls(path)
+    print_tool_table(calls)
+    print_largest_calls(calls)
+
+
+main()

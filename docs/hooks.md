@@ -16,6 +16,7 @@ overlay and both Ollama profiles wire the same core hooks (from
 | `fallow-mark-preview.sh`  | After a Bash command                                                       | Records that `fallow fix --dry-run` ran in this session, which unlocks `fallow fix --yes`                                                                                                                                                                                          |
 | `fallow-after-edit.sh`    | After an Edit or Write                                                     | Adds Fallow's findings for the edited JS/TS file as context                                                                                                                                                                                                                        |
 | `tool-nudge.py`           | Before Bash and `semantic_search`; after Bash, Read, Agent; on each prompt | Ollama profiles only. Denies a Bash command that starts with a text search (`grep`, `rg`, `ag`, `ack`, `git grep`) until `mcp__code-search__semantic_search` has been called in the turn, at most twice per turn; after the 6th read/search adds a reminder to delegate to `Agent` |
+| `tool-telemetry.py`       | After any tool                                                             | Only when `CLAUDE_TOOL_TELEMETRY=<file>` is set: appends one JSON line per call with the time, session, tool name, response bytes, line count and whether trimming would apply. It never logs tool input or output; otherwise it does nothing                                      |
 
 Every settings file runs them as `"$CLAUDE_CUSTOM_HOME"/shared/hooks/<name>`.
 The `claude` shell function and `claude-ollama` set that variable for the
@@ -23,6 +24,11 @@ The `claude` shell function and `claude-ollama` set that variable for the
 has that tool installed. A failed check sends its output back to the model.
 Rules no tool can check live in `shared/preferences/PREFERENCES.md`, which every
 session loads through `~/.claude/CLAUDE.md`.
+
+To measure what tool calls return, start a session with the log set, then
+summarise it: `env CLAUDE_TOOL_TELEMETRY="$HOME/tool.log" claude-ollama 27b`,
+then `bin/tool-telemetry-report "$HOME/tool.log"`. The report lists calls,
+bytes, median, max and over-limit counts per tool, then the five largest calls.
 
 To have your tests run before the model finishes, add an executable
 `.claude/verify` script to a project. This repo's own one runs every test suite.
