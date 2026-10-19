@@ -175,6 +175,8 @@ conventional commits (`feat:`, `fix:`, `chore:`).
   `permissions.allow`.
 - `ollama/server.env` documents the Ollama server env the profiles expect. The
   Homebrew service sets the same values. Nothing in this repo applies it.
+  `bin/claude-ollama` sends a background warm-up `keep_alive` request to
+  `OLLAMA_HOST` (default `localhost:11434`) before `exec claude`.
 - `ollama/CLAUDE.<size>.md` files are appended system prompts for small local
   models, not memory files. Keep them terse: both sizes have a 64k context.
   Context sizes must match across `Modelfile.<size>` (`num_ctx`),

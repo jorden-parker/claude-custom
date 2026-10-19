@@ -58,7 +58,11 @@ if [ "\$1" = show ]; then exit "\${STUB_OLLAMA_SHOW_EXIT:-0}"; fi
 if [ "\$1" = pull ]; then exit "\${STUB_OLLAMA_PULL_EXIT:-0}"; fi
 exit 0
 EOF
-  chmod +x "$sandbox/stubbin/claude" "$sandbox/stubbin/ollama"
+  cat > "$sandbox/stubbin/curl" <<EOF
+#!/bin/sh
+echo "\$*" >> "$sandbox/curl.log"
+EOF
+  chmod +x "$sandbox/stubbin/claude" "$sandbox/stubbin/ollama" "$sandbox/stubbin/curl"
   export PATH="$sandbox/stubbin:/usr/bin:/bin"
 }
 
@@ -89,9 +93,20 @@ check_that "claude-ollama 35b passes the 35b model" grep -qF -- "--model qwen3.6
 check_that "claude-ollama 35b uses the 35b prompt" grep -qF -- "--append-system-prompt-file $repo/ollama/CLAUDE.35b.md" "$sandbox/out"
 check_that "claude-ollama replaces the default system prompt" grep -qF -- "--system-prompt-file $repo/ollama/system-prompt.md --append-system-prompt-file $repo/ollama/CLAUDE.35b.md" "$sandbox/out"
 check_that "claude-ollama 35b passes claude args through" grep -qF -- "--tools Bash,Read,Edit,Write,Agent -p hi" "$sandbox/out"
+check_that "claude-ollama warms the main model" grep -q 'localhost:11434/api/generate' "$sandbox/curl.log"
+check_that "claude-ollama warm-up names the model" grep -q '"model":"qwen3.6-35b-cc"' "$sandbox/curl.log"
+check_that "claude-ollama warm-up sets keep_alive" grep -q '"keep_alive":"30m"' "$sandbox/curl.log"
+rm -f "$sandbox/curl.log"
+OLLAMA_HOST=http://box:1 run_capture "$repo/bin/claude-ollama" 35b -p hi
+check_that "claude-ollama warm-up follows OLLAMA_HOST" grep -q 'box:1/api/generate' "$sandbox/curl.log"
 check_not "claude-ollama 35b skips pull when the model exists" grep -sqE '^(pull|create) ' "$sandbox/ollama.log"
 check_not "claude-ollama does not warn when the side model exists" grep -q 'side model' "$sandbox/err"
 check_that "claude-ollama starts the code-search MCP server" grep -qF -- "--strict-mcp-config --mcp-config {\"mcpServers\":{\"code-search\":{\"command\":\"python3\",\"args\":[\"$repo/shared/mcp/code-search.py\"]}}}" "$sandbox/out"
+new_sandbox
+rm -f "$sandbox/stubbin/curl"
+OLLAMA_HOST=http://127.0.0.1:9 run_capture "$repo/bin/claude-ollama" 35b -p hi
+check_that "claude-ollama launches without curl" grep -q '^ARGS:' "$sandbox/out"
+new_sandbox
 STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" 35b -p hi
 check_that "claude-ollama 35b pulls a missing base model" grep -qxF "pull qwen3.6:35b-mlx" "$sandbox/ollama.log"
 check_that "claude-ollama 35b creates the missing model" grep -qxF "create qwen3.6-35b-cc -f $repo/ollama/Modelfile.35b" "$sandbox/ollama.log"

@@ -8,6 +8,9 @@ default_size=27b
 tools="Bash,Read,Edit,Write,Agent"
 embedding_model="${CODE_SEARCH_MODEL:-qwen3-embedding:0.6b}"
 require_side_model=0
+ollama_url="${OLLAMA_HOST:-http://localhost:11434}"
+case "$ollama_url" in http://*|https://*) ;; *) ollama_url="http://$ollama_url" ;; esac
+keep_alive="${CLAUDE_OLLAMA_KEEP_ALIVE:-30m}"
 
 configured_sizes() {
   local settings size
@@ -88,6 +91,12 @@ mcp_config() {
     "$repo_dir/shared/mcp/code-search.py"
 }
 
+warm_model() {
+  command -v curl >/dev/null 2>&1 || return 0
+  curl -s -o /dev/null -m 2 -X POST "$ollama_url/api/generate" \
+    -d "{\"model\":\"$model\",\"keep_alive\":\"$keep_alive\"}" >/dev/null 2>&1 &
+}
+
 case "${1:-}" in
   -h|--help)
     echo "usage: claude-ollama [size] [claude args...]"
@@ -124,6 +133,7 @@ settings_file="$profile_dir/settings.$size.json"
 ensure_model
 ensure_embedding_model
 ensure_side_model || settings_file="$(fallback_settings_file)"
+warm_model
 
 unset ANTHROPIC_API_KEY ANTHROPIC_MODEL
 export CLAUDE_CUSTOM_HOME="$repo_dir"

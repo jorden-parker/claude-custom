@@ -158,7 +158,9 @@ when nothing changed). Details: `model-picker-tui/README.md`.
 ### Ollama server settings
 
 The profiles expect an Ollama server on `localhost:11434` with the settings in
-`ollama/server.env`. Nothing in this repo applies them. The Homebrew service
+`ollama/server.env`. Nothing in this repo applies them. The launcher also sends
+a warm-up request with `keep_alive` 30m (`CLAUDE_OLLAMA_KEEP_ALIVE` overrides)
+so the first prompt doesn't wait for the model to load. The Homebrew service
 (`brew services start ollama`) sets the same values, and uses these paths:
 
 | What        | Homebrew value                                      |
