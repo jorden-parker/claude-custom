@@ -7,6 +7,7 @@ sandboxes=""
 remove_sandboxes() {
   local dir
   for dir in $sandboxes; do
+    chmod -R u+w "$dir" 2>/dev/null
     rm -rf "$dir"
   done
 }
@@ -81,7 +82,22 @@ EOF
 echo "ollama serve ${STUB_OLLAMA_ENV:-}"
 EOF
   chmod +x "$sandbox/stubbin/claude" "$sandbox/stubbin/ollama" "$sandbox/stubbin/curl" "$sandbox/stubbin/python3" "$sandbox/stubbin/pgrep" "$sandbox/stubbin/ps"
-  export PATH="$sandbox/stubbin:/usr/bin:/bin"
+  link_system_tools
+  export PATH="$sandbox/stubbin:$sandbox/sysbin"
+}
+
+link_system_tools() {
+  local entry name
+  mkdir -p "$sandbox/sysbin"
+  for entry in /usr/bin/* /bin/*; do
+    name="${entry##*/}"
+    case "$name" in
+      go|gofmt) continue ;;
+    esac
+    if [ -x "$entry" ] && [ ! -e "$sandbox/sysbin/$name" ]; then
+      ln -s "$entry" "$sandbox/sysbin/$name"
+    fi
+  done
 }
 
 run_capture() {
