@@ -12,8 +12,9 @@
     "ANTHROPIC_AUTH_TOKEN": "ollama",
     "ANTHROPIC_DEFAULT_OPUS_MODEL": "qwen3.6-35b-cc",
     "ANTHROPIC_DEFAULT_SONNET_MODEL": "qwen3.6-35b-cc",
+    "ANTHROPIC_DEFAULT_FABLE_MODEL": "qwen3.6-35b-cc",
     "ANTHROPIC_DEFAULT_HAIKU_MODEL": "qwen3-4b-cc",
-    "CLAUDE_CODE_SUBAGENT_MODEL": "haiku",
+    "CLAUDE_CODE_SUBAGENT_MODEL": "qwen3-4b-cc",
     "CLAUDE_CODE_SUBAGENT_MODEL_FORCE": "1",
     "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "65536",
     "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "75",
@@ -104,5 +105,12 @@
         ]
       }
     ]
+  },
+  "modelOverrides": {
+    "claude-haiku-5-5": "qwen3-4b-cc",
+    "claude-haiku-4-5": "qwen3-4b-cc",
+    "claude-sonnet-5-5": "qwen3.6-35b-cc",
+    "claude-opus-5-5": "qwen3.6-35b-cc",
+    "claude-fable-5-1": "qwen3.6-35b-cc"
   }
 }

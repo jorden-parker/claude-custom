@@ -111,10 +111,13 @@ there is no `src/`.
   `qwen3-4b-cc`) fills the Haiku slot: every Ollama profile sets
   `ANTHROPIC_DEFAULT_HAIKU_MODEL` to it. The file is not `Modelfile.side`
   because `Modelfile.*` must pair with a `settings.<size>.json`. The model
-  picker's "Set up side model" row pulls and creates it. Both the Ollama
-  profiles and `personal/settings.tokens.json` force subagents onto Haiku with
-  `CLAUDE_CODE_SUBAGENT_MODEL=haiku` and `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1`,
-  so `Agent` is allowed in `--tools` and not in the deny list.
+  picker's "Set up side model" row pulls and creates it. The Ollama profiles set
+  `CLAUDE_CODE_SUBAGENT_MODEL` to the side model's ID, not `haiku`, and map full
+  Claude IDs (`claude-haiku-5-5` and others) to local models in
+  `modelOverrides`, because `ANTHROPIC_DEFAULT_*_MODEL` only remaps aliases.
+  `personal/settings.tokens.json` uses `CLAUDE_CODE_SUBAGENT_MODEL=haiku`. All
+  of them set `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1` (Claude Code v2.1.257 or
+  later), so `Agent` is allowed in `--tools` and not in the deny list.
 - `bin/claude-ollama` reads the configured sizes from `ollama/` (a
   `settings.<size>.json` plus a `Modelfile.<size>`), never a hardcoded list. A
   first arg that matches launches that size. Otherwise, on a terminal it runs
