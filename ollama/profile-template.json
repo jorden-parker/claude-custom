@@ -1,5 +1,6 @@
 {
   "model": "{{MODEL}}",
+  "availableModels": ["{{MODEL}}", "qwen3-4b-cc"],
   "apiKeyHelper": "",
   "disableClaudeAiConnectors": true,
   "disableBundledSkills": true,
