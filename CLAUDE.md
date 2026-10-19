@@ -47,6 +47,9 @@ gets applied.
 - Validate JSON after editing: `make check-json`
 - Launch the work harness: `claude-ollama [27b|35b] [claude args...]` (27b is
   the default size; `--help` lists sizes)
+- Check the work harness: `claude-ollama doctor [size]` (exit 1 on a missing
+  model, hook, context mismatch or server env var; needs `jq`) and
+  `claude-ollama --print-config [size]` (resolved values, no launch)
 - Launch the tools TUI: `claude-tools [user|project|local|FILE]`. Both are also
   `claude-custom ollama|tools [...]`.
 - `bin/claude-custom`, `bin/claude-ollama` and `bin/claude-tools` must stay
@@ -145,7 +148,9 @@ conventional commits (`feat:`, `fix:`, `chore:`).
   Before launching, it pulls the base model and creates the `-cc` model when
   `ollama show` can't find the `-cc` model. When the side model is missing it
   launches with a temporary copy of the profile whose side-model entries point
-  at the main model (`--require-side-model` exits 1 instead).
+  at the main model (`--require-side-model` exits 1 instead). `doctor` and
+  `--print-config` are dispatched before any pull or launch; `doctor` reads hook
+  names from the profile's settings file, not from `~/.claude/hooks`.
 - The **side model** (`ollama/side.Modelfile`, `qwen3:4b` created as
   `qwen3-4b-cc`) fills the Haiku slot: every Ollama profile sets
   `ANTHROPIC_DEFAULT_HAIKU_MODEL` to it. The file is not `Modelfile.side`
