@@ -26,7 +26,7 @@ This wires every shell it finds: zsh (`~/.zshrc`), bash (`~/.bashrc`,
 `~/.bash_profile`), ksh (`~/.kshrc`) and fish
 (`~/.config/fish/conf.d/claude-custom.fish`). Rc edits sit between
 `# >>> claude-custom >>>` markers and put `~/.local/bin` on PATH. It also links
-`claude-ollama`, `claude-tools`, `claude-custom` and the four hooks (see
+`claude-ollama`, `claude-tools`, `claude-custom` and the five hooks (see
 [Enforced preferences](#enforced-preferences)) into `~/.claude/hooks/`, adds `@`
 imports for `personal/CLAUDE.tokens.md` and `shared/preferences/PREFERENCES.md`
 to `~/.claude/CLAUDE.md`, and rebuilds the Ollama models whose base model is
@@ -50,6 +50,7 @@ overlay and both Ollama profiles wire the same hooks:
 | ---------------------- | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `bash-output-guard.py` | Before a Bash command     | Denies commands that would flood the context (unbounded `git log`, `cat` on a lockfile, recursive `ls`)                                                        |
 | `bash-output-trim.py`  | After a Bash command      | Trims output over 150 lines to the first 30, error/fail lines from the middle (up to 40) and the last 60, clips lines over 400 chars, and says what was hidden |
+| `read-range-guard.py`  | Before a Read             | Denies reading a file over 300 lines unless the call asks for a range of 300 lines or fewer, and says to find the lines first                                  |
 | `edit-check.py`        | After an Edit or Write    | Runs the edited file's project-local formatter and linter (gofmt, go vet, prettier, eslint, ruff, shellcheck, `bash -n`) and rejects newly added comments      |
 | `stop-verify.py`       | Before the model finishes | Runs Fallow (`audit` and `architecture`) in JS/TS projects and the project's `.claude/verify` script, if present; blocks at most once per turn                 |
 
@@ -189,7 +190,10 @@ sits at 80% of the prefix, about 16k tokens at the default 20000.
 `claude-ollama` starts `shared/mcp/code-search.py`, a stdlib-only MCP server
 with one tool, `semantic_search`. It embeds the repo with `qwen3-embedding:0.6b`
 (pulled on launch if missing) and returns `file:start-end` ranges with a score
-and a one-line preview, so the model reads only those lines.
+and a one-line preview, so the model reads only those lines. `claude-ollama`
+drops Grep and Glob (`--tools Bash,Read,Edit,Write`, plus bare deny rules), and
+the working rules tell the model to always search first; exact names go through
+`git grep -n`.
 
 - Files: `git ls-files` plus untracked, non-ignored files. Lockfiles, minified
   files, images, binaries and files over 200 KB are skipped.

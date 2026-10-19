@@ -5,7 +5,7 @@ repo_dir="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 profile_dir="$repo_dir/ollama"
 picker_dir="$repo_dir/model-picker-tui"
 default_size=27b
-tools="Bash,Read,Edit,Write,Glob,Grep"
+tools="Bash,Read,Edit,Write"
 embedding_model="qwen3-embedding:0.6b"
 
 configured_sizes() {

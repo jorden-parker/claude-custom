@@ -35,9 +35,10 @@ SKIPPED_SUFFIXES = (".min.js", ".map", ".svg", ".png", ".jpg", ".gif", ".ico", "
 TOOL = {
     "name": "semantic_search",
     "description": (
-        "Find code by meaning in the current git repo. Returns file:start-end line "
-        "ranges with a score and a one-line preview; Read only those ranges. Use "
-        "Grep instead for exact names."
+        "Always call this first to find code in the current git repo, before any Read. "
+        "Returns file:start-end line ranges with a score and a one-line preview; then "
+        "Read only those ranges with offset/limit. For exact identifiers use "
+        "`git grep -n` in Bash."
     ),
     "inputSchema": {
         "type": "object",

@@ -184,6 +184,7 @@ check_eq "claude-custom link" "$repo/bin/claude-custom" "$(readlink "$HOME/.loca
 check_eq "claude-tools link" "$repo/bin/claude-tools" "$(readlink "$HOME/.local/bin/claude-tools")"
 check_eq "hook link" "$repo/shared/hooks/bash-output-guard.py" "$(readlink "$HOME/.claude/hooks/bash-output-guard.py")"
 check_eq "bash-output-trim hook link" "$repo/shared/hooks/bash-output-trim.py" "$(readlink "$HOME/.claude/hooks/bash-output-trim.py")"
+check_eq "read-range-guard hook link" "$repo/shared/hooks/read-range-guard.py" "$(readlink "$HOME/.claude/hooks/read-range-guard.py")"
 check_eq "edit-check hook link" "$repo/shared/hooks/edit-check.py" "$(readlink "$HOME/.claude/hooks/edit-check.py")"
 check_eq "stop-verify hook link" "$repo/shared/hooks/stop-verify.py" "$(readlink "$HOME/.claude/hooks/stop-verify.py")"
 
@@ -305,6 +306,7 @@ check_not "round trip removes claude-custom link" test -L "$HOME/.local/bin/clau
 check_not "round trip removes claude-tools link" test -L "$HOME/.local/bin/claude-tools"
 check_not "round trip removes hook link" test -L "$HOME/.claude/hooks/bash-output-guard.py"
 check_not "round trip removes bash-output-trim link" test -L "$HOME/.claude/hooks/bash-output-trim.py"
+check_not "round trip removes read-range-guard link" test -L "$HOME/.claude/hooks/read-range-guard.py"
 check_not "round trip removes edit-check link" test -L "$HOME/.claude/hooks/edit-check.py"
 check_not "round trip removes stop-verify link" test -L "$HOME/.claude/hooks/stop-verify.py"
 
@@ -382,15 +384,23 @@ check_that "no upstream message" grep -q 'update: git pull failed' "$sandbox/err
 new_sandbox
 ollama_settings="--settings $repo/ollama/settings.27b.json"
 run_capture "$repo/bin/claude-ollama" -p hi
+denies_tool() {
+  jq -e --arg tool "$2" '.permissions.deny | index($tool) != null' "$1" >/dev/null
+}
+for settings in "$repo"/ollama/settings.*.json; do
+  for tool in Grep Glob; do
+    check_that "${settings##*/} denies $tool" denies_tool "$settings" "$tool"
+  done
+done
 check_that "claude-ollama defaults to 27b" grep -qF -- "$ollama_settings" "$sandbox/out"
-check_that "claude-ollama passes claude args through" grep -qF -- "--tools Bash,Read,Edit,Write,Glob,Grep -p hi" "$sandbox/out"
+check_that "claude-ollama passes claude args through" grep -qF -- "--tools Bash,Read,Edit,Write -p hi" "$sandbox/out"
 run_capture "$repo/bin/claude-ollama" 27b -p hi
-check_that "claude-ollama keeps the explicit size form" grep -qF -- "--tools Bash,Read,Edit,Write,Glob,Grep -p hi" "$sandbox/out"
+check_that "claude-ollama keeps the explicit size form" grep -qF -- "--tools Bash,Read,Edit,Write -p hi" "$sandbox/out"
 run_capture "$repo/bin/claude-ollama" 35b -p hi
 check_that "claude-ollama 35b uses the 35b settings" grep -qF -- "--settings $repo/ollama/settings.35b.json" "$sandbox/out"
 check_that "claude-ollama 35b uses the 35b prompt" grep -qF -- "--append-system-prompt-file $repo/ollama/CLAUDE.35b.md" "$sandbox/out"
 check_that "claude-ollama replaces the default system prompt" grep -qF -- "--system-prompt-file $repo/ollama/system-prompt.md --append-system-prompt-file $repo/ollama/CLAUDE.35b.md" "$sandbox/out"
-check_that "claude-ollama 35b passes claude args through" grep -qF -- "--tools Bash,Read,Edit,Write,Glob,Grep -p hi" "$sandbox/out"
+check_that "claude-ollama 35b passes claude args through" grep -qF -- "--tools Bash,Read,Edit,Write -p hi" "$sandbox/out"
 check_not "claude-ollama 35b skips pull when the model exists" grep -sqE '^(pull|create) ' "$sandbox/ollama.log"
 check_that "claude-ollama starts the code-search MCP server" grep -qF -- "--strict-mcp-config --mcp-config {\"mcpServers\":{\"code-search\":{\"command\":\"python3\",\"args\":[\"$repo/shared/mcp/code-search.py\"]}}}" "$sandbox/out"
 STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" 35b -p hi
@@ -422,7 +432,7 @@ check_not "claude-ollama help does not launch claude" grep -q '^ARGS:' "$sandbox
 run_capture "$repo/bin/claude-ollama" 28b -p hi </dev/null
 check_that "claude-ollama unknown size without a tty falls back to 27b" grep -qF -- "$ollama_settings" "$sandbox/out"
 check_not "claude-ollama drops an unknown size" grep -qF "28b" "$sandbox/out"
-check_that "claude-ollama unknown size keeps claude args" grep -qF -- "Glob,Grep -p hi" "$sandbox/out"
+check_that "claude-ollama unknown size keeps claude args" grep -qF -- "Edit,Write -p hi" "$sandbox/out"
 
 new_sandbox
 copy_repo "$sandbox/repo"
@@ -431,7 +441,7 @@ cp "$sandbox/repo/ollama/Modelfile.27b" "$sandbox/repo/ollama/Modelfile.9b"
 cp "$sandbox/repo/ollama/settings.27b.json" "$sandbox/repo/ollama/settings.70b.json"
 run_capture "$sandbox/repo/bin/claude-ollama" 9b -p hi
 check_that "claude-ollama accepts a newly configured size" grep -qF -- "--settings $sandbox/repo/ollama/settings.9b.json" "$sandbox/out"
-check_not "claude-ollama does not pass a configured size to claude" grep -qF -- "Grep 9b" "$sandbox/out"
+check_not "claude-ollama does not pass a configured size to claude" grep -qF -- "Write 9b" "$sandbox/out"
 run_capture "$sandbox/repo/bin/claude-ollama" --help
 check_that "claude-ollama help lists sizes from config" grep -qxF "sizes: 27b 35b 9b" "$sandbox/out"
 

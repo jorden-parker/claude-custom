@@ -30,6 +30,15 @@
             "command": "~/.claude/hooks/bash-output-guard.py"
           }
         ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/read-range-guard.py"
+          }
+        ]
       }
     ],
     "PostToolUse": [

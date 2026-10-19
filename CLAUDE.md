@@ -77,6 +77,9 @@ there is no `src/`.
   and error/fail lines plus a marker naming the hidden line range. The reply
   must keep the Bash output shape (`stdout`, `stderr`, `interrupted`, `isImage`)
   or Claude Code ignores it.
+- `shared/hooks/read-range-guard.py` is a `PreToolUse` hook on Read. It denies
+  reading a file over 300 lines unless `limit` is 300 or less. Read can't be
+  disabled for the local models: Edit refuses files that weren't Read first.
 - `shared/hooks/edit-check.py` (PostToolUse on Edit/Write/MultiEdit) runs the
   edited file's project-local formatter/linter and rejects newly added comments.
   `shared/hooks/stop-verify.py` (Stop) runs Fallow in JS/TS projects and the
