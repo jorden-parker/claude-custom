@@ -195,7 +195,8 @@ commitlint enforces conventional commits (`feat:`, `fix:`, `chore:`).
   `ollama create` names that `model` and the `ANTHROPIC_DEFAULT_*_MODEL` vars
   refer to. The compact window is pinned because a managed `availableModels`
   that lacks the model makes Claude Code substitute a `[1m]` ID, which assumes a
-  1M window; `claude-ollama doctor` warns when that happens.
+  1M window; `claude-ollama doctor` warns when that happens. Each profile's own
+  `availableModels` lists its main and side model; `bin/check-config` checks it.
   `ollama/system-prompt.md` replaces Claude Code's default system prompt for
   both sizes; keep it short and don't put size-specific rules in it.
 - The personal overlay is loaded with `--settings` by the `claude` shell

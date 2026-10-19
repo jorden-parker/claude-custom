@@ -51,6 +51,8 @@ for settings in "$repo"/ollama/settings.*.json; do
     "$(jq -r '[.modelOverrides["claude-haiku-5-5"], .modelOverrides["claude-haiku-4-5"]] | join(" ")' "$settings")"
   check_eq "${settings##*/} maps no Claude ID to the main model, so the banner names it" "" \
     "$(jq -r '.model as $main | .modelOverrides | to_entries[] | select(.value == $main) | .key' "$settings")"
+  check_eq "${settings##*/} lists its main and side models in availableModels" \
+    "$(jq -c '[.model, .env.ANTHROPIC_DEFAULT_HAIKU_MODEL]' "$settings")" "$(jq -c '.availableModels' "$settings")"
   check_eq "${settings##*/} compacts at its own context size, even under a [1m] model ID" \
     "$(jq -r .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS "$settings")" "$(jq -r .env.CLAUDE_CODE_AUTO_COMPACT_WINDOW "$settings")"
   check_eq "${settings##*/} waits the full 30 minutes for a silent Ollama stream" "1800000 1800000" \

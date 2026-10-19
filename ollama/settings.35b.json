@@ -1,5 +1,6 @@
 {
   "model": "qwen3.6-35b-cc",
+  "availableModels": ["qwen3.6-35b-cc", "qwen3-4b-cc"],
   "apiKeyHelper": "",
   "disableClaudeAiConnectors": true,
   "disableBundledSkills": true,
