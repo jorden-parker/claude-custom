@@ -109,11 +109,14 @@ conventional commits (`feat:`, `fix:`, `chore:`).
   `~/.claude/CLAUDE.md`, so both backends load it. Keep it short: Ollama has 64k
   context.
 - `shared/hooks/tool-nudge.py` is wired only in the Ollama profiles
-  (UserPromptSubmit resets its per-session counters under
-  `~/.claude/cache/tool-nudge/`; PostToolUse on Bash, Read, Agent and
-  `mcp__code-search__semantic_search` counts). It adds `additionalContext` once
-  per turn after the 2nd text search (use `semantic_search`) and once after the
-  6th read-or-search (delegate to `Agent`). It never denies.
+  (UserPromptSubmit resets its per-session state under
+  `~/.claude/cache/tool-nudge/`). As PreToolUse on Bash and
+  `mcp__code-search__semantic_search` it denies a Bash command that leads with
+  a text search (`grep`, `rg`, `ag`, `ack`, `git grep`) until the MCP tool has
+  been called in the turn, at most twice per turn so a dead server can't lock
+  the model out. As PostToolUse on Bash, Read and Agent it adds
+  `additionalContext` once per turn after the 6th read-or-search (delegate to
+  `Agent`).
 - All settings files (`personal/settings.tokens.json`, `ollama/settings.*.json`)
   run hooks as `"$CLAUDE_CUSTOM_HOME"/shared/hooks/<name>`. Hook commands go
   through a shell, so the variable expands. `personal/claude.sh` and

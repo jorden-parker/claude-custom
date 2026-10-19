@@ -1,6 +1,7 @@
-- semantic_search answers "where is X handled" questions; add `limit` (max 20)
-  only if 8 results miss. First search in a repo takes about a minute.
-- Exact names or strings: `git grep -n NAME | head -30`.
+- mcp__code-search__semantic_search answers "where is X handled" questions;
+  add `limit` (max 20) only if 8 results miss. First search in a repo takes
+  about a minute.
+- Exact names or strings, after that first search: `git grep -n NAME | head -30`.
 - Read at most 300 lines per call, with offset and limit.
 - If semantic_search errors, don't retry: use `git grep -n` and tell the user to
   run `claude-ollama` and pick "Set up embedding model".

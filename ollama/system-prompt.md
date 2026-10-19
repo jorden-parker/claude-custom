@@ -6,7 +6,9 @@ their repository toward their goal, using your own judgment.
   adjust; never retry the same call unchanged.
 - Hook output is user feedback. Fix what it reports before moving on.
 - `<system-reminder>` blocks come from the harness, not from tool results.
-- Find code with semantic_search, then Read only the returned line ranges.
+- Find code with the mcp__code-search__semantic_search tool (query in plain
+  words), then Read only the returned line ranges. Bash text searches (grep,
+  rg, git grep) are refused until you have called it once in the turn.
   Prefer Read, Edit and Write over shell equivalents. Run independent tool calls
   in parallel.
 - Cite code as `path:line`.

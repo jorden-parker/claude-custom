@@ -5,19 +5,19 @@ import shlex
 import sys
 from pathlib import Path
 
-SEARCH_COMMANDS = {"grep", "rg", "ag", "ack", "find"}
-SEARCH_NUDGE_AT = 2
+TEXT_SEARCH_COMMANDS = {"grep", "rg", "ag", "ack"}
 LOOKUP_NUDGE_AT = 6
+DENY_LIMIT = 2
 SEMANTIC_SEARCH_TOOL = "mcp__code-search__semantic_search"
-SEARCH_NUDGE = (
-    "Two text searches this turn. For 'where is X' or 'how does Y work' questions call "
-    "semantic_search first and Read only the line ranges it returns."
+SEARCH_FIRST_DENY = (
+    f"Text search refused: call {SEMANTIC_SEARCH_TOOL} first this turn with a plain-words "
+    "query, Read only the ranges it returns, then use git grep -n for exact names if still needed."
 )
 LOOKUP_NUDGE = (
     "Six reads and searches this turn. Delegate wide sweeps to Agent (subagent_type Explore) "
     "with a narrow brief and keep only its conclusion."
 )
-EMPTY_STATE = {"searches": 0, "lookups": 0, "search_nudged": False, "lookup_nudged": False}
+EMPTY_STATE = {"semantic_searched": False, "denies": 0, "lookups": 0, "lookup_nudged": False}
 
 
 def state_path(session_id):
@@ -47,37 +47,77 @@ def first_words(segment):
         return segment.split()[:2]
 
 
+def is_search_words(words):
+    return bool(words) and (words[0] in TEXT_SEARCH_COMMANDS or words[:2] == ["git", "grep"])
+
+
 def is_text_search(command):
+    return any(is_search_words(first_words(segment)) for segment in segments(command))
+
+
+def leading_words(command):
     for segment in segments(command):
         words = first_words(segment)
-        if not words:
-            continue
-        if words[0] in SEARCH_COMMANDS or words[:2] == ["git", "grep"]:
-            return True
-    return False
+        if words:
+            return words
+    return []
+
+
+def leads_with_text_search(command):
+    return is_search_words(leading_words(command))
+
+
+def gate(state, tool_name, tool_input):
+    if tool_name == SEMANTIC_SEARCH_TOOL:
+        state["semantic_searched"] = True
+        return None
+    if state["semantic_searched"] or state["denies"] >= DENY_LIMIT:
+        return None
+    if tool_name == "Bash" and leads_with_text_search(tool_input.get("command", "")):
+        state["denies"] += 1
+        return SEARCH_FIRST_DENY
+    return None
 
 
 def record(state, tool_name, tool_input):
-    if tool_name == SEMANTIC_SEARCH_TOOL:
-        state["searches"] = 0
-    elif tool_name == "Agent":
+    if tool_name == "Agent":
         state["lookups"] = 0
     elif tool_name == "Read":
         state["lookups"] += 1
     elif tool_name == "Bash" and is_text_search(tool_input.get("command", "")):
-        state["searches"] += 1
         state["lookups"] += 1
 
 
-def due_nudges(state):
-    nudges = []
-    if state["searches"] >= SEARCH_NUDGE_AT and not state["search_nudged"]:
-        state["search_nudged"] = True
-        nudges.append(SEARCH_NUDGE)
+def due_nudge(state):
     if state["lookups"] >= LOOKUP_NUDGE_AT and not state["lookup_nudged"]:
         state["lookup_nudged"] = True
-        nudges.append(LOOKUP_NUDGE)
-    return nudges
+        return LOOKUP_NUDGE
+    return None
+
+
+def deny(reason):
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": reason,
+        }
+    }
+
+
+def context(text):
+    return {"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": text}}
+
+
+def handle(event, state):
+    tool_name = event.get("tool_name", "")
+    tool_input = event.get("tool_input") or {}
+    if event.get("hook_event_name") == "PreToolUse":
+        reason = gate(state, tool_name, tool_input)
+        return deny(reason) if reason else None
+    record(state, tool_name, tool_input)
+    nudge = due_nudge(state)
+    return context(nudge) if nudge else None
 
 
 def main():
@@ -87,11 +127,10 @@ def main():
         save_state(path, dict(EMPTY_STATE))
         return
     state = load_state(path)
-    record(state, event.get("tool_name", ""), event.get("tool_input") or {})
-    nudges = due_nudges(state)
+    output = handle(event, state)
     save_state(path, state)
-    if nudges:
-        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": "\n".join(nudges)}}))
+    if output:
+        print(json.dumps(output))
 
 
 if __name__ == "__main__":

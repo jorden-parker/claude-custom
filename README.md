@@ -61,7 +61,7 @@ overlay and both Ollama profiles wire the same hooks:
 | `fallow-command-guard.sh` | Before a Bash command                                      | In JS/TS projects: denies `fallow` without `--format json`, `fallow fix --yes` before a `--dry-run` in the same session, and `git commit`/`git push` while `fallow audit` fails                                                                                 |
 | `fallow-mark-preview.sh`  | After a Bash command                                       | Records that `fallow fix --dry-run` ran in this session, which unlocks `fallow fix --yes`                                                                                                                                                                       |
 | `fallow-after-edit.sh`    | After an Edit or Write                                     | Adds Fallow's findings for the edited JS/TS file as context                                                                                                                                                                                                     |
-| `tool-nudge.py`           | After Bash, Read, Agent, `semantic_search`; on each prompt | Ollama profiles only. Counts text searches (`grep`, `rg`, `find`, `git grep`) and Reads per turn; after the 2nd search adds a reminder to use `semantic_search`, after the 6th read/search a reminder to delegate to `Agent`. Never denies                      |
+| `tool-nudge.py`           | Before Bash and `semantic_search`; after Bash, Read, Agent; on each prompt | Ollama profiles only. Denies a Bash command that starts with a text search (`grep`, `rg`, `ag`, `ack`, `git grep`) until `mcp__code-search__semantic_search` has been called in the turn, at most twice per turn; after the 6th read/search adds a reminder to delegate to `Agent`                      |
 
 Every settings file runs them as `"$CLAUDE_CUSTOM_HOME"/shared/hooks/<name>`.
 The `claude` shell function and `claude-ollama` set that variable for the
@@ -228,8 +228,9 @@ with one tool, `semantic_search`. It embeds the repo with `qwen3-embedding:0.6b`
 (pulled on launch if missing) and returns `file:start-end` ranges with a score
 and a one-line preview, so the model reads only those lines. `claude-ollama`
 drops Grep and Glob (`--tools Bash,Read,Edit,Write,Agent`, plus bare deny
-rules), and the working rules tell the model to always search first; exact names
-go through `git grep -n`.
+rules), and `tool-nudge.py` refuses the first two Bash text searches of a turn
+until the tool has been called; exact names go through `git grep -n` after
+that.
 
 - Files: `git ls-files` plus untracked, non-ignored files. Lockfiles, minified
   files, images, binaries and files over 200 KB are skipped.
