@@ -95,6 +95,12 @@ func TestViewListsSizesAndModels(t *testing.T) {
 	}
 }
 
+func TestViewUsesAltScreen(t *testing.T) {
+	if !New(configured, side, embedding).View().AltScreen {
+		t.Fatal("inline rendering leaves a copy of the menu behind after each setup run")
+	}
+}
+
 func TestSideRowOnlyWithSideModel(t *testing.T) {
 	if view := New(configured, profiles.SideModel{}, embedding).View().Content; strings.Contains(view, "Set up side model") {
 		t.Fatalf("unexpected side row:\n%s", view)

@@ -30,7 +30,9 @@ func (m Model) View() tea.View {
 		b.WriteString("\n" + mutedStyle.Render(m.status) + "\n")
 	}
 	b.WriteString("\n" + m.help.View(m.keys) + "\n")
-	return tea.NewView(b.String())
+	v := tea.NewView(b.String())
+	v.AltScreen = true
+	return v
 }
 
 func (m Model) row(profile profiles.Profile, selected bool) string {

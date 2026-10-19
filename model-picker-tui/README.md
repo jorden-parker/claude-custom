@@ -32,7 +32,8 @@ The last row is always "Set up embedding model". Enter on it runs
 set, otherwise `qwen3-embedding:0.6b`. It needs no config file. Output and
 status work the same as the side model row.
 
-The menu renders on stderr. Only the chosen size goes to stdout. Exit codes: 0
+The menu renders on stderr in the alternate screen, so a setup run's output
+doesn't leave a second copy of the menu behind. Only the chosen size goes to stdout. Exit codes: 0
 when a size is chosen, 1 when the menu is cancelled, 2 for usage errors or when
 no profiles are configured.
 
