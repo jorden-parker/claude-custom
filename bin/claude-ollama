@@ -42,12 +42,11 @@ choose_size() {
 
 ensure_model() {
   local modelfile="$profile_dir/Modelfile.$size"
-  local name base
-  name="$(jq -r .model "$profile_dir/settings.$size.json")"
-  ollama show "$name" >/dev/null 2>&1 && return 0
+  local base
+  ollama show "$model" >/dev/null 2>&1 && return 0
   base="$(sed -n 's/^FROM //p' "$modelfile")"
   ollama pull "$base"
-  ollama create "$name" -f "$modelfile"
+  ollama create "$model" -f "$modelfile"
 }
 
 ensure_embedding_model() {
@@ -87,16 +86,19 @@ else
   size="$(choose_size)"
 fi
 
+model="$(jq -r .model "$profile_dir/settings.$size.json")"
+
 ensure_model
 ensure_embedding_model
 ensure_side_model
 
-unset ANTHROPIC_API_KEY
+unset ANTHROPIC_API_KEY ANTHROPIC_MODEL
 exec claude \
   --settings "$profile_dir/settings.$size.json" \
   --system-prompt-file "$profile_dir/system-prompt.md" \
   --append-system-prompt-file "$profile_dir/CLAUDE.$size.md" \
   --strict-mcp-config \
   --mcp-config "$(mcp_config)" \
+  --model "$model" \
   --tools "$tools" \
   "$@"

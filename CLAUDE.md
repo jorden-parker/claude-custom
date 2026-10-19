@@ -103,8 +103,9 @@ there is no `src/`.
   `--system-prompt-file ollama/system-prompt.md` (replacing Claude Code's
   default system prompt), `--append-system-prompt-file ollama/CLAUDE.<size>.md`,
   `--strict-mcp-config` plus an inline `--mcp-config` for the code-search
-  server, and restricts tools with `--tools` (built-in tools only; MCP tools
-  still load). Before launching, it pulls the base model and creates the `-cc`
+  server, `--model` with the profile's `model` (it also unsets
+  `ANTHROPIC_MODEL`, which would otherwise win over the settings file), and
+  restricts tools with `--tools` (built-in tools only; MCP tools still load). Before launching, it pulls the base model and creates the `-cc`
   model when `ollama show` can't find the `-cc` model. It only warns when the
   side model is missing.
 - The **side model** (`ollama/side.Modelfile`, `qwen3:4b` created as

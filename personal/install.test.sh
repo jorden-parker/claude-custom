@@ -45,7 +45,7 @@ new_sandbox() {
   mkdir -p "$HOME" "$sandbox/stubbin"
   unset ZDOTDIR XDG_CONFIG_HOME CLAUDE_CONFIG_DIR STUB_OLLAMA_SHOW_EXIT STUB_OLLAMA_PULL_EXIT
   export SHELL=/bin/zsh
-  printf '#!/bin/sh\necho "ARGS: $*"\n' > "$sandbox/stubbin/claude"
+  printf '#!/bin/sh\necho "ARGS: $*"\necho "${ANTHROPIC_MODEL-unset}" > "%s/model-env"\n' "$sandbox" > "$sandbox/stubbin/claude"
   cat > "$sandbox/stubbin/ollama" <<EOF
 #!/bin/sh
 echo "\$*" >> "$sandbox/ollama.log"
@@ -419,8 +419,13 @@ check_that "claude-ollama defaults to 27b" grep -qF -- "$ollama_settings" "$sand
 check_that "claude-ollama passes claude args through" grep -qF -- "--tools Bash,Read,Edit,Write,Agent -p hi" "$sandbox/out"
 run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "claude-ollama keeps the explicit size form" grep -qF -- "--tools Bash,Read,Edit,Write,Agent -p hi" "$sandbox/out"
+check_that "claude-ollama 27b passes the 27b model" grep -qF -- "--model qwen3.8-27b-cc --tools" "$sandbox/out"
+ANTHROPIC_MODEL=claude-opus-5-5 run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_that "claude-ollama 27b ignores ANTHROPIC_MODEL" grep -qF -- "--model qwen3.8-27b-cc --tools" "$sandbox/out"
+check_that "claude-ollama unsets ANTHROPIC_MODEL" grep -qxF "unset" "$sandbox/model-env"
 run_capture "$repo/bin/claude-ollama" 35b -p hi
 check_that "claude-ollama 35b uses the 35b settings" grep -qF -- "--settings $repo/ollama/settings.35b.json" "$sandbox/out"
+check_that "claude-ollama 35b passes the 35b model" grep -qF -- "--model qwen3.6-35b-cc --tools" "$sandbox/out"
 check_that "claude-ollama 35b uses the 35b prompt" grep -qF -- "--append-system-prompt-file $repo/ollama/CLAUDE.35b.md" "$sandbox/out"
 check_that "claude-ollama replaces the default system prompt" grep -qF -- "--system-prompt-file $repo/ollama/system-prompt.md --append-system-prompt-file $repo/ollama/CLAUDE.35b.md" "$sandbox/out"
 check_that "claude-ollama 35b passes claude args through" grep -qF -- "--tools Bash,Read,Edit,Write,Agent -p hi" "$sandbox/out"
