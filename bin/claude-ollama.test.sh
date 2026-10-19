@@ -67,6 +67,10 @@ EOF
 echo "\$*" >> "$sandbox/curl.log"
 exit "\${STUB_CURL_EXIT:-0}"
 EOF
+  cat > "$sandbox/stubbin/python3" <<EOF
+#!/bin/sh
+echo "\$*" >> "$sandbox/python.log"
+EOF
   cat > "$sandbox/stubbin/pgrep" <<'EOF'
 #!/bin/sh
 [ -n "${STUB_OLLAMA_PID:-}" ] && echo "$STUB_OLLAMA_PID"
@@ -75,7 +79,7 @@ EOF
 #!/bin/sh
 echo "ollama serve ${STUB_OLLAMA_ENV:-}"
 EOF
-  chmod +x "$sandbox/stubbin/claude" "$sandbox/stubbin/ollama" "$sandbox/stubbin/curl" "$sandbox/stubbin/pgrep" "$sandbox/stubbin/ps"
+  chmod +x "$sandbox/stubbin/claude" "$sandbox/stubbin/ollama" "$sandbox/stubbin/curl" "$sandbox/stubbin/python3" "$sandbox/stubbin/pgrep" "$sandbox/stubbin/ps"
   export PATH="$sandbox/stubbin:/usr/bin:/bin"
 }
 
@@ -115,6 +119,14 @@ check_that "claude-ollama warm-up follows OLLAMA_HOST" grep -q 'box:1/api/genera
 check_not "claude-ollama 35b skips pull when the model exists" grep -sqE '^(pull|create) ' "$sandbox/ollama.log"
 check_not "claude-ollama does not warn when the side model exists" grep -q 'side model' "$sandbox/err"
 check_that "claude-ollama starts the code-search MCP server" grep -qF -- "--strict-mcp-config --mcp-config {\"mcpServers\":{\"code-search\":{\"command\":\"python3\",\"args\":[\"$repo/shared/mcp/code-search.py\"]}}}" "$sandbox/out"
+rm -f "$sandbox/python.log"
+run_capture "$repo/bin/claude-ollama" 35b -p hi
+sleep 1
+check_that "claude-ollama starts the indexer" grep -qxF "$repo/shared/mcp/code-search.py --index" "$sandbox/python.log"
+check_that "claude-ollama launches without waiting for the indexer" grep -q '^ARGS:' "$sandbox/out"
+rm -f "$sandbox/python.log"
+run_capture env CLAUDE_OLLAMA_NO_INDEX=1 "$repo/bin/claude-ollama" 35b -p hi
+check_not "CLAUDE_OLLAMA_NO_INDEX skips the indexer" test -e "$sandbox/python.log"
 new_sandbox
 rm -f "$sandbox/stubbin/curl"
 OLLAMA_HOST=http://127.0.0.1:9 run_capture "$repo/bin/claude-ollama" 35b -p hi
