@@ -46,6 +46,7 @@ new_sandbox() {
   unset ZDOTDIR XDG_CONFIG_HOME CLAUDE_CONFIG_DIR STUB_OLLAMA_SHOW_EXIT STUB_OLLAMA_PULL_EXIT
   unset STUB_OLLAMA_PID STUB_OLLAMA_ENV STUB_CURL_EXIT STUB_OLLAMA_MISSING
   export SHELL=/bin/zsh
+  export CLAUDE_OLLAMA_MANAGED_SETTINGS="$sandbox/managed-settings.json"
   cat > "$sandbox/stubbin/claude" <<EOF
 #!/bin/sh
 echo "ARGS: \$*"
@@ -253,6 +254,7 @@ check_that "doctor reports context sizes agree" grep -qxF "ok   num_ctx 65536 ma
 check_that "doctor reports hooks" grep -qxF "ok   hook stop-verify.py present" "$sandbox/out"
 check_that "doctor reports reachability" grep -qxF "ok   ollama reachable at http://localhost:11434" "$sandbox/out"
 check_that "doctor reports server env" grep -qxF "ok   server env OLLAMA_KV_CACHE_TYPE=q8_0" "$sandbox/out"
+check_that "doctor reports no managed model allowlist" grep -qxF "ok   no managed availableModels restricts qwen3.8-27b-cc" "$sandbox/out"
 check_not "doctor does not launch claude" grep -q '^ARGS:' "$sandbox/out"
 check_not "doctor does not pull or create" grep -sqE '^(pull|create) ' "$sandbox/ollama.log"
 
@@ -283,6 +285,18 @@ rm "$sandbox/repo/shared/hooks/edit-check.py"
 STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m" run_capture "$sandbox/repo/bin/claude-ollama" doctor 27b
 check_eq "doctor with a missing hook exit status" 1 "$?"
 check_that "doctor fails a missing hook" grep -qxF "fail hook edit-check.py missing or not executable in shared/hooks" "$sandbox/out"
+
+new_sandbox
+echo '{"availableModels":["qwen3.8-27b-cc","opus"]}' > "$CLAUDE_OLLAMA_MANAGED_SETTINGS"
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m" run_capture "$repo/bin/claude-ollama" doctor 27b
+check_eq "doctor with the model in the managed allowlist exit status" 0 "$?"
+check_that "doctor reports the managed allowlist allows the model" grep -qxF "ok   managed availableModels allows qwen3.8-27b-cc" "$sandbox/out"
+
+new_sandbox
+echo '{"availableModels":["opus"]}' > "$CLAUDE_OLLAMA_MANAGED_SETTINGS"
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m" run_capture "$repo/bin/claude-ollama" doctor 27b
+check_eq "doctor with the model missing from the managed allowlist exits 0" 0 "$?"
+check_that "doctor warns the managed allowlist lacks the model" grep -qxF "warn managed availableModels lacks qwen3.8-27b-cc (ask your admin to add it; Claude Code substitutes a [1m] variant)" "$sandbox/out"
 
 new_sandbox
 STUB_CURL_EXIT=7 run_capture "$repo/bin/claude-ollama" doctor 27b

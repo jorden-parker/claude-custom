@@ -211,6 +211,18 @@ check_server_env() {
   return "$status"
 }
 
+managed_settings="${CLAUDE_OLLAMA_MANAGED_SETTINGS:-/Library/Application Support/ClaudeCode/managed-settings.json}"
+
+check_model_allowed() {
+  if ! [ -r "$managed_settings" ] || ! jq -e 'has("availableModels")' "$managed_settings" >/dev/null 2>&1; then
+    report ok "no managed availableModels restricts $model"
+  elif jq -e --arg model "$model" '.availableModels | index($model) != null' "$managed_settings" >/dev/null; then
+    report ok "managed availableModels allows $model"
+  else
+    report warn "managed availableModels lacks $model (ask your admin to add it; Claude Code substitutes a [1m] variant)"
+  fi
+}
+
 doctor() {
   local status=0
   report ok "jq on PATH"
@@ -221,6 +233,7 @@ doctor() {
   check_hooks_present || status=1
   check_reachable || status=1
   check_server_env || status=1
+  check_model_allowed
   exit "$status"
 }
 

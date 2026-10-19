@@ -189,10 +189,13 @@ conventional commits (`feat:`, `fix:`, `chore:`).
 - `ollama/CLAUDE.<size>.md` files are appended system prompts for small local
   models, not memory files. Keep them terse: both sizes have a 64k context.
   Context sizes must match across `Modelfile.<size>` (`num_ctx`),
-  `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, and the `ollama create` names that `model`
-  and the `ANTHROPIC_DEFAULT_*_MODEL` vars refer to. `ollama/system-prompt.md`
-  replaces Claude Code's default system prompt for both sizes; keep it short and
-  don't put size-specific rules in it.
+  `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, and the
+  `ollama create` names that `model` and the `ANTHROPIC_DEFAULT_*_MODEL` vars
+  refer to. The compact window is pinned because a managed `availableModels`
+  that lacks the model makes Claude Code substitute a `[1m]` ID, which assumes a
+  1M window; `claude-ollama doctor` warns when that happens.
+  `ollama/system-prompt.md` replaces Claude Code's default system prompt for
+  both sizes; keep it short and don't put size-specific rules in it.
 - The personal overlay is loaded with `--settings` by the `claude` shell
   function (`personal/claude.sh` for bash/zsh/ksh, `personal/claude.fish` for
   fish), wired into rc files by `bin/claude-custom install`, never merged into
