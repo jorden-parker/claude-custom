@@ -183,6 +183,20 @@ check "the error names the picker row" contains "$(printf '%s' "$down" | reply_t
 outside="$(cd "$tmp" && python3 "$tmp/client.py" "$server" semantic_search '{"query": "x"}' | reply_text)"
 check "outside a git repo the tool explains why it can't search" contains "$outside" "git repository"
 
+start_stub
+raw="$(printf '%s\n' 'not json' '{"jsonrpc":"2.0","id":7,"method":"initialize","params":[1]}' '{"jsonrpc":"2.0","id":8,"method":"ping"}' | python3 "$server" 2>"$tmp/raw-stderr"; echo "exit=$?")"
+check "a malformed line does not kill the server" contains "$raw" '"id": 8'
+check "a non-object params gets an error reply, not a crash" contains "$raw" '"id": 7, "error"'
+check "the server exits 0 at end of input" contains "$raw" 'exit=0'
+
+ln -s /etc/hosts "$repo/src/link-out"
+printf 'secret = 1\n' > "$repo/src/locked.py"
+chmod 000 "$repo/src/locked.py"
+survived="$(search "filler")"
+chmod 644 "$repo/src/locked.py"
+check "an unreadable file is skipped, not fatal" [ "$(printf '%s' "$survived" | reply_is_error)" = "False" ]
+check "symlinks are not indexed" lacks "$(printf '%s' "$survived" | reply_text)" "src/link-out"
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures failed"
   exit 1

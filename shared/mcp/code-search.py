@@ -75,13 +75,20 @@ def is_searchable(path):
     return path.name not in SKIPPED_NAMES and not path.name.endswith(SKIPPED_SUFFIXES)
 
 
+def is_regular_file(path):
+    return path.is_file() and not path.is_symlink()
+
+
 def candidate_files(root):
     listed = git(root, "ls-files", "--cached", "--others", "--exclude-standard").splitlines()
-    return sorted({name for name in listed if is_searchable(Path(name)) and (root / name).is_file()})
+    return sorted({name for name in listed if is_searchable(Path(name)) and is_regular_file(root / name)})
 
 
 def read_text(path):
-    data = path.read_bytes()
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return None
     if len(data) > MAX_FILE_BYTES or b"\0" in data[:8192]:
         return None
     return data.decode("utf-8", errors="replace")
@@ -205,8 +212,10 @@ def build_index():
 
 def search(query, limit):
     files = refreshed_files(repo_root())
-    query_vector = embed([QUERY_INSTRUCTION + query])[0]
-    lines = [result_line(*item) for item in ranked_chunks(files, query_vector)[:limit]]
+    query_vectors = embed([QUERY_INSTRUCTION + query])
+    if not query_vectors:
+        raise SearchError(f"{EMBED_MODEL} returned no embedding for the query.")
+    lines = [result_line(*item) for item in ranked_chunks(files, query_vectors[0])[:limit]]
     return "\n".join(lines) or "No indexed code yet."
 
 
@@ -247,11 +256,29 @@ HANDLERS = {
 }
 
 
+def error_response(message_id, code, text):
+    return {"jsonrpc": "2.0", "id": message_id, "error": {"code": code, "message": text}}
+
+
 def response(message):
     handler = HANDLERS.get(message.get("method"))
     if handler is None:
-        return {"jsonrpc": "2.0", "id": message["id"], "error": {"code": -32601, "message": "Method not found"}}
-    return {"jsonrpc": "2.0", "id": message["id"], "result": handler(message.get("params") or {})}
+        return error_response(message.get("id"), -32601, "Method not found")
+    params = message.get("params")
+    if params is not None and not isinstance(params, dict):
+        return error_response(message.get("id"), -32602, "params must be an object")
+    try:
+        return {"jsonrpc": "2.0", "id": message["id"], "result": handler(params or {})}
+    except Exception as error:
+        return error_response(message["id"], -32603, f"{type(error).__name__}: {error}")
+
+
+def parsed_message(line):
+    try:
+        message = json.loads(line)
+    except ValueError:
+        return None
+    return message if isinstance(message, dict) else None
 
 
 def main():
@@ -265,8 +292,8 @@ def main():
     for line in sys.stdin:
         if not line.strip():
             continue
-        message = json.loads(line)
-        if "id" in message:
+        message = parsed_message(line)
+        if message is not None and "id" in message:
             print(json.dumps(response(message)), flush=True)
 
 
