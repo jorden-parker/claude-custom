@@ -7,8 +7,21 @@ trap 'rm -rf "$sandbox"' EXIT
 
 stubs="$sandbox/stubs"
 mkdir -p "$stubs"
-printf '#!/bin/sh\necho "$*" >> "%s/npx.log"\necho "fallow says: unused export unusedHelper"\nexit "${FAKE_FALLOW_EXIT:-0}"\n' "$sandbox" > "$stubs/npx"
+cat > "$stubs/npx" <<STUB
+#!/bin/sh
+echo "\$*" >> "$sandbox/npx.log"
+echo "fallow says: unused export unusedHelper"
+exit "\${FAKE_FALLOW_EXIT:-0}"
+STUB
 chmod +x "$stubs/npx"
+for tool in make go pnpm; do
+  cat > "$stubs/$tool" <<STUB
+#!/bin/sh
+echo "$tool \$*" >> "$sandbox/tools.log"
+exit "\${FAKE_TEST_EXIT:-0}"
+STUB
+  chmod +x "$stubs/$tool"
+done
 
 new_repo() {
   local repo="$sandbox/$1"
@@ -26,7 +39,7 @@ add_verify() {
 
 run_hook() {
   local cwd="$1" active="${2:-false}"
-  rm -f "$sandbox/npx.log"
+  rm -f "$sandbox/npx.log" "$sandbox/tools.log"
   printf '{"hook_event_name":"Stop","cwd":"%s","stop_hook_active":%s}' "$cwd" "$active" \
     | PATH="$stubs:$PATH" python3 "$hook" >/dev/null 2>"$sandbox/stderr"
 }
@@ -95,4 +108,44 @@ printf '{}' > "$ts/tsconfig.json"
 expect allow 'tsconfig marks js project' run_hook "$ts"
 check 'fallow runs for tsconfig'         test -e "$sandbox/npx.log"
 
-[ "$failures" -eq 0 ] && echo "all passed" || { echo "$failures failed"; exit 1; }
+maked="$(new_repo maked)"
+printf 'test:\n\ttrue\n' > "$maked/Makefile"
+expect allow 'makefile test target passes'   run_hook "$maked"
+check 'make test was run'                    grep -qxF 'make test' "$sandbox/tools.log"
+FAKE_TEST_EXIT=1; export FAKE_TEST_EXIT
+expect block 'makefile test target fails'    run_hook "$maked"
+unset FAKE_TEST_EXIT
+
+notarget="$(new_repo notarget)"
+printf 'build:\n\ttrue\n' > "$notarget/Makefile"
+expect allow 'makefile without test target'  run_hook "$notarget"
+check 'make not run without test target'     test ! -e "$sandbox/tools.log"
+
+gomod="$(new_repo gomod)"
+printf 'module m\n' > "$gomod/go.mod"
+expect allow 'go module passes'              run_hook "$gomod"
+check 'go test was run'                      grep -qxF 'go test ./...' "$sandbox/tools.log"
+
+pnpmjs="$(new_repo pnpmjs)"
+printf '{"scripts":{"test":"vitest run"}}' > "$pnpmjs/package.json"
+expect allow 'pnpm test script passes'       run_hook "$pnpmjs"
+check 'pnpm test was run'                    grep -qxF 'pnpm test' "$sandbox/tools.log"
+
+noscript="$(new_repo noscript)"
+printf '{"scripts":{"build":"tsc"}}' > "$noscript/package.json"
+expect allow 'package.json without test script' run_hook "$noscript"
+check 'pnpm not run without test script'     test ! -e "$sandbox/tools.log"
+
+both="$(new_repo both)"
+add_verify "$both" 1
+printf 'test:\n\ttrue\n' > "$both/Makefile"
+expect block 'verify script wins over makefile' run_hook "$both"
+check 'make skipped when verify exists'      test ! -e "$sandbox/tools.log"
+
+optout="$(new_repo optout)"
+printf 'test:\n\ttrue\n' > "$optout/Makefile"
+mkdir -p "$optout/.claude" && printf '' > "$optout/.claude/no-verify"
+expect allow 'no-verify file disables fallback' run_hook "$optout"
+check 'make skipped with no-verify'          test ! -e "$sandbox/tools.log"
+
+if [ "$failures" -eq 0 ]; then echo "all passed"; else echo "$failures failed"; exit 1; fi

@@ -20,7 +20,8 @@ These rules apply to every project and every language, with no exceptions.
 ## Workflow
 
 - TDD: write a failing test, make it pass with the smallest change, refactor.
-- Tests must pass before you finish. (enforced by `.claude/verify` at Stop)
+- Tests must pass before you finish. (enforced at Stop by `.claude/verify`, or
+  the repo's make/go/pnpm test command)
 - TS/JS: Fallow runs before you finish. Fix its findings; use
   `npx fallow explain <issue-type>` when unclear; remove dead code, never
   suppress it. (enforced by stop-verify hook)

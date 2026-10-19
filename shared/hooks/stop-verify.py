@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -10,6 +11,7 @@ BASE_BRANCHES = ("main", "master")
 FALLOW_ADVICE = ("Fallow found problems in your changes. Run `npx fallow explain <issue-type>` for any "
                  "finding you don't understand. Remove dead code instead of suppressing it.")
 VERIFY_SCRIPT = Path(".claude") / "verify"
+OPT_OUT_FILE = Path(".claude") / "no-verify"
 
 
 def project_root(cwd):
@@ -50,11 +52,45 @@ def fallow_failures(root):
     return [FALLOW_ADVICE] + failures if failures else []
 
 
-def verify_failures(root):
+def makefile_has_test_target(root):
+    makefile = root / "Makefile"
+    return makefile.is_file() and re.search(r"^test\s*:", makefile.read_text(), re.MULTILINE) is not None
+
+
+def package_json_has_test_script(root):
+    package = root / "package.json"
+    if not package.is_file():
+        return False
+    try:
+        return "test" in json.loads(package.read_text()).get("scripts", {})
+    except ValueError:
+        return False
+
+
+def discovered_test_command(root):
+    if makefile_has_test_target(root):
+        return ["make", "test"]
+    if (root / "go.mod").is_file():
+        return ["go", "test", "./..."]
+    if package_json_has_test_script(root):
+        return ["pnpm", "test"]
+    return None
+
+
+def test_command(root):
     script = root / VERIFY_SCRIPT
-    if not script.is_file():
+    if script.is_file():
+        return [str(script)]
+    if (root / OPT_OUT_FILE).exists():
+        return None
+    return discovered_test_command(root)
+
+
+def verify_failures(root):
+    command = test_command(root)
+    if command is None:
         return []
-    failure = run_failing([str(script)], root)
+    failure = run_failing(command, root)
     return [failure] if failure else []
 
 
