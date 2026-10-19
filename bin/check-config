@@ -35,8 +35,6 @@ for settings in "$repo"/ollama/settings.*.json; do
 done
 
 for settings in "$repo"/ollama/settings.*.json; do
-  check_eq "deny list in ${settings##*/} matches settings.27b.json" \
-    "$(jq -S .permissions.deny "$repo/ollama/settings.27b.json")" "$(jq -S .permissions.deny "$settings")"
   check_that "${settings##*/} denies Workflow" \
     test "$(jq -r '.permissions.deny | index("Workflow") != null' "$settings")" = true
   check_that "${settings##*/} allows Agent" \
@@ -59,8 +57,11 @@ for settings in "$repo"/ollama/settings.*.json; do
     "$(jq -r '[.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS, .env.API_TIMEOUT_MS] | join(" ")' "$settings")"
 done
 
-check_eq "side model context matches the main models" \
-  "$(grep num_ctx "$repo/ollama/Modelfile.27b")" "$(grep num_ctx "$repo/ollama/side.Modelfile")"
+check_eq "rendered profiles are current" 0 "$("$repo/bin/ollama-profiles" --check >/dev/null 2>&1; echo $?)"
+
+check_eq "side model context matches sizes.json" \
+  "$(jq -r '[.[].context] | unique | .[]' "$repo/ollama/sizes.json")" \
+  "$(sed -n 's/^PARAMETER num_ctx //p' "$repo/ollama/side.Modelfile")"
 
 check_eq "settings.tokens.json sets subagents to Haiku" haiku \
   "$(jq -r .env.CLAUDE_CODE_SUBAGENT_MODEL "$repo/personal/settings.tokens.json")"
@@ -100,10 +101,8 @@ for source in bin/claude-ollama shared/mcp/code-search.py go/internal/picker/pro
   check_eq "$source names the default embedding model once" 1 "$(default_embedding "$repo/$source")"
 done
 
-for prompt in "$repo"/ollama/CLAUDE.*.md; do
-  check_that "${prompt##*/} tells the model to use semantic_search" grep -qF 'semantic_search' "$prompt"
-  check_that "${prompt##*/} names the embedding setup row" grep -qF 'Set up embedding model' "$prompt"
-done
+check_that "CLAUDE.local.md tells the model to use semantic_search" grep -qF 'semantic_search' "$repo/ollama/CLAUDE.local.md"
+check_that "CLAUDE.local.md names the embedding setup row" grep -qF 'Set up embedding model' "$repo/ollama/CLAUDE.local.md"
 
 allows_semantic_search() {
   jq -e '.permissions.allow | index("mcp__code-search__semantic_search") != null' "$1" >/dev/null

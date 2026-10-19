@@ -264,6 +264,11 @@ retire_plan_001_fish_link() {
   remove_link "$repo_dir/personal/claude.fish" "$(fish_config_dir)/functions/claude.fish"
 }
 
+check_ollama_profiles() {
+  command -v npx >/dev/null 2>&1 || { echo "skip: npx not installed; the generated profile check did not run" >&2; return 0; }
+  "$repo_dir/bin/ollama-profiles" --check || { echo "fail: ollama profiles are stale; run bin/ollama-profiles" >&2; status=1; }
+}
+
 refresh_ollama_models() {
   command -v ollama >/dev/null 2>&1 || return 0
   local modelfile size base name verb='pull'
@@ -308,6 +313,7 @@ install_all() {
   remove_retired_imports
   retire_plan_001_fish_link
   wire_shells
+  check_ollama_profiles
   refresh_ollama_models
   build_go_apps
   print_activation
