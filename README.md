@@ -14,7 +14,10 @@ Claude Code or applied per launch.
 5. Managed policy (untouched, always wins)
 
 `--settings` is a single slot. Passing it twice keeps only the last file, so
-`claude --settings other.json` drops the personal overlay for that session.
+`claude --settings other.json` drops the personal overlay for that session. The
+overlay denies tools you never use by bare name, so their schemas stay out of
+the context; to get one back, delete its name from the deny list or run
+`claude-tools <path>` and press `x`.
 
 ## Personal install
 

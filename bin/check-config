@@ -76,6 +76,16 @@ for settings in "$repo"/ollama/settings.*.json; do
   done
 done
 
+for tool in Artifact ScheduleWakeup SendFeedback Workflow; do
+  check_that "settings.tokens.json denies $tool" denies_tool "$repo/personal/settings.tokens.json" "$tool"
+done
+
+for settings in "$repo"/ollama/settings.*.json; do
+  check_eq "${settings##*/} denies every bare tool the personal overlay denies" "[]" \
+    "$(jq -c -n --slurpfile personal "$repo/personal/settings.tokens.json" --slurpfile profile "$settings" \
+      '[$personal[0].permissions.deny[] | select(contains("(") | not)] - $profile[0].permissions.deny')"
+done
+
 default_embedding() {
   grep -c 'qwen3-embedding:0.6b' "$1"
 }

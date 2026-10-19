@@ -127,6 +127,10 @@ conventional commits (`feat:`, `fix:`, `chore:`).
   tools by bare name, so their schemas never reach the local model's context.
   `--tools` in `bin/claude-ollama` is the primary allowlist and that deny list
   is the backstop. `bin/check-config` fails when the Ollama deny lists differ.
+  The personal overlay also denies unused tools by bare name (`Artifact`,
+  `Workflow`, `ScheduleWakeup`, `SendFeedback` and the deferred ones), since a
+  bare deny removes the tool's schema from the request; `bin/check-config` fails
+  when an Ollama profile lacks one of those bare denies.
 - `bin/claude-ollama` resolves its own symlink to find `ollama/`. It unsets
   `ANTHROPIC_API_KEY`, passes `--settings ollama/settings.<size>.json`,
   `--system-prompt-file ollama/system-prompt.md` (replacing Claude Code's

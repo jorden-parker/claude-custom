@@ -19,7 +19,19 @@
       "Read(**/.next/**)",
       "Read(**/coverage/**)",
       "Read(**/*.min.js)",
-      "Read(**/*.map)"
+      "Read(**/*.map)",
+      "Artifact",
+      "CronCreate",
+      "CronDelete",
+      "CronList",
+      "NotebookEdit",
+      "PushNotification",
+      "RemoteTrigger",
+      "ScheduleWakeup",
+      "SendFeedback",
+      "SendUserFile",
+      "ShareOnboardingGuide",
+      "Workflow"
     ]
   },
   "hooks": {
