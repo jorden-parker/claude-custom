@@ -8,9 +8,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/jordenparker/claude-custom/tools-tui/catalog"
-	"github.com/jordenparker/claude-custom/tools-tui/settings"
-	"github.com/jordenparker/claude-custom/tools-tui/ui"
+	"github.com/jordenparker/claude-custom/go/internal/tools/catalog"
+	"github.com/jordenparker/claude-custom/go/internal/tools/settings"
+	"github.com/jordenparker/claude-custom/go/internal/tools/ui"
 )
 
 func main() {

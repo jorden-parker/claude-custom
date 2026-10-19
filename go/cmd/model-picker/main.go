@@ -6,8 +6,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/jordenparker/claude-custom/model-picker-tui/profiles"
-	"github.com/jordenparker/claude-custom/model-picker-tui/ui"
+	"github.com/jordenparker/claude-custom/go/internal/picker/profiles"
+	"github.com/jordenparker/claude-custom/go/internal/picker/ui"
 )
 
 const (

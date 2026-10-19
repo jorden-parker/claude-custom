@@ -5,7 +5,7 @@ import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/jordenparker/claude-custom/model-picker-tui/profiles"
+	"github.com/jordenparker/claude-custom/go/internal/picker/profiles"
 )
 
 type Model struct {

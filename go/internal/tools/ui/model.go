@@ -11,8 +11,8 @@ import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/jordenparker/claude-custom/tools-tui/catalog"
-	"github.com/jordenparker/claude-custom/tools-tui/settings"
+	"github.com/jordenparker/claude-custom/go/internal/tools/catalog"
+	"github.com/jordenparker/claude-custom/go/internal/tools/settings"
 )
 
 type Config struct {

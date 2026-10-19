@@ -12,8 +12,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/jordenparker/claude-custom/tools-tui/catalog"
-	"github.com/jordenparker/claude-custom/tools-tui/settings"
+	"github.com/jordenparker/claude-custom/go/internal/tools/catalog"
+	"github.com/jordenparker/claude-custom/go/internal/tools/settings"
 )
 
 const docsPage = "| Tool | Description | Permission required |\n| :- | :- | :- |\n" +
