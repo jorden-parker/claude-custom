@@ -95,8 +95,23 @@ check_that "claude-ollama starts the code-search MCP server" grep -qF -- "--stri
 STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" 35b -p hi
 check_that "claude-ollama 35b pulls a missing base model" grep -qxF "pull qwen3.6:35b-mlx" "$sandbox/ollama.log"
 check_that "claude-ollama 35b creates the missing model" grep -qxF "create qwen3.6-35b-cc -f $repo/ollama/Modelfile.35b" "$sandbox/ollama.log"
-check_that "claude-ollama 35b launches after pulling" grep -qF -- "--settings $repo/ollama/settings.35b.json" "$sandbox/out"
-check_that "claude-ollama warns about a missing side model" grep -qF "side model qwen3-4b-cc missing" "$sandbox/err"
+check_that "claude-ollama 35b launches after pulling" grep -qF -- "--model qwen3.6-35b-cc --tools" "$sandbox/out"
+settings_arg() { sed -n 's/^ARGS: --settings \([^ ]*\).*/\1/p' "$sandbox/out"; }
+check_that "claude-ollama says subagents fall back to the main model" grep -qF "side model qwen3-4b-cc missing; subagents use qwen3.6-35b-cc this session" "$sandbox/err"
+fallback_settings="$(settings_arg)"
+check_not "claude-ollama passes a derived settings file" test "$fallback_settings" = "$repo/ollama/settings.35b.json"
+check_eq "derived settings send subagents to the main model" "qwen3.6-35b-cc qwen3.6-35b-cc" \
+  "$(jq -r '[.env.CLAUDE_CODE_SUBAGENT_MODEL, .env.ANTHROPIC_DEFAULT_HAIKU_MODEL] | join(" ")' "$fallback_settings")"
+check_eq "derived settings map Haiku IDs to the main model" "qwen3.6-35b-cc qwen3.6-35b-cc" \
+  "$(jq -r '[.modelOverrides["claude-haiku-5-5"], .modelOverrides["claude-haiku-4-5"]] | join(" ")' "$fallback_settings")"
+check_eq "derived settings keep everything else" \
+  "$(jq -S 'del(.env.CLAUDE_CODE_SUBAGENT_MODEL, .env.ANTHROPIC_DEFAULT_HAIKU_MODEL, .modelOverrides)' "$repo/ollama/settings.35b.json")" \
+  "$(jq -S 'del(.env.CLAUDE_CODE_SUBAGENT_MODEL, .env.ANTHROPIC_DEFAULT_HAIKU_MODEL, .modelOverrides)' "$fallback_settings")"
+STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" 35b --require-side-model -p hi
+check_eq "claude-ollama --require-side-model exit status" 1 "$?"
+check_not "claude-ollama --require-side-model does not launch" grep -q '^ARGS:' "$sandbox/out"
+run_capture "$repo/bin/claude-ollama" 35b -p hi
+check_eq "claude-ollama uses the profile when the side model exists" "$repo/ollama/settings.35b.json" "$(settings_arg)"
 check_not "claude-ollama does not pull the side model itself" grep -qxF "pull qwen3:4b" "$sandbox/ollama.log"
 check_that "claude-ollama pulls a missing embedding model" grep -qxF "pull qwen3-embedding:0.6b" "$sandbox/ollama.log"
 rm -f "$sandbox/ollama.log"
@@ -113,7 +128,7 @@ check_not "claude-ollama 27b skips pull when the model exists" grep -sqE '^(pull
 STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "claude-ollama 27b pulls a missing base model" grep -qxF "pull qwen3.8:27b-mlx" "$sandbox/ollama.log"
 check_that "claude-ollama 27b creates the missing model" grep -qxF "create qwen3.8-27b-cc -f $repo/ollama/Modelfile.27b" "$sandbox/ollama.log"
-check_that "claude-ollama 27b launches after pulling" grep -qF -- "--settings $repo/ollama/settings.27b.json" "$sandbox/out"
+check_that "claude-ollama 27b launches after pulling" grep -qF -- "--model qwen3.8-27b-cc --tools" "$sandbox/out"
 rm -f "$sandbox/ollama.log"
 STUB_OLLAMA_SHOW_EXIT=1 STUB_OLLAMA_PULL_EXIT=1 run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_eq "claude-ollama 27b failed pull exit status" 1 "$?"

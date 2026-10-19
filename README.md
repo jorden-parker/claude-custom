@@ -127,11 +127,13 @@ launch.
 
 The Haiku slot and all subagents run on a small side model, `qwen3:4b` from
 `ollama/side.Modelfile`, created as `qwen3-4b-cc`. Set it up once from the
-picker's "Set up side model" row. `claude-ollama` warns when it is missing. The
-profiles name it by ID in `CLAUDE_CODE_SUBAGENT_MODEL` and map the full Claude
-Haiku IDs to it in `modelOverrides`. They map no Claude ID to the main model:
-Claude Code names the model after the ID that maps to it, so the banner would
-say Sonnet. Forcing every subagent onto it needs Claude Code v2.1.257 or later.
+picker's "Set up side model" row. When it is missing, `claude-ollama` says so
+and sends subagents and the Haiku slot to the main model for that session; pass
+`--require-side-model` to exit instead. The profiles name it by ID in
+`CLAUDE_CODE_SUBAGENT_MODEL` and map the full Claude Haiku IDs to it in
+`modelOverrides`. They map no Claude ID to the main model: Claude Code names the
+model after the ID that maps to it, so the banner would say Sonnet. Forcing
+every subagent onto it needs Claude Code v2.1.257 or later.
 
 Plain `claude` stays on the personal setup. The profile only exists for that
 launch.

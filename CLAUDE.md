@@ -143,8 +143,9 @@ conventional commits (`feat:`, `fix:`, `chore:`).
   `ANTHROPIC_MODEL`, which would otherwise win over the settings file), and
   restricts tools with `--tools` (built-in tools only; MCP tools still load).
   Before launching, it pulls the base model and creates the `-cc` model when
-  `ollama show` can't find the `-cc` model. It only warns when the side model is
-  missing.
+  `ollama show` can't find the `-cc` model. When the side model is missing it
+  launches with a temporary copy of the profile whose side-model entries point
+  at the main model (`--require-side-model` exits 1 instead).
 - The **side model** (`ollama/side.Modelfile`, `qwen3:4b` created as
   `qwen3-4b-cc`) fills the Haiku slot: every Ollama profile sets
   `ANTHROPIC_DEFAULT_HAIKU_MODEL` to it. The file is not `Modelfile.side`

@@ -7,6 +7,7 @@ picker_dir="$repo_dir/model-picker-tui"
 default_size=27b
 tools="Bash,Read,Edit,Write,Agent"
 embedding_model="${CODE_SEARCH_MODEL:-qwen3-embedding:0.6b}"
+require_side_model=0
 
 configured_sizes() {
   local settings size
@@ -55,11 +56,31 @@ ensure_embedding_model() {
     echo "claude-ollama: could not pull $embedding_model; semantic_search will fail until you run claude-ollama and pick 'Set up embedding model'" >&2
 }
 
+side_model_name() {
+  jq -r .env.ANTHROPIC_DEFAULT_HAIKU_MODEL "$profile_dir/settings.$size.json"
+}
+
+fallback_settings_file() {
+  local derived
+  derived="$(mktemp -t claude-ollama-settings.XXXXXX)"
+  jq --arg main "$model" '
+    .env.CLAUDE_CODE_SUBAGENT_MODEL = $main
+    | .env.ANTHROPIC_DEFAULT_HAIKU_MODEL = $main
+    | .modelOverrides |= with_entries(.value = $main)
+  ' "$profile_dir/settings.$size.json" > "$derived"
+  printf '%s\n' "$derived"
+}
+
 ensure_side_model() {
   local name
-  name="$(jq -r .env.ANTHROPIC_DEFAULT_HAIKU_MODEL "$profile_dir/settings.$size.json")"
+  name="$(side_model_name)"
   ollama show "$name" >/dev/null 2>&1 && return 0
-  echo "claude-ollama: side model $name missing; subagents will fail until you run claude-ollama and pick 'Set up side model'" >&2
+  if [ "$require_side_model" = 1 ]; then
+    echo "claude-ollama: side model $name missing; run claude-ollama and pick 'Set up side model'" >&2
+    exit 1
+  fi
+  echo "claude-ollama: side model $name missing; subagents use $model this session (pick 'Set up side model' in claude-ollama to fix)" >&2
+  return 1
 }
 
 mcp_config() {
@@ -72,8 +93,14 @@ case "${1:-}" in
     echo "usage: claude-ollama [size] [claude args...]"
     echo "sizes: $(configured_sizes | tr '\n' ' ' | sed 's/ $//')"
     echo "no size: pick one in a menu (or $default_size without a terminal)"
+    echo "--require-side-model: exit 1 instead of using the main model for subagents"
     exit 0 ;;
 esac
+
+while [ "${1:-}" = --require-side-model ]; do
+  require_side_model=1
+  shift
+done
 
 if [ $# -gt 0 ] && is_configured_size "$1"; then
   size="$1"
@@ -86,16 +113,22 @@ else
   size="$(choose_size)"
 fi
 
+while [ "${1:-}" = --require-side-model ]; do
+  require_side_model=1
+  shift
+done
+
 model="$(jq -r .model "$profile_dir/settings.$size.json")"
+settings_file="$profile_dir/settings.$size.json"
 
 ensure_model
 ensure_embedding_model
-ensure_side_model
+ensure_side_model || settings_file="$(fallback_settings_file)"
 
 unset ANTHROPIC_API_KEY ANTHROPIC_MODEL
 export CLAUDE_CUSTOM_HOME="$repo_dir"
 exec claude \
-  --settings "$profile_dir/settings.$size.json" \
+  --settings "$settings_file" \
   --system-prompt-file "$profile_dir/system-prompt.md" \
   --append-system-prompt-file "$profile_dir/CLAUDE.$size.md" \
   --strict-mcp-config \
