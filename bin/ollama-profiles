@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_dir="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+profile_dir="${OLLAMA_PROFILE_DIR:-$repo_dir/ollama}"
+sizes_file="$profile_dir/sizes.json"
+settings_template="$profile_dir/profile-template.json"
+modelfile_template="$profile_dir/profile-template.Modelfile"
+
+sizes() {
+  jq -r 'keys[]' "$sizes_file"
+}
+
+field() {
+  jq -r --arg size "$1" --arg name "$2" '.[$size][$name]' "$sizes_file"
+}
+
+is_listed() {
+  jq -e --arg size "$1" 'has($size)' "$sizes_file" >/dev/null
+}
+
+size_of_settings() {
+  local name="${1##*/settings.}"
+  echo "${name%.json}"
+}
+
+format_json() {
+  (cd "$repo_dir" && npx --no prettier -- --parser json)
+}
+
+render_settings() {
+  jq --arg model "$(field "$1" model)" --arg context "$(field "$1" context)" \
+    'walk(if type == "string" then gsub("\\{\\{MODEL\\}\\}"; $model) | gsub("\\{\\{CONTEXT\\}\\}"; $context) else . end)' \
+    "$settings_template" | format_json
+}
+
+render_modelfile() {
+  sed -e "s|{{BASE}}|$(field "$1" base)|" -e "s|{{CONTEXT}}|$(field "$1" context)|" "$modelfile_template"
+}
+
+rendered_matches() {
+  [ -f "$2" ] && [ "$(cat "$2")" = "$1" ]
+}
+
+check_size() {
+  local size="$1" status=0
+  rendered_matches "$(render_settings "$size")" "$profile_dir/settings.$size.json" || { echo "stale: $profile_dir/settings.$size.json" >&2; status=1; }
+  rendered_matches "$(render_modelfile "$size")" "$profile_dir/Modelfile.$size" || { echo "stale: $profile_dir/Modelfile.$size" >&2; status=1; }
+  return "$status"
+}
+
+check_unlisted() {
+  local file status=0
+  for file in "$profile_dir"/settings.*.json; do
+    is_listed "$(size_of_settings "$file")" || { echo "stale: $file is not in sizes.json" >&2; status=1; }
+  done
+  return "$status"
+}
+
+check_profiles() {
+  local size status=0
+  for size in $(sizes); do
+    check_size "$size" || status=1
+  done
+  check_unlisted || status=1
+  return "$status"
+}
+
+write_size() {
+  render_settings "$1" > "$profile_dir/settings.$1.json"
+  render_modelfile "$1" > "$profile_dir/Modelfile.$1"
+}
+
+remove_unlisted() {
+  local file size
+  for file in "$profile_dir"/settings.*.json; do
+    size="$(size_of_settings "$file")"
+    is_listed "$size" || rm -f "$file" "$profile_dir/Modelfile.$size"
+  done
+}
+
+write_profiles() {
+  local size
+  for size in $(sizes); do
+    write_size "$size"
+  done
+  remove_unlisted
+}
+
+main() {
+  case "${1:-}" in
+    "") write_profiles ;;
+    --check) check_profiles ;;
+    *) echo "usage: ollama-profiles [--check]" >&2; exit 2 ;;
+  esac
+}
+
+main "$@"
