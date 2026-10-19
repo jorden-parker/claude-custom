@@ -238,8 +238,10 @@ go through `git grep -n`.
 ## Tests
 
 - Everything: `make test` (or `.claude/verify`, which the Stop hook runs)
-- One suite: `make test-hooks`, `make test-install`, `make test-probe`,
-  `make test-search`, `make test-go`
+- One suite: `make test-hooks`, `make test-install`, `make test-launcher`,
+  `make check-config`, `make test-probe`, `make test-search`, `make test-go`
+- Installer: `personal/install.test.sh`; launcher: `bin/claude-ollama.test.sh`;
+  config invariants: `bin/check-config`
 - Lint: `make shellcheck`, `make check-json`
 
 ## Another machine / updating

@@ -32,6 +32,10 @@ gets applied.
 - Everything at once: `make test` (`.claude/verify` runs it; the Stop hook runs
   that)
 - Installer tests: `personal/install.test.sh` (prints `all passed`)
+- Launcher tests: `bin/claude-ollama.test.sh` (prints `all passed`; covers
+  `bin/claude-ollama` and the `claude-custom ollama|tools` subcommands)
+- Config check: `bin/check-config` (prints `all passed`; static checks that the
+  `ollama/` and `personal/` config files agree with each other)
 - Cache probe: `bin/ollama-cache-probe [27b|35b|MODEL] [--prefix-tokens N]`
   measures prompt-cache reuse on a live Ollama; its tests are
   `bin/ollama-cache-probe.test.sh` (stub server, no real Ollama)
@@ -114,13 +118,12 @@ conventional commits (`feat:`, `fix:`, `chore:`).
   `personal/install.test.sh` checks every hook command resolves to an executable
   in `shared/hooks/`.
 - The Read `permissions.deny` globs and the `hooks` block are shared by all
-  settings files. Change them together; `personal/install.test.sh` fails when an
-  Ollama profile lacks a hook the personal overlay has (the profiles may add
-  hooks of their own, like `tool-nudge.py`). `ollama/settings.*.json` also deny
-  unused tools by bare name, so their schemas never reach the local model's
-  context. `--tools` in `bin/claude-ollama` is the primary allowlist and that
-  deny list is the backstop. `personal/install.test.sh` fails when the Ollama
-  deny lists differ.
+  settings files. Change them together; `bin/check-config` fails when an Ollama
+  profile lacks a hook the personal overlay has (the profiles may add hooks of
+  their own, like `tool-nudge.py`). `ollama/settings.*.json` also deny unused
+  tools by bare name, so their schemas never reach the local model's context.
+  `--tools` in `bin/claude-ollama` is the primary allowlist and that deny list
+  is the backstop. `bin/check-config` fails when the Ollama deny lists differ.
 - `bin/claude-ollama` resolves its own symlink to find `ollama/`. It unsets
   `ANTHROPIC_API_KEY`, passes `--settings ollama/settings.<size>.json`,
   `--system-prompt-file ollama/system-prompt.md` (replacing Claude Code's
@@ -157,8 +160,8 @@ conventional commits (`feat:`, `fix:`, `chore:`).
   `qwen3-embedding:0.6b`); the model picker's "Set up embedding model" row pulls
   it too. The default name appears once in each of `bin/claude-ollama`,
   `code-search.py` and `model-picker-tui/profiles/embedding.go`, and
-  `personal/install.test.sh` checks they agree. The Ollama profiles allow the
-  tool in `permissions.allow`.
+  `bin/check-config` checks they agree. The Ollama profiles allow the tool in
+  `permissions.allow`.
 - `ollama/server.env` documents the Ollama server env the profiles expect. The
   Homebrew service sets the same values. Nothing in this repo applies it.
 - `ollama/CLAUDE.<size>.md` files are appended system prompts for small local
