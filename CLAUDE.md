@@ -100,24 +100,25 @@ commitlint enforces conventional commits (`feat:`, `fix:`, `chore:`).
   reading a file over 300 lines unless `limit` is 300 or less. Read can't be
   disabled for the local models: Edit refuses files that weren't Read first.
 - `shared/hooks/edit-check.py` (PostToolUse on Edit/Write/MultiEdit) runs the
-  edited file's project-local formatter/linter and rejects newly added comments.
-  It caches passes by content hash under `~/.cache/claude-custom/edit-check`
+  project's prettier and eslint from `node_modules/.bin` and gofmt, go vet,
+  ruff, shellcheck and `bash -n` from PATH, and rejects newly added comments. It
+  caches passes by content hash under `~/.cache/claude-custom/edit-check`
   (`EDIT_CHECK_CACHE_DIR` overrides). `shared/hooks/stop-verify.py` (Stop) runs
   Fallow in JS/TS projects and the project's `.claude/verify`, falling back to
   `make test`, `go test ./...` or `pnpm test` when none exists (an empty
   `.claude/no-verify` opts out); it blocks once per turn (`stop_hook_active`).
   Both exit 2 so the model sees stderr.
-- The `fallow-*.sh` hooks gate Fallow use in JS/TS projects and share
-  `shared/hooks/fallow-lib.sh` (sourced from the hook's own directory).
-  `fallow-command-guard.sh` (PreToolUse on Bash) denies `fallow` calls without
-  `--format json`, denies `fallow fix --yes` until a `--dry-run` ran in the
-  session, and denies `git commit`/`git push` while `fallow audit` fails. It
-  only looks at the first word of each command segment (plus `npx fallow`),
-  never at arguments. `fallow-mark-preview.sh` (PostToolUse on Bash) records the
-  dry run. `fallow-after-edit.sh` (PostToolUse on Edit/Write) adds the edited
-  file's audit findings as context. Tests stub `fallow` on PATH through
-  `fallow-test-lib.sh`; `.shellcheckrc` lets shellcheck follow the sourced
-  library.
+- The `fallow-*.sh` hooks gate Fallow use (the commit/push gate only in JS/TS
+  projects) and share `shared/hooks/fallow-lib.sh` (sourced from the hook's own
+  directory). `fallow-command-guard.sh` (PreToolUse on Bash) denies `fallow`
+  calls without `--format json`, denies `fallow fix --yes` until a `--dry-run`
+  ran in the session, and denies `git commit`/`git push` while `fallow audit`
+  fails. It only looks at the first word of each command segment (plus
+  `npx fallow`), never at arguments. `fallow-mark-preview.sh` (PostToolUse on
+  Bash) records the dry run. `fallow-after-edit.sh` (PostToolUse on Edit/Write)
+  adds the edited file's audit findings as context. Tests stub `fallow` on PATH
+  through `fallow-test-lib.sh`; `.shellcheckrc` lets shellcheck follow the
+  sourced library.
 - `shared/preferences/PREFERENCES.md` holds the prose rules no tool can check,
   including token discipline. `bin/claude-custom install` `@`-imports it into
   `~/.claude/CLAUDE.md`, so both backends load it. Keep it short: Ollama has 64k
