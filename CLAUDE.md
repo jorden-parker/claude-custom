@@ -29,7 +29,8 @@ gets applied.
 
 - Hook tests: `shared/hooks/*.test.sh` (each prints `all passed`, or `FAIL:`
   lines and exits 1)
-- Everything at once: `.claude/verify` (the Stop hook runs it too)
+- Everything at once: `make test` (`.claude/verify` runs it; the Stop hook runs
+  that)
 - Installer tests: `personal/install.test.sh` (prints `all passed`)
 - Cache probe: `bin/ollama-cache-probe [27b|35b|MODEL] [--prefix-tokens N]`
   measures prompt-cache reuse on a live Ollama; its tests are
@@ -38,7 +39,7 @@ gets applied.
   `shared/mcp/code-search.test.sh` (stub embedding server, temp git repo)
 - Feed the hook one command by hand:
   `printf '{"tool_input":{"command":"git log"}}' | shared/hooks/bash-output-guard.py`
-- Validate JSON after editing: `jq . ollama/settings.*.json >/dev/null`
+- Validate JSON after editing: `make check-json`
 - Launch the work harness: `claude-ollama [27b|35b] [claude args...]` (27b is
   the default size; `--help` lists sizes)
 - Launch the tools TUI: `claude-tools [user|project|local|FILE]`. Both are also

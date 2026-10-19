@@ -1,16 +1,2 @@
 #!/bin/sh
-set -e
-shared/hooks/bash-output-guard.test.sh
-shared/hooks/bash-output-trim.test.sh
-shared/hooks/read-range-guard.test.sh
-shared/hooks/edit-check.test.sh
-shared/hooks/stop-verify.test.sh
-shared/hooks/fallow-command-guard.test.sh
-shared/hooks/fallow-mark-preview.test.sh
-shared/hooks/fallow-after-edit.test.sh
-shared/hooks/tool-nudge.test.sh
-personal/install.test.sh
-bin/ollama-cache-probe.test.sh
-shared/mcp/code-search.test.sh
-(cd tools-tui && go test ./...)
-(cd model-picker-tui && go test ./...)
+cd "$(dirname "$0")/.." && exec make test

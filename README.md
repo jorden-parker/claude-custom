@@ -237,13 +237,10 @@ go through `git grep -n`.
 
 ## Tests
 
-- Everything: `.claude/verify`
-- Hooks: `shared/hooks/*.test.sh`
-- Installer: `personal/install.test.sh`
-- Cache probe: `bin/ollama-cache-probe.test.sh`
-- Code search: `shared/mcp/code-search.test.sh`
-- Tools TUI: `cd tools-tui && go test ./...`
-- Model picker: `cd model-picker-tui && go test ./...`
+- Everything: `make test` (or `.claude/verify`, which the Stop hook runs)
+- One suite: `make test-hooks`, `make test-install`, `make test-probe`,
+  `make test-search`, `make test-go`
+- Lint: `make shellcheck`, `make check-json`
 
 ## Another machine / updating
 
