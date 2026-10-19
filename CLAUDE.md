@@ -85,6 +85,17 @@ there is no `src/`.
   `shared/hooks/stop-verify.py` (Stop) runs Fallow in JS/TS projects and the
   project's `.claude/verify`; it blocks once per turn (`stop_hook_active`). Both
   exit 2 so the model sees stderr.
+- The `fallow-*.sh` hooks gate Fallow use in JS/TS projects and share
+  `shared/hooks/fallow-lib.sh` (sourced from the hook's own directory, so the
+  installer links it too). `fallow-command-guard.sh` (PreToolUse on Bash) denies
+  `fallow` calls without `--format json`, denies `fallow fix --yes` until a
+  `--dry-run` ran in the session, and denies `git commit`/`git push` while
+  `fallow audit` fails. It only looks at the first word of each command segment
+  (plus `npx fallow`), never at arguments. `fallow-mark-preview.sh` (PostToolUse
+  on Bash) records the dry run. `fallow-after-edit.sh` (PostToolUse on
+  Edit/Write) adds the edited file's audit findings as context. Tests stub
+  `fallow` on PATH through `fallow-test-lib.sh`; `.shellcheckrc` lets shellcheck
+  follow the sourced library.
 - `shared/preferences/PREFERENCES.md` holds the prose rules no tool can check.
   `bin/claude-custom install` `@`-imports it into `~/.claude/CLAUDE.md`, so both
   backends load it. Keep it short: Ollama has 64k context.

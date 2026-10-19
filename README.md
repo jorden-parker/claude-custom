@@ -26,7 +26,7 @@ This wires every shell it finds: zsh (`~/.zshrc`), bash (`~/.bashrc`,
 `~/.bash_profile`), ksh (`~/.kshrc`) and fish
 (`~/.config/fish/conf.d/claude-custom.fish`). Rc edits sit between
 `# >>> claude-custom >>>` markers and put `~/.local/bin` on PATH. It also links
-`claude-ollama`, `claude-tools`, `claude-custom` and the five hooks (see
+`claude-ollama`, `claude-tools`, `claude-custom` and the hooks (see
 [Enforced preferences](#enforced-preferences)) into `~/.claude/hooks/`, adds `@`
 imports for `personal/CLAUDE.tokens.md` and `shared/preferences/PREFERENCES.md`
 to `~/.claude/CLAUDE.md`, and rebuilds the Ollama models whose base model is
@@ -46,13 +46,16 @@ Coding preferences are checked by hooks that Claude Code runs itself, so they
 apply the same way with Claude and with the local Ollama models. The personal
 overlay and both Ollama profiles wire the same hooks:
 
-| Hook                   | When                      | What it does                                                                                                                                                   |
-| ---------------------- | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `bash-output-guard.py` | Before a Bash command     | Denies commands that would flood the context (unbounded `git log`, `cat` on a lockfile, recursive `ls`)                                                        |
-| `bash-output-trim.py`  | After a Bash command      | Trims output over 150 lines to the first 30, error/fail lines from the middle (up to 40) and the last 60, clips lines over 400 chars, and says what was hidden |
-| `read-range-guard.py`  | Before a Read             | Denies reading a file over 300 lines unless the call asks for a range of 300 lines or fewer, and says to find the lines first                                  |
-| `edit-check.py`        | After an Edit or Write    | Runs the edited file's project-local formatter and linter (gofmt, go vet, prettier, eslint, ruff, shellcheck, `bash -n`) and rejects newly added comments      |
-| `stop-verify.py`       | Before the model finishes | Runs Fallow (`audit` and `architecture`) in JS/TS projects and the project's `.claude/verify` script, if present; blocks at most once per turn                 |
+| Hook                      | When                      | What it does                                                                                                                                                                    |
+| ------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bash-output-guard.py`    | Before a Bash command     | Denies commands that would flood the context (unbounded `git log`, `cat` on a lockfile, recursive `ls`)                                                                         |
+| `bash-output-trim.py`     | After a Bash command      | Trims output over 150 lines to the first 30, error/fail lines from the middle (up to 40) and the last 60, clips lines over 400 chars, and says what was hidden                  |
+| `read-range-guard.py`     | Before a Read             | Denies reading a file over 300 lines unless the call asks for a range of 300 lines or fewer, and says to find the lines first                                                   |
+| `edit-check.py`           | After an Edit or Write    | Runs the edited file's project-local formatter and linter (gofmt, go vet, prettier, eslint, ruff, shellcheck, `bash -n`) and rejects newly added comments                       |
+| `stop-verify.py`          | Before the model finishes | Runs Fallow (`audit` and `architecture`) in JS/TS projects and the project's `.claude/verify` script, if present; blocks at most once per turn                                  |
+| `fallow-command-guard.sh` | Before a Bash command     | In JS/TS projects: denies `fallow` without `--format json`, `fallow fix --yes` before a `--dry-run` in the same session, and `git commit`/`git push` while `fallow audit` fails |
+| `fallow-mark-preview.sh`  | After a Bash command      | Records that `fallow fix --dry-run` ran in this session, which unlocks `fallow fix --yes`                                                                                       |
+| `fallow-after-edit.sh`    | After an Edit or Write    | Adds Fallow's findings for the edited JS/TS file as context                                                                                                                     |
 
 A check only runs when the project has that tool installed. A failed check sends
 its output back to the model. Rules no tool can check live in

@@ -45,7 +45,7 @@ claude_md_path() {
   printf '%s/CLAUDE.md' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 }
 
-hook_names='bash-output-guard.py bash-output-trim.py read-range-guard.py edit-check.py stop-verify.py'
+hook_names='bash-output-guard.py bash-output-trim.py read-range-guard.py edit-check.py stop-verify.py fallow-lib.sh fallow-command-guard.sh fallow-mark-preview.sh fallow-after-edit.sh'
 imported_files='personal/CLAUDE.tokens.md shared/preferences/PREFERENCES.md'
 
 import_line() {

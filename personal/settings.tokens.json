@@ -30,6 +30,11 @@
           {
             "type": "command",
             "command": "~/.claude/hooks/bash-output-guard.py"
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/fallow-command-guard.sh",
+            "timeout": 180
           }
         ]
       },
@@ -51,6 +56,11 @@
             "type": "command",
             "command": "~/.claude/hooks/edit-check.py",
             "timeout": 120
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/fallow-after-edit.sh",
+            "timeout": 120
           }
         ]
       },
@@ -60,6 +70,11 @@
           {
             "type": "command",
             "command": "~/.claude/hooks/bash-output-trim.py"
+          },
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/fallow-mark-preview.sh",
+            "timeout": 10
           }
         ]
       }

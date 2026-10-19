@@ -5,6 +5,9 @@ shared/hooks/bash-output-trim.test.sh
 shared/hooks/read-range-guard.test.sh
 shared/hooks/edit-check.test.sh
 shared/hooks/stop-verify.test.sh
+shared/hooks/fallow-command-guard.test.sh
+shared/hooks/fallow-mark-preview.test.sh
+shared/hooks/fallow-after-edit.test.sh
 personal/install.test.sh
 bin/ollama-cache-probe.test.sh
 shared/mcp/code-search.test.sh

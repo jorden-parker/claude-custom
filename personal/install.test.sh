@@ -191,6 +191,9 @@ check_eq "bash-output-trim hook link" "$repo/shared/hooks/bash-output-trim.py" "
 check_eq "read-range-guard hook link" "$repo/shared/hooks/read-range-guard.py" "$(readlink "$HOME/.claude/hooks/read-range-guard.py")"
 check_eq "edit-check hook link" "$repo/shared/hooks/edit-check.py" "$(readlink "$HOME/.claude/hooks/edit-check.py")"
 check_eq "stop-verify hook link" "$repo/shared/hooks/stop-verify.py" "$(readlink "$HOME/.claude/hooks/stop-verify.py")"
+for fallow_hook in fallow-lib.sh fallow-command-guard.sh fallow-mark-preview.sh fallow-after-edit.sh; do
+  check_eq "$fallow_hook hook link" "$repo/shared/hooks/$fallow_hook" "$(readlink "$HOME/.claude/hooks/$fallow_hook")"
+done
 
 new_sandbox
 mkdir -p "$HOME/.local/bin"
@@ -335,6 +338,9 @@ check_not "round trip removes bash-output-trim link" test -L "$HOME/.claude/hook
 check_not "round trip removes read-range-guard link" test -L "$HOME/.claude/hooks/read-range-guard.py"
 check_not "round trip removes edit-check link" test -L "$HOME/.claude/hooks/edit-check.py"
 check_not "round trip removes stop-verify link" test -L "$HOME/.claude/hooks/stop-verify.py"
+for fallow_hook in fallow-lib.sh fallow-command-guard.sh fallow-mark-preview.sh fallow-after-edit.sh; do
+  check_not "round trip removes $fallow_hook link" test -L "$HOME/.claude/hooks/$fallow_hook"
+done
 
 new_sandbox
 mkdir -p "$HOME/.local/bin" "$HOME/.claude/hooks"
