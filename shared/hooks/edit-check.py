@@ -89,7 +89,10 @@ def run_check(command, cwd, output_means_failure):
     result = subprocess.run(command, cwd=cwd, capture_output=True, text=True)
     output = (result.stdout + result.stderr).strip()
     failed = result.returncode != 0 or (output_means_failure and output)
-    return f"$ {' '.join(command)}\n{first_lines(output)}" if failed else None
+    if not failed:
+        return None
+    tool = Path(command[0]).name
+    return f"{tool}: $ {' '.join(command)}\n{first_lines(output)}"
 
 
 def committed_text(path):
