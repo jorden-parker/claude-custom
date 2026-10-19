@@ -21,6 +21,8 @@ var configured = []profiles.Profile{
 
 var side = profiles.SideModel{Name: "qwen3-4b-cc", Base: "qwen3:4b", Modelfile: "/repo/ollama/side.Modelfile"}
 
+const embedding = "qwen3-embedding:0.6b"
+
 func press(m Model, keys ...string) (Model, tea.Cmd) {
 	var cmd tea.Cmd
 	for _, k := range keys {
@@ -44,7 +46,7 @@ func press(m Model, keys ...string) (Model, tea.Cmd) {
 }
 
 func TestEnterChoosesHighlightedProfile(t *testing.T) {
-	m, cmd := press(New(configured, profiles.SideModel{}), "down", "enter")
+	m, cmd := press(New(configured, profiles.SideModel{}, embedding), "down", "enter")
 	chosen, ok := m.Chosen()
 	if !ok || chosen.Size != "35b" {
 		t.Fatalf("got %+v, %v", chosen, ok)
@@ -55,14 +57,18 @@ func TestEnterChoosesHighlightedProfile(t *testing.T) {
 }
 
 func TestCursorStaysInBounds(t *testing.T) {
-	m, _ := press(New(configured, profiles.SideModel{}), "up", "down", "down", "down", "enter")
-	if chosen, _ := m.Chosen(); chosen.Size != "35b" {
+	m, _ := press(New(configured, profiles.SideModel{}, embedding), "up", "enter")
+	if chosen, _ := m.Chosen(); chosen.Size != "27b" {
 		t.Fatalf("got %+v", chosen)
+	}
+	m, _ = press(New(configured, side, embedding), "down", "down", "down", "down", "down")
+	if !m.onEmbeddingRow() {
+		t.Fatalf("cursor %d is past the last row", m.cursor)
 	}
 }
 
 func TestVimKeysMoveCursor(t *testing.T) {
-	m, _ := press(New(configured, profiles.SideModel{}), "j", "k", "enter")
+	m, _ := press(New(configured, profiles.SideModel{}, embedding), "j", "k", "enter")
 	if chosen, _ := m.Chosen(); chosen.Size != "27b" {
 		t.Fatalf("got %+v", chosen)
 	}
@@ -70,7 +76,7 @@ func TestVimKeysMoveCursor(t *testing.T) {
 
 func TestCancelKeysChooseNothing(t *testing.T) {
 	for _, k := range []string{"esc", "q"} {
-		m, cmd := press(New(configured, profiles.SideModel{}), k)
+		m, cmd := press(New(configured, profiles.SideModel{}, embedding), k)
 		if _, ok := m.Chosen(); ok {
 			t.Fatalf("%s: expected no choice", k)
 		}
@@ -81,7 +87,7 @@ func TestCancelKeysChooseNothing(t *testing.T) {
 }
 
 func TestViewListsSizesAndModels(t *testing.T) {
-	view := New(configured, profiles.SideModel{}).View().Content
+	view := New(configured, profiles.SideModel{}, embedding).View().Content
 	for _, want := range []string{"27b", "qwen3.8-27b-cc", "35b", "qwen3.6:35b-mlx"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q:\n%s", want, view)
@@ -90,10 +96,10 @@ func TestViewListsSizesAndModels(t *testing.T) {
 }
 
 func TestSideRowOnlyWithSideModel(t *testing.T) {
-	if view := New(configured, profiles.SideModel{}).View().Content; strings.Contains(view, "Set up side model") {
+	if view := New(configured, profiles.SideModel{}, embedding).View().Content; strings.Contains(view, "Set up side model") {
 		t.Fatalf("unexpected side row:\n%s", view)
 	}
-	view := New(configured, side).View().Content
+	view := New(configured, side, embedding).View().Content
 	for _, want := range []string{"Set up side model", "qwen3:4b", "qwen3-4b-cc"} {
 		if !strings.Contains(view, want) {
 			t.Fatalf("view missing %q:\n%s", want, view)
@@ -102,7 +108,7 @@ func TestSideRowOnlyWithSideModel(t *testing.T) {
 }
 
 func TestEnterOnSideRowRunsSetupWithoutChoosing(t *testing.T) {
-	m, cmd := press(New(configured, side), "down", "down", "enter")
+	m, cmd := press(New(configured, side, embedding), "down", "down", "enter")
 	if _, ok := m.Chosen(); ok {
 		t.Fatal("expected no profile chosen")
 	}
@@ -115,38 +121,38 @@ func TestEnterOnSideRowRunsSetupWithoutChoosing(t *testing.T) {
 }
 
 func TestSetupResultShowsInView(t *testing.T) {
-	updated, _ := New(configured, side).Update(sideSetupDoneMsg{err: errors.New("pull failed")})
+	updated, _ := New(configured, side, embedding).Update(setupDoneMsg{label: "side model", err: errors.New("pull failed")})
 	if view := updated.(Model).View().Content; !strings.Contains(view, "pull failed") {
 		t.Fatalf("view missing error:\n%s", view)
 	}
-	updated, _ = New(configured, side).Update(sideSetupDoneMsg{})
+	updated, _ = New(configured, side, embedding).Update(setupDoneMsg{label: "side model"})
 	if view := updated.(Model).View().Content; !strings.Contains(view, "side model ready") {
 		t.Fatalf("view missing success:\n%s", view)
 	}
 }
 
 func TestSetupCommandPullsAndCreates(t *testing.T) {
-	cmd := setupCommand(side, io.Discard)
+	cmd := setupCommand(sideSetup(side), io.Discard)
 	if cmd.Stdout != os.Stderr {
 		t.Fatal("setup output must go to stderr; stdout carries the chosen size")
 	}
 	got := cmd.Args
-	want := []string{"sh", "-c", setupScript, "sh", "qwen3:4b", "qwen3-4b-cc", "/repo/ollama/side.Modelfile"}
+	want := []string{"sh", "-c", sideSetupScript, "sh", "qwen3:4b", "qwen3-4b-cc", "/repo/ollama/side.Modelfile"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %q, want %q", got, want)
 	}
-	if !strings.Contains(setupScript, "ollama pull") || !strings.Contains(setupScript, "ollama create") {
-		t.Fatalf("script does not pull and create: %s", setupScript)
+	if !strings.Contains(sideSetupScript, "ollama pull") || !strings.Contains(sideSetupScript, "ollama create") {
+		t.Fatalf("script does not pull and create: %s", sideSetupScript)
 	}
 }
 
 func TestSetupFailureShowsOllamaError(t *testing.T) {
 	fakeOllama(t, "echo 'pulling manifest'; printf '\\033[KError: pull model manifest: file does not exist\\n' >&2; exit 1")
 	var output strings.Builder
-	cmd := setupCommand(side, &output)
+	cmd := setupCommand(sideSetup(side), &output)
 	cmd.Stdout = io.Discard
-	msg := setupResult(cmd.Run(), output.String())
-	updated, _ := New(configured, side).Update(msg)
+	msg := setupResult("side model", cmd.Run(), output.String())
+	updated, _ := New(configured, side, embedding).Update(msg)
 	view := updated.(Model).View().Content
 	if !strings.Contains(view, "side model setup failed: pull model manifest: file does not exist") {
 		t.Fatalf("view missing ollama error:\n%s", view)
@@ -156,9 +162,66 @@ func TestSetupFailureShowsOllamaError(t *testing.T) {
 func TestSetupFailureWithoutOllamaErrorShowsExitStatus(t *testing.T) {
 	fakeOllama(t, "exit 3")
 	var output strings.Builder
-	cmd := setupCommand(side, &output)
-	msg := setupResult(cmd.Run(), output.String())
+	cmd := setupCommand(sideSetup(side), &output)
+	msg := setupResult("side model", cmd.Run(), output.String())
 	if got := setupStatus(msg); got != "side model setup failed: exit status 3" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestEmbeddingRowIsAlwaysLast(t *testing.T) {
+	for _, s := range []profiles.SideModel{{}, side} {
+		view := New(configured, s, embedding).View().Content
+		lines := strings.Split(view, "\n")
+		row := -1
+		for i, line := range lines {
+			if strings.Contains(line, "Set up embedding model") {
+				row = i
+			}
+			if strings.Contains(line, "Set up side model") && row != -1 {
+				t.Fatalf("side row after embedding row:\n%s", view)
+			}
+		}
+		if row == -1 || !strings.Contains(lines[row], embedding) {
+			t.Fatalf("view missing embedding row:\n%s", view)
+		}
+	}
+}
+
+func TestEnterOnEmbeddingRowPullsWithoutChoosing(t *testing.T) {
+	for _, s := range []profiles.SideModel{{}, side} {
+		m, _ := press(New(configured, s, embedding), "down", "down", "down")
+		if !m.onEmbeddingRow() {
+			t.Fatalf("cursor %d is not on the embedding row", m.cursor)
+		}
+		m, cmd := press(m, "enter")
+		if _, ok := m.Chosen(); ok {
+			t.Fatal("expected no profile chosen")
+		}
+		if cmd == nil || !strings.Contains(m.status, "pulling "+embedding) {
+			t.Fatalf("expected a pull, status %q", m.status)
+		}
+		if _, quit := cmd().(tea.QuitMsg); quit {
+			t.Fatal("expected the menu to stay open")
+		}
+	}
+}
+
+func TestEmbeddingSetupOnlyPulls(t *testing.T) {
+	got := setupCommand(embeddingSetup(embedding), io.Discard).Args
+	want := []string{"sh", "-c", `ollama pull "$1"`, "sh", embedding}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+func TestEmbeddingSetupFailureShowsOllamaError(t *testing.T) {
+	fakeOllama(t, "printf 'Error: pull model manifest: file does not exist\\n' >&2; exit 1")
+	var output strings.Builder
+	cmd := setupCommand(embeddingSetup(embedding), &output)
+	cmd.Stdout = io.Discard
+	msg := setupResult("embedding model", cmd.Run(), output.String())
+	if got := setupStatus(msg); got != "embedding model setup failed: pull model manifest: file does not exist" {
 		t.Fatalf("got %q", got)
 	}
 }

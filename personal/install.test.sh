@@ -425,6 +425,25 @@ check_that "claude-ollama warns about a missing side model" grep -qF "side model
 check_not "claude-ollama does not pull the side model itself" grep -qxF "pull qwen3:4b" "$sandbox/ollama.log"
 check_that "claude-ollama pulls a missing embedding model" grep -qxF "pull qwen3-embedding:0.6b" "$sandbox/ollama.log"
 rm -f "$sandbox/ollama.log"
+CODE_SEARCH_MODEL=nomic-embed-text STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" 35b -p hi
+check_that "claude-ollama pulls the CODE_SEARCH_MODEL override" grep -qxF "pull nomic-embed-text" "$sandbox/ollama.log"
+default_embedding() {
+  grep -c 'qwen3-embedding:0.6b' "$1"
+}
+for source in bin/claude-ollama shared/mcp/code-search.py model-picker-tui/profiles/embedding.go; do
+  check_eq "$source names the default embedding model once" 1 "$(default_embedding "$repo/$source")"
+done
+for prompt in "$repo"/ollama/CLAUDE.*.md; do
+  check_that "${prompt##*/} tells the model to use semantic_search" grep -qF 'semantic_search' "$prompt"
+  check_that "${prompt##*/} names the embedding setup row" grep -qF 'Set up embedding model' "$prompt"
+done
+allows_semantic_search() {
+  jq -e '.permissions.allow | index("mcp__code-search__semantic_search") != null' "$1" >/dev/null
+}
+for settings in "$repo"/ollama/settings.*.json; do
+  check_that "${settings##*/} allows semantic_search" allows_semantic_search "$settings"
+done
+rm -f "$sandbox/ollama.log"
 STUB_OLLAMA_SHOW_EXIT=1 STUB_OLLAMA_PULL_EXIT=1 run_capture "$repo/bin/claude-ollama" 35b -p hi
 check_eq "claude-ollama 35b failed pull exit status" 1 "$?"
 check_not "claude-ollama 35b failed pull does not create" grep -sq '^create ' "$sandbox/ollama.log"

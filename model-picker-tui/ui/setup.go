@@ -13,36 +13,52 @@ import (
 )
 
 const (
-	setupScript       = `ollama pull "$1" && ollama create "$2" -f "$3"`
-	ollamaErrorPrefix = "Error: "
+	sideSetupScript      = `ollama pull "$1" && ollama create "$2" -f "$3"`
+	embeddingSetupScript = `ollama pull "$1"`
+	ollamaErrorPrefix    = "Error: "
 )
 
 var terminalEscape = regexp.MustCompile(`\x1b\[[0-9;?]*[A-Za-z]`)
 
-type sideSetupDoneMsg struct {
+type setupTask struct {
+	label  string
+	script string
+	args   []string
+}
+
+type setupDoneMsg struct {
+	label       string
 	err         error
 	ollamaError string
 }
 
-func setupCommand(side profiles.SideModel, errorOutput io.Writer) *exec.Cmd {
-	cmd := exec.Command("sh", "-c", setupScript, "sh", side.Base, side.Name, side.Modelfile)
+func sideSetup(side profiles.SideModel) setupTask {
+	return setupTask{label: "side model", script: sideSetupScript, args: []string{side.Base, side.Name, side.Modelfile}}
+}
+
+func embeddingSetup(name string) setupTask {
+	return setupTask{label: "embedding model", script: embeddingSetupScript, args: []string{name}}
+}
+
+func setupCommand(task setupTask, errorOutput io.Writer) *exec.Cmd {
+	cmd := exec.Command("sh", append([]string{"-c", task.script, "sh"}, task.args...)...)
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = io.MultiWriter(os.Stderr, errorOutput)
 	return cmd
 }
 
-func runSetup(side profiles.SideModel) tea.Cmd {
+func runSetup(task setupTask) tea.Cmd {
 	var errorOutput strings.Builder
-	return tea.ExecProcess(setupCommand(side, &errorOutput), func(err error) tea.Msg {
-		return setupResult(err, errorOutput.String())
+	return tea.ExecProcess(setupCommand(task, &errorOutput), func(err error) tea.Msg {
+		return setupResult(task.label, err, errorOutput.String())
 	})
 }
 
-func setupResult(err error, errorOutput string) sideSetupDoneMsg {
+func setupResult(label string, err error, errorOutput string) setupDoneMsg {
 	if err == nil {
-		return sideSetupDoneMsg{}
+		return setupDoneMsg{label: label}
 	}
-	return sideSetupDoneMsg{err: err, ollamaError: lastOllamaError(errorOutput)}
+	return setupDoneMsg{label: label, err: err, ollamaError: lastOllamaError(errorOutput)}
 }
 
 func lastOllamaError(output string) string {
@@ -57,13 +73,13 @@ func lastOllamaError(output string) string {
 	return ""
 }
 
-func setupStatus(msg sideSetupDoneMsg) string {
+func setupStatus(msg setupDoneMsg) string {
 	switch {
 	case msg.err == nil:
-		return "side model ready"
+		return msg.label + " ready"
 	case msg.ollamaError != "":
-		return "side model setup failed: " + msg.ollamaError
+		return msg.label + " setup failed: " + msg.ollamaError
 	default:
-		return "side model setup failed: " + msg.err.Error()
+		return msg.label + " setup failed: " + msg.err.Error()
 	}
 }

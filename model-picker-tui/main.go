@@ -43,7 +43,7 @@ func pick(profileDir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	final, err := tea.NewProgram(ui.New(configured, side), tea.WithOutput(os.Stderr)).Run()
+	final, err := tea.NewProgram(ui.New(configured, side, profiles.EmbeddingModel()), tea.WithOutput(os.Stderr)).Run()
 	if err != nil {
 		return "", err
 	}

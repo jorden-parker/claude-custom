@@ -9,17 +9,18 @@ import (
 )
 
 type Model struct {
-	profiles []profiles.Profile
-	side     profiles.SideModel
-	cursor   int
-	chosen   bool
-	status   string
-	keys     keyMap
-	help     help.Model
+	profiles  []profiles.Profile
+	side      profiles.SideModel
+	embedding string
+	cursor    int
+	chosen    bool
+	status    string
+	keys      keyMap
+	help      help.Model
 }
 
-func New(configured []profiles.Profile, side profiles.SideModel) Model {
-	return Model{profiles: configured, side: side, keys: newKeyMap(), help: help.New()}
+func New(configured []profiles.Profile, side profiles.SideModel, embedding string) Model {
+	return Model{profiles: configured, side: side, embedding: embedding, keys: newKeyMap(), help: help.New()}
 }
 
 func (m Model) Chosen() (profiles.Profile, bool) {
@@ -39,7 +40,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.help.SetWidth(msg.Width)
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
-	case sideSetupDoneMsg:
+	case setupDoneMsg:
 		m.status = setupStatus(msg)
 	}
 	return m, nil
@@ -62,13 +63,21 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m Model) selectRow() (tea.Model, tea.Cmd) {
 	if m.onSideRow() {
 		m.status = "setting up " + m.side.Name + "…"
-		return m, runSetup(m.side)
+		return m, runSetup(sideSetup(m.side))
+	}
+	if m.onEmbeddingRow() {
+		m.status = "pulling " + m.embedding + "…"
+		return m, runSetup(embeddingSetup(m.embedding))
 	}
 	m.chosen = true
 	return m, tea.Quit
 }
 
 func (m Model) rowCount() int {
+	return m.embeddingRowIndex() + 1
+}
+
+func (m Model) embeddingRowIndex() int {
 	if m.side.Configured() {
 		return len(m.profiles) + 1
 	}
@@ -77,4 +86,8 @@ func (m Model) rowCount() int {
 
 func (m Model) onSideRow() bool {
 	return m.side.Configured() && m.cursor == len(m.profiles)
+}
+
+func (m Model) onEmbeddingRow() bool {
+	return m.cursor == m.embeddingRowIndex()
 }

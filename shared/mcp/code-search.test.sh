@@ -169,6 +169,7 @@ stop_stub
 down="$(search "password check")"
 check "an unreachable Ollama is reported as a tool error" [ "$(printf '%s' "$down" | reply_is_error)" = "True" ]
 check "the error says how to fix it" contains "$(printf '%s' "$down" | reply_text)" "ollama pull qwen3-embedding:0.6b"
+check "the error names the picker row" contains "$(printf '%s' "$down" | reply_text)" "Set up embedding model"
 
 outside="$(cd "$tmp" && python3 "$tmp/client.py" "$server" semantic_search '{"query": "x"}' | reply_text)"
 check "outside a git repo the tool explains why it can't search" contains "$outside" "git repository"

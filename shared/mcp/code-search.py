@@ -9,7 +9,7 @@ import urllib.request
 from pathlib import Path
 
 OLLAMA_URL = os.environ.get("CODE_SEARCH_OLLAMA_URL", "http://localhost:11434")
-EMBED_MODEL = os.environ.get("CODE_SEARCH_MODEL", "qwen3-embedding:0.6b")
+EMBED_MODEL = os.environ.get("CODE_SEARCH_MODEL") or "qwen3-embedding:0.6b"
 DIMENSIONS = 256
 CHUNK_LINES = 40
 CHUNK_STEP = 30
@@ -129,7 +129,8 @@ def embed_batch(texts):
     except (urllib.error.URLError, OSError, KeyError, ValueError) as error:
         raise SearchError(
             f"Embedding request to {OLLAMA_URL} failed ({error}). Check that `ollama serve` "
-            f"is running and run `ollama pull {EMBED_MODEL}`."
+            f"is running and run `ollama pull {EMBED_MODEL}` (or run `claude-ollama` and pick "
+            "'Set up embedding model'). Use `git grep -n` until then."
         ) from error
 
 

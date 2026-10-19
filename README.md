@@ -216,7 +216,12 @@ go through `git grep -n`.
   content changed, so the first search in a repo is slow (about a minute for
   this one) and later ones take well under a second.
 - `CODE_SEARCH_OLLAMA_URL` and `CODE_SEARCH_MODEL` override the server and
-  model.
+  model. `claude-ollama` and the model picker follow `CODE_SEARCH_MODEL` too.
+- If the pull on launch fails, run `claude-ollama` and pick "Set up embedding
+  model" in the menu.
+- `ollama/CLAUDE.<size>.md` tells the model when to search (questions about
+  what code does), when to use `git grep -n` (exact names), and to fall back to
+  `git grep` and point you at that menu row when the search errors.
 
 ## Tests
 

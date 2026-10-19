@@ -124,8 +124,12 @@ there is no `src/`.
 - `shared/mcp/code-search.py` is the `semantic_search` MCP server (JSON-RPC over
   stdio, stdlib only). It embeds chunks through Ollama `/api/embed`, keeps its
   index in `.git/code-search/index.json` and re-embeds only changed files.
-  `bin/claude-ollama` pulls its model; the Ollama profiles allow the tool in
-  `permissions.allow`.
+  `bin/claude-ollama` pulls its model (`CODE_SEARCH_MODEL`, default
+  `qwen3-embedding:0.6b`); the model picker's "Set up embedding model" row
+  pulls it too. The default name appears once in each of `bin/claude-ollama`,
+  `code-search.py` and `model-picker-tui/profiles/embedding.go`, and
+  `personal/install.test.sh` checks they agree. The Ollama profiles allow the
+  tool in `permissions.allow`.
 - `ollama/server.env` documents the Ollama server env the profiles expect. The
   Homebrew service sets the same values. Nothing in this repo applies it.
 - `ollama/CLAUDE.<size>.md` files are appended system prompts for small local
@@ -148,7 +152,8 @@ there is no `src/`.
   imported files are listed in `imported_files`). Keep it short: it loads on
   every turn.
 - `model-picker-tui/` has two packages: `profiles` (`Load` reads the configured
-  sizes from `ollama/`) and `ui` (the Bubble Tea model).
+  sizes from `ollama/`, `EmbeddingModel` the search model) and `ui` (the Bubble
+  Tea model).
 - `tools-tui/` has three packages:
   - `catalog`: fetches the tool table from the Claude Code docs and caches it in
     the user cache dir.
