@@ -36,10 +36,12 @@ fix_is_applied_without_preview() {
 }
 
 check_fallow_segment() {
-  local sub="" w
+  local sub="" w skip=0
   for w in "$@"; do
+    if [ "$skip" -eq 1 ]; then skip=0; continue; fi
     case "$w" in
       --help|-h|--version|-V) return 0 ;;
+      --root|--config) skip=1 ;;
       -*) ;;
       *) [ -z "$sub" ] && sub="$w" ;;
     esac
@@ -86,16 +88,22 @@ check_git_segment() {
 }
 
 check_segment() {
-  case "$1" in
-    fallow|*/fallow) shift; check_fallow_segment "$@" ;;
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      [A-Za-z_]*=*) shift ;;
+      *) break ;;
+    esac
+  done
+  [ "$#" -gt 0 ] || return 0
+  case "${1##*/}" in
+    fallow) shift; check_fallow_segment "$@" ;;
     npx) shift; check_npx_segment "$@" ;;
     git) shift; check_git_segment "$@" ;;
   esac
 }
 
-while IFS= read -r segment; do
-  read -ra words <<<"$segment"
+while IFS=$'\t' read -ra words; do
   [ "${#words[@]}" -gt 0 ] || continue
   check_segment "${words[@]}"
-done < <(printf '%s\n' "$CMD" | tr ';|&()' '\n')
+done < <(fallow_command_segments "$CMD")
 exit 0
