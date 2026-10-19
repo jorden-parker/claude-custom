@@ -49,6 +49,7 @@ new_sandbox() {
 #!/bin/sh
 echo "ARGS: \$*"
 echo "\${ANTHROPIC_MODEL-unset}" > "$sandbox/model-env"
+echo "\${CLAUDE_CUSTOM_HOME-unset}" > "$sandbox/custom-home-env"
 EOF
   cat > "$sandbox/stubbin/ollama" <<EOF
 #!/bin/sh
@@ -98,10 +99,12 @@ for shell_name in bash zsh ksh dash; do
     "$(CLAUDE_CUSTOM_HOME="$repo" "$shell_name" -c ". \"$repo/personal/claude.sh\"; claude a 'b c'" 2>&1)"
   check_eq "$shell_name function with alias" "$want_args" \
     "$(CLAUDE_CUSTOM_HOME="$repo" "$shell_name" -c "alias claude='echo ALIAS'; . \"$repo/personal/claude.sh\"; claude a 'b c'" 2>&1)"
+  check_eq "$shell_name function exports CLAUDE_CUSTOM_HOME to claude" "$repo" "$(cat "$sandbox/custom-home-env")"
 done
 if [ -n "$fish_bin" ]; then
   check_eq "fish function" "$want_args" \
     "$("$fish_bin" --no-config -c "set -g CLAUDE_CUSTOM_HOME $repo; source $repo/personal/claude.fish; claude a 'b c'" 2>&1)"
+  check_eq "fish function exports CLAUDE_CUSTOM_HOME to claude" "$repo" "$(cat "$sandbox/custom-home-env")"
 else
   echo "skip: fish not installed"
 fi
@@ -186,13 +189,13 @@ run_capture "$installer" install
 check_that "claude-ollama link" test "$(readlink "$HOME/.local/bin/claude-ollama")" = "$repo/bin/claude-ollama"
 check_eq "claude-custom link" "$repo/bin/claude-custom" "$(readlink "$HOME/.local/bin/claude-custom")"
 check_eq "claude-tools link" "$repo/bin/claude-tools" "$(readlink "$HOME/.local/bin/claude-tools")"
-check_eq "hook link" "$repo/shared/hooks/bash-output-guard.py" "$(readlink "$HOME/.claude/hooks/bash-output-guard.py")"
-check_eq "bash-output-trim hook link" "$repo/shared/hooks/bash-output-trim.py" "$(readlink "$HOME/.claude/hooks/bash-output-trim.py")"
-check_eq "read-range-guard hook link" "$repo/shared/hooks/read-range-guard.py" "$(readlink "$HOME/.claude/hooks/read-range-guard.py")"
-check_eq "edit-check hook link" "$repo/shared/hooks/edit-check.py" "$(readlink "$HOME/.claude/hooks/edit-check.py")"
-check_eq "stop-verify hook link" "$repo/shared/hooks/stop-verify.py" "$(readlink "$HOME/.claude/hooks/stop-verify.py")"
-for fallow_hook in fallow-lib.sh fallow-command-guard.sh fallow-mark-preview.sh fallow-after-edit.sh; do
-  check_eq "$fallow_hook hook link" "$repo/shared/hooks/$fallow_hook" "$(readlink "$HOME/.claude/hooks/$fallow_hook")"
+check_not "install creates no hook links" test -e "$HOME/.claude/hooks"
+for settings in "$repo"/personal/settings.tokens.json "$repo"/ollama/settings.*.json; do
+  for hook_command in $(jq -r '.hooks[][].hooks[].command' "$settings" | sort -u); do
+    hook_path="$(CLAUDE_CUSTOM_HOME="$repo" sh -c "printf %s $hook_command")"
+    check_that "${settings##*/} hook $hook_command is an executable in the repo" test -x "$hook_path"
+    check_that "${settings##*/} hook $hook_command lives in shared/hooks" test "${hook_path#"$repo"/shared/hooks/}" != "$hook_path"
+  done
 done
 
 new_sandbox
@@ -228,8 +231,10 @@ check_eq "preferences import appears once after two installs" 1 \
   "$(grep -cxF "@$repo/shared/preferences/PREFERENCES.md" "$HOME/.claude/CLAUDE.md")"
 
 for settings in "$repo"/ollama/settings.*.json; do
-  check_eq "hooks in ${settings##*/} match the personal overlay" \
-    "$(jq -S .hooks "$repo/personal/settings.tokens.json")" "$(jq -S .hooks "$settings")"
+  check_eq "hooks in ${settings##*/} include every personal overlay hook" "[]" \
+    "$(jq -c -n --slurpfile personal "$repo/personal/settings.tokens.json" --slurpfile profile "$settings" \
+      '[$personal[0].hooks | to_entries[] | .key as $event | .value[] | {event: $event, matcher: (.matcher // ""), command: .hooks[].command}]
+       - [$profile[0].hooks | to_entries[] | .key as $event | .value[] | {event: $event, matcher: (.matcher // ""), command: .hooks[].command}]')"
 done
 
 for settings in "$repo"/ollama/settings.*.json; do
@@ -333,14 +338,6 @@ check_not "round trip removes fish drop-in" test -e "$HOME/.config/fish/conf.d/c
 check_not "round trip removes ollama link" test -L "$HOME/.local/bin/claude-ollama"
 check_not "round trip removes claude-custom link" test -L "$HOME/.local/bin/claude-custom"
 check_not "round trip removes claude-tools link" test -L "$HOME/.local/bin/claude-tools"
-check_not "round trip removes hook link" test -L "$HOME/.claude/hooks/bash-output-guard.py"
-check_not "round trip removes bash-output-trim link" test -L "$HOME/.claude/hooks/bash-output-trim.py"
-check_not "round trip removes read-range-guard link" test -L "$HOME/.claude/hooks/read-range-guard.py"
-check_not "round trip removes edit-check link" test -L "$HOME/.claude/hooks/edit-check.py"
-check_not "round trip removes stop-verify link" test -L "$HOME/.claude/hooks/stop-verify.py"
-for fallow_hook in fallow-lib.sh fallow-command-guard.sh fallow-mark-preview.sh fallow-after-edit.sh; do
-  check_not "round trip removes $fallow_hook link" test -L "$HOME/.claude/hooks/$fallow_hook"
-done
 
 new_sandbox
 mkdir -p "$HOME/.local/bin" "$HOME/.claude/hooks"
@@ -348,7 +345,9 @@ ln -s "$sandbox/elsewhere" "$HOME/.local/bin/claude-ollama"
 printf 'mine\n' > "$HOME/.local/bin/claude-custom"
 printf 'old build\n' > "$HOME/.local/bin/claude-tools"
 ln -s "$sandbox/elsewhere-hook" "$HOME/.claude/hooks/bash-output-guard.py"
+ln -s "$repo/shared/hooks/edit-check.py" "$HOME/.claude/hooks/edit-check.py"
 run_capture "$installer" install
+check_not "install removes a stale repo hook link" test -L "$HOME/.claude/hooks/edit-check.py"
 run_capture "$installer" uninstall
 check_eq "foreign link survives uninstall" "$sandbox/elsewhere" "$(readlink "$HOME/.local/bin/claude-ollama")"
 check_eq "regular file survives uninstall" "mine" "$(cat "$HOME/.local/bin/claude-custom")"
@@ -432,6 +431,7 @@ check_that "claude-ollama 27b passes the 27b model" grep -qF -- "--model qwen3.8
 ANTHROPIC_MODEL=claude-opus-5-5 run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "claude-ollama 27b ignores ANTHROPIC_MODEL" grep -qF -- "--model qwen3.8-27b-cc --tools" "$sandbox/out"
 check_that "claude-ollama unsets ANTHROPIC_MODEL" grep -qxF "unset" "$sandbox/model-env"
+check_eq "claude-ollama exports CLAUDE_CUSTOM_HOME to claude" "$repo" "$(cat "$sandbox/custom-home-env")"
 run_capture "$repo/bin/claude-ollama" 35b -p hi
 check_that "claude-ollama 35b uses the 35b settings" grep -qF -- "--settings $repo/ollama/settings.35b.json" "$sandbox/out"
 check_that "claude-ollama 35b passes the 35b model" grep -qF -- "--model qwen3.6-35b-cc --tools" "$sandbox/out"

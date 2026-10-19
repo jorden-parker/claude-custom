@@ -45,7 +45,6 @@ claude_md_path() {
   printf '%s/CLAUDE.md' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 }
 
-hook_names='bash-output-guard.py bash-output-trim.py read-range-guard.py edit-check.py stop-verify.py fallow-lib.sh fallow-command-guard.sh fallow-mark-preview.sh fallow-after-edit.sh'
 imported_files='personal/CLAUDE.tokens.md shared/preferences/PREFERENCES.md'
 
 import_line() {
@@ -204,9 +203,15 @@ place_links() {
   place_link "$repo_dir/bin/claude-ollama" "$HOME/.local/bin/claude-ollama"
   place_link "$repo_dir/bin/claude-custom" "$HOME/.local/bin/claude-custom"
   place_link "$repo_dir/bin/claude-tools" "$HOME/.local/bin/claude-tools"
-  local hook
-  for hook in $hook_names; do
-    place_link "$repo_dir/shared/hooks/$hook" "$HOME/.claude/hooks/$hook"
+}
+
+remove_stale_hook_links() {
+  local link
+  for link in "$HOME"/.claude/hooks/*; do
+    [ -L "$link" ] || continue
+    case "$(readlink "$link")" in
+      "$repo_dir"/shared/hooks/*) rm "$link" ;;
+    esac
   done
 }
 
@@ -284,6 +289,7 @@ guard_repo_path() {
 install_all() {
   guard_repo_path
   place_links
+  remove_stale_hook_links
   add_import_lines
   retire_plan_001_fish_link
   wire_shells
@@ -292,7 +298,6 @@ install_all() {
 }
 
 uninstall_all() {
-  local hook
   guard_repo_path
   remove_sh_block "${ZDOTDIR:-$HOME}/.zshrc"
   remove_sh_block "$HOME/.bashrc"
@@ -302,9 +307,7 @@ uninstall_all() {
   remove_link "$repo_dir/bin/claude-ollama" "$HOME/.local/bin/claude-ollama"
   remove_link "$repo_dir/bin/claude-custom" "$HOME/.local/bin/claude-custom"
   remove_link "$repo_dir/bin/claude-tools" "$HOME/.local/bin/claude-tools"
-  for hook in $hook_names; do
-    remove_link "$repo_dir/shared/hooks/$hook" "$HOME/.claude/hooks/$hook"
-  done
+  remove_stale_hook_links
   remove_import_lines
   echo "open a new terminal; current shells keep the claude function until they exit"
 }

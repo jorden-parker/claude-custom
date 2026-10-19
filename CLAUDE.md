@@ -86,29 +86,42 @@ there is no `src/`.
   project's `.claude/verify`; it blocks once per turn (`stop_hook_active`). Both
   exit 2 so the model sees stderr.
 - The `fallow-*.sh` hooks gate Fallow use in JS/TS projects and share
-  `shared/hooks/fallow-lib.sh` (sourced from the hook's own directory, so the
-  installer links it too). `fallow-command-guard.sh` (PreToolUse on Bash) denies
-  `fallow` calls without `--format json`, denies `fallow fix --yes` until a
-  `--dry-run` ran in the session, and denies `git commit`/`git push` while
-  `fallow audit` fails. It only looks at the first word of each command segment
-  (plus `npx fallow`), never at arguments. `fallow-mark-preview.sh` (PostToolUse
-  on Bash) records the dry run. `fallow-after-edit.sh` (PostToolUse on
-  Edit/Write) adds the edited file's audit findings as context. Tests stub
-  `fallow` on PATH through `fallow-test-lib.sh`; `.shellcheckrc` lets shellcheck
-  follow the sourced library.
+  `shared/hooks/fallow-lib.sh` (sourced from the hook's own directory).
+  `fallow-command-guard.sh` (PreToolUse on Bash) denies `fallow` calls without
+  `--format json`, denies `fallow fix --yes` until a `--dry-run` ran in the
+  session, and denies `git commit`/`git push` while `fallow audit` fails. It
+  only looks at the first word of each command segment (plus `npx fallow`),
+  never at arguments. `fallow-mark-preview.sh` (PostToolUse on Bash) records the
+  dry run. `fallow-after-edit.sh` (PostToolUse on Edit/Write) adds the edited
+  file's audit findings as context. Tests stub `fallow` on PATH through
+  `fallow-test-lib.sh`; `.shellcheckrc` lets shellcheck follow the sourced
+  library.
 - `shared/preferences/PREFERENCES.md` holds the prose rules no tool can check.
   `bin/claude-custom install` `@`-imports it into `~/.claude/CLAUDE.md`, so both
   backends load it. Keep it short: Ollama has 64k context.
+- `shared/hooks/tool-nudge.py` is wired only in the Ollama profiles
+  (UserPromptSubmit resets its per-session counters under
+  `~/.claude/cache/tool-nudge/`; PostToolUse on Bash, Read, Agent and
+  `mcp__code-search__semantic_search` counts). It adds `additionalContext` once
+  per turn after the 2nd text search (use `semantic_search`) and once after the
+  6th read-or-search (delegate to `Agent`). It never denies.
 - All settings files (`personal/settings.tokens.json`, `ollama/settings.*.json`)
-  point to the hooks at `~/.claude/hooks/<name>`, not at paths in this repo.
-  They rely on the symlinks that `bin/claude-custom install` creates (names in
-  `hook_names`).
+  run hooks as `"$CLAUDE_CUSTOM_HOME"/shared/hooks/<name>`. Hook commands go
+  through a shell, so the variable expands. `personal/claude.sh` and
+  `personal/claude.fish` pass it to `claude` with `env` (the rc block defines it
+  unexported), and `bin/claude-ollama` exports it from its own `repo_dir`.
+  Nothing is linked into `~/.claude/hooks`; `install` and `uninstall` remove
+  links there that point into `shared/hooks/` (`remove_stale_hook_links`).
+  `personal/install.test.sh` checks every hook command resolves to an executable
+  in `shared/hooks/`.
 - The Read `permissions.deny` globs and the `hooks` block are shared by all
-  settings files. Change them together; `personal/install.test.sh` fails when
-  the `hooks` blocks differ. `ollama/settings.*.json` also deny unused tools by
-  bare name, so their schemas never reach the local model's context. `--tools`
-  in `bin/claude-ollama` is the primary allowlist and that deny list is the
-  backstop. `personal/install.test.sh` fails when the Ollama deny lists differ.
+  settings files. Change them together; `personal/install.test.sh` fails when an
+  Ollama profile lacks a hook the personal overlay has (the profiles may add
+  hooks of their own, like `tool-nudge.py`). `ollama/settings.*.json` also deny
+  unused tools by bare name, so their schemas never reach the local model's
+  context. `--tools` in `bin/claude-ollama` is the primary allowlist and that
+  deny list is the backstop. `personal/install.test.sh` fails when the Ollama
+  deny lists differ.
 - `bin/claude-ollama` resolves its own symlink to find `ollama/`. It unsets
   `ANTHROPIC_API_KEY`, passes `--settings ollama/settings.<size>.json`,
   `--system-prompt-file ollama/system-prompt.md` (replacing Claude Code's

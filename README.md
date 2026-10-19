@@ -26,14 +26,16 @@ This wires every shell it finds: zsh (`~/.zshrc`), bash (`~/.bashrc`,
 `~/.bash_profile`), ksh (`~/.kshrc`) and fish
 (`~/.config/fish/conf.d/claude-custom.fish`). Rc edits sit between
 `# >>> claude-custom >>>` markers and put `~/.local/bin` on PATH. It also links
-`claude-ollama`, `claude-tools`, `claude-custom` and the hooks (see
-[Enforced preferences](#enforced-preferences)) into `~/.claude/hooks/`, adds `@`
-imports for `personal/CLAUDE.tokens.md` and `shared/preferences/PREFERENCES.md`
-to `~/.claude/CLAUDE.md`, and rebuilds the Ollama models whose base model is
-pulled. Re-running it is safe. `~/.claude/settings.json` is left as is: the
-overlay loads on top of it via `--settings` on every interactive `claude`
-launch. Scripts, IDE extensions, the desktop app and `claude-ollama` don't get
-it. Run `command claude` to skip it once.
+`claude-ollama`, `claude-tools` and `claude-custom` into `~/.local/bin`, removes
+hook links an older install left in `~/.claude/hooks/` (the hooks, see
+[Enforced preferences](#enforced-preferences), now run straight from
+`shared/hooks/`), adds `@` imports for `personal/CLAUDE.tokens.md` and
+`shared/preferences/PREFERENCES.md` to `~/.claude/CLAUDE.md`, and rebuilds the
+Ollama models whose base model is pulled. Re-running it is safe.
+`~/.claude/settings.json` is left as is: the overlay loads on top of it via
+`--settings` on every interactive `claude` launch. Scripts, IDE extensions, the
+desktop app and `claude-ollama` don't get it. Run `command claude` to skip it
+once.
 
 Per repo, when you don't need claude.ai connectors there:
 `cp project/settings.local.json <repo>/.claude/settings.local.json`.
@@ -46,21 +48,24 @@ Coding preferences are checked by hooks that Claude Code runs itself, so they
 apply the same way with Claude and with the local Ollama models. The personal
 overlay and both Ollama profiles wire the same hooks:
 
-| Hook                      | When                      | What it does                                                                                                                                                                    |
-| ------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `bash-output-guard.py`    | Before a Bash command     | Denies commands that would flood the context (unbounded `git log`, `cat` on a lockfile, recursive `ls`)                                                                         |
-| `bash-output-trim.py`     | After a Bash command      | Trims output over 150 lines to the first 30, error/fail lines from the middle (up to 40) and the last 60, clips lines over 400 chars, and says what was hidden                  |
-| `read-range-guard.py`     | Before a Read             | Denies reading a file over 300 lines unless the call asks for a range of 300 lines or fewer, and says to find the lines first                                                   |
-| `edit-check.py`           | After an Edit or Write    | Runs the edited file's project-local formatter and linter (gofmt, go vet, prettier, eslint, ruff, shellcheck, `bash -n`) and rejects newly added comments                       |
-| `stop-verify.py`          | Before the model finishes | Runs Fallow (`audit` and `architecture`) in JS/TS projects and the project's `.claude/verify` script, if present; blocks at most once per turn                                  |
-| `fallow-command-guard.sh` | Before a Bash command     | In JS/TS projects: denies `fallow` without `--format json`, `fallow fix --yes` before a `--dry-run` in the same session, and `git commit`/`git push` while `fallow audit` fails |
-| `fallow-mark-preview.sh`  | After a Bash command      | Records that `fallow fix --dry-run` ran in this session, which unlocks `fallow fix --yes`                                                                                       |
-| `fallow-after-edit.sh`    | After an Edit or Write    | Adds Fallow's findings for the edited JS/TS file as context                                                                                                                     |
+| Hook                      | When                                                       | What it does                                                                                                                                                                                                                               |
+| ------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `bash-output-guard.py`    | Before a Bash command                                      | Denies commands that would flood the context (unbounded `git log`, `cat` on a lockfile, recursive `ls`)                                                                                                                                    |
+| `bash-output-trim.py`     | After a Bash command                                       | Trims output over 150 lines to the first 30, error/fail lines from the middle (up to 40) and the last 60, clips lines over 400 chars, and says what was hidden                                                                             |
+| `read-range-guard.py`     | Before a Read                                              | Denies reading a file over 300 lines unless the call asks for a range of 300 lines or fewer, and says to find the lines first                                                                                                              |
+| `edit-check.py`           | After an Edit or Write                                     | Runs the edited file's project-local formatter and linter (gofmt, go vet, prettier, eslint, ruff, shellcheck, `bash -n`) and rejects newly added comments                                                                                  |
+| `stop-verify.py`          | Before the model finishes                                  | Runs Fallow (`audit` and `architecture`) in JS/TS projects and the project's `.claude/verify` script, if present; blocks at most once per turn                                                                                             |
+| `fallow-command-guard.sh` | Before a Bash command                                      | In JS/TS projects: denies `fallow` without `--format json`, `fallow fix --yes` before a `--dry-run` in the same session, and `git commit`/`git push` while `fallow audit` fails                                                            |
+| `fallow-mark-preview.sh`  | After a Bash command                                       | Records that `fallow fix --dry-run` ran in this session, which unlocks `fallow fix --yes`                                                                                                                                                  |
+| `fallow-after-edit.sh`    | After an Edit or Write                                     | Adds Fallow's findings for the edited JS/TS file as context                                                                                                                                                                                |
+| `tool-nudge.py`           | After Bash, Read, Agent, `semantic_search`; on each prompt | Ollama profiles only. Counts text searches (`grep`, `rg`, `find`, `git grep`) and Reads per turn; after the 2nd search adds a reminder to use `semantic_search`, after the 6th read/search a reminder to delegate to `Agent`. Never denies |
 
-A check only runs when the project has that tool installed. A failed check sends
-its output back to the model. Rules no tool can check live in
-`shared/preferences/PREFERENCES.md`, which every session loads through
-`~/.claude/CLAUDE.md`.
+Every settings file runs them as `"$CLAUDE_CUSTOM_HOME"/shared/hooks/<name>`.
+The `claude` shell function and `claude-ollama` set that variable for the
+`claude` process, so no symlinks are needed. A check only runs when the project
+has that tool installed. A failed check sends its output back to the model.
+Rules no tool can check live in `shared/preferences/PREFERENCES.md`, which every
+session loads through `~/.claude/CLAUDE.md`.
 
 To have your tests run before the model finishes, add an executable
 `.claude/verify` script to a project. This repo's own one runs every test suite.

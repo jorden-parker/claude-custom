@@ -59,11 +59,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "~/.claude/hooks/bash-output-guard.py"
+            "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/bash-output-guard.py"
           },
           {
             "type": "command",
-            "command": "~/.claude/hooks/fallow-command-guard.sh",
+            "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/fallow-command-guard.sh",
             "timeout": 180
           }
         ]
@@ -73,7 +73,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "~/.claude/hooks/read-range-guard.py"
+            "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/read-range-guard.py"
           }
         ]
       }
@@ -84,12 +84,12 @@
         "hooks": [
           {
             "type": "command",
-            "command": "~/.claude/hooks/edit-check.py",
+            "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/edit-check.py",
             "timeout": 120
           },
           {
             "type": "command",
-            "command": "~/.claude/hooks/fallow-after-edit.sh",
+            "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/fallow-after-edit.sh",
             "timeout": 120
           }
         ]
@@ -99,12 +99,21 @@
         "hooks": [
           {
             "type": "command",
-            "command": "~/.claude/hooks/bash-output-trim.py"
+            "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/bash-output-trim.py"
           },
           {
             "type": "command",
-            "command": "~/.claude/hooks/fallow-mark-preview.sh",
+            "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/fallow-mark-preview.sh",
             "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|Read|Agent|mcp__code-search__semantic_search",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/tool-nudge.py"
           }
         ]
       }
@@ -114,8 +123,18 @@
         "hooks": [
           {
             "type": "command",
-            "command": "~/.claude/hooks/stop-verify.py",
+            "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/stop-verify.py",
             "timeout": 600
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/tool-nudge.py"
           }
         ]
       }

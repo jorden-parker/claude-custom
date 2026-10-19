@@ -8,6 +8,7 @@ shared/hooks/stop-verify.test.sh
 shared/hooks/fallow-command-guard.test.sh
 shared/hooks/fallow-mark-preview.test.sh
 shared/hooks/fallow-after-edit.test.sh
+shared/hooks/tool-nudge.test.sh
 personal/install.test.sh
 bin/ollama-cache-probe.test.sh
 shared/mcp/code-search.test.sh

@@ -93,6 +93,7 @@ ensure_embedding_model
 ensure_side_model
 
 unset ANTHROPIC_API_KEY ANTHROPIC_MODEL
+export CLAUDE_CUSTOM_HOME="$repo_dir"
 exec claude \
   --settings "$profile_dir/settings.$size.json" \
   --system-prompt-file "$profile_dir/system-prompt.md" \
