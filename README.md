@@ -121,9 +121,13 @@ opens a picker ([model-picker](go/cmd/model-picker/README.md)) and drops the
 unknown word. Without a terminal (scripts, pipes) it uses 27b instead. The
 picker needs Go 1.26+; passing a size never does.
 
-Sizes come from the files in `ollama/`: a size is configured when both
-`settings.<size>.json` and `Modelfile.<size>` exist. The picker and `--help`
-pick up a new size without any script change.
+Sizes are declared in `ollama/sizes.json`. `bin/ollama-profiles` renders
+`settings.<size>.json` and `Modelfile.<size>` from
+`ollama/profile-template.json` and `ollama/profile-template.Modelfile`; the
+rendered files are committed, and `bin/ollama-profiles --check` fails when they
+are stale. To add a size, add an entry to `sizes.json`, run
+`bin/ollama-profiles`, and commit. The picker and `--help` pick up a new size
+without any script change.
 
 `claude-custom install` creates the `-cc` models from `ollama/Modelfile.<size>`
 once the base models are pulled. `claude-ollama` also does this itself for
@@ -281,7 +285,7 @@ until the tool has been called; exact names go through `git grep -n` after that.
   model. `claude-ollama` and the model picker follow `CODE_SEARCH_MODEL` too.
 - If the pull on launch fails, run `claude-ollama` and pick "Set up embedding
   model" in the menu.
-- `ollama/CLAUDE.<size>.md` tells the model when to search (questions about what
+- `ollama/CLAUDE.local.md` tells the model when to search (questions about what
   code does), when to use `git grep -n` (exact names), and to fall back to
   `git grep` and point you at that menu row when the search errors.
 
@@ -289,7 +293,8 @@ until the tool has been called; exact names go through `git grep -n` after that.
 
 - Everything: `make test` (or `.claude/verify`, which the Stop hook runs)
 - One suite: `make test-hooks`, `make test-install`, `make test-launcher`,
-  `make check-config`, `make test-probe`, `make test-search`, `make test-go`
+  `make check-config`, `make check-profiles`, `make test-profiles`,
+  `make test-probe`, `make test-search`, `make test-go`
 - Installer: `personal/install.test.sh`; launcher: `bin/claude-ollama.test.sh`;
   config invariants: `bin/check-config`
 - Lint: `make shellcheck`, `make check-json`

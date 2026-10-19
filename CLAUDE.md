@@ -37,6 +37,11 @@ gets applied.
   `bin/claude-ollama` and the `claude-custom ollama|tools` subcommands)
 - Config check: `bin/check-config` (prints `all passed`; static checks that the
   `ollama/` and `personal/` config files agree with each other)
+- Profile generator: `bin/ollama-profiles` renders `ollama/settings.<size>.json`
+  and `ollama/Modelfile.<size>` from `ollama/sizes.json` and the two
+  `profile-template` files; `bin/ollama-profiles --check`
+  (`make check-profiles`) fails when they are stale; tests:
+  `bin/ollama-profiles.test.sh`
 - Cache probe: `bin/ollama-cache-probe [27b|35b|MODEL] [--prefix-tokens N]`
   measures prompt-cache reuse on a live Ollama; its tests are
   `bin/ollama-cache-probe.test.sh` (stub server, no real Ollama)
@@ -55,8 +60,9 @@ gets applied.
 - `bin/claude-custom`, `bin/claude-ollama` and `bin/claude-tools` must stay
   bash-3.2 compatible (macOS `/bin/bash`). `bin/claude-custom` must never write
   `~/.zshenv` or `~/.local/bin/claude`, and derives Ollama model names from
-  `ollama/settings.<size>.json` and `ollama/Modelfile.<size>`. Adding a size
-  means adding both files; the installer picks it up.
+  `ollama/settings.<size>.json` and `ollama/Modelfile.<size>`, both rendered
+  from `ollama/sizes.json`. Adding a size means one `sizes.json` entry, then
+  `bin/ollama-profiles`; never hand-edit the rendered files.
 - Go module `go/` (both apps; `go/cmd/model-picker/`, `go/cmd/claude-tools/`):
   `cd go && go test ./...`. One test:
   `cd go && go test ./internal/tools/ui -run TestSwitching`. Run the picker or
@@ -145,7 +151,7 @@ commitlint enforces conventional commits (`feat:`, `fix:`, `chore:`).
 - `bin/claude-ollama` resolves its own symlink to find `ollama/`. It unsets
   `ANTHROPIC_API_KEY`, passes `--settings ollama/settings.<size>.json`,
   `--system-prompt-file ollama/system-prompt.md` (replacing Claude Code's
-  default system prompt), `--append-system-prompt-file ollama/CLAUDE.<size>.md`,
+  default system prompt), `--append-system-prompt-file ollama/CLAUDE.local.md`,
   `--strict-mcp-config` plus an inline `--mcp-config` for the code-search
   server, `--model` with the profile's `model` (it also unsets
   `ANTHROPIC_MODEL`, which would otherwise win over the settings file), and
@@ -188,17 +194,19 @@ commitlint enforces conventional commits (`feat:`, `fix:`, `chore:`).
   Homebrew service sets the same values. Nothing in this repo applies it.
   `bin/claude-ollama` sends a background warm-up `keep_alive` request to
   `OLLAMA_HOST` (default `localhost:11434`) before `exec claude`.
-- `ollama/CLAUDE.<size>.md` files are appended system prompts for small local
-  models, not memory files. Keep them terse: both sizes have a 64k context.
-  Context sizes must match across `Modelfile.<size>` (`num_ctx`),
-  `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, and the
-  `ollama create` names that `model` and the `ANTHROPIC_DEFAULT_*_MODEL` vars
-  refer to. The compact window is pinned because a managed `availableModels`
-  that lacks the model makes Claude Code substitute a `[1m]` ID, which assumes a
-  1M window; `claude-ollama doctor` warns when that happens. Each profile's own
-  `availableModels` lists its main and side model; `bin/check-config` checks it.
-  `ollama/system-prompt.md` replaces Claude Code's default system prompt for
-  both sizes; keep it short and don't put size-specific rules in it.
+- `ollama/CLAUDE.local.md` is the appended system prompt for every size, for
+  small local models, not memory files. Keep it terse: both sizes have a 64k
+  context. `ollama/sizes.json` is the single source for each size's `context`:
+  `bin/ollama-profiles` writes it to `Modelfile.<size>` (`num_ctx`),
+  `CLAUDE_CODE_MAX_CONTEXT_TOKENS` and `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, and
+  the `ollama create` names that `model` and the `ANTHROPIC_DEFAULT_*_MODEL`
+  vars refer to. The compact window is pinned because a managed
+  `availableModels` that lacks the model makes Claude Code substitute a `[1m]`
+  ID, which assumes a 1M window; `claude-ollama doctor` warns when that happens.
+  Each profile's own `availableModels` lists its main and side model;
+  `bin/check-config` checks it. `ollama/system-prompt.md` replaces Claude Code's
+  default system prompt for both sizes; keep it short and don't put
+  size-specific rules in it.
 - The personal overlay is loaded with `--settings` by the `claude` shell
   function (`personal/claude.sh` for bash/zsh/ksh, `personal/claude.fish` for
   fish), wired into rc files by `bin/claude-custom install`, never merged into
