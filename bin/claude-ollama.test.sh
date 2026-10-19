@@ -88,6 +88,14 @@ run_capture() {
   "$@" >"$sandbox/out" 2>"$sandbox/err"
 }
 
+with_tty() {
+  if script -q -c true /dev/null >/dev/null 2>&1; then
+    script -q -c "$(printf '%q ' "$@")" /dev/null
+  else
+    script -q /dev/null "$@"
+  fi
+}
+
 copy_repo() {
   mkdir -p "$1"
   cp -R "$repo/bin" "$repo/personal" "$repo/shared" "$repo/ollama" "$repo/go" "$1/"
@@ -202,9 +210,9 @@ printf '#!/bin/sh\necho 35b\n' > "$3"
 chmod +x "$3"
 STUB
 chmod +x "$sandbox/stubbin/go"
-script -q /dev/null "$sandbox/repo/bin/claude-ollama" -p hi >"$sandbox/out" 2>&1 </dev/null
+with_tty "$sandbox/repo/bin/claude-ollama" -p hi >"$sandbox/out" 2>&1 </dev/null
 check_that "claude-ollama with a tty and no size launches the picked size" grep -qF -- "--settings $sandbox/repo/ollama/settings.35b.json" "$sandbox/out"
-script -q /dev/null "$sandbox/repo/bin/claude-ollama" 28b >"$sandbox/out" 2>&1 </dev/null
+with_tty "$sandbox/repo/bin/claude-ollama" 28b >"$sandbox/out" 2>&1 </dev/null
 check_that "claude-ollama with a tty and an unknown size launches the picked size" grep -qF -- "--settings $sandbox/repo/ollama/settings.35b.json" "$sandbox/out"
 cat > "$sandbox/stubbin/go" <<'STUB'
 #!/bin/sh
@@ -212,7 +220,7 @@ printf '#!/bin/sh\nexit 1\n' > "$3"
 chmod +x "$3"
 STUB
 rm -f "$sandbox/repo/go/cmd/model-picker/model-picker"
-script -q /dev/null "$sandbox/repo/bin/claude-ollama" >"$sandbox/out" 2>&1 </dev/null
+with_tty "$sandbox/repo/bin/claude-ollama" >"$sandbox/out" 2>&1 </dev/null
 check_not "claude-ollama cancelled picker does not launch claude" grep -q 'ARGS:' "$sandbox/out"
 run_capture "$installer" ollama -p hi
 check_that "claude-custom ollama runs claude-ollama" grep -qF -- "$ollama_settings" "$sandbox/out"

@@ -32,6 +32,8 @@ gets applied.
   lines and exits 1)
 - Everything at once: `make test` (`.claude/verify` runs it; the Stop hook runs
   that)
+- CI: `.github/workflows/verify.yml` runs `make test` on macOS and Ubuntu on
+  every push to main and every PR.
 - Installer tests: `personal/install.test.sh` (prints `all passed`)
 - Launcher tests: `bin/claude-ollama.test.sh` (prints `all passed`; covers
   `bin/claude-ollama` and the `claude-custom ollama|tools` subcommands)

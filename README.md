@@ -1,5 +1,7 @@
 # Claude Code token overlays
 
+![verify](https://github.com/jorden-parker/claude-custom/actions/workflows/verify.yml/badge.svg)
+
 Additive overlays. Nothing here replaces a base file; each layer is merged by
 Claude Code or applied per launch.
 
