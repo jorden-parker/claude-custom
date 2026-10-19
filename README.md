@@ -55,7 +55,8 @@ Revert: `claude-custom uninstall`.
 
 Coding preferences are checked by hooks that Claude Code runs itself, so they
 apply the same way with Claude and with the local Ollama models. The personal
-overlay and both Ollama profiles wire the same hooks:
+overlay and both Ollama profiles wire the same hooks (from
+`shared/settings/hooks.json`):
 
 | Hook                      | When                                                                       | What it does                                                                                                                                                                                                                                                                       |
 | ------------------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

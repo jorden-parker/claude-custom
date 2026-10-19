@@ -2,10 +2,16 @@
 set -euo pipefail
 
 repo_dir="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
-profile_dir="${OLLAMA_PROFILE_DIR:-$repo_dir/ollama}"
+data_dir="${CLAUDE_CUSTOM_REPO:-$repo_dir}"
+profile_dir="${OLLAMA_PROFILE_DIR:-$data_dir/ollama}"
+shared_dir="$data_dir/shared/settings"
+personal_dir="$data_dir/personal"
 sizes_file="$profile_dir/sizes.json"
 settings_template="$profile_dir/profile-template.json"
 modelfile_template="$profile_dir/profile-template.Modelfile"
+extra_hooks_file="$profile_dir/hooks.extra.json"
+personal_template="$personal_dir/settings.tokens.template.json"
+personal_settings="$personal_dir/settings.tokens.json"
 
 sizes() {
   jq -r 'keys[]' "$sizes_file"
@@ -28,10 +34,21 @@ format_json() {
   (cd "$repo_dir" && npx --no prettier -- --parser json)
 }
 
+splice_fragments() {
+  jq --argjson extra "$1" --slurpfile shared "$shared_dir/hooks.json" --slurpfile readDeny "$shared_dir/read-deny.json" '
+    (if .hooks == "{{HOOKS}}" then .hooks = (reduce ($extra | keys_unsorted[]) as $event ($shared[0]; .[$event] = ((.[$event] // []) + $extra[$event]))) else . end)
+    | .permissions.deny |= map(if . == "{{READ_DENY}}" then $readDeny[0][] else . end)
+  '
+}
+
 render_settings() {
   jq --arg model "$(field "$1" model)" --arg context "$(field "$1" context)" \
     'walk(if type == "string" then gsub("\\{\\{MODEL\\}\\}"; $model) | gsub("\\{\\{CONTEXT\\}\\}"; $context) else . end)' \
-    "$settings_template" | format_json
+    "$settings_template" | splice_fragments "$(cat "$extra_hooks_file")" | format_json
+}
+
+render_personal() {
+  splice_fragments '{}' < "$personal_template" | format_json
 }
 
 render_modelfile() {
@@ -57,12 +74,17 @@ check_unlisted() {
   return "$status"
 }
 
+check_personal() {
+  rendered_matches "$(render_personal)" "$personal_settings" || { echo "stale: $personal_settings" >&2; return 1; }
+}
+
 check_profiles() {
   local size status=0
   for size in $(sizes); do
     check_size "$size" || status=1
   done
   check_unlisted || status=1
+  check_personal || status=1
   return "$status"
 }
 
@@ -85,6 +107,7 @@ write_profiles() {
     write_size "$size"
   done
   remove_unlisted
+  render_personal > "$personal_settings"
 }
 
 main() {

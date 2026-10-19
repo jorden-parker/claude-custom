@@ -30,12 +30,7 @@
   },
   "permissions": {
     "deny": [
-      "Read(**/node_modules/**)",
-      "Read(**/dist/**)",
-      "Read(**/.next/**)",
-      "Read(**/coverage/**)",
-      "Read(**/*.min.js)",
-      "Read(**/*.map)",
+      "{{READ_DENY}}",
       "Artifact",
       "CronCreate",
       "CronDelete",
@@ -62,103 +57,7 @@
     ],
     "allow": ["mcp__code-search__semantic_search"]
   },
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/bash-output-guard.py"
-          },
-          {
-            "type": "command",
-            "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/fallow-command-guard.sh",
-            "timeout": 180
-          }
-        ]
-      },
-      {
-        "matcher": "Read",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/read-range-guard.py"
-          }
-        ]
-      },
-      {
-        "matcher": "Bash|mcp__code-search__semantic_search",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/tool-nudge.py"
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "Edit|Write|MultiEdit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/edit-check.py",
-            "timeout": 120
-          },
-          {
-            "type": "command",
-            "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/fallow-after-edit.sh",
-            "timeout": 120
-          }
-        ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/bash-output-trim.py"
-          },
-          {
-            "type": "command",
-            "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/fallow-mark-preview.sh",
-            "timeout": 10
-          }
-        ]
-      },
-      {
-        "matcher": "Bash|Read|Agent",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/tool-nudge.py"
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/stop-verify.py",
-            "timeout": 600
-          }
-        ]
-      }
-    ],
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/tool-nudge.py"
-          }
-        ]
-      }
-    ]
-  },
+  "hooks": "{{HOOKS}}",
   "modelOverrides": {
     "claude-haiku-5-5": "qwen3-4b-cc",
     "claude-haiku-4-5": "qwen3-4b-cc"

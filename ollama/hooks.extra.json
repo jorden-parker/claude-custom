@@ -1,0 +1,34 @@
+{
+  "PreToolUse": [
+    {
+      "matcher": "Bash|mcp__code-search__semantic_search",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/tool-nudge.py"
+        }
+      ]
+    }
+  ],
+  "PostToolUse": [
+    {
+      "matcher": "Bash|Read|Agent",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/tool-nudge.py"
+        }
+      ]
+    }
+  ],
+  "UserPromptSubmit": [
+    {
+      "hooks": [
+        {
+          "type": "command",
+          "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/tool-nudge.py"
+        }
+      ]
+    }
+  ]
+}

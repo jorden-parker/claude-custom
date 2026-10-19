@@ -68,9 +68,6 @@ check_eq "settings.tokens.json sets subagents to Haiku" haiku \
 
 for settings in "$repo/personal/settings.tokens.json" "$repo"/ollama/settings.*.json; do
   check_eq "${settings##*/} forces the subagent model" 1 "$(jq -r .env.CLAUDE_CODE_SUBAGENT_MODEL_FORCE "$settings")"
-  check_eq "${settings##*/} keeps the personal Read globs" \
-    "$(jq -S '[.permissions.deny[] | select(startswith("Read("))]' "$repo/personal/settings.tokens.json")" \
-    "$(jq -S '[.permissions.deny[] | select(startswith("Read("))]' "$settings")"
 done
 
 denies_tool() {

@@ -1,0 +1,33 @@
+{
+  "bashOutputMaxChars": 15000,
+  "promptSuggestionEnabled": false,
+  "skillListingMaxDescChars": 300,
+  "env": {
+    "MAX_MCP_OUTPUT_TOKENS": "10000",
+    "CLAUDE_CODE_SUBAGENT_MODEL": "haiku",
+    "CLAUDE_CODE_SUBAGENT_MODEL_FORCE": "1",
+    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "70",
+    "npm_config_fund": "false",
+    "npm_config_update_notifier": "false",
+    "npm_config_progress": "false",
+    "PIP_DISABLE_PIP_VERSION_CHECK": "1"
+  },
+  "permissions": {
+    "deny": [
+      "{{READ_DENY}}",
+      "Artifact",
+      "CronCreate",
+      "CronDelete",
+      "CronList",
+      "NotebookEdit",
+      "PushNotification",
+      "RemoteTrigger",
+      "ScheduleWakeup",
+      "SendFeedback",
+      "SendUserFile",
+      "ShareOnboardingGuide",
+      "Workflow"
+    ]
+  },
+  "hooks": "{{HOOKS}}"
+}

@@ -39,7 +39,8 @@ gets applied.
   `ollama/` and `personal/` config files agree with each other)
 - Profile generator: `bin/ollama-profiles` renders `ollama/settings.<size>.json`
   and `ollama/Modelfile.<size>` from `ollama/sizes.json` and the two
-  `profile-template` files; `bin/ollama-profiles --check`
+  `profile-template` files, and `personal/settings.tokens.json` from
+  `personal/settings.tokens.template.json`; `bin/ollama-profiles --check`
   (`make check-profiles`) fails when they are stale; tests:
   `bin/ollama-profiles.test.sh`
 - Cache probe: `bin/ollama-cache-probe [27b|35b|MODEL] [--prefix-tokens N]`
@@ -137,14 +138,18 @@ commitlint enforces conventional commits (`feat:`, `fix:`, `chore:`).
   links there that point into `shared/hooks/` (`remove_stale_hook_links`).
   `personal/install.test.sh` checks every hook command resolves to an executable
   in `shared/hooks/`.
-- The Read `permissions.deny` globs and the `hooks` block are shared by all
-  settings files. Change them together; `bin/check-config` fails when an Ollama
-  profile lacks a hook the personal overlay has (the profiles may add hooks of
-  their own, like `tool-nudge.py`). `ollama/settings.*.json` also deny unused
-  tools by bare name, so their schemas never reach the local model's context.
-  `--tools` in `bin/claude-ollama` is the primary allowlist and that deny list
-  is the backstop. `bin/check-config` fails when the Ollama deny lists differ.
-  The personal overlay also denies unused tools by bare name (`Artifact`,
+- The Read `permissions.deny` globs and the `hooks` block live in
+  `shared/settings/read-deny.json` and `shared/settings/hooks.json`;
+  `bin/ollama-profiles` splices them into every rendered settings file
+  (`ollama/settings.<size>.json`, `personal/settings.tokens.json`). Edit the
+  fragment, run `bin/ollama-profiles`, commit. The Ollama-only hooks
+  (`tool-nudge.py`) are in `ollama/hooks.extra.json` and follow the shared hooks
+  for each event. `bin/check-config` fails when an Ollama profile lacks a hook
+  the personal overlay has. `ollama/settings.*.json` also deny unused tools by
+  bare name, so their schemas never reach the local model's context. `--tools`
+  in `bin/claude-ollama` is the primary allowlist and that deny list is the
+  backstop. `bin/check-config` fails when the Ollama deny lists differ. The
+  personal overlay also denies unused tools by bare name (`Artifact`,
   `Workflow`, `ScheduleWakeup`, `SendFeedback` and the deferred ones), since a
   bare deny removes the tool's schema from the request; `bin/check-config` fails
   when an Ollama profile lacks one of those bare denies.

@@ -33,9 +33,12 @@ check_not() {
 
 profiles="$sandbox/ollama"
 cp -R "$repo/ollama" "$profiles"
+cp -R "$repo/shared" "$sandbox/shared"
+mkdir "$sandbox/personal"
+cp "$repo/personal/settings.tokens.template.json" "$repo/personal/settings.tokens.json" "$sandbox/personal/"
 
 generate() {
-  OLLAMA_PROFILE_DIR="$profiles" "$gen" "$@"
+  CLAUDE_CUSTOM_REPO="$sandbox" "$gen" "$@"
 }
 
 exit_status_of() {
@@ -47,10 +50,27 @@ check_eq "check passes on current files" 0 "$(exit_status_of --check)"
 
 sed 's/65536/32768/' "$profiles/settings.27b.json" > "$sandbox/stale.json" && mv "$sandbox/stale.json" "$profiles/settings.27b.json"
 check_eq "check fails on a stale file" 1 "$(exit_status_of --check)"
-check_that "check names the stale file" sh -c "OLLAMA_PROFILE_DIR='$profiles' '$gen' --check 2>&1 | grep -q 'settings.27b.json'"
+check_that "check names the stale file" sh -c "CLAUDE_CUSTOM_REPO='$sandbox' '$gen' --check 2>&1 | grep -q 'settings.27b.json'"
 
 generate >/dev/null
 check_that "render restores the stale file" cmp -s "$repo/ollama/settings.27b.json" "$profiles/settings.27b.json"
+
+rm "$sandbox/personal/settings.tokens.json"
+generate >/dev/null
+check_that "render writes the personal overlay" test -f "$sandbox/personal/settings.tokens.json"
+check_that "render writes the personal overlay unchanged" cmp -s "$repo/personal/settings.tokens.json" "$sandbox/personal/settings.tokens.json"
+check_eq "personal overlay hooks come from the shared fragment" "$(jq -S . "$repo/shared/settings/hooks.json")" "$(jq -S .hooks "$sandbox/personal/settings.tokens.json")"
+check_eq "personal overlay has no Ollama-only hook" 0 "$(jq '[.. | strings | select(contains("tool-nudge"))] | length' "$sandbox/personal/settings.tokens.json")"
+check_eq "personal overlay keeps the six Read globs" 6 "$(jq '[.permissions.deny[] | select(startswith("Read("))] | length' "$sandbox/personal/settings.tokens.json")"
+check_eq "personal overlay keeps its bare tool denies" 12 "$(jq '[.permissions.deny[] | select(startswith("Read(") | not)] | length' "$sandbox/personal/settings.tokens.json")"
+check_eq "Read globs expand in place" "Read(**/node_modules/**)" "$(jq -r '.permissions.deny[0]' "$sandbox/ollama/settings.27b.json")"
+check_eq "bare tool denies follow the globs" "Artifact" "$(jq -r '.permissions.deny[6]' "$sandbox/ollama/settings.27b.json")"
+check_eq "profile hooks add the tool-nudge entries" 3 "$(jq '[.. | strings | select(contains("tool-nudge"))] | length' "$sandbox/ollama/settings.27b.json")"
+check_that "no placeholder survives" sh -c "! grep -q '{{' '$sandbox/ollama/settings.27b.json' '$sandbox/personal/settings.tokens.json'"
+
+sed 's/"timeout": 600/"timeout": 5/' "$sandbox/personal/settings.tokens.json" > "$sandbox/stale.json" && mv "$sandbox/stale.json" "$sandbox/personal/settings.tokens.json"
+check_eq "check fails on a stale personal overlay" 1 "$(exit_status_of --check)"
+generate >/dev/null
 
 printf '{"27b":{"base":"qwen3.8:27b-mlx","model":"qwen3.8-27b-cc","context":65536},"9b":{"base":"qwen3.5:9b-mlx","model":"qwen3.5-9b-cc","context":2048}}\n' > "$profiles/sizes.json"
 generate >/dev/null
