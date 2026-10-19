@@ -1,0 +1,12 @@
+{
+  "27b": {
+    "base": "qwen3.8:27b-mlx",
+    "model": "qwen3.8-27b-cc",
+    "context": 65536
+  },
+  "35b": {
+    "base": "qwen3.6:35b-mlx",
+    "model": "qwen3.6-35b-cc",
+    "context": 65536
+  }
+}
