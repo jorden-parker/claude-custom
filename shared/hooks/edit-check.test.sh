@@ -77,6 +77,14 @@ expect allow 'go build directive'  run_write "$sandbox/go/main.go" $'//go:build 
 printf 'package main\n\n// kept\nfunc main() {}\n' > "$sandbox/go/main.go"
 expect allow 'edit keeps existing comment' run_edit "$sandbox/go/main.go" $'// kept\nfunc main() {}' $'// kept\nfunc main() { run() }'
 
+mkdir -p "$sandbox/tracked" && git -C "$sandbox/tracked" init -q
+printf 'x = 1\n# kept by user\ny = 2\n' > "$sandbox/tracked/a.py"
+git -C "$sandbox/tracked" add a.py
+git -C "$sandbox/tracked" -c user.name=t -c user.email=t@t commit -qm init
+expect allow 'write keeps committed comment' run_write "$sandbox/tracked/a.py" $'x = 1\n# kept by user\ny = 3\n'
+expect deny  'write adds a comment to a tracked file' run_write "$sandbox/tracked/a.py" $'x = 1\n# kept by user\n# brand new\ny = 3\n'
+expect_stderr_has 'write adds a comment to a tracked file' 'brand new'
+
 expect allow 'clean ts'            run_write "$js_project/src/a.ts" $'export const a = 1;\n'
 expect deny  'prettier failure'    run_write "$js_project/src/a.ts" $'export const PRETTIERFAIL = 1;\n'
 expect deny  'eslint failure'      run_write "$js_project/src/a.ts" $'export const ESLINTFAIL = 1;\n'

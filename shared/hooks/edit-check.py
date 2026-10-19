@@ -92,22 +92,30 @@ def run_check(command, cwd, output_means_failure):
     return f"$ {' '.join(command)}\n{first_lines(output)}" if failed else None
 
 
-def written_pairs(tool_input):
+def committed_text(path):
+    result = subprocess.run(
+        ["git", "-C", str(path.parent), "show", f"HEAD:./{path.name}"],
+        capture_output=True, text=True,
+    )
+    return result.stdout if result.returncode == 0 else ""
+
+
+def written_pairs(path, tool_input):
     if "edits" in tool_input:
         return [(edit.get("old_string", ""), edit.get("new_string", "")) for edit in tool_input["edits"]]
     if "new_string" in tool_input:
         return [(tool_input.get("old_string", ""), tool_input["new_string"])]
-    return [("", tool_input.get("content", ""))]
+    return [(committed_text(path), tool_input.get("content", ""))]
 
 
 def is_comment(line, markers):
     return line.startswith(markers) and not line.startswith(ALLOWED_DIRECTIVES)
 
 
-def added_comments(tool_input, language):
+def added_comments(path, tool_input, language):
     markers = COMMENT_MARKERS[language]
     comments = []
-    for old, new in written_pairs(tool_input):
+    for old, new in written_pairs(path, tool_input):
         existing = {line.strip() for line in old.splitlines()}
         comments += [line.strip() for line in new.splitlines()
                      if is_comment(line.strip(), markers) and line.strip() not in existing]
@@ -123,7 +131,7 @@ def comment_failure(comments):
 
 
 def failures_for(path, tool_input, language):
-    failures = [comment_failure(added_comments(tool_input, language))]
+    failures = [comment_failure(added_comments(path, tool_input, language))]
     if path.is_file():
         failures += [run_check(*check) for check in LANGUAGE_CHECKS[language](path)]
     return [failure for failure in failures if failure]
