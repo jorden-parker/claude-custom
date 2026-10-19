@@ -10,6 +10,30 @@ report_unmanaged() {
   status=1
 }
 
+resolved_target() {
+  readlink -f "$1" 2>/dev/null || printf '%s' "$1"
+}
+
+temp_beside() {
+  local target
+  target="$(resolved_target "$1")"
+  mktemp "$(dirname "$target")/.claude-custom.XXXXXX" 2>/dev/null || {
+    echo "skip: cannot write next to $target" >&2
+    return 1
+  }
+}
+
+commit_temp() {
+  local tmp="$1" file="$2"
+  if mv -f "$tmp" "$(resolved_target "$file")"; then
+    return 0
+  fi
+  rm -f "$tmp"
+  echo "skip: could not update $file" >&2
+  status=1
+  return 1
+}
+
 login_shell_name() {
   local shell_path="${SHELL:-}"
   printf '%s' "${shell_path##*/}"
@@ -88,14 +112,13 @@ install_sh_block() {
     return 1
   fi
   mkdir -p "$(dirname "$file")"
-  tmp="$(mktemp)"
-  strip_block "$file" > "$tmp"
+  tmp="$(temp_beside "$file")" || { status=1; return 1; }
+  strip_block "$file" > "$tmp" || { rm -f "$tmp"; return 1; }
   if [ -s "$tmp" ] && [ -n "$(tail -c 1 "$tmp")" ]; then
     printf '\n' >> "$tmp"
   fi
   rc_block >> "$tmp"
-  cat "$tmp" > "$file"
-  rm -f "$tmp"
+  commit_temp "$tmp" "$file"
 }
 
 remove_sh_block() {
@@ -107,10 +130,9 @@ remove_sh_block() {
     return 0
   fi
   has_block "$file" || return 0
-  tmp="$(mktemp)"
-  strip_block "$file" > "$tmp"
-  cat "$tmp" > "$file"
-  rm -f "$tmp"
+  tmp="$(temp_beside "$file")" || { status=1; return 1; }
+  strip_block "$file" > "$tmp" || { rm -f "$tmp"; return 1; }
+  commit_temp "$tmp" "$file"
 }
 
 wire_zsh() {
@@ -233,10 +255,10 @@ remove_import_line() {
   local file tmp
   file="$(claude_md_path)"
   has_import_line "$file" "$1" || return 0
-  tmp="$(mktemp)"
-  awk -v absolute="$(import_line "$1")" -v tilde="$(tilde_import_line "$1")" '$0 != absolute && $0 != tilde' "$file" > "$tmp"
-  cat "$tmp" > "$file"
-  rm -f "$tmp"
+  tmp="$(temp_beside "$file")" || { status=1; return 1; }
+  awk -v absolute="$(import_line "$1")" -v tilde="$(tilde_import_line "$1")" '$0 != absolute && $0 != tilde' "$file" > "$tmp" \
+    || { rm -f "$tmp"; return 1; }
+  commit_temp "$tmp" "$file"
 }
 
 add_import_lines() {

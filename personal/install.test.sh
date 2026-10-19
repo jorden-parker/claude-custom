@@ -176,6 +176,14 @@ run_capture "$installer" install
 check_eq "no trailing newline keeps first line" "export FOO=1" "$(sed -n 1p "$HOME/.zshrc")"
 
 new_sandbox
+printf 'export FOO=1\n' > "$HOME/.zshrc"
+chmod 500 "$HOME"
+run_capture "$installer" install
+chmod 755 "$HOME"
+check_eq "unwritable rc directory leaves zshrc intact" "export FOO=1" "$(cat "$HOME/.zshrc")"
+check_that "unwritable rc directory is reported" grep -q 'skip:' "$sandbox/err"
+
+new_sandbox
 mkdir -p "$sandbox/dotfiles"
 printf 'export FOO=1\n' > "$sandbox/dotfiles/zshrc"
 ln -s "$sandbox/dotfiles/zshrc" "$HOME/.zshrc"
