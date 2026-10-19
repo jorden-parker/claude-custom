@@ -117,6 +117,10 @@ for settings in "$repo"/ollama/settings.*.json; do
   check_that "${settings##*/} runs tool-nudge.py before Bash and semantic_search" gates_text_search "$settings"
 done
 
+check_eq "tool-telemetry counts the same line limit that bash-output-trim applies" \
+  "$(sed -n 's/^MAX_LINES = //p' "$repo/shared/hooks/bash-output-trim.py")" \
+  "$(sed -n 's/^TRIM_LINE_LIMIT = //p' "$repo/shared/hooks/tool-telemetry.py")"
+
 if [ "$failures" -eq 0 ]; then
   echo "all passed"
 else

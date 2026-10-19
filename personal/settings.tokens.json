@@ -89,6 +89,14 @@
             "timeout": 10
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/tool-telemetry.py"
+          }
+        ]
       }
     ],
     "Stop": [
