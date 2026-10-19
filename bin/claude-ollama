@@ -128,7 +128,7 @@ warm_search_index() {
 
 claude_command() {
   printf 'claude --settings %s --system-prompt-file %s --append-system-prompt-file %s --strict-mcp-config --mcp-config %s --model %s --tools %s' \
-    "$settings_file" "$profile_dir/system-prompt.md" "$profile_dir/CLAUDE.$size.md" "$(mcp_config)" "$model" "$tools"
+    "$settings_file" "$profile_dir/system-prompt.md" "$profile_dir/CLAUDE.local.md" "$(mcp_config)" "$model" "$tools"
 }
 
 print_config() {
@@ -312,7 +312,7 @@ export CLAUDE_CUSTOM_HOME="$repo_dir"
 exec claude \
   --settings "$settings_file" \
   --system-prompt-file "$profile_dir/system-prompt.md" \
-  --append-system-prompt-file "$profile_dir/CLAUDE.$size.md" \
+  --append-system-prompt-file "$profile_dir/CLAUDE.local.md" \
   --strict-mcp-config \
   --mcp-config "$(mcp_config)" \
   --model "$model" \
