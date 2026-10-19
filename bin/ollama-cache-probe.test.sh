@@ -84,12 +84,18 @@ start_stub() {
   stop_stub
   run_dir="$(mktemp -d "$tmp/run.XXXXXX")"
   printf '%s' "$1" > "$run_dir/config.json"
-  python3 "$tmp/stub.py" "$run_dir/config.json" "$run_dir/requests.log" "$run_dir/port" &
+  python3 "$tmp/stub.py" "$run_dir/config.json" "$run_dir/requests.log" "$run_dir/port" 2> "$run_dir/stub.err" &
   stub_pid=$!
-  for _ in $(seq 200); do
+  for _ in $(seq 600); do
     [ -s "$run_dir/port" ] && break
     sleep 0.05
   done
+  if [ ! -s "$run_dir/port" ]; then
+    echo "FAIL: probe stub did not start"
+    cat "$run_dir/stub.err"
+    failures=$((failures + 1))
+    return 1
+  fi
   base_url="http://127.0.0.1:$(cat "$run_dir/port")"
 }
 
