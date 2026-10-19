@@ -114,10 +114,10 @@ launch.
 The Haiku slot and all subagents run on a small side model, `qwen3:4b` from
 `ollama/side.Modelfile`, created as `qwen3-4b-cc`. Set it up once from the
 picker's "Set up side model" row. `claude-ollama` warns when it is missing. The
-profiles name it by ID in `CLAUDE_CODE_SUBAGENT_MODEL` and map full Claude model
-IDs to local models in `modelOverrides`, so no request reaches Ollama with a
-Claude model name. Forcing every subagent onto it needs Claude Code v2.1.257 or
-later.
+profiles name it by ID in `CLAUDE_CODE_SUBAGENT_MODEL` and map the full Claude
+Haiku IDs to it in `modelOverrides`. They map no Claude ID to the main model:
+Claude Code names the model after the ID that maps to it, so the banner would
+say Sonnet. Forcing every subagent onto it needs Claude Code v2.1.257 or later.
 
 Plain `claude` stays on the personal setup. The profile only exists for that
 launch.
@@ -223,8 +223,8 @@ go through `git grep -n`.
   model. `claude-ollama` and the model picker follow `CODE_SEARCH_MODEL` too.
 - If the pull on launch fails, run `claude-ollama` and pick "Set up embedding
   model" in the menu.
-- `ollama/CLAUDE.<size>.md` tells the model when to search (questions about
-  what code does), when to use `git grep -n` (exact names), and to fall back to
+- `ollama/CLAUDE.<size>.md` tells the model when to search (questions about what
+  code does), when to use `git grep -n` (exact names), and to fall back to
   `git grep` and point you at that menu row when the search errors.
 
 ## Tests

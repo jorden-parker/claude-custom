@@ -105,17 +105,19 @@ there is no `src/`.
   `--strict-mcp-config` plus an inline `--mcp-config` for the code-search
   server, `--model` with the profile's `model` (it also unsets
   `ANTHROPIC_MODEL`, which would otherwise win over the settings file), and
-  restricts tools with `--tools` (built-in tools only; MCP tools still load). Before launching, it pulls the base model and creates the `-cc`
-  model when `ollama show` can't find the `-cc` model. It only warns when the
-  side model is missing.
+  restricts tools with `--tools` (built-in tools only; MCP tools still load).
+  Before launching, it pulls the base model and creates the `-cc` model when
+  `ollama show` can't find the `-cc` model. It only warns when the side model is
+  missing.
 - The **side model** (`ollama/side.Modelfile`, `qwen3:4b` created as
   `qwen3-4b-cc`) fills the Haiku slot: every Ollama profile sets
   `ANTHROPIC_DEFAULT_HAIKU_MODEL` to it. The file is not `Modelfile.side`
   because `Modelfile.*` must pair with a `settings.<size>.json`. The model
   picker's "Set up side model" row pulls and creates it. The Ollama profiles set
-  `CLAUDE_CODE_SUBAGENT_MODEL` to the side model's ID, not `haiku`, and map full
-  Claude IDs (`claude-haiku-5-5` and others) to local models in
-  `modelOverrides`, because `ANTHROPIC_DEFAULT_*_MODEL` only remaps aliases.
+  `CLAUDE_CODE_SUBAGENT_MODEL` to the side model's ID, not `haiku`, and map the
+  full Haiku IDs to it in `modelOverrides`, because `ANTHROPIC_DEFAULT_*_MODEL`
+  only remaps aliases. Never map a Claude ID to the main model there: Claude
+  Code then names it after that ID, so the banner says Sonnet.
   `personal/settings.tokens.json` uses `CLAUDE_CODE_SUBAGENT_MODEL=haiku`. All
   of them set `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1` (Claude Code v2.1.257 or
   later), so `Agent` is allowed in `--tools` and not in the deny list.
@@ -129,8 +131,8 @@ there is no `src/`.
   stdio, stdlib only). It embeds chunks through Ollama `/api/embed`, keeps its
   index in `.git/code-search/index.json` and re-embeds only changed files.
   `bin/claude-ollama` pulls its model (`CODE_SEARCH_MODEL`, default
-  `qwen3-embedding:0.6b`); the model picker's "Set up embedding model" row
-  pulls it too. The default name appears once in each of `bin/claude-ollama`,
+  `qwen3-embedding:0.6b`); the model picker's "Set up embedding model" row pulls
+  it too. The default name appears once in each of `bin/claude-ollama`,
   `code-search.py` and `model-picker-tui/profiles/embedding.go`, and
   `personal/install.test.sh` checks they agree. The Ollama profiles allow the
   tool in `permissions.allow`.

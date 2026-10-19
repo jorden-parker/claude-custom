@@ -45,7 +45,11 @@ new_sandbox() {
   mkdir -p "$HOME" "$sandbox/stubbin"
   unset ZDOTDIR XDG_CONFIG_HOME CLAUDE_CONFIG_DIR STUB_OLLAMA_SHOW_EXIT STUB_OLLAMA_PULL_EXIT
   export SHELL=/bin/zsh
-  printf '#!/bin/sh\necho "ARGS: $*"\necho "${ANTHROPIC_MODEL-unset}" > "%s/model-env"\n' "$sandbox" > "$sandbox/stubbin/claude"
+  cat > "$sandbox/stubbin/claude" <<EOF
+#!/bin/sh
+echo "ARGS: \$*"
+echo "\${ANTHROPIC_MODEL-unset}" > "$sandbox/model-env"
+EOF
   cat > "$sandbox/stubbin/ollama" <<EOF
 #!/bin/sh
 echo "\$*" >> "$sandbox/ollama.log"
@@ -240,9 +244,8 @@ for settings in "$repo"/ollama/settings.*.json; do
   check_eq "${settings##*/} overrides Claude Haiku IDs with the side model" \
     "$(jq -r '[.env.ANTHROPIC_DEFAULT_HAIKU_MODEL, .env.ANTHROPIC_DEFAULT_HAIKU_MODEL] | join(" ")' "$settings")" \
     "$(jq -r '[.modelOverrides["claude-haiku-5-5"], .modelOverrides["claude-haiku-4-5"]] | join(" ")' "$settings")"
-  check_eq "${settings##*/} overrides other Claude IDs with the main model" \
-    "$(jq -r '[.model, .model, .model] | join(" ")' "$settings")" \
-    "$(jq -r '[.modelOverrides["claude-sonnet-5-5"], .modelOverrides["claude-opus-5-5"], .modelOverrides["claude-fable-5-1"]] | join(" ")' "$settings")"
+  check_eq "${settings##*/} maps no Claude ID to the main model, so the banner names it" "" \
+    "$(jq -r '.model as $main | .modelOverrides | to_entries[] | select(.value == $main) | .key' "$settings")"
 done
 
 check_eq "side model context matches the main models" \
