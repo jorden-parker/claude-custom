@@ -210,6 +210,7 @@ start_stub '{"tags": ["fake-cc", "custom:tag"], "responses": []}'
 fake="$tmp/fake"
 mkdir -p "$fake/bin" "$fake/ollama"
 cp "$probe" "$fake/bin/"
+cp "$repo_dir/ollama/sizes.json" "$fake/ollama/sizes.json"
 printf '{"model": "fake-cc"}' > "$fake/ollama/settings.xx.json"
 printf 'FROM base\n' > "$fake/ollama/Modelfile.xx"
 printf '{}' > "$fake/ollama/settings.yy.json"

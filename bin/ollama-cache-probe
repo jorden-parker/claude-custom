@@ -13,11 +13,12 @@ from typing import Callable
 
 REPO_DIR = Path(os.path.realpath(__file__)).parents[1]
 PROFILE_DIR = REPO_DIR / "ollama"
+SIZES_FILE = PROFILE_DIR / "sizes.json"
 DEFAULT_MODEL = "27b"
 DEFAULT_BASE_URL = "http://localhost:11434"
 DEFAULT_PREFIX_TOKENS = 20000
 DEFAULT_SIDE_MODEL = "qwen3.5:4b"
-NUM_CTX = 65536
+FALLBACK_CONTEXT_TOKENS = 65536
 CHARS_PER_TOKEN = 4
 LATE_EDIT_FRACTION = 0.8
 EARLY_EDIT_CHAR = 40
@@ -48,6 +49,7 @@ class Probe:
     model: str
     prefix: str
     side_model: str
+    num_ctx: int
 
 
 @dataclass
@@ -78,6 +80,11 @@ def parse_args(argv):
 
 def is_configured_size(size):
     return (PROFILE_DIR / f"settings.{size}.json").is_file() and (PROFILE_DIR / f"Modelfile.{size}").is_file()
+
+
+def context_tokens(size_or_model):
+    sizes = json.loads(SIZES_FILE.read_text())
+    return sizes.get(size_or_model, {}).get("context", FALLBACK_CONTEXT_TOKENS)
 
 
 def resolve_model(argument):
@@ -149,7 +156,7 @@ def send_chat(probe, model, messages):
             "model": model,
             "messages": messages,
             "stream": False,
-            "options": {"num_ctx": NUM_CTX, "num_predict": 1, "temperature": 0},
+            "options": {"num_ctx": probe.num_ctx, "num_predict": 1, "temperature": 0},
         },
     )
     return {
@@ -352,7 +359,7 @@ def print_table(basis, rows):
 
 def print_settings(probe, prefix_tokens, loaded: list[str]):
     print(f"server: {probe.base_url}")
-    print(f"model: {probe.model}  num_ctx: {NUM_CTX}  prefix: ~{prefix_tokens} tokens ({len(probe.prefix)} chars)")
+    print(f"model: {probe.model}  num_ctx: {probe.num_ctx}  prefix: ~{prefix_tokens} tokens ({len(probe.prefix)} chars)")
     print(f"loaded before run: {', '.join(loaded) or 'none'}")
     print(flush=True)
 
@@ -406,7 +413,7 @@ def print_verdict(rows, side_model):
 def json_report(args, probe, loaded: list[str], basis, rows):
     return {
         "model": probe.model,
-        "num_ctx": NUM_CTX,
+        "num_ctx": probe.num_ctx,
         "prefix_tokens": args.prefix_tokens,
         "loaded_models": loaded,
         "hit_basis": basis,
@@ -420,6 +427,7 @@ def make_probe(args):
         model=resolve_model(args.model),
         prefix=build_prefix(args.prefix_tokens),
         side_model=args.side_model,
+        num_ctx=context_tokens(args.model),
     )
 
 
