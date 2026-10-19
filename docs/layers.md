@@ -1,5 +1,21 @@
 # Layer order (higher number wins for scalars; lists such as `permissions.*` and `hooks.*` concatenate; `env` merges per key)
 
+```mermaid
+flowchart TB
+  user["1. ~/.claude/settings.json (user)"] --> project["2. repo/.claude/settings.json (project)"]
+  project --> local["3. repo/.claude/settings.local.json (local)"]
+  local --> cli{"4. --settings (one file)"}
+  cli -->|claude shell function| personal["personal/settings.tokens.json (or the enabled-tools copy)"]
+  cli -->|claude-ollama| profile["ollama/settings.&lt;size&gt;.json"]
+  personal --> policy["5. managed policy (always wins)"]
+  profile --> policy
+  policy --> hooks["hooks: CLAUDE_CUSTOM_HOME/shared/hooks/&lt;name&gt;"]
+  policy --> prompt["prompts: ~/.claude/CLAUDE.md @-imports PREFERENCES.md; claude-ollama adds system-prompt.md and CLAUDE.local.md"]
+```
+
+Below the diagram, the numbered list gives the same layers in order. Mermaid is
+rendered by GitHub; in a terminal the source is still readable.
+
 1. `~/.claude/settings.json` (user, never edited by this repo)
 2. `<repo>/.claude/settings.json` (project, untouched)
 3. `<repo>/.claude/settings.local.json` (local) ← `project/settings.local.json`
