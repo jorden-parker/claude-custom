@@ -25,6 +25,7 @@ write_result() {
   "repo": "acme/$model-MLX",
   "peak_memory_gb": 30.5,
   "date": "2026-10-21T10:00:00Z",
+  "mtp": ${7:-null},
   "bench": {
     "base_url": "http://127.0.0.1:1",
     "model": "$model",
@@ -89,6 +90,36 @@ mkdir "$sandbox/empty"
 "$report" "$sandbox/empty" >"$sandbox/out" 2>"$sandbox/err"
 check "no results exits 1" test "$?" -eq 1
 check "no results says why" grep -qF 'backend-bench-report: no results' "$sandbox/err"
+
+mtp="$sandbox/mtp"
+mkdir "$mtp"
+write_result "$mtp" ollama tiel-coder-35b 10.0 50.0 5
+write_result "$mtp" ollama-mtp tiel-coder-35b 10.0 55.0 5
+write_result "$mtp" omlx tiel-coder-35b 2.0 48.0 5
+write_result "$mtp" omlx-mtp tiel-coder-35b 2.0 60.0 5 '{"active": true, "detail": "oMLX log: Lightning MTP active"}'
+"$report" "$mtp" >/dev/null 2>&1
+check "the servers header puts each MTP column beside its base" \
+  grep -qF '<th>ollama</th><th>ollama-mtp</th><th>omlx</th><th>omlx-mtp</th>' "$mtp/bench-off.html"
+check "an MTP column shows its decode ratio over the base" grep -qF '<td>×1.25</td>' "$mtp/bench-off.html"
+check "the MTP summary gives each base's decode ratio" \
+  grep -qF 'MTP decode: tiel-coder-35b: Ollama ×1.10, oMLX ×1.25' "$mtp/bench-off.html"
+check "the MTP active row says yes with its detail" grep -qF 'yes (oMLX log: Lightning MTP active)' "$mtp/bench-off.html"
+check "the ollama-mtp column is the MTP variant of baseline" grep -qF '<td class="baseline">MTP variant of baseline</td>' "$mtp/bench-off.html"
+
+inactive="$sandbox/inactive"
+mkdir "$inactive"
+write_result "$inactive" ollama tiel-coder-35b 10.0 50.0 5
+write_result "$inactive" omlx-mtp tiel-coder-35b 2.0 60.0 5 '{"active": false, "detail": "x"}'
+"$report" "$inactive" >/dev/null 2>&1
+check "an MTP run that is not active fails" grep -qF '<td class="fail">FAIL: MTP not active</td>' "$inactive/bench-off.html"
+
+only_mtp="$sandbox/only-mtp"
+mkdir "$only_mtp"
+write_result "$only_mtp" ollama tiel-coder-35b 10.0 50.0 5
+write_result "$only_mtp" omlx tiel-coder-35b 2.0 40.0 5
+write_result "$only_mtp" omlx-mtp tiel-coder-35b 2.0 60.0 5
+"$report" "$only_mtp" >/dev/null 2>&1
+check "the headline can switch to oMLX with MTP" grep -qF '<p class="headline">Switch to oMLX with MTP' "$only_mtp/bench-off.html"
 
 if [ "$failures" -eq 0 ]; then
   echo "all passed"

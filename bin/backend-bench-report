@@ -8,9 +8,20 @@ from pathlib import Path
 
 REPORT_NAME = "bench-off.html"
 BASELINE = "ollama"
-CANDIDATES = ("omlx", "vllm-mlx")
-SERVER_ORDER = (BASELINE, *CANDIDATES)
-SERVER_LABELS = {"ollama": "Ollama", "omlx": "oMLX", "vllm-mlx": "vllm-mlx"}
+OLLAMA_MTP = "ollama-mtp"
+MTP_SUFFIX = "-mtp"
+CANDIDATES = ("omlx", "omlx-mtp", "vllm-mlx", "vllm-mlx-mtp")
+SERVER_ORDER = (BASELINE, OLLAMA_MTP, "omlx", "omlx-mtp", "vllm-mlx", "vllm-mlx-mtp")
+SERVER_LABELS = {
+    "ollama": "Ollama",
+    "ollama-mtp": "Ollama with MTP",
+    "omlx": "oMLX",
+    "omlx-mtp": "oMLX with MTP",
+    "vllm-mlx": "vllm-mlx",
+    "vllm-mlx-mtp": "vllm-mlx with MTP",
+}
+MTP_ACTIVE_WORDS = {True: "yes", False: "no", None: "unverified"}
+NO_VALUE = "–"
 WARM_TTFT_CUT = 0.30
 DECODE_FLOOR = 0.90
 LOWER_IS_BETTER = "lower"
@@ -52,6 +63,7 @@ class Result:
     date: str
     runs: list
     tool_calls: dict
+    mtp: dict | None
 
 
 @dataclass
@@ -81,6 +93,7 @@ def load_result(path):
         date=data.get("date", ""),
         runs=bench["runs"],
         tool_calls=bench["tool_calls"],
+        mtp=data.get("mtp"),
     )
 
 
@@ -137,8 +150,11 @@ def build_rows(results):
     rows = []
     for prefix_tokens in prefix_sizes(results):
         rows.extend(prefix_rows(results, prefix_tokens))
-    rows.append(Row("Peak memory used (GB)", [result.peak_memory_gb for result in results], LOWER_IS_BETTER, 1))
     return rows
+
+
+def peak_row(results):
+    return Row("Peak memory used (GB)", [result.peak_memory_gb for result in results], LOWER_IS_BETTER, 1)
 
 
 def best_value(row):
@@ -200,6 +216,12 @@ def tool_failure(candidate):
     return None
 
 
+def mtp_inactive_failure(candidate):
+    if candidate.mtp is not None and candidate.mtp.get("active") is False:
+        return "MTP not active"
+    return None
+
+
 def candidate_failures(baseline, candidate):
     prefix_tokens = deciding_prefix(baseline, candidate)
     if prefix_tokens is None:
@@ -208,8 +230,50 @@ def candidate_failures(baseline, candidate):
         warm_ttft_failure(baseline, candidate, prefix_tokens),
         decode_failure(baseline, candidate, prefix_tokens),
         tool_failure(candidate),
+        mtp_inactive_failure(candidate),
     )
     return [failure for failure in checks if failure]
+
+
+def mtp_base(server):
+    base = server.removesuffix(MTP_SUFFIX)
+    return base if base != server else None
+
+
+def mtp_text(result):
+    if result.mtp is None:
+        return NO_VALUE
+    word = MTP_ACTIVE_WORDS.get(result.mtp.get("active"), "unverified")
+    detail = result.mtp.get("detail")
+    return f"{word} ({detail})" if detail else word
+
+
+def decode_ratio(result, results):
+    base_server = mtp_base(result.server)
+    base = next((other for other in results if other.server == base_server), None)
+    if base is None:
+        return NO_VALUE
+    prefix_tokens = deciding_prefix(base, result)
+    if prefix_tokens is None:
+        return NO_VALUE
+    ours = run_value(result, prefix_tokens, "warm", "decode_tokens_per_second")
+    theirs = run_value(base, prefix_tokens, "warm", "decode_tokens_per_second")
+    if not ours or not theirs:
+        return NO_VALUE
+    return f"×{ours / theirs:.2f}"
+
+
+def mtp_summary_lines(models):
+    lines = []
+    for model, results in models.items():
+        parts = [
+            f"{SERVER_LABELS.get(mtp_base(result.server), mtp_base(result.server))} {decode_ratio(result, results)}"
+            for result in results
+            if mtp_base(result.server)
+        ]
+        if parts:
+            lines.append(f"MTP decode: {model}: {', '.join(parts)}")
+    return lines
 
 
 def baseline_of(results):
@@ -219,6 +283,8 @@ def baseline_of(results):
 def verdict_cell(baseline, result):
     if result.server == BASELINE:
         return '<td class="baseline">baseline</td>'
+    if result.server == OLLAMA_MTP:
+        return '<td class="baseline">MTP variant of baseline</td>'
     if baseline is None:
         return '<td class="baseline">no Ollama baseline</td>'
     failures = candidate_failures(baseline, result)
@@ -245,8 +311,13 @@ def headline(models):
 def render_model(model, results):
     baseline = baseline_of(results)
     header = "".join(f"<th>{html.escape(result.server)}</th>" for result in results)
-    body = [text_row("Version", [result.version for result in results])]
+    body = [
+        text_row("Version", [result.version for result in results]),
+        text_row("MTP active", [mtp_text(result) for result in results]),
+    ]
     body.extend(render_row(row) for row in build_rows(results))
+    body.append(text_row("Decode vs MTP off", [decode_ratio(result, results) for result in results]))
+    body.append(render_row(peak_row(results)))
     body.append(text_row("Tool calls parsed", [tool_text(result) for result in results]))
     body.append(text_row("Date", [result.date for result in results]))
     verdicts = "".join(verdict_cell(baseline, result) for result in results)
@@ -262,6 +333,7 @@ def render_model(model, results):
 
 def render_page(models):
     sections = "\n".join(render_model(model, results) for model, results in models.items())
+    summary = "".join(f'<p class="muted">{html.escape(line)}</p>' for line in mtp_summary_lines(models))
     rule = (
         f"A candidate passes when its warm TTFT at the largest prefix is at least {WARM_TTFT_CUT:.0%} "
         f"lower than Ollama's, its warm decode is at least {DECODE_FLOOR:.0%} of Ollama's, and every "
@@ -271,7 +343,7 @@ def render_page(models):
         '<!doctype html><html lang="en"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
         f"<title>Backend bench-off</title><style>{STYLE}</style></head><body>"
-        f'<h1>Backend bench-off</h1><p class="headline">{headline(models)}</p>'
+        f'<h1>Backend bench-off</h1><p class="headline">{headline(models)}</p>{summary}'
         f'<p class="muted">{html.escape(rule)} Highlighted cells are the best value in their row.</p>'
         f"{sections}</body></html>\n"
     )
