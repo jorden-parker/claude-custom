@@ -9,7 +9,7 @@ from pathlib import Path
 OUTPUT_LINE_LIMIT = 40
 JS_PROJECT_MARKERS = ("package.json", "tsconfig.json")
 JS_FILE = re.compile(r"\.(ts|tsx|js|jsx|mjs|cjs|mts|cts)$")
-BASE_BRANCHES = ("main", "master")
+BASE_BRANCHES = ("main", "master", "HEAD")
 FALLOW_ADVICE = ("Fallow found problems in your changes. Run `npx fallow explain <issue-type>` for any "
                  "finding you don't understand. Remove dead code instead of suppressing it.")
 VERIFY_SCRIPT = Path(".claude") / "verify"
@@ -61,16 +61,21 @@ def run_failing(command, root):
     return f"$ {' '.join(command)}\n{last_lines(result.stdout + result.stderr)}"
 
 
-def base_branch_args(root):
+def base_branch(root):
     for branch in BASE_BRANCHES:
         if subprocess.run(["git", "-C", str(root), "rev-parse", "--verify", "-q", branch], capture_output=True).returncode == 0:
-            return ["--base", branch]
-    return []
+            return branch
+    return None
+
+
+def fallow_command(base, file):
+    analysis = ["audit", "--base", base] if base else ["--fail-on-issues"]
+    return ["npx", "--yes", "fallow", *analysis, "--format", "json", file]
 
 
 def fallow_commands(root, files):
-    base = base_branch_args(root)
-    return [["npx", "--yes", "fallow", "audit", *base, "--format", "json", file]
+    base = base_branch(root)
+    return [fallow_command(base, file)
             for file in files if JS_FILE.search(file) and (root / file).is_file()]
 
 

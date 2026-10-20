@@ -34,7 +34,7 @@ new_repo() {
 
 add_verify() {
   mkdir -p "$1/.claude"
-  printf '#!/bin/sh\necho "verify ran with: $*" | tee "$(dirname "$0")/args"\nexit %s\n' "$2" > "$1/.claude/verify"
+  printf "#!/bin/sh\necho \"verify ran with: \$*\" | tee \"\$(dirname \"\$0\")/args\"\nexit %s\n" "$2" > "$1/.claude/verify"
   chmod +x "$1/.claude/verify"
 }
 
@@ -135,6 +135,26 @@ printf '{}' > "$legacy/package.json"
 record_edit "$legacy/index.js"
 expect allow 'master-based js project'   run_hook "$legacy"
 check 'audit is based on master'         grep -qF -- '--base master' "$sandbox/npx.log"
+
+trunk="$sandbox/trunk"
+mkdir -p "$trunk"
+git -C "$trunk" init -q -b trunk
+git -C "$trunk" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
+printf '{}' > "$trunk/package.json"
+record_edit "$trunk/index.js"
+expect allow 'other default branch'      run_hook "$trunk"
+check 'audit is based on HEAD'           grep -qF -- '--base HEAD' "$sandbox/npx.log"
+
+nogit="$sandbox/nogit"
+mkdir -p "$nogit"
+printf '{}' > "$nogit/package.json"
+record_edit "$nogit/index.js"
+expect allow 'js project outside git'    run_hook "$nogit"
+check 'whole-file fallow without git'    grep -qF 'fallow --fail-on-issues --format json index.js' "$sandbox/npx.log"
+record_edit "$nogit/index.js"
+export FAKE_FALLOW_EXIT=1
+expect block 'findings outside git'      run_hook "$nogit"
+unset FAKE_FALLOW_EXIT
 
 ts="$(new_repo ts)"
 printf '{}' > "$ts/tsconfig.json"
