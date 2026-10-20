@@ -21,6 +21,9 @@ four parts:
   `go/cmd/model-picker/` is a Go/Bubble Tea menu for choosing the size.
 - **Tools TUI** (`go/cmd/claude-tools/`): a Go/Bubble Tea app that edits the
   bare-tool-name permission rules in a Claude Code settings file.
+- **Agent TUI** (`go/cmd/ollama-agent/`): a Go/Bubble Tea app that edits the
+  `OLLAMA_*` variables in a `local.ollama` LaunchAgent and reloads it, since
+  launchd never reads `~/.zshenv`.
 
 Every file is additive. Nothing here replaces a base config. The layer order is
 in `docs/layers.md` and install/revert steps in `docs/install.md`. Read them
@@ -73,32 +76,35 @@ before changing how any file gets applied.
 - Check the work harness: `claude-ollama doctor [size]` (exit 1 on a missing
   model, hook, context mismatch or server env var; needs `jq`) and
   `claude-ollama --print-config [size]` (resolved values, no launch)
-- Launch the tools TUI: `claude-tools [user|project|local|FILE]`. Both are also
-  `claude-custom ollama|tools [...]`.
-- `bin/claude-custom`, `bin/claude-ollama` and `bin/claude-tools` must stay
-  bash-3.2 compatible (macOS `/bin/bash`). `bin/claude-custom` must never write
-  `~/.zshenv` or `~/.local/bin/claude`, and derives Ollama model names from
-  `ollama/settings.<size>.json` and `ollama/Modelfile.<size>`, both rendered
-  from `ollama/sizes.json`. Adding a size means one `sizes.json` entry, then
-  `bin/ollama-profiles`; never hand-edit the rendered files. A `base` of
-  `./weights/<owner>/<repo>` is a Hugging Face MLX repo: `bin/claude-ollama`
-  downloads it with `hf download` into `ollama/weights/` (gitignored), runs
-  `ollama create` from `ollama/`, then deletes the download.
-- Go module `go/` (both apps; `go/cmd/model-picker/`, `go/cmd/claude-tools/`):
-  `cd go && go test ./...`. One test:
-  `cd go && go test ./internal/tools/ui -run TestSwitching`. Run the picker or
-  the tools TUI with `cd go && go run ./cmd/model-picker` or
+- Launch the tools TUI: `claude-tools [user|project|local|FILE]`. Launch the
+  agent TUI: `ollama-agent [-file PLIST] [-ollama BIN]`. All three are also
+  `claude-custom ollama|tools|agent [...]`.
+- `bin/claude-custom`, `bin/claude-ollama`, `bin/claude-tools` and
+  `bin/ollama-agent` must stay bash-3.2 compatible (macOS `/bin/bash`).
+  `bin/claude-custom` must never write `~/.zshenv` or `~/.local/bin/claude`, and
+  derives Ollama model names from `ollama/settings.<size>.json` and
+  `ollama/Modelfile.<size>`, both rendered from `ollama/sizes.json`. Adding a
+  size means one `sizes.json` entry, then `bin/ollama-profiles`; never hand-edit
+  the rendered files. A `base` of `./weights/<owner>/<repo>` is a Hugging Face
+  MLX repo: `bin/claude-ollama` downloads it with `hf download` into
+  `ollama/weights/` (gitignored), runs `ollama create` from `ollama/`, then
+  deletes the download.
+- Go module `go/` (all three apps; `go/cmd/model-picker/`,
+  `go/cmd/claude-tools/`, `go/cmd/ollama-agent/`): `cd go && go test ./...`. One
+  test: `cd go && go test ./internal/tools/ui -run TestSwitching`. Run the
+  picker or the tools TUI with `cd go && go run ./cmd/model-picker` or
   `cd go && go run ./cmd/claude-tools`. `claude-ollama` builds and runs the
   picker when no size is given on a terminal. See
-  `go/cmd/claude-tools/README.md`.
+  `go/cmd/claude-tools/README.md` and `go/cmd/ollama-agent/README.md`.
 
 There is no build step outside the Go module. `claude-custom install` builds
-`go/cmd/claude-tools/claude-tools` and `go/cmd/model-picker/model-picker` (both
-gitignored). Each launcher rebuilds its binary only when a Go source, `go.mod`
-or `go.sum` is newer than it. `pnpm install` enables git hooks (husky):
-pre-commit checks staged files for conflict markers, files over 1 MB and
-secrets, then lint-staged runs Prettier on staged `.md`/`.json`/`.yml`.
-commitlint enforces conventional commits (`feat:`, `fix:`, `chore:`).
+`go/cmd/claude-tools/claude-tools`, `go/cmd/model-picker/model-picker` and
+`go/cmd/ollama-agent/ollama-agent` (all gitignored). Each launcher rebuilds its
+binary only when a Go source, `go.mod` or `go.sum` is newer than it.
+`pnpm install` enables git hooks (husky): pre-commit checks staged files for
+conflict markers, files over 1 MB and secrets, then lint-staged runs Prettier on
+staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
+`fix:`, `chore:`).
 
 ## How the pieces connect
 
@@ -228,9 +234,16 @@ commitlint enforces conventional commits (`feat:`, `fix:`, `chore:`).
   `go/internal/picker/profiles/embedding.go`, and `bin/check-config` checks they
   agree. The Ollama profiles allow the tool in `permissions.allow`.
 - `ollama/server.env` documents the Ollama server env the profiles expect. The
-  Homebrew service sets the same values. Nothing in this repo applies it.
-  `bin/claude-ollama` sends a background warm-up `keep_alive` request to
-  `OLLAMA_HOST` (default `localhost:11434`) before `exec claude`.
+  Homebrew service sets the same values. Nothing applies it automatically;
+  `bin/ollama-agent` passes it as `-server-env`, so a new LaunchAgent starts
+  from its values. `bin/claude-ollama` sends a background warm-up `keep_alive`
+  request to `OLLAMA_HOST` (default `localhost:11434`) before `exec claude`.
+- `go/internal/agent/` has three packages: `launchd` (renders and reads the
+  plist, saves atomically, builds the `launchctl bootout`/`bootstrap` reload
+  command), `variables` (the known `OLLAMA_*` list and the `server.env` parser)
+  and `ui` (the Bubble Tea model; `Config.Reload` is injected so tests never
+  call launchctl). Saving rewrites the whole plist, so hand edits to keys other
+  than `EnvironmentVariables` are lost.
 - `ollama/CLAUDE.local.md` is the appended system prompt for every size, for
   small local models, not memory files. Keep it terse: both sizes have a 64k
   context. `ollama/sizes.json` is the single source for each size's `context`:

@@ -282,9 +282,15 @@ check_eq "claude-tools without go exit status" 1 "$?"
 check_that "claude-tools without go message" grep -qF "claude-tools: needs Go 1.26+" "$sandbox/err"
 run_capture "$sandbox/repo/bin/claude-custom" tools
 check_that "claude-custom tools runs claude-tools" grep -qF "claude-tools: needs Go 1.26+" "$sandbox/err"
+rm -f "$sandbox/repo/go/cmd/ollama-agent/ollama-agent"
+run_capture "$sandbox/repo/bin/ollama-agent"
+check_eq "ollama-agent without go exit status" 1 "$?"
+check_that "ollama-agent without go message" grep -qF "ollama-agent: needs Go 1.26+" "$sandbox/err"
+run_capture "$sandbox/repo/bin/claude-custom" agent
+check_that "claude-custom agent runs ollama-agent" grep -qF "ollama-agent: needs Go 1.26+" "$sandbox/err"
 run_capture "$installer" bogus
 check_eq "unknown subcommand exit status" 2 "$?"
-check_that "usage lists the new subcommands" grep -qF "install|update|uninstall|ollama|tools" "$sandbox/err"
+check_that "usage lists the new subcommands" grep -qF "install|update|uninstall|ollama|tools|agent" "$sandbox/err"
 
 new_sandbox
 run_capture "$repo/bin/claude-ollama" --print-config 35b

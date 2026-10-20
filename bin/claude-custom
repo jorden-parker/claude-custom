@@ -226,6 +226,7 @@ place_links() {
   place_link "$repo_dir/bin/claude-ollama" "$HOME/.local/bin/claude-ollama"
   place_link "$repo_dir/bin/claude-custom" "$HOME/.local/bin/claude-custom"
   place_link "$repo_dir/bin/claude-tools" "$HOME/.local/bin/claude-tools"
+  place_link "$repo_dir/bin/ollama-agent" "$HOME/.local/bin/ollama-agent"
 }
 
 remove_stale_hook_links() {
@@ -325,6 +326,7 @@ build_go_apps() {
   command -v go >/dev/null 2>&1 || { echo "skip: go not installed; TUIs build on first launch" >&2; return 0; }
   (cd "$repo_dir/go" && go build -o cmd/model-picker/model-picker ./cmd/model-picker) || { echo "fail: build model-picker" >&2; status=1; }
   (cd "$repo_dir/go" && go build -o cmd/claude-tools/claude-tools ./cmd/claude-tools) || { echo "fail: build claude-tools" >&2; status=1; }
+  (cd "$repo_dir/go" && go build -o cmd/ollama-agent/ollama-agent ./cmd/ollama-agent) || { echo "fail: build ollama-agent" >&2; status=1; }
 }
 
 install_all() {
@@ -351,6 +353,7 @@ uninstall_all() {
   remove_link "$repo_dir/bin/claude-ollama" "$HOME/.local/bin/claude-ollama"
   remove_link "$repo_dir/bin/claude-custom" "$HOME/.local/bin/claude-custom"
   remove_link "$repo_dir/bin/claude-tools" "$HOME/.local/bin/claude-tools"
+  remove_link "$repo_dir/bin/ollama-agent" "$HOME/.local/bin/ollama-agent"
   remove_stale_hook_links
   remove_import_lines
   remove_retired_imports
@@ -372,7 +375,8 @@ main() {
     uninstall) uninstall_all ;;
     ollama) shift; exec "$repo_dir/bin/claude-ollama" "$@" ;;
     tools) shift; exec "$repo_dir/bin/claude-tools" "$@" ;;
-    *) echo "usage: claude-custom [install|update|uninstall|ollama|tools]" >&2; exit 2 ;;
+    agent) shift; exec "$repo_dir/bin/ollama-agent" "$@" ;;
+    *) echo "usage: claude-custom [install|update|uninstall|ollama|tools|agent]" >&2; exit 2 ;;
   esac
   exit "$status"
 }

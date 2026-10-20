@@ -242,6 +242,7 @@ run_capture "$installer" install
 check_that "claude-ollama link" test "$(readlink "$HOME/.local/bin/claude-ollama")" = "$repo/bin/claude-ollama"
 check_eq "claude-custom link" "$repo/bin/claude-custom" "$(readlink "$HOME/.local/bin/claude-custom")"
 check_eq "claude-tools link" "$repo/bin/claude-tools" "$(readlink "$HOME/.local/bin/claude-tools")"
+check_eq "ollama-agent link" "$repo/bin/ollama-agent" "$(readlink "$HOME/.local/bin/ollama-agent")"
 check_not "install creates no hook links" test -e "$HOME/.claude/hooks"
 for settings in "$repo"/personal/settings.tokens.json "$repo"/ollama/settings.*.json; do
   for hook_name in $(jq -r '.hooks[][].hooks[].command' "$settings" | sed -n 's#.*/shared/hooks/##p' | sort -u); do
@@ -360,6 +361,7 @@ check_not "round trip removes fish drop-in" test -e "$HOME/.config/fish/conf.d/c
 check_not "round trip removes ollama link" test -L "$HOME/.local/bin/claude-ollama"
 check_not "round trip removes claude-custom link" test -L "$HOME/.local/bin/claude-custom"
 check_not "round trip removes claude-tools link" test -L "$HOME/.local/bin/claude-tools"
+check_not "round trip removes ollama-agent link" test -L "$HOME/.local/bin/ollama-agent"
 
 new_sandbox
 mkdir -p "$HOME/.local/bin" "$HOME/.claude/hooks"
@@ -446,6 +448,7 @@ chmod +x "$sandbox/stubbin/go"
 run_capture "$sandbox/repo/bin/claude-custom" install
 check_that "install builds the model picker" test -x "$sandbox/repo/go/cmd/model-picker/model-picker"
 check_that "install builds claude-tools" test -x "$sandbox/repo/go/cmd/claude-tools/claude-tools"
+check_that "install builds ollama-agent" test -x "$sandbox/repo/go/cmd/ollama-agent/ollama-agent"
 rm -f "$sandbox/repo/go/go.log"
 run_capture "$sandbox/repo/bin/claude-tools" local
 check_not "fresh binary is not rebuilt on launch" test -e "$sandbox/repo/go/go.log"
