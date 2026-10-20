@@ -6,8 +6,10 @@ fish_bin="$(command -v fish 2>/dev/null || true)"
 jq_bin="$(command -v jq)"
 failures=0
 sandboxes=""
+system_tools=""
 remove_sandboxes() {
   local dir
+  local PATH=/usr/bin:/bin
   for dir in $sandboxes; do
     rm -rf "$dir"
   done
@@ -65,15 +67,21 @@ EOF
 }
 
 link_system_tools() {
+  [ -n "$system_tools" ] || build_system_tools
+  ln -s "$system_tools" "$sandbox/sysbin"
+}
+
+build_system_tools() {
   local entry name
-  mkdir -p "$sandbox/sysbin"
+  system_tools="$(cd "$(mktemp -d)" && pwd -P)"
+  sandboxes="$sandboxes $system_tools"
   for entry in /usr/bin/* /bin/*; do
     name="${entry##*/}"
     case "$name" in
       go|gofmt) continue ;;
     esac
-    if [ -x "$entry" ] && [ ! -e "$sandbox/sysbin/$name" ]; then
-      ln -s "$entry" "$sandbox/sysbin/$name"
+    if [ -x "$entry" ] && [ ! -e "$system_tools/$name" ]; then
+      ln -s "$entry" "$system_tools/$name"
     fi
   done
 }

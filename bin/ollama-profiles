@@ -30,8 +30,8 @@ size_of_settings() {
   echo "${name%.json}"
 }
 
-format_json() {
-  (cd "$repo_dir" && npx --no prettier -- --parser json)
+format_json_files() {
+  (cd "$repo_dir" && npx --no prettier -- --config "$repo_dir/.prettierrc" --parser json --log-level warn --write "$@")
 }
 
 splice_fragments() {
@@ -44,11 +44,11 @@ splice_fragments() {
 render_settings() {
   jq --arg model "$(field "$1" model)" --arg context "$(field "$1" context)" \
     'walk(if type == "string" then gsub("\\{\\{MODEL\\}\\}"; $model) | gsub("\\{\\{CONTEXT\\}\\}"; $context) else . end)' \
-    "$settings_template" | splice_fragments "$(cat "$extra_hooks_file")" | format_json
+    "$settings_template" | splice_fragments "$(cat "$extra_hooks_file")"
 }
 
 render_personal() {
-  splice_fragments '{}' < "$personal_template" | format_json
+  splice_fragments '{}' < "$personal_template"
 }
 
 render_renderer() {
@@ -60,14 +60,24 @@ render_modelfile() {
   render_renderer "$1"
 }
 
+render_all() {
+  local size
+  for size in $(sizes); do
+    render_settings "$size" > "$1/settings.$size.json"
+    render_modelfile "$size" > "$1/Modelfile.$size"
+  done
+  render_personal > "$1/settings.tokens.json"
+  format_json_files "$1"/*.json
+}
+
 rendered_matches() {
-  [ -f "$2" ] && [ "$(cat "$2")" = "$1" ]
+  [ -f "$2" ] && cmp -s "$1" "$2" || { echo "stale: $2" >&2; return 1; }
 }
 
 check_size() {
-  local size="$1" status=0
-  rendered_matches "$(render_settings "$size")" "$profile_dir/settings.$size.json" || { echo "stale: $profile_dir/settings.$size.json" >&2; status=1; }
-  rendered_matches "$(render_modelfile "$size")" "$profile_dir/Modelfile.$size" || { echo "stale: $profile_dir/Modelfile.$size" >&2; status=1; }
+  local size="$2" status=0
+  rendered_matches "$1/settings.$size.json" "$profile_dir/settings.$size.json" || status=1
+  rendered_matches "$1/Modelfile.$size" "$profile_dir/Modelfile.$size" || status=1
   return "$status"
 }
 
@@ -79,23 +89,19 @@ check_unlisted() {
   return "$status"
 }
 
-check_personal() {
-  rendered_matches "$(render_personal)" "$personal_settings" || { echo "stale: $personal_settings" >&2; return 1; }
-}
-
 check_profiles() {
   local size status=0
   for size in $(sizes); do
-    check_size "$size" || status=1
+    check_size "$1" "$size" || status=1
   done
   check_unlisted || status=1
-  check_personal || status=1
+  rendered_matches "$1/settings.tokens.json" "$personal_settings" || status=1
   return "$status"
 }
 
 write_size() {
-  render_settings "$1" > "$profile_dir/settings.$1.json"
-  render_modelfile "$1" > "$profile_dir/Modelfile.$1"
+  cp "$1/settings.$2.json" "$profile_dir/settings.$2.json"
+  cp "$1/Modelfile.$2" "$profile_dir/Modelfile.$2"
 }
 
 remove_unlisted() {
@@ -109,16 +115,24 @@ remove_unlisted() {
 write_profiles() {
   local size
   for size in $(sizes); do
-    write_size "$size"
+    write_size "$1" "$size"
   done
   remove_unlisted
-  render_personal > "$personal_settings"
+  cp "$1/settings.tokens.json" "$personal_settings"
+}
+
+with_rendered() {
+  local rendered status=0
+  rendered="$(mktemp -d)"
+  render_all "$rendered" && "$1" "$rendered" || status=$?
+  rm -rf "$rendered"
+  return "$status"
 }
 
 main() {
   case "${1:-}" in
-    "") write_profiles ;;
-    --check) check_profiles ;;
+    "") with_rendered write_profiles ;;
+    --check) with_rendered check_profiles ;;
     *) echo "usage: ollama-profiles [--check]" >&2; exit 2 ;;
   esac
 }
