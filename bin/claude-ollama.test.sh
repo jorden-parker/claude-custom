@@ -129,9 +129,9 @@ new_sandbox
 ollama_settings="--settings $repo/ollama/settings.27b.json"
 run_capture "$repo/bin/claude-ollama" -p hi
 check_that "claude-ollama defaults to 27b" grep -qF -- "$ollama_settings" "$sandbox/out"
-check_that "claude-ollama passes claude args through" grep -qF -- "--tools Bash,Read,Edit,Write,Agent,WebFetch -p hi" "$sandbox/out"
+check_that "claude-ollama passes claude args through" grep -qF -- "--tools Bash,Read,Edit,Write,Agent -p hi" "$sandbox/out"
 run_capture "$repo/bin/claude-ollama" 27b -p hi
-check_that "claude-ollama keeps the explicit size form" grep -qF -- "--tools Bash,Read,Edit,Write,Agent,WebFetch -p hi" "$sandbox/out"
+check_that "claude-ollama keeps the explicit size form" grep -qF -- "--tools Bash,Read,Edit,Write,Agent -p hi" "$sandbox/out"
 check_that "claude-ollama 27b passes the 27b model" grep -qF -- "--model qwen3.8-27b-cc --tools" "$sandbox/out"
 ANTHROPIC_MODEL=claude-opus-5-5 run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "claude-ollama 27b ignores ANTHROPIC_MODEL" grep -qF -- "--model qwen3.8-27b-cc --tools" "$sandbox/out"
@@ -142,7 +142,7 @@ check_that "claude-ollama 35b uses the 35b settings" grep -qF -- "--settings $re
 check_that "claude-ollama 35b passes the 35b model" grep -qF -- "--model qwen3.6-35b-cc --tools" "$sandbox/out"
 check_that "claude-ollama 35b uses the shared prompt" grep -qF -- "--append-system-prompt-file $repo/ollama/CLAUDE.local.md" "$sandbox/out"
 check_that "claude-ollama replaces the default system prompt" grep -qF -- "--system-prompt-file $repo/ollama/system-prompt.md --append-system-prompt-file $repo/ollama/CLAUDE.local.md" "$sandbox/out"
-check_that "claude-ollama 35b passes claude args through" grep -qF -- "--tools Bash,Read,Edit,Write,Agent,WebFetch -p hi" "$sandbox/out"
+check_that "claude-ollama 35b passes claude args through" grep -qF -- "--tools Bash,Read,Edit,Write,Agent -p hi" "$sandbox/out"
 check_that "claude-ollama warms the main model" grep -q 'localhost:11434/api/generate' "$sandbox/curl.log"
 check_that "claude-ollama warm-up names the model" grep -q '"model":"qwen3.6-35b-cc"' "$sandbox/curl.log"
 check_that "claude-ollama warm-up sets keep_alive" grep -q '"keep_alive":"30m"' "$sandbox/curl.log"
@@ -239,7 +239,7 @@ check_not "claude-ollama help does not launch claude" grep -q '^ARGS:' "$sandbox
 run_capture "$repo/bin/claude-ollama" 28b -p hi </dev/null
 check_that "claude-ollama unknown size without a tty falls back to 27b" grep -qF -- "$ollama_settings" "$sandbox/out"
 check_not "claude-ollama drops an unknown size" grep -qF "28b" "$sandbox/out"
-check_that "claude-ollama unknown size keeps claude args" grep -qF -- "WebFetch -p hi" "$sandbox/out"
+check_that "claude-ollama unknown size keeps claude args" grep -qF -- "Agent -p hi" "$sandbox/out"
 
 new_sandbox
 copy_repo "$sandbox/repo"
@@ -299,7 +299,7 @@ check_that "print-config shows the embedding model" grep -qxF "embedding model: 
 check_that "print-config shows num_ctx" grep -qxF "num_ctx: 65536" "$sandbox/out"
 check_that "print-config shows context tokens" grep -qxF "max context tokens: 65536" "$sandbox/out"
 check_that "print-config shows the settings path" grep -qxF "settings: $repo/ollama/settings.35b.json" "$sandbox/out"
-check_that "print-config shows the tools" grep -qxF "tools: Bash,Read,Edit,Write,Agent,WebFetch" "$sandbox/out"
+check_that "print-config shows the tools" grep -qxF "tools: Bash,Read,Edit,Write,Agent" "$sandbox/out"
 check_that "print-config shows the command" grep -q '^command: claude --settings ' "$sandbox/out"
 run_capture "$repo/bin/claude-ollama" --print-config </dev/null
 check_that "print-config without a size uses the default" grep -qxF "size: 27b" "$sandbox/out"

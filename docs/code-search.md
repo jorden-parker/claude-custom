@@ -4,10 +4,9 @@
 with one tool, `semantic_search`. It embeds the repo with `qwen3-embedding:0.6b`
 (pulled on launch if missing) and returns `file:start-end` ranges with a score
 and a one-line preview, so the model reads only those lines. `claude-ollama`
-drops Grep and Glob (`--tools Bash,Read,Edit,Write,Agent,WebFetch`, plus bare
-deny rules), and `tool-nudge.py` refuses the first two Bash text searches of a
-turn until the tool has been called; exact names go through `git grep -n` after
-that.
+drops Grep and Glob (`--tools Bash,Read,Edit,Write,Agent`, plus bare deny
+rules), and `tool-nudge.py` refuses the first two Bash text searches of a turn
+until the tool has been called; exact names go through `git grep -n` after that.
 
 - Files: `git ls-files` plus untracked, non-ignored files. Lockfiles, minified
   files, images, binaries and files over 200 KB are skipped.
