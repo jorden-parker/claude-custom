@@ -1,0 +1,143 @@
+#!/usr/bin/env python3
+import json
+import os
+import struct
+import sys
+import tempfile
+from dataclasses import dataclass
+
+MTP_PREFIXES = ("mtp.", "language_model.mtp.")
+METADATA_KEY = "__metadata__"
+OUTPUT_RELATIVE_PATH = os.path.join("mtp", "weights.safetensors")
+COPY_CHUNK_BYTES = 64 * 1024 * 1024
+HEADER_LENGTH_BYTES = 8
+HEADER_ALIGNMENT = 8
+
+
+class ExtractError(Exception):
+    pass
+
+
+@dataclass
+class Shard:
+    path: str
+    header: dict
+    data_start: int
+
+
+@dataclass
+class Entry:
+    shard: Shard
+    name: str
+    info: dict
+
+
+def load_shard(path):
+    with open(path, "rb") as handle:
+        (length,) = struct.unpack("<Q", handle.read(HEADER_LENGTH_BYTES))
+        header = json.loads(handle.read(length).decode("utf-8"))
+    return Shard(path, header, HEADER_LENGTH_BYTES + length)
+
+
+def shard_paths(model_dir):
+    return sorted(
+        os.path.join(model_dir, name)
+        for name in os.listdir(model_dir)
+        if name.endswith(".safetensors") and os.path.isfile(os.path.join(model_dir, name))
+    )
+
+
+def is_mtp_tensor(name):
+    return name.startswith(MTP_PREFIXES)
+
+
+def mtp_entries(shard):
+    return [
+        Entry(shard, name, info)
+        for name, info in shard.header.items()
+        if name != METADATA_KEY and is_mtp_tensor(name)
+    ]
+
+
+def shared_metadata(shards):
+    return next((shard.header[METADATA_KEY] for shard in shards if METADATA_KEY in shard.header), None)
+
+
+def tensor_size(entry):
+    start, end = entry.info["data_offsets"]
+    return end - start
+
+
+def output_header(entries, metadata):
+    header = {} if metadata is None else {METADATA_KEY: metadata}
+    offset = 0
+    for entry in entries:
+        size = tensor_size(entry)
+        header[entry.name] = {**entry.info, "data_offsets": [offset, offset + size]}
+        offset += size
+    return header
+
+
+def encode_header(header):
+    raw = json.dumps(header, separators=(",", ":")).encode("utf-8")
+    return raw + b" " * (-len(raw) % HEADER_ALIGNMENT)
+
+
+def copy_tensor(entry, handle):
+    start, _ = entry.info["data_offsets"]
+    remaining = tensor_size(entry)
+    with open(entry.shard.path, "rb") as source:
+        source.seek(entry.shard.data_start + start)
+        while remaining > 0:
+            chunk = source.read(min(COPY_CHUNK_BYTES, remaining))
+            if not chunk:
+                raise ExtractError(f"{entry.shard.path} ends early")
+            handle.write(chunk)
+            remaining -= len(chunk)
+
+
+def write_output(model_dir, shards, entries):
+    mtp_dir = os.path.join(model_dir, "mtp")
+    output_path = os.path.join(model_dir, OUTPUT_RELATIVE_PATH)
+    os.makedirs(mtp_dir, exist_ok=True)
+    encoded = encode_header(output_header(entries, shared_metadata(shards)))
+    descriptor, temp_path = tempfile.mkstemp(dir=mtp_dir, suffix=".tmp")
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(struct.pack("<Q", len(encoded)))
+            handle.write(encoded)
+            for entry in entries:
+                copy_tensor(entry, handle)
+        os.replace(temp_path, output_path)
+    except BaseException:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        raise
+    return output_path
+
+
+def extract(model_dir):
+    output_path = os.path.join(model_dir, OUTPUT_RELATIVE_PATH)
+    if os.path.exists(output_path):
+        return output_path
+    shards = [load_shard(path) for path in shard_paths(model_dir)]
+    entries = [entry for shard in shards for entry in mtp_entries(shard)]
+    if not entries:
+        raise ExtractError(f"no mtp.* tensors in {model_dir}")
+    return write_output(model_dir, shards, entries)
+
+
+def main(argv):
+    if len(argv) != 1:
+        print("usage: extract-mtp-weights MODEL_DIR", file=sys.stderr)
+        return 2
+    try:
+        print(extract(argv[0]))
+    except (ExtractError, OSError, ValueError, KeyError, struct.error) as error:
+        print(f"extract-mtp-weights: {error}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
