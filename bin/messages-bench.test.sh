@@ -91,6 +91,7 @@ import sys
 from pathlib import Path
 
 START_CHARS = 1000
+EARLY_CHARS = 100
 EXPECTED_VERSION = "2023-06-01"
 PROBE_KEYS = ["prefix_tokens", "scenario", "ttft_seconds", "prefill_tokens_per_second", "decode_tokens_per_second"]
 
@@ -132,6 +133,17 @@ def different_start(first_path, first, second_path, second):
         fail("two runs sent the same cold prefix")
 
 
+def prefixes_differ_early(path, first, second):
+    if prompt(path, first)[:EARLY_CHARS] == prompt(path, second)[:EARLY_CHARS]:
+        fail("two prefix sizes share their first 100 characters")
+
+
+def max_tokens_is(path, index, expected):
+    value = requests_in(path)[index - 1]["body"].get("max_tokens")
+    if value != expected:
+        fail(f"request {index} sent max_tokens {value}, expected {expected}")
+
+
 def json_shape(path):
     data = json.loads(Path(path).read_text())
     if not data.get("runs"):
@@ -152,6 +164,10 @@ elif command == "same-start":
     same_start(arguments[0], int(arguments[1]), int(arguments[2]))
 elif command == "different-start":
     different_start(arguments[0], int(arguments[1]), arguments[2], int(arguments[3]))
+elif command == "prefixes-differ-early":
+    prefixes_differ_early(arguments[0], int(arguments[1]), int(arguments[2]))
+elif command == "max-tokens":
+    max_tokens_is(arguments[0], int(arguments[1]), int(arguments[2]))
 elif command == "json-shape":
     json_shape(arguments[0])
 PY
@@ -211,6 +227,11 @@ else
 fi
 
 python3 "$tmp/inspect.py" same-start "$log" 1 2 || fail "warm request shares the cold prefix and differs in the question"
+python3 "$tmp/inspect.py" max-tokens "$log" 3 2048 || fail "tool trial requests max_tokens 2048 under default flags"
+
+start_stub "$healthy" || exit 1
+bench_run --model stub --prefix-tokens 2000 3000 --tool-trials 0 > "$run_dir/stdout" 2> "$run_dir/stderr"
+python3 "$tmp/inspect.py" prefixes-differ-early "$run_dir/requests.log" 1 3 || fail "cold requests for different prefix sizes differ in their first 100 characters"
 
 start_stub "$healthy" || exit 1
 bench_run --model stub --prefix-tokens 2000 --tool-trials 0 > "$run_dir/stdout" 2> "$run_dir/stderr"

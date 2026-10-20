@@ -13,6 +13,7 @@ DEFAULT_BASE_URL = "http://localhost:11434"
 DEFAULT_AUTH_TOKEN = "local"
 DEFAULT_PREFIX_TOKENS = [20000, 60000]
 DEFAULT_MAX_TOKENS = 256
+TOOL_MAX_TOKENS = 2048
 DEFAULT_TOOL_TRIALS = 5
 ANTHROPIC_VERSION = "2023-06-01"
 REQUEST_TIMEOUT_SECONDS = 1800
@@ -108,7 +109,7 @@ def estimate_tokens(text):
 
 def build_prefix(prefix_tokens, run_marker):
     wanted = prefix_tokens * CHARS_PER_TOKEN
-    text = run_marker + "\n"
+    text = f"{run_marker} Prefix {prefix_tokens}.\n"
     number = 0
     while len(text) < wanted:
         text += FILLER_LINE.format(number=number)
@@ -259,7 +260,8 @@ def tool_call_parsed(stream):
 
 
 def run_tool_trial(config):
-    body = build_body(config.model, config.max_tokens, TOOL_QUESTION, tools=[TOOL_DEFINITION])
+    max_tokens = max(config.max_tokens, TOOL_MAX_TOKENS)
+    body = build_body(config.model, max_tokens, TOOL_QUESTION, tools=[TOOL_DEFINITION])
     return tool_call_parsed(stream_message(config, body))
 
 
