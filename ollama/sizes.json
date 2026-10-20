@@ -27,7 +27,8 @@
   "9b-distill": {
     "base": "hf.co/empero-ai/Qwen3.8-9B-Distill-GGUF:Q4_K_M",
     "model": "qwen3.8-9b-distill-cc",
-    "context": 65536
+    "context": 65536,
+    "renderer": "qwen3.5"
   },
   "gemma-12b-agentic": {
     "base": "hf.co/yuxinlu1/gemma-4-12B-agentic-fable5-composer2.5-v2-3.5x-tau2-GGUF:Q4_K_M",

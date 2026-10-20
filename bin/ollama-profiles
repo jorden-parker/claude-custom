@@ -51,8 +51,13 @@ render_personal() {
   splice_fragments '{}' < "$personal_template" | format_json
 }
 
+render_renderer() {
+  jq -r --arg size "$1" '.[$size].renderer // empty | "RENDERER \(.)\nPARSER \(.)"' "$sizes_file"
+}
+
 render_modelfile() {
   sed -e "s|{{BASE}}|$(field "$1" base)|" -e "s|{{CONTEXT}}|$(field "$1" context)|" "$modelfile_template"
+  render_renderer "$1"
 }
 
 rendered_matches() {
