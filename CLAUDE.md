@@ -30,8 +30,11 @@ before changing how any file gets applied.
 
 - Hook tests: `shared/hooks/*.test.sh` (each prints `all passed`, or `FAIL:`
   lines and exits 1)
-- Everything at once: `make test` (`.claude/verify` runs it; the Stop hook runs
-  that)
+- Everything at once: `make test` (`.claude/verify` with no arguments runs it).
+  The Stop hook runs `.claude/verify FILE...` with the files the agent edited,
+  which runs `check-json`, `check-config`, `check-profiles` plus each file's
+  tests (`X.test.sh` beside `X`, mappings in the script; a `Makefile` edit runs
+  `make test`). Its tests: `.claude/verify.test.sh`
 - CI: `.github/workflows/verify.yml` runs `make test` on macOS and Ubuntu on
   every push to main and every PR.
 - Installer tests: `personal/install.test.sh` (prints `all passed`)
@@ -106,11 +109,16 @@ commitlint enforces conventional commits (`feat:`, `fix:`, `chore:`).
   project's prettier and eslint from `node_modules/.bin` and gofmt, go vet,
   ruff, shellcheck and `bash -n` from PATH, and rejects newly added comments. It
   caches passes by content hash under `~/.cache/claude-custom/edit-check`
-  (`EDIT_CHECK_CACHE_DIR` overrides). `shared/hooks/stop-verify.py` (Stop) runs
-  Fallow in JS/TS projects and the project's `.claude/verify`, falling back to
-  `make test`, `go test ./...` or `pnpm test` when none exists (an empty
-  `.claude/no-verify` opts out); it blocks once per turn (`stop_hook_active`).
-  Both exit 2 so the model sees stderr.
+  (`EDIT_CHECK_CACHE_DIR` overrides). `shared/hooks/stop-verify.py` also runs on
+  PostToolUse Edit/Write/MultiEdit, where it appends the edited path to a
+  per-session log under `~/.cache/claude-custom/edited-files`
+  (`STOP_VERIFY_STATE_DIR` overrides). On Stop it does nothing unless that log
+  has files inside the project. Otherwise it runs `fallow audit` on each edited
+  JS/TS file in JS/TS projects and the project's `.claude/verify` with the
+  edited files as arguments, falling back to `make test`, `go test ./...` or
+  `pnpm test` when none exists (an empty `.claude/no-verify` opts out). A pass
+  clears the log; a failure keeps it. It blocks once per turn
+  (`stop_hook_active`). Both exit 2 so the model sees stderr.
 - The `fallow-*.sh` hooks gate Fallow use (the commit/push gate only in JS/TS
   projects) and share `shared/hooks/fallow-lib.sh` (sourced from the hook's own
   directory). `fallow-command-guard.sh` (PreToolUse on Bash) denies `fallow`

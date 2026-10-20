@@ -110,6 +110,10 @@
           },
           {
             "type": "command",
+            "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/stop-verify.py"
+          },
+          {
+            "type": "command",
             "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/fallow-after-edit.sh",
             "timeout": 120
           }

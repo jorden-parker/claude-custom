@@ -1,2 +1,42 @@
 #!/bin/sh
-cd "$(dirname "$0")/.." && exec make test
+cd "$(dirname "$0")/.." || exit 1
+
+[ "$#" -eq 0 ] && exec make test
+
+sibling_test() {
+  name="${1##*/}"
+  printf '%s\n' "${1%"$name"}${name%.*}.test.sh"
+}
+
+tests_for() {
+  case "$1" in
+    *.test.sh) printf '%s\n' "$1" ;;
+    bin/claude-custom) printf '%s\n' personal/install.test.sh bin/claude-ollama.test.sh ;;
+    bin/claude-tools | ollama/*) printf '%s\n' bin/claude-ollama.test.sh ;;
+    personal/* | shared/settings/*) printf '%s\n' personal/install.test.sh ;;
+    shared/hooks/fallow-lib.sh | shared/hooks/fallow-test-lib.sh) printf '%s\n' shared/hooks/fallow-*.test.sh ;;
+    *) sibling_test "$1" ;;
+  esac
+}
+
+go_changed=""
+tests=""
+for file in "$@"; do
+  case "$file" in
+    Makefile) exec make test ;;
+    go/*) go_changed=1 ;;
+  esac
+  tests="$tests
+$(tests_for "$file")"
+done
+
+set -- check-json check-config check-profiles
+[ -n "$go_changed" ] && set -- "$@" test-go
+
+status=0
+make --no-print-directory "$@" || status=1
+for test in $(printf '%s\n' "$tests" | sort -u); do
+  [ -x "$test" ] || continue
+  "./$test" || status=1
+done
+exit "$status"

@@ -23,7 +23,8 @@ changes are in [install](docs/install.md).
 - `claude`: the personal overlay (hooks, token discipline).
 - `claude-ollama [27b|35b]`: Claude Code on a local model.
 - `claude-tools`: edit which built-in tools Claude Code loads.
-- `make test`: every test suite, the same one the Stop hook and CI run.
+- `make test`: every test suite, the one CI runs. The Stop hook runs only the
+  tests for the files the agent edited.
 
 ## Read more
 
