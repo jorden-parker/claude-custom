@@ -51,6 +51,10 @@ before changing how any file gets applied.
 - Cache probe: `bin/ollama-cache-probe [27b|35b|MODEL] [--prefix-tokens N]`
   measures prompt-cache reuse on a live Ollama; its tests are
   `bin/ollama-cache-probe.test.sh` (stub server, no real Ollama)
+- Messages bench: `bin/messages-bench --model M [--base-url URL]` times any
+  `/v1/messages` server (cold/warm TTFT, prefill, decode, tool calls); runbook
+  and results in `docs/backend-bench.md`; tests: `bin/messages-bench.test.sh`
+  (stub server)
 - Code search MCP server: `shared/mcp/code-search.py`; its tests are
   `shared/mcp/code-search.test.sh` (stub embedding server, temp git repo)
 - Feed the hook one command by hand:

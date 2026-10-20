@@ -130,3 +130,5 @@ ok   hook bash-output-guard.py present
 ok   ollama reachable at http://localhost:11434
 ok   server env OLLAMA_FLASH_ATTENTION=1
 ```
+
+To compare Ollama with other servers, see [backend-bench](backend-bench.md).

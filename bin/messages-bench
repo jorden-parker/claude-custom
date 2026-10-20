@@ -1,0 +1,347 @@
+#!/usr/bin/env python3
+import argparse
+import functools
+import http.client
+import json
+import sys
+import time
+import urllib.error
+import urllib.request
+from dataclasses import asdict, dataclass, field
+
+DEFAULT_BASE_URL = "http://localhost:11434"
+DEFAULT_AUTH_TOKEN = "local"
+DEFAULT_PREFIX_TOKENS = [20000, 60000]
+DEFAULT_MAX_TOKENS = 256
+DEFAULT_TOOL_TRIALS = 5
+ANTHROPIC_VERSION = "2023-06-01"
+REQUEST_TIMEOUT_SECONDS = 1800
+CHARS_PER_TOKEN = 4
+FILLER_LINE = "Section {number}: fixed filler text so every run sends the same bytes.\n"
+COLD = "cold"
+WARM = "warm"
+QUESTION_ONE = "Question one: write 200 words about section one."
+QUESTION_TWO = "Question two: write 200 words about section two."
+SCENARIO_QUESTIONS = ((COLD, QUESTION_ONE), (WARM, QUESTION_TWO))
+TOOL_NAME = "read_file"
+TOOL_QUESTION = "Use the read_file tool to read README.md."
+TOOL_DEFINITION = {
+    "name": TOOL_NAME,
+    "description": "Read a file from the repository.",
+    "input_schema": {
+        "type": "object",
+        "properties": {"path": {"type": "string"}},
+        "required": ["path"],
+    },
+}
+ROW_FORMAT = "{prefix:<8} {scenario:<8} {input:>8} {cached:>8} {ttft:>8} {prefill:>10} {decode:>10}"
+HEADER_CELLS = {
+    "prefix": "prefix",
+    "scenario": "scenario",
+    "input": "input",
+    "cached": "cached",
+    "ttft": "ttft s",
+    "prefill": "prefill t/s",
+    "decode": "decode t/s",
+}
+
+
+class BenchError(Exception):
+    pass
+
+
+@dataclass
+class Stream:
+    input_tokens: int = 0
+    cache_read_tokens: int | None = None
+    first_delta_seconds: float | None = None
+    last_event_seconds: float = 0.0
+    output_tokens: int = 0
+    tool_name: str | None = None
+    tool_json_pieces: list[str] = field(default_factory=list)
+
+
+@dataclass
+class Run:
+    prefix_tokens: int
+    scenario: str
+    input_tokens: int
+    cache_read_tokens: int | None
+    ttft_seconds: float
+    output_tokens: int
+    decode_seconds: float
+    prefill_tokens_per_second: float
+    decode_tokens_per_second: float | None
+
+
+def positive_int(text):
+    value = int(text)
+    if value < 1:
+        raise argparse.ArgumentTypeError("must be at least 1")
+    return value
+
+
+def non_negative_int(text):
+    value = int(text)
+    if value < 0:
+        raise argparse.ArgumentTypeError("must not be negative")
+    return value
+
+
+def parse_args(argv):
+    parser = argparse.ArgumentParser(
+        description="Time any Anthropic /v1/messages server: cold and warm TTFT, prefill, decode, tool calls."
+    )
+    parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
+    parser.add_argument("--model", required=True)
+    parser.add_argument("--auth-token", default=DEFAULT_AUTH_TOKEN)
+    parser.add_argument("--prefix-tokens", nargs="+", type=positive_int, default=DEFAULT_PREFIX_TOKENS)
+    parser.add_argument("--max-tokens", type=positive_int, default=DEFAULT_MAX_TOKENS)
+    parser.add_argument("--tool-trials", type=non_negative_int, default=DEFAULT_TOOL_TRIALS)
+    parser.add_argument("--json", action="store_true")
+    return parser.parse_args(argv)
+
+
+def estimate_tokens(text):
+    return len(text) // CHARS_PER_TOKEN
+
+
+def build_prefix(prefix_tokens, run_marker):
+    wanted = prefix_tokens * CHARS_PER_TOKEN
+    text = run_marker + "\n"
+    number = 0
+    while len(text) < wanted:
+        text += FILLER_LINE.format(number=number)
+        number += 1
+    return text[:wanted]
+
+
+def build_body(model, max_tokens, text, tools=None):
+    body = {
+        "model": model,
+        "max_tokens": max_tokens,
+        "stream": True,
+        "messages": [{"role": "user", "content": text}],
+    }
+    if tools:
+        body["tools"] = tools
+    return body
+
+
+def request_headers(auth_token):
+    return {
+        "content-type": "application/json",
+        "anthropic-version": ANTHROPIC_VERSION,
+        "x-api-key": auth_token,
+        "authorization": f"Bearer {auth_token}",
+    }
+
+
+def parse_event(payload):
+    try:
+        event = json.loads(payload)
+    except json.JSONDecodeError as error:
+        raise BenchError(f"malformed SSE data: {payload[:80]}") from error
+    return event
+
+
+def iter_events(lines):
+    data_lines = []
+    for raw_line in lines:
+        line = raw_line.decode("utf-8").rstrip("\r\n")
+        if line.startswith("data:"):
+            data_lines.append(line[len("data:"):].lstrip())
+        elif line == "" and data_lines:
+            yield parse_event("\n".join(data_lines))
+            data_lines = []
+    if data_lines:
+        yield parse_event("\n".join(data_lines))
+
+
+def record_message_start(stream, message):
+    usage = message.get("usage", {})
+    stream.input_tokens = usage.get("input_tokens", 0)
+    stream.cache_read_tokens = usage.get("cache_read_input_tokens")
+
+
+def record_block_start(stream, block):
+    if block.get("type") == "tool_use" and stream.tool_name is None:
+        stream.tool_name = block.get("name")
+
+
+def record_delta(stream, delta, seconds):
+    if stream.first_delta_seconds is None:
+        stream.first_delta_seconds = seconds
+    if delta.get("type") == "input_json_delta":
+        stream.tool_json_pieces.append(delta.get("partial_json", ""))
+
+
+def apply_event(stream, event, seconds):
+    kind = event.get("type")
+    if kind == "ping":
+        return
+    if kind == "error":
+        raise BenchError(f"server sent an error event: {event.get('error')}")
+    stream.last_event_seconds = seconds
+    if kind == "message_start":
+        record_message_start(stream, event.get("message", {}))
+    elif kind == "content_block_start":
+        record_block_start(stream, event.get("content_block", {}))
+    elif kind == "content_block_delta":
+        record_delta(stream, event.get("delta", {}), seconds)
+    elif kind == "message_delta":
+        stream.output_tokens = event.get("usage", {}).get("output_tokens", stream.output_tokens)
+
+
+def read_stream(lines, started_at):
+    stream = Stream()
+    for event in iter_events(lines):
+        apply_event(stream, event, time.perf_counter() - started_at)
+    return stream
+
+
+def stream_message(config, body):
+    url = config.base_url.rstrip("/") + "/v1/messages"
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(body).encode("utf-8"),
+        headers=request_headers(config.auth_token),
+        method="POST",
+    )
+    started_at = time.perf_counter()
+    try:
+        with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
+            if response.status != 200:
+                raise BenchError(f"{url} answered HTTP {response.status}")
+            return read_stream(response, started_at)
+    except urllib.error.HTTPError as error:
+        raise BenchError(f"{url} answered HTTP {error.code}") from error
+    except (OSError, http.client.HTTPException) as error:
+        raise BenchError(f"request to {url} failed: {error}") from error
+
+
+def rate(count, seconds):
+    return count / seconds if seconds > 0 else None
+
+
+def make_run(stream, prefix_tokens, scenario, prompt):
+    if stream.first_delta_seconds is None:
+        raise BenchError(f"{scenario} request at {prefix_tokens} tokens produced no content_block_delta")
+    input_tokens = stream.input_tokens or estimate_tokens(prompt)
+    ttft = stream.first_delta_seconds
+    decode_seconds = stream.last_event_seconds - ttft
+    return Run(
+        prefix_tokens=prefix_tokens,
+        scenario=scenario,
+        input_tokens=input_tokens,
+        cache_read_tokens=stream.cache_read_tokens,
+        ttft_seconds=ttft,
+        output_tokens=stream.output_tokens,
+        decode_seconds=decode_seconds,
+        prefill_tokens_per_second=input_tokens / ttft,
+        decode_tokens_per_second=rate(stream.output_tokens, decode_seconds),
+    )
+
+
+def measure_run(config, prefix_tokens, scenario, prompt):
+    body = build_body(config.model, config.max_tokens, prompt)
+    return make_run(stream_message(config, body), prefix_tokens, scenario, prompt)
+
+
+def tool_call_parsed(stream):
+    if stream.tool_name != TOOL_NAME:
+        return False
+    try:
+        arguments = json.loads("".join(stream.tool_json_pieces))
+    except json.JSONDecodeError:
+        return False
+    return isinstance(arguments, dict) and isinstance(arguments.get("path"), str)
+
+
+def run_tool_trial(config):
+    body = build_body(config.model, config.max_tokens, TOOL_QUESTION, tools=[TOOL_DEFINITION])
+    return tool_call_parsed(stream_message(config, body))
+
+
+def prefix_jobs(config, run_marker):
+    jobs = []
+    for prefix_tokens in config.prefix_tokens:
+        prefix = build_prefix(prefix_tokens, run_marker)
+        for scenario, question in SCENARIO_QUESTIONS:
+            label = f"{scenario} {prefix_tokens} tokens"
+            job = functools.partial(measure_run, config, prefix_tokens, scenario, prefix + question)
+            jobs.append((label, job))
+    return jobs
+
+
+def tool_jobs(config):
+    return [("tool call", functools.partial(run_tool_trial, config)) for _ in range(config.tool_trials)]
+
+
+def run_jobs(jobs):
+    results = []
+    for index, (label, job) in enumerate(jobs, start=1):
+        print(f"[{index}/{len(jobs)}] {label}: sending", file=sys.stderr, flush=True)
+        started_at = time.perf_counter()
+        results.append(job())
+        elapsed = time.perf_counter() - started_at
+        print(f"[{index}/{len(jobs)}] {label}: done in {elapsed:.1f}s", file=sys.stderr, flush=True)
+    return results
+
+
+def run_bench(config):
+    run_marker = f"Run {time.time_ns()}."
+    prefix_list = prefix_jobs(config, run_marker)
+    tool_list = tool_jobs(config)
+    results = run_jobs(prefix_list + tool_list)
+    tool_results = results[len(prefix_list):]
+    return {
+        "base_url": config.base_url,
+        "model": config.model,
+        "runs": [asdict(run) for run in results[: len(prefix_list)]],
+        "tool_calls": {"parsed": sum(tool_results), "trials": len(tool_list)},
+    }
+
+
+def cell(value, template):
+    return "-" if value is None else template.format(value)
+
+
+def format_row(run):
+    return ROW_FORMAT.format(
+        prefix=run["prefix_tokens"],
+        scenario=run["scenario"],
+        input=run["input_tokens"],
+        cached=cell(run["cache_read_tokens"], "{}"),
+        ttft=f"{run['ttft_seconds']:.2f}",
+        prefill=f"{run['prefill_tokens_per_second']:.1f}",
+        decode=cell(run["decode_tokens_per_second"], "{:.1f}"),
+    )
+
+
+def render_table(report):
+    lines = [ROW_FORMAT.format(**HEADER_CELLS)]
+    lines.extend(format_row(run) for run in report["runs"])
+    calls = report["tool_calls"]
+    if calls["trials"]:
+        lines.append(f"tool calls: {calls['parsed']}/{calls['trials']} parsed")
+    lines.append(f"server: {report['base_url']} model: {report['model']}")
+    return "\n".join(lines)
+
+
+def main(argv):
+    config = parse_args(argv)
+    try:
+        report = run_bench(config)
+    except BenchError as error:
+        print(f"messages-bench: {error}", file=sys.stderr)
+        return 1
+    if config.json:
+        print(json.dumps(report, indent=2))
+    else:
+        print(render_table(report))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
