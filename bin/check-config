@@ -59,9 +59,14 @@ done
 
 check_eq "rendered profiles are current" 0 "$("$repo/bin/ollama-profiles" --check >/dev/null 2>&1; echo $?)"
 
-check_eq "side model context matches sizes.json" \
-  "$(jq -r '[.[].context] | unique | .[]' "$repo/ollama/sizes.json")" \
-  "$(sed -n 's/^PARAMETER num_ctx //p' "$repo/ollama/side.Modelfile")"
+side_context_fits_every_size() {
+  local side smallest
+  side="$(sed -n 's/^PARAMETER num_ctx //p' "$repo/ollama/side.Modelfile")"
+  smallest="$(jq '[.[].context] | min' "$repo/ollama/sizes.json")"
+  [ -n "$side" ] && [ "$side" -le "$smallest" ]
+}
+
+check_that "side model context is no larger than any size's context" side_context_fits_every_size
 
 check_eq "settings.tokens.json sets subagents to Haiku" haiku \
   "$(jq -r .env.CLAUDE_CODE_SUBAGENT_MODEL "$repo/personal/settings.tokens.json")"

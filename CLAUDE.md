@@ -159,7 +159,7 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   `MAX_LINES` in `bash-output-trim.py` (`bin/check-config` checks it).
 - `shared/preferences/PREFERENCES.md` holds the prose rules no tool can check,
   including token discipline. `bin/claude-custom install` `@`-imports it into
-  `~/.claude/CLAUDE.md`, so both backends load it. Keep it short: Ollama has 96k
+  `~/.claude/CLAUDE.md`, so both backends load it. Keep it short: Ollama has 64k-96k
   context.
 - `shared/hooks/tool-nudge.py` is wired only in the Ollama profiles
   (UserPromptSubmit resets its per-session state under
@@ -238,8 +238,9 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   `bin/claude-ollama`, `code-search.py` and
   `go/internal/picker/profiles/embedding.go`, and `bin/check-config` checks they
   agree. The Ollama profiles allow the tool in `permissions.allow`.
-- `ollama/server.env` documents the Ollama server env the profiles expect. The
-  Homebrew service sets the same values. Nothing applies it automatically;
+- `ollama/server.env` documents the Ollama server env the profiles expect,
+  including `OLLAMA_MAX_LOADED_MODELS=2` so a subagent's side model never
+  loads beside two others. Nothing applies it automatically;
   `bin/ollama-agent` passes it as `-server-env`, so a new LaunchAgent starts
   from its values. `bin/claude-ollama` sends a background warm-up `keep_alive`
   request to `OLLAMA_HOST` (default `localhost:11434`) before `exec claude`.
@@ -250,8 +251,8 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   call launchctl). Saving rewrites the whole plist, so hand edits to keys other
   than `EnvironmentVariables` are lost.
 - `ollama/CLAUDE.local.md` is the appended system prompt for every size, for
-  small local models, not memory files. Keep it terse: every size has a 96k
-  context. `ollama/sizes.json` is the single source for each size's `context`:
+  small local models, not memory files. Keep it terse: the 27b has a 64k
+  context, the other sizes 96k and the side model 32k. `ollama/sizes.json` is the single source for each size's `context`:
   `bin/ollama-profiles` writes it to `Modelfile.<size>` (`num_ctx`),
   `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, and the `ollama create` names that `model`
   and the `ANTHROPIC_DEFAULT_*_MODEL` vars refer to. A managed

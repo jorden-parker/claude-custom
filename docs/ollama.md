@@ -61,6 +61,12 @@ and sends subagents and the Haiku slot to the main model for that session; pass
 model after the ID that maps to it, so the banner would say Sonnet. Forcing
 every subagent onto it needs Claude Code v2.1.257 or later.
 
+The side model's context is 32k (`num_ctx` in `ollama/side.Modelfile`), smaller
+than any size's. A subagent loads it next to the main model, and two 96k KV
+caches plus the 27b's weights froze a 48 GB Mac. A subagent prompt over 32k is
+cut by Ollama, since Claude Code still assumes the main model's context.
+`bin/check-config` fails if the side model's context is larger than a size's.
+
 Plain `claude` stays on the personal setup. The profile only exists for that
 launch.
 
@@ -88,8 +94,10 @@ The profiles expect an Ollama server on `localhost:11434` with the settings in
 `ollama/server.env`. Nothing applies them automatically (see
 `claude-custom agent` below). The launcher also sends a warm-up request with
 `keep_alive` 30m (`CLAUDE_OLLAMA_KEEP_ALIVE` overrides) so the first prompt
-doesn't wait for the model to load. The Homebrew service
-(`brew services start ollama`) sets the same values, and uses these paths:
+doesn't wait for the model to load. `OLLAMA_MAX_LOADED_MODELS=2` keeps the
+main and side models loaded and evicts a third (the embedding model) instead
+of overcommitting memory. The Homebrew service (`brew services start ollama`)
+uses these paths; add any `server.env` value it lacks with `claude-custom agent`:
 
 | What        | Homebrew value                                      |
 | ----------- | --------------------------------------------------- |
