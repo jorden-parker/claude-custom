@@ -55,6 +55,8 @@ for settings in "$repo"/ollama/settings.*.json; do
     "$(jq -r .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS "$settings")" "$(jq -r .env.CLAUDE_CODE_AUTO_COMPACT_WINDOW "$settings")"
   check_eq "${settings##*/} waits the full 30 minutes for a silent Ollama stream" "1800000 1800000" \
     "$(jq -r '[.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS, .env.API_TIMEOUT_MS] | join(" ")' "$settings")"
+  check_eq "${settings##*/} keeps the prompt prefix stable so Ollama reuses its cache" "0 off" \
+    "$(jq -r '[.env.CLAUDE_CODE_ATTRIBUTION_HEADER, .env.CLAUDE_CODE_TOTAL_TOKENS_REMINDER] | join(" ")' "$settings")"
 done
 
 check_eq "rendered profiles are current" 0 "$("$repo/bin/ollama-profiles" --check >/dev/null 2>&1; echo $?)"
