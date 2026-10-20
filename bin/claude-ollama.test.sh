@@ -201,7 +201,7 @@ check_not "claude-ollama 27b failed pull does not create" grep -sq '^create ' "$
 check_not "claude-ollama 27b failed pull does not launch claude" grep -q '^ARGS:' "$sandbox/out"
 run_capture "$repo/bin/claude-ollama" --help
 check_eq "claude-ollama help exit status" 0 "$?"
-check_that "claude-ollama help lists sizes" grep -qxF "sizes: 27b 35b" "$sandbox/out"
+check_that "claude-ollama help lists sizes" grep -qxF "sizes: 27b 35b-distill 35b" "$sandbox/out"
 check_not "claude-ollama help does not launch claude" grep -q '^ARGS:' "$sandbox/out"
 run_capture "$repo/bin/claude-ollama" 28b -p hi </dev/null
 check_that "claude-ollama unknown size without a tty falls back to 27b" grep -qF -- "$ollama_settings" "$sandbox/out"
@@ -218,7 +218,7 @@ run_capture "$sandbox/repo/bin/claude-ollama" 9b -p hi
 check_that "claude-ollama accepts a newly configured size" grep -qF -- "--settings $sandbox/repo/ollama/settings.9b.json" "$sandbox/out"
 check_not "claude-ollama does not pass a configured size to claude" grep -qF -- "Write 9b" "$sandbox/out"
 run_capture "$sandbox/repo/bin/claude-ollama" --help
-check_that "claude-ollama help lists sizes from config" grep -qxF "sizes: 27b 35b 9b" "$sandbox/out"
+check_that "claude-ollama help lists sizes from config" grep -qxF "sizes: 27b 35b-distill 35b 9b" "$sandbox/out"
 
 cat > "$sandbox/stubbin/go" <<'STUB'
 #!/bin/sh

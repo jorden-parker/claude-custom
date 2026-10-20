@@ -8,5 +8,10 @@
     "base": "qwen3.6:35b-mlx",
     "model": "qwen3.6-35b-cc",
     "context": 65536
+  },
+  "35b-distill": {
+    "base": "hf.co/empero-ai/Qwen3.8-35B-A3B-Distill-GGUF:Q4_K_M",
+    "model": "qwen3.8-35b-distill-cc",
+    "context": 65536
   }
 }
