@@ -62,7 +62,21 @@ base_model() {
 }
 
 modelfile_num_ctx() {
-  sed -n 's/^PARAMETER num_ctx //p' "$profile_dir/Modelfile.$size"
+  sed -n 's/^PARAMETER num_ctx //p' "${1:-$profile_dir/Modelfile.$size}"
+}
+
+installed_num_ctx() {
+  ollama show "$1" --parameters 2>/dev/null | awk '$1 == "num_ctx" { print $2 }'
+}
+
+refresh_num_ctx() {
+  local name="$1" wanted="$2" modelfile
+  [ "$(installed_num_ctx "$name")" = "$wanted" ] && return 0
+  echo "claude-ollama: recreating $name with num_ctx $wanted" >&2
+  modelfile="$(mktemp -t claude-ollama-modelfile.XXXXXX)"
+  printf 'FROM %s\nPARAMETER num_ctx %s\n' "$name" "$wanted" > "$modelfile"
+  ollama create "$name" -f "$modelfile"
+  rm -f "$modelfile"
 }
 
 profile_context_tokens() {
@@ -85,7 +99,10 @@ download_hugging_face_weights() {
 
 ensure_model() {
   local modelfile="$profile_dir/Modelfile.$size" base repo
-  ollama show "$model" >/dev/null 2>&1 && return 0
+  if ollama show "$model" >/dev/null 2>&1; then
+    refresh_num_ctx "$model" "$(modelfile_num_ctx)"
+    return
+  fi
   base="$(base_model)"
   repo="$(hugging_face_repo "$base")"
   if [ -z "$repo" ]; then
@@ -122,7 +139,10 @@ fallback_settings_file() {
 ensure_side_model() {
   local name
   name="$(side_model_name)"
-  ollama show "$name" >/dev/null 2>&1 && return 0
+  if ollama show "$name" >/dev/null 2>&1; then
+    refresh_num_ctx "$name" "$(modelfile_num_ctx "$profile_dir/side.Modelfile")"
+    return 0
+  fi
   if [ "$require_side_model" = 1 ]; then
     echo "claude-ollama: side model $name missing; run claude-ollama and pick 'Set up side model'" >&2
     exit 1

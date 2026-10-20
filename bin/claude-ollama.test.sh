@@ -47,7 +47,7 @@ new_sandbox() {
   export HOME="$sandbox/home"
   mkdir -p "$HOME" "$sandbox/stubbin"
   unset ZDOTDIR XDG_CONFIG_HOME CLAUDE_CONFIG_DIR STUB_OLLAMA_SHOW_EXIT STUB_OLLAMA_PULL_EXIT
-  unset STUB_OLLAMA_PID STUB_OLLAMA_ENV STUB_CURL_EXIT STUB_OLLAMA_MISSING
+  unset STUB_OLLAMA_PID STUB_OLLAMA_ENV STUB_CURL_EXIT STUB_OLLAMA_MISSING STUB_OLLAMA_NUM_CTX
   export SHELL=/bin/zsh
   export CLAUDE_OLLAMA_MANAGED_SETTINGS="$sandbox/managed-settings.json"
   cat > "$sandbox/stubbin/claude" <<EOF
@@ -61,8 +61,10 @@ EOF
 echo "\$*" >> "$sandbox/ollama.log"
 if [ "\$1" = show ]; then
   [ "\$2" = "\${STUB_OLLAMA_MISSING:-}" ] && exit 1
+  [ "\$3" = --parameters ] && echo "num_ctx                        \${STUB_OLLAMA_NUM_CTX:-98304}"
   exit "\${STUB_OLLAMA_SHOW_EXIT:-0}"
 fi
+if [ "\$1" = create ]; then sed 's/^/modelfile: /' "\$4" >> "$sandbox/ollama.log"; fi
 if [ "\$1" = pull ]; then exit "\${STUB_OLLAMA_PULL_EXIT:-0}"; fi
 exit 0
 EOF
@@ -207,6 +209,16 @@ STUB_OLLAMA_SHOW_EXIT=1 STUB_OLLAMA_PULL_EXIT=1 run_capture "$repo/bin/claude-ol
 check_eq "claude-ollama 27b failed pull exit status" 1 "$?"
 check_not "claude-ollama 27b failed pull does not create" grep -sq '^create ' "$sandbox/ollama.log"
 check_not "claude-ollama 27b failed pull does not launch claude" grep -q '^ARGS:' "$sandbox/out"
+new_sandbox
+STUB_OLLAMA_NUM_CTX=65536 run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_that "claude-ollama recreates a model with a stale num_ctx" grep -qE '^create qwen3.8-27b-cc -f ' "$sandbox/ollama.log"
+check_that "the recreated model builds on the installed one" grep -qxF "modelfile: FROM qwen3.8-27b-cc" "$sandbox/ollama.log"
+check_that "the recreated model gets the profile num_ctx" grep -qxF "modelfile: PARAMETER num_ctx 98304" "$sandbox/ollama.log"
+check_that "claude-ollama recreates a side model with a stale num_ctx" grep -qE '^create qwen3-4b-cc -f ' "$sandbox/ollama.log"
+check_that "the recreated side model builds on the installed one" grep -qxF "modelfile: FROM qwen3-4b-cc" "$sandbox/ollama.log"
+check_not "a stale num_ctx does not pull the base model" grep -q '^pull ' "$sandbox/ollama.log"
+check_that "claude-ollama says it recreates the model" grep -qF "recreating qwen3.8-27b-cc with num_ctx 98304" "$sandbox/err"
+check_that "claude-ollama launches after recreating" grep -qF -- "--model qwen3.8-27b-cc --tools" "$sandbox/out"
 
 new_sandbox
 copy_repo "$sandbox/repo"

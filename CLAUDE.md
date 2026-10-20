@@ -203,7 +203,9 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   `ANTHROPIC_MODEL`, which would otherwise win over the settings file), and
   restricts tools with `--tools` (built-in tools only; MCP tools still load).
   Before launching, it pulls the base model and creates the `-cc` model when
-  `ollama show` can't find the `-cc` model. When the side model is missing it
+  `ollama show` can't find the `-cc` model. When an installed main or side
+  model's `num_ctx` differs from its Modelfile, it recreates that model `FROM`
+  itself with the new `num_ctx` (no pull). When the side model is missing it
   launches with a temporary copy of the profile whose side-model entries point
   at the main model (`--require-side-model` exits 1 instead). `doctor` and
   `--print-config` are dispatched before any pull or launch; `doctor` reads hook
