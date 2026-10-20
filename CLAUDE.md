@@ -251,9 +251,8 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   small local models, not memory files. Keep it terse: both sizes have a 64k
   context. `ollama/sizes.json` is the single source for each size's `context`:
   `bin/ollama-profiles` writes it to `Modelfile.<size>` (`num_ctx`),
-  `CLAUDE_CODE_MAX_CONTEXT_TOKENS` and `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, and
-  the `ollama create` names that `model` and the `ANTHROPIC_DEFAULT_*_MODEL`
-  vars refer to. The compact window is pinned because a managed
+  `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, and the `ollama create` names that `model`
+  and the `ANTHROPIC_DEFAULT_*_MODEL` vars refer to. A managed
   `availableModels` that lacks the model makes Claude Code substitute a `[1m]`
   ID, which assumes a 1M window; `claude-ollama doctor` warns when that happens.
   Each profile's own `availableModels` lists its main and side model;
