@@ -65,7 +65,10 @@ before changing how any file gets applied.
   `~/.zshenv` or `~/.local/bin/claude`, and derives Ollama model names from
   `ollama/settings.<size>.json` and `ollama/Modelfile.<size>`, both rendered
   from `ollama/sizes.json`. Adding a size means one `sizes.json` entry, then
-  `bin/ollama-profiles`; never hand-edit the rendered files.
+  `bin/ollama-profiles`; never hand-edit the rendered files. A `base` of
+  `./weights/<owner>/<repo>` is a Hugging Face MLX repo: `bin/claude-ollama`
+  downloads it with `hf download` into `ollama/weights/` (gitignored), runs
+  `ollama create` from `ollama/`, then deletes the download.
 - Go module `go/` (both apps; `go/cmd/model-picker/`, `go/cmd/claude-tools/`):
   `cd go && go test ./...`. One test:
   `cd go && go test ./internal/tools/ui -run TestSwitching`. Run the picker or

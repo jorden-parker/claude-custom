@@ -11,3 +11,4 @@ coverage/
 plans/
 go/cmd/claude-tools/claude-tools
 go/cmd/model-picker/model-picker
+ollama/weights/

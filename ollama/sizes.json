@@ -34,5 +34,20 @@
     "base": "hf.co/yuxinlu1/gemma-4-12B-agentic-fable5-composer2.5-v2-3.5x-tau2-GGUF:Q4_K_M",
     "model": "gemma-4-12b-agentic-cc",
     "context": 65536
+  },
+  "35b-coding": {
+    "base": "qwen3.6:35b-a3b-coding-nvfp4",
+    "model": "qwen3.6-35b-coding-cc",
+    "context": 65536
+  },
+  "35b-ornith": {
+    "base": "./weights/ornith-ai/Ornith-1.5-35B-A3B-MLX-4bit",
+    "model": "ornith-1.5-35b-cc",
+    "context": 65536
+  },
+  "35b-tiel-mlx": {
+    "base": "./weights/peculiar-ragdoll/Tiel-Coder-35B-A3B-MLX-oQ4e-MTP",
+    "model": "tiel-coder-35b-mlx-cc",
+    "context": 65536
   }
 }

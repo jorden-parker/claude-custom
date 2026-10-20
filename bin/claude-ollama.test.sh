@@ -199,9 +199,34 @@ STUB_OLLAMA_SHOW_EXIT=1 STUB_OLLAMA_PULL_EXIT=1 run_capture "$repo/bin/claude-ol
 check_eq "claude-ollama 27b failed pull exit status" 1 "$?"
 check_not "claude-ollama 27b failed pull does not create" grep -sq '^create ' "$sandbox/ollama.log"
 check_not "claude-ollama 27b failed pull does not launch claude" grep -q '^ARGS:' "$sandbox/out"
+
+new_sandbox
+copy_repo "$sandbox/repo"
+mlx_weights="$sandbox/repo/ollama/weights/acme/coder-MLX-4bit"
+cp "$sandbox/repo/ollama/settings.35b.json" "$sandbox/repo/ollama/settings.mlxtest.json"
+printf 'FROM ./weights/acme/coder-MLX-4bit\nPARAMETER num_ctx 65536\n' > "$sandbox/repo/ollama/Modelfile.mlxtest"
+cat > "$sandbox/stubbin/hf" <<EOF
+#!/bin/sh
+echo "\$*" >> "$sandbox/hf.log"
+mkdir -p "\$4"
+EOF
+chmod +x "$sandbox/stubbin/hf"
+STUB_OLLAMA_SHOW_EXIT=1 run_capture "$sandbox/repo/bin/claude-ollama" mlxtest -p hi
+check_that "claude-ollama downloads Hugging Face MLX weights" grep -qxF "download acme/coder-MLX-4bit --local-dir $sandbox/repo/ollama/./weights/acme/coder-MLX-4bit" "$sandbox/hf.log"
+check_not "claude-ollama does not ollama-pull a local weights dir" grep -q '^pull ./weights' "$sandbox/ollama.log"
+check_that "claude-ollama creates the model from the downloaded weights" grep -qxF "create qwen3.6-35b-cc -f $sandbox/repo/ollama/Modelfile.mlxtest" "$sandbox/ollama.log"
+check_not "claude-ollama removes the downloaded weights after create" test -e "$mlx_weights"
+check_that "claude-ollama launches after importing MLX weights" grep -q '^ARGS:' "$sandbox/out"
+rm -f "$sandbox/stubbin/hf" "$sandbox/ollama.log"
+STUB_OLLAMA_SHOW_EXIT=1 run_capture "$sandbox/repo/bin/claude-ollama" mlxtest -p hi
+check_eq "claude-ollama without hf exit status" 1 "$?"
+check_that "claude-ollama without hf says how to install it" grep -qF 'hf.co/cli/install.sh' "$sandbox/err"
+check_not "claude-ollama without hf does not create" grep -sq '^create ' "$sandbox/ollama.log"
+
+new_sandbox
 run_capture "$repo/bin/claude-ollama" --help
 check_eq "claude-ollama help exit status" 0 "$?"
-check_that "claude-ollama help lists sizes" grep -qxF "sizes: 27b-dirk 27b 35b-distill 35b-tiel 35b 9b-distill gemma-12b-agentic" "$sandbox/out"
+check_that "claude-ollama help lists sizes" grep -qxF "sizes: 27b-dirk 27b 35b-coding 35b-distill 35b-ornith 35b-tiel-mlx 35b-tiel 35b 9b-distill gemma-12b-agentic" "$sandbox/out"
 check_not "claude-ollama help does not launch claude" grep -q '^ARGS:' "$sandbox/out"
 run_capture "$repo/bin/claude-ollama" 28b -p hi </dev/null
 check_that "claude-ollama unknown size without a tty falls back to 27b" grep -qF -- "$ollama_settings" "$sandbox/out"
@@ -218,7 +243,7 @@ run_capture "$sandbox/repo/bin/claude-ollama" 9b -p hi
 check_that "claude-ollama accepts a newly configured size" grep -qF -- "--settings $sandbox/repo/ollama/settings.9b.json" "$sandbox/out"
 check_not "claude-ollama does not pass a configured size to claude" grep -qF -- "Write 9b" "$sandbox/out"
 run_capture "$sandbox/repo/bin/claude-ollama" --help
-check_that "claude-ollama help lists sizes from config" grep -qxF "sizes: 27b-dirk 27b 35b-distill 35b-tiel 35b 9b-distill 9b gemma-12b-agentic" "$sandbox/out"
+check_that "claude-ollama help lists sizes from config" grep -qxF "sizes: 27b-dirk 27b 35b-coding 35b-distill 35b-ornith 35b-tiel-mlx 35b-tiel 35b 9b-distill 9b gemma-12b-agentic" "$sandbox/out"
 
 cat > "$sandbox/stubbin/go" <<'STUB'
 #!/bin/sh
