@@ -23,5 +23,15 @@
     "base": "hf.co/peculiar-ragdoll/Dirk-Qwen3.8-27B-GGUF:UD-Q4_K_XL",
     "model": "dirk-qwen3.8-27b-cc",
     "context": 65536
+  },
+  "9b-distill": {
+    "base": "hf.co/empero-ai/Qwen3.8-9B-Distill-GGUF:Q4_K_M",
+    "model": "qwen3.8-9b-distill-cc",
+    "context": 65536
+  },
+  "gemma-12b-agentic": {
+    "base": "hf.co/yuxinlu1/gemma-4-12B-agentic-fable5-composer2.5-v2-3.5x-tau2-GGUF:Q4_K_M",
+    "model": "gemma-4-12b-agentic-cc",
+    "context": 65536
   }
 }
