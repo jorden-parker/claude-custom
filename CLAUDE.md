@@ -159,7 +159,7 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   `MAX_LINES` in `bash-output-trim.py` (`bin/check-config` checks it).
 - `shared/preferences/PREFERENCES.md` holds the prose rules no tool can check,
   including token discipline. `bin/claude-custom install` `@`-imports it into
-  `~/.claude/CLAUDE.md`, so both backends load it. Keep it short: Ollama has 64k
+  `~/.claude/CLAUDE.md`, so both backends load it. Keep it short: Ollama has 96k
   context.
 - `shared/hooks/tool-nudge.py` is wired only in the Ollama profiles
   (UserPromptSubmit resets its per-session state under
@@ -248,7 +248,7 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   call launchctl). Saving rewrites the whole plist, so hand edits to keys other
   than `EnvironmentVariables` are lost.
 - `ollama/CLAUDE.local.md` is the appended system prompt for every size, for
-  small local models, not memory files. Keep it terse: both sizes have a 64k
+  small local models, not memory files. Keep it terse: every size has a 96k
   context. `ollama/sizes.json` is the single source for each size's `context`:
   `bin/ollama-profiles` writes it to `Modelfile.<size>` (`num_ctx`),
   `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, and the `ollama create` names that `model`

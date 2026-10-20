@@ -1,2 +1,2 @@
 FROM hf.co/peculiar-ragdoll/Dirk-Qwen3.8-27B-GGUF:UD-Q4_K_XL
-PARAMETER num_ctx 65536
+PARAMETER num_ctx 98304

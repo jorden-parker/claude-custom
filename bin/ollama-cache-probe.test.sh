@@ -165,7 +165,7 @@ check "progress stays off stdout" lacks_row "$table" "^\[1/7\]"
 check "cold scenario unloads the model first" logged '"keep_alive": 0'
 check "requests use the -cc model from the size profile" logged '"model": "qwen3.8-27b-cc"'
 check "requests are not streamed" logged '"stream": false'
-check "requests set num_ctx" logged '"num_ctx": 65536'
+check "requests set num_ctx" logged '"num_ctx": 98304'
 check "growing chat sends an assistant turn" request_has "$(request_at 3)" '"role": "assistant"'
 check "same prefix request follows the cold prefix" [ "$(first_difference 4 2)" -ge 80000 ]
 late_at="$(first_difference 5 4)"

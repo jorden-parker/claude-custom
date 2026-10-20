@@ -48,7 +48,7 @@ exit_status_of() {
 
 check_eq "check passes on current files" 0 "$(exit_status_of --check)"
 
-sed 's/65536/32768/' "$profiles/settings.27b.json" > "$sandbox/stale.json" && mv "$sandbox/stale.json" "$profiles/settings.27b.json"
+sed 's/98304/32768/' "$profiles/settings.27b.json" > "$sandbox/stale.json" && mv "$sandbox/stale.json" "$profiles/settings.27b.json"
 check_eq "check fails on a stale file" 1 "$(exit_status_of --check)"
 check_that "check names the stale file" sh -c "CLAUDE_CUSTOM_REPO='$sandbox' '$gen' --check 2>&1 | grep -q 'settings.27b.json'"
 

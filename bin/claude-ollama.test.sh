@@ -302,8 +302,8 @@ check_that "print-config shows the model" grep -qxF "model: qwen3.6-35b-cc" "$sa
 check_that "print-config shows the base model" grep -qxF "base: qwen3.6:35b-mlx" "$sandbox/out"
 check_that "print-config shows the side model" grep -qxF "side model: qwen3-4b-cc" "$sandbox/out"
 check_that "print-config shows the embedding model" grep -qxF "embedding model: qwen3-embedding:0.6b" "$sandbox/out"
-check_that "print-config shows num_ctx" grep -qxF "num_ctx: 65536" "$sandbox/out"
-check_that "print-config shows context tokens" grep -qxF "max context tokens: 65536" "$sandbox/out"
+check_that "print-config shows num_ctx" grep -qxF "num_ctx: 98304" "$sandbox/out"
+check_that "print-config shows context tokens" grep -qxF "max context tokens: 98304" "$sandbox/out"
 check_that "print-config shows the settings path" grep -qxF "settings: $repo/ollama/settings.35b.json" "$sandbox/out"
 check_that "print-config shows the tools" grep -qxF "tools: Bash,Read,Edit,Write,Agent" "$sandbox/out"
 check_that "print-config shows the command" grep -q '^command: claude --settings ' "$sandbox/out"
@@ -317,7 +317,7 @@ check_that "doctor reports jq" grep -qxF "ok   jq on PATH" "$sandbox/out"
 check_that "doctor reports the main model" grep -qxF "ok   model qwen3.8-27b-cc" "$sandbox/out"
 check_that "doctor reports the side model" grep -qxF "ok   side model qwen3-4b-cc" "$sandbox/out"
 check_that "doctor reports the embedding model" grep -qxF "ok   embedding model qwen3-embedding:0.6b" "$sandbox/out"
-check_that "doctor reports context sizes agree" grep -qxF "ok   num_ctx 65536 matches CLAUDE_CODE_MAX_CONTEXT_TOKENS" "$sandbox/out"
+check_that "doctor reports context sizes agree" grep -qxF "ok   num_ctx 98304 matches CLAUDE_CODE_MAX_CONTEXT_TOKENS" "$sandbox/out"
 check_that "doctor reports hooks" grep -qxF "ok   hook stop-verify.py present" "$sandbox/out"
 check_that "doctor reports reachability" grep -qxF "ok   ollama reachable at http://localhost:11434" "$sandbox/out"
 check_that "doctor reports server env" grep -qxF "ok   server env OLLAMA_KV_CACHE_TYPE=q8_0" "$sandbox/out"
@@ -340,11 +340,11 @@ check_that "doctor warns only about the side model" grep -qxF "warn side model q
 
 new_sandbox
 copy_repo "$sandbox/repo"
-sed 's/num_ctx 65536/num_ctx 32768/' "$sandbox/repo/ollama/Modelfile.27b" > "$sandbox/Modelfile.27b"
+sed 's/num_ctx 98304/num_ctx 32768/' "$sandbox/repo/ollama/Modelfile.27b" > "$sandbox/Modelfile.27b"
 mv "$sandbox/Modelfile.27b" "$sandbox/repo/ollama/Modelfile.27b"
 STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m" run_capture "$sandbox/repo/bin/claude-ollama" doctor 27b
 check_eq "doctor with mismatched context sizes exit status" 1 "$?"
-check_that "doctor fails mismatched context sizes" grep -qxF "fail num_ctx 32768 differs from CLAUDE_CODE_MAX_CONTEXT_TOKENS 65536" "$sandbox/out"
+check_that "doctor fails mismatched context sizes" grep -qxF "fail num_ctx 32768 differs from CLAUDE_CODE_MAX_CONTEXT_TOKENS 98304" "$sandbox/out"
 
 new_sandbox
 copy_repo "$sandbox/repo"
