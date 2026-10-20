@@ -29,38 +29,38 @@ The owner runs this, not an agent. Three commands, from the repo root:
 
 ```sh
 bin/backend-bench-off install    # brew install oMLX, uv tool install vllm-mlx 0.4.1
-bin/backend-bench-off download   # about 40 GB into ~/bench-models
-bin/backend-bench-off all        # Ollama, oMLX, vllm-mlx, then the report
+bin/backend-bench-off download   # about 41 GB into ~/bench-models
+bin/backend-bench-off all        # six server runs (MTP off and on), then the report
 ```
 
 `all` ends by writing `~/bench-results/bench-off.html` and opening it. The page
 has one table per model with the servers side by side, the best value in each
 row highlighted, a PASS/FAIL verdict per candidate against Ollama, and a
-headline: "Switch to oMLX", "Switch to vllm-mlx" or "Stay on Ollama".
+headline such as "Switch to oMLX", "Switch to vllm-mlx with MTP" or "Stay on
+Ollama".
 
 Before `all`, start Ollama (`brew services start ollama`), stop the oMLX
 Homebrew service if it runs (`brew services stop omlx`), and close anything
-heavy. The bench needs `hf`, `jq` and `uv` on `PATH`. A full run takes about an
-hour. If one server fails, `all` still benches the others, writes the report and
-names the failure. Server logs are in `~/bench-results/logs/`.
+heavy. The bench needs `hf`, `jq` and `uv` on `PATH`. A full run takes about two
+hours. If one server fails, `all` still benches the others, writes the report
+and names the failure. Server logs are in `~/bench-results/logs/`.
 
-Each step also runs on its own: `bin/backend-bench-off ollama`, `omlx`,
-`vllm-mlx`, then `report` to rebuild the page from whatever results exist.
-`--help` lists the environment variables: `BENCH_MODELS`, `BENCH_RESULTS`,
-`BENCH_OMLX_PORT` (8100), `BENCH_VLLM_PORT` (8200) and `VLLM_MLX_EXTRA_ARGS`.
-For example, `VLLM_MLX_EXTRA_ARGS=--enable-mtp bin/backend-bench-off vllm-mlx`
-tries the 35B's MTP heads.
+Each step also runs on its own: `bin/backend-bench-off ollama`, `ollama-mtp`,
+`omlx`, `omlx-mtp`, `vllm-mlx`, `vllm-mlx-mtp`, then `report` to rebuild the
+page from whatever results exist. `--help` lists the environment variables:
+`BENCH_MODELS`, `BENCH_RESULTS`, `BENCH_OMLX_PORT` (8100), `BENCH_VLLM_PORT`
+(8200) and `VLLM_MLX_EXTRA_ARGS`.
 
 ## Models
 
 Every server loads the same Hugging Face MLX weights from `~/bench-models`, so
 the comparison measures the server, not the quantization.
 
-| Model ID         | Hugging Face repo                                  | Size    | Role                                |
-| ---------------- | -------------------------------------------------- | ------- | ----------------------------------- |
-| `tiel-coder-35b` | `peculiar-ragdoll/Tiel-Coder-35B-A3B-MLX-oQ4e-MTP` | 21.6 GB | 35B-A3B MoE; decides the switch     |
-| `qwen3.8-27b`    | `mlx-community/Qwen3.8-27B-4bit`                   | 16.1 GB | 27B dense; the slow case            |
-| `qwen3-4b-cc`    | `mlx-community/Qwen3-4B-4bit`                      | 2.3 GB  | side model; downloaded, not benched |
+| Model ID           | Hugging Face repo                                  | Size    | Role                                   |
+| ------------------ | -------------------------------------------------- | ------- | -------------------------------------- |
+| `tiel-coder-35b`   | `peculiar-ragdoll/Tiel-Coder-35B-A3B-MLX-oQ4e-MTP` | 21.6 GB | 35B-A3B MoE; decides the switch        |
+| `qwen3.8-27b-oq4e` | `Jundot/Qwen3.8-27B-oQ4e-mtp`                      | 17.0 GB | 27B dense with MTP head; the slow case |
+| `qwen3-4b-cc`      | `mlx-community/Qwen3-4B-4bit`                      | 2.3 GB  | side model; downloaded, not benched    |
 
 - Each server names a model after its directory: Ollama as `bench-<id>`
   (imported with `ollama create` and a 64k `num_ctx`), oMLX and vllm-mlx as
@@ -83,11 +83,36 @@ the comparison measures the server, not the quantization.
   It serves both models from one process.
 - vllm-mlx: one process per model,
   `vllm-mlx serve ~/bench-models/<id> --port 8200 --served-model-name <id> --continuous-batching --use-paged-cache --enable-auto-tool-choice --tool-call-parser qwen --reasoning-parser qwen3`.
+- Ollama with MTP (`ollama-mtp`): the same server, with each bench model
+  imported again as `bench-<id>-mtp` and `draft_num_predict 4`.
+- oMLX with MTP (`omlx-mtp`): the same process, with `mtp_enabled` switched on
+  for each model during its run and off again afterwards.
+- vllm-mlx with MTP (`vllm-mlx-mtp`): the same command plus `--enable-mtp`.
 
 For each model, `messages-bench` runs twice: a warm-up that loads the model and
 a measured run. Peak memory is the highest system memory in use (active, wired
 and compressed pages from `vm_stat`) during the two runs. It covers the whole
 machine, so close other apps.
+
+## MTP
+
+MTP (multi-token prediction) uses a model's built-in draft head to propose extra
+tokens, which the main model checks in the same forward pass. It speeds up
+decode and leaves TTFT alone. Each MTP run is set up differently:
+
+- Ollama exposes no acceptance count, so its MTP status reads "unverified".
+- oMLX turns MTP on per model through its admin API. Its server log says whether
+  the head is active. A checkpoint with no MTP tensors is refused with the
+  reason.
+- vllm-mlx 0.4.1 loads the head only from `<model>/mtp/weights.safetensors`. The
+  `vllm-mlx-mtp` run first writes that file with `bin/extract-mtp-weights`
+  (roughly 0.3 to 1 GB) and then reads `/v1/status` for the acceptance counts.
+
+In the report, "MTP active" says yes, no or unverified, with the server's
+reason. "Decode vs MTP off" gives the warm decode ratio at the largest prefix
+against the same server without MTP, so ×1.25 means 25% faster. MTP changes
+decode only, not TTFT. The Tiel author measured MTP slightly slower (0.82–0.93×)
+on their hardware, so the bench decides.
 
 ## Decision rule
 
@@ -98,9 +123,10 @@ prefix (60k):
 - warm decode t/s is at least 90% of Ollama's;
 - every tool call parses (5/5).
 
-The headline picks oMLX if it passes on every model, else vllm-mlx, else "Stay
-on Ollama". Before switching, confirm with a real Claude Code session of about
-20 tool-using turns on the winner, with no malformed tool calls.
+The headline picks the first candidate, in the order oMLX, oMLX with MTP,
+vllm-mlx, vllm-mlx with MTP, that passes on every model, else "Stay on Ollama".
+Before switching, confirm with a real Claude Code session of about 20 tool-using
+turns on the winner, with no malformed tool calls.
 
 ## oMLX facts (fill in when oMLX wins)
 
