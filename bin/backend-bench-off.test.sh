@@ -124,6 +124,7 @@ check "ollama writes a result per model" test -s "$BENCH_RESULTS/ollama--qwen3.8
 check "result names server, version and repo" \
   test "$(jq -r '[.server, .version, .model, .repo] | join(" ")' "$result")" = "ollama 0.19.0 tiel-coder-35b peculiar-ragdoll/Tiel-Coder-35B-A3B-MLX-oQ4e-MTP"
 check "result records peak memory from vm_stat" test "$(jq -r .peak_memory_gb "$result")" = 26.2
+check "a plain result records mtp as null" test "$(jq -r 'has("mtp") and .mtp == null' "$result")" = true
 check "result keeps the bench output" test "$(jq '.bench.tool_calls.parsed' "$result")" -eq 5
 
 STUB_CURL_FAIL=1 run ollama

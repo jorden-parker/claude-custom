@@ -176,8 +176,12 @@ require_served() {
     die "$url does not serve $name; it lists: $(printf '%s' "$ids" | tr '\n' ' ')"
 }
 
+no_mtp_status() {
+  echo null
+}
+
 run_bench() {
-  local server="$1" version="$2" name="$3" url="$4" model_id="$5" token="$6" raw peak
+  local server="$1" version="$2" name="$3" url="$4" model_id="$5" token="$6" status_fn="${7:-no_mtp_status}" raw peak
   raw="$results_dir/raw/$server--$name.json"
   mkdir -p "$results_dir/raw"
   start_sampler
@@ -188,8 +192,8 @@ run_bench() {
   peak="$(stop_sampler)"
   jq -n --arg server "$server" --arg version "$version" --arg model "$name" \
     --arg repo "$(model_repo "$name")" --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    --argjson peak "$peak" --slurpfile bench "$raw" \
-    '{server: $server, version: $version, model: $model, repo: $repo, peak_memory_gb: $peak, date: $date, bench: $bench[0]}' \
+    --argjson peak "$peak" --argjson mtp "$("$status_fn")" --slurpfile bench "$raw" \
+    '{server: $server, version: $version, model: $model, repo: $repo, peak_memory_gb: $peak, date: $date, mtp: $mtp, bench: $bench[0]}' \
     >"$results_dir/$server--$name.json"
   say "$server $name: saved $results_dir/$server--$name.json"
 }
