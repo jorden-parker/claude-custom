@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/jordenparker/claude-custom/go/internal/picker/profiles"
 )
@@ -22,6 +23,8 @@ var configured = []profiles.Profile{
 var side = profiles.SideModel{Name: "qwen3-4b-cc", Base: "qwen3:4b", Modelfile: "/repo/ollama/side.Modelfile"}
 
 const embedding = "qwen3-embedding:0.6b"
+
+var longSize = profiles.Profile{Size: "gemma-12b-agentic", Model: "gemma-4-12b-agentic-cc", Base: "hf.co/example/gemma-4-12B-agentic-GGUF:Q4_K_M"}
 
 func press(m Model, keys ...string) (Model, tea.Cmd) {
 	var cmd tea.Cmd
@@ -240,4 +243,64 @@ func fakeOllama(t *testing.T, body string) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+func TestLongSizeStaysOnOneLine(t *testing.T) {
+	view := New(append([]profiles.Profile{longSize}, configured...), side, embedding).View().Content
+	var rows []string
+	for _, line := range strings.Split(ansi.Strip(view), "\n") {
+		if strings.Contains(line, "gemma-12b-agentic") {
+			rows = append(rows, line)
+		}
+	}
+	if len(rows) != 1 || !strings.Contains(rows[0], "gemma-4-12b-agentic-cc") {
+		t.Fatalf("long size not on one line with its model:\n%s", view)
+	}
+}
+
+func TestDetailsShareOneColumn(t *testing.T) {
+	details := []string{"gemma-4-12b-agentic-cc", "qwen3.8-27b-cc", "qwen3.6-35b-cc", "qwen3:4b", "qwen3-embedding:0.6b"}
+	fresh := New(append([]profiles.Profile{longSize}, configured...), side, embedding)
+	moved, _ := press(fresh, "down")
+	for _, m := range []Model{fresh, moved} {
+		assertDetailsShareColumn(t, m.View().Content, details)
+	}
+}
+
+func TestRowsFitTerminalWidth(t *testing.T) {
+	updated, _ := New(append([]profiles.Profile{longSize}, configured...), side, embedding).Update(tea.WindowSizeMsg{Width: 60, Height: 20})
+	view := updated.(Model).View().Content
+	for _, line := range strings.Split(view, "\n") {
+		if width := ansi.StringWidth(line); width > 60 {
+			t.Fatalf("line is %d cells wide, want at most 60: %q\n%s", width, ansi.Strip(line), ansi.Strip(view))
+		}
+	}
+	for _, line := range strings.Split(ansi.Strip(view), "\n") {
+		if strings.Contains(line, "gemma-12b-agentic") && !strings.HasSuffix(strings.TrimRight(line, " "), "…") {
+			t.Fatalf("long row not truncated with an ellipsis: %q", line)
+		}
+	}
+}
+
+func assertDetailsShareColumn(t *testing.T, view string, details []string) {
+	t.Helper()
+	lines := strings.Split(ansi.Strip(view), "\n")
+	column := -1
+	for _, want := range details {
+		index := -1
+		for _, line := range lines {
+			if at := strings.Index(line, want); at != -1 {
+				index = at
+			}
+		}
+		if index == -1 {
+			t.Fatalf("view missing %q:\n%s", want, view)
+		}
+		if column == -1 {
+			column = index
+		}
+		if index != column {
+			t.Fatalf("%q starts at column %d, want %d:\n%s", want, index, column, view)
+		}
+	}
 }

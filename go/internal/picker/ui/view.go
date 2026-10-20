@@ -5,15 +5,20 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/jordenparker/claude-custom/go/internal/picker/profiles"
+)
+
+const (
+	sideLabel      = "Set up side model"
+	embeddingLabel = "Set up embedding model"
 )
 
 var (
 	titleStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("212"))
 	mutedStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 	selectedStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("212"))
-	sizeStyle     = lipgloss.NewStyle().Width(6)
 )
 
 func (m Model) View() tea.View {
@@ -30,33 +35,53 @@ func (m Model) View() tea.View {
 		b.WriteString("\n" + mutedStyle.Render(m.status) + "\n")
 	}
 	b.WriteString("\n" + m.help.View(m.keys) + "\n")
-	v := tea.NewView(b.String())
+	v := tea.NewView(m.fitToWidth(b.String()))
 	v.AltScreen = true
 	return v
 }
 
-func (m Model) row(profile profiles.Profile, selected bool) string {
-	details := mutedStyle.Render(profile.Model + "  from " + profile.Base)
-	if selected {
-		return selectedStyle.Render("> "+sizeStyle.Render(profile.Size)) + details
+func (m Model) fitToWidth(content string) string {
+	if m.width == 0 {
+		return content
 	}
-	return "  " + sizeStyle.Render(profile.Size) + details
+	lines := strings.Split(content, "\n")
+	for i, line := range lines {
+		lines[i] = ansi.Truncate(line, m.width, "…")
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (m Model) row(profile profiles.Profile, selected bool) string {
+	return m.line(profile.Size, profile.Model+"  from "+profile.Base, selected)
 }
 
 func (m Model) sideRow() string {
-	label := "Set up side model  "
-	details := mutedStyle.Render(m.side.Base + " → " + m.side.Name)
-	if m.onSideRow() {
-		return selectedStyle.Render("> "+label) + details
-	}
-	return "  " + label + details
+	return m.line(sideLabel, m.side.Base+" → "+m.side.Name, m.onSideRow())
 }
 
 func (m Model) embeddingRow() string {
-	label := "Set up embedding model  "
-	details := mutedStyle.Render(m.embedding)
-	if m.onEmbeddingRow() {
-		return selectedStyle.Render("> "+label) + details
+	return m.line(embeddingLabel, m.embedding, m.onEmbeddingRow())
+}
+
+func (m Model) line(label, details string, selected bool) string {
+	padded := pad(label, m.labelWidth()) + "  "
+	if selected {
+		return selectedStyle.Render("> "+padded) + mutedStyle.Render(details)
 	}
-	return "  " + label + details
+	return "  " + padded + mutedStyle.Render(details)
+}
+
+func (m Model) labelWidth() int {
+	width := lipgloss.Width(embeddingLabel)
+	if m.side.Configured() {
+		width = max(width, lipgloss.Width(sideLabel))
+	}
+	for _, profile := range m.profiles {
+		width = max(width, lipgloss.Width(profile.Size))
+	}
+	return width
+}
+
+func pad(text string, width int) string {
+	return text + strings.Repeat(" ", max(0, width-lipgloss.Width(text)))
 }

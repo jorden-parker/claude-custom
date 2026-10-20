@@ -15,6 +15,7 @@ type Model struct {
 	cursor    int
 	chosen    bool
 	status    string
+	width     int
 	keys      keyMap
 	help      help.Model
 }
@@ -37,6 +38,7 @@ func (m Model) Init() tea.Cmd {
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
+		m.width = msg.Width
 		m.help.SetWidth(msg.Width)
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
