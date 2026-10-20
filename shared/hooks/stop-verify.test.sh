@@ -11,10 +11,29 @@ mkdir -p "$stubs"
 cat > "$stubs/npx" <<STUB
 #!/bin/sh
 echo "\$*" >> "$sandbox/npx.log"
-echo "fallow says: unused export unusedHelper"
+[ -n "\${FAKE_FALLOW_JSON:-}" ] && cat "\$FAKE_FALLOW_JSON"
 exit "\${FAKE_FALLOW_EXIT:-0}"
 STUB
 chmod +x "$stubs/npx"
+
+cat > "$sandbox/audit.json" <<'JSON'
+{"kind":"audit","verdict":"fail","summary":{"dead_code_issues":3},
+ "dead_code":{"total_issues":3,"entry_points":{"total":1},
+  "unused_exports":[
+   {"path":"src/app.ts","export_name":"unusedHelper","line":3,"finding_id":"dc1:unused-export:aaa","introduced":true,
+    "actions":[{"type":"remove-export","note":"NOTE_SENTINEL long advice paragraph"}]},
+   {"path":"src/app.ts","export_name":"inheritedHelper","line":9,"finding_id":"dc1:unused-export:bbb","introduced":false}],
+  "unused_class_members":[
+   {"path":"src/app.ts","parent_name":"Store","member_name":"scroll","line":12,"finding_id":"dc1:unused-class-member:ccc"}],
+  "workspace_diagnostics":[{"path":"node_modules","kind":"node-modules-missing","message":"DIAGNOSTIC_SENTINEL"}]},
+ "complexity":{"findings":[{"path":"src/app.ts","line":20,"name":"render","cyclomatic":25,"cognitive":30,"introduced":true}]},
+ "duplication":{"clone_groups":[{"instances":[{"file":"src/app.ts","start_line":1,"end_line":9},{"file":"src/b.ts","start_line":4,"end_line":12}]}]},
+ "next_steps":[{"command":"fallow schema","reason":"NEXT_STEP_SENTINEL"}]}
+JSON
+printf '%s\n' '{"kind":"combined","check":{"unused_files":[{"path":"index.js","finding_id":"dc1:unused-file:ddd"}]}}' > "$sandbox/combined.json"
+printf '%s\n' '{"error":true,"message":"could not detect base branch","exit_code":2}' > "$sandbox/error.json"
+printf '%s\n' 'npm ERR! network request failed' > "$sandbox/garbage.txt"
+python3 -c 'import json; print(json.dumps({"kind": "audit", "verdict": "fail", "dead_code": {"unused_exports": [{"path": "src/app.ts", "export_name": f"helper{i}", "line": i + 1, "finding_id": "dc1:unused-export:x"} for i in range(30)]}}))' > "$sandbox/many.json"
 for tool in make go pnpm; do
   cat > "$stubs/$tool" <<STUB
 #!/bin/sh
@@ -121,11 +140,33 @@ check 'fallow skips non-js edits'        test "$(wc -l < "$sandbox/npx.log")" -e
 check 'no project-wide fallow'           test -z "$(grep -F 'architecture' "$sandbox/npx.log")"
 
 record_edit "$js/src/app.ts"
-export FAKE_FALLOW_EXIT=1
+record_edit "$js/src/other.ts"
+export FAKE_FALLOW_EXIT=1 FAKE_FALLOW_JSON="$sandbox/audit.json"
 expect block 'fallow findings'           run_hook "$js"
 check 'block names fallow explain'       grep -qF 'fallow explain' "$sandbox/stderr"
-check 'block shows the finding'          grep -qF 'unusedHelper' "$sandbox/stderr"
-unset FAKE_FALLOW_EXIT
+check 'one line per export finding'      grep -qxF '  unused-export src/app.ts:3 unusedHelper' "$sandbox/stderr"
+check 'class member uses member_name'    grep -qxF '  unused-class-member src/app.ts:12 scroll' "$sandbox/stderr"
+check 'complexity finding listed'        grep -qxF '  high-complexity src/app.ts:20 render cyclomatic=25 cognitive=30' "$sandbox/stderr"
+check 'duplication finding listed'       grep -qxF '  duplication src/app.ts:1-9 = src/b.ts:4-12' "$sandbox/stderr"
+check 'findings deduped across files'    test "$(grep -cF 'unusedHelper' "$sandbox/stderr")" -eq 1
+check 'inherited finding dropped'        test -z "$(grep -F 'inheritedHelper' "$sandbox/stderr")"
+check 'no raw json'                      test -z "$(grep -F -e finding_id -e NOTE_SENTINEL -e '{' "$sandbox/stderr")"
+check 'no workspace diagnostics'         test -z "$(grep -F 'DIAGNOSTIC_SENTINEL' "$sandbox/stderr")"
+check 'no next steps'                    test -z "$(grep -F 'NEXT_STEP_SENTINEL' "$sandbox/stderr")"
+check 'fallow block is short'            test "$(wc -c < "$sandbox/stderr")" -lt 1000
+
+export FAKE_FALLOW_JSON="$sandbox/many.json"
+expect block 'many fallow findings'      run_hook "$js"
+check 'findings capped at 20'            grep -qxF '  [10 more findings hidden]' "$sandbox/stderr"
+check 'twentieth finding shown'          grep -qw 'helper19' "$sandbox/stderr"
+check 'twenty-first finding hidden'      test -z "$(grep -w 'helper20' "$sandbox/stderr")"
+
+export FAKE_FALLOW_EXIT=2 FAKE_FALLOW_JSON="$sandbox/error.json"
+expect allow 'fallow tool error'         run_hook "$js"
+record_edit "$js/src/app.ts"
+export FAKE_FALLOW_EXIT=1 FAKE_FALLOW_JSON="$sandbox/garbage.txt"
+expect allow 'fallow output not json'    run_hook "$js"
+unset FAKE_FALLOW_EXIT FAKE_FALLOW_JSON
 
 legacy="$sandbox/legacy"
 mkdir -p "$legacy"
@@ -152,9 +193,10 @@ record_edit "$nogit/index.js"
 expect allow 'js project outside git'    run_hook "$nogit"
 check 'whole-file fallow without git'    grep -qF 'fallow --fail-on-issues --format json index.js' "$sandbox/npx.log"
 record_edit "$nogit/index.js"
-export FAKE_FALLOW_EXIT=1
+export FAKE_FALLOW_EXIT=1 FAKE_FALLOW_JSON="$sandbox/combined.json"
 expect block 'findings outside git'      run_hook "$nogit"
-unset FAKE_FALLOW_EXIT
+check 'combined report finding listed'   grep -qxF '  unused-file index.js' "$sandbox/stderr"
+unset FAKE_FALLOW_EXIT FAKE_FALLOW_JSON
 
 ts="$(new_repo ts)"
 printf '{}' > "$ts/tsconfig.json"
@@ -209,5 +251,33 @@ mkdir -p "$optout/.claude" && printf '' > "$optout/.claude/no-verify"
 record_edit "$optout/a.c"
 expect allow 'no-verify file disables fallback' run_hook "$optout"
 check 'make skipped with no-verify'          test ! -e "$sandbox/tools.log"
+
+noisy="$(new_repo noisy)"
+mkdir -p "$noisy/.claude"
+cat > "$noisy/.claude/verify" <<'SCRIPT'
+#!/bin/sh
+i=0
+while [ "$i" -lt 300 ]; do echo "ok early $i"; i=$((i + 1)); done
+echo "FAIL: widget renders"
+echo "FAIL: widget renders"
+i=0
+while [ "$i" -lt 300 ]; do echo "ok late $i"; i=$((i + 1)); done
+python3 -c 'print("x" * 5000)'
+echo "to stderr" >&2
+echo "last line"
+exit 1
+SCRIPT
+chmod +x "$noisy/.claude/verify"
+record_edit "$noisy/a.txt"
+expect block 'noisy verify fails'        run_hook "$noisy"
+check 'failure line kept'                grep -qxF 'FAIL: widget renders' "$sandbox/stderr"
+check 'failure line deduped'             test "$(grep -cxF 'FAIL: widget renders' "$sandbox/stderr")" -eq 1
+check 'tail kept'                        grep -qxF 'last line' "$sandbox/stderr"
+check 'hidden lines counted'             grep -qE '^\[[0-9]+ more lines hidden\]$' "$sandbox/stderr"
+check 'early noise dropped'              test -z "$(grep -xF 'ok early 5' "$sandbox/stderr")"
+check 'long line clipped'                grep -qF 'chars hidden]' "$sandbox/stderr"
+check 'no line over 400 chars'           test "$(awk '{ if (length > m) m = length } END { print m + 0 }' "$sandbox/stderr")" -lt 400
+check 'verify block is short'            test "$(wc -l < "$sandbox/stderr")" -le 45
+check 'stderr stays in order'            test "$(grep -nxF 'to stderr' "$sandbox/stderr" | cut -d: -f1)" -lt "$(grep -nxF 'last line' "$sandbox/stderr" | cut -d: -f1)"
 
 if [ "$failures" -eq 0 ]; then echo "all passed"; else echo "$failures failed"; exit 1; fi

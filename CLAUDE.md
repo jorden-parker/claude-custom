@@ -135,8 +135,11 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   JS/TS file in JS/TS projects and the project's `.claude/verify` with the
   edited files as arguments, falling back to `make test`, `go test ./...` or
   `pnpm test` when none exists (an empty `.claude/no-verify` opts out). A pass
-  clears the log; a failure keeps it. It blocks once per turn
-  (`stop_hook_active`). Both exit 2 so the model sees stderr.
+  clears the log; a failure keeps it. Its message lists one line per new fallow
+  finding in the edited files (at most 20; fallow tool errors don't block) and
+  keeps a failing command's error lines plus a 15-line tail, each line clipped
+  to 300 characters. It blocks once per turn (`stop_hook_active`). Both exit 2
+  so the model sees stderr.
 - The `fallow-*.sh` hooks gate Fallow use (the commit/push gate only in JS/TS
   projects) and share `shared/hooks/fallow-lib.sh` (sourced from the hook's own
   directory). `fallow-command-guard.sh` (PreToolUse on Bash) denies `fallow`
