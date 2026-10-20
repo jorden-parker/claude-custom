@@ -27,6 +27,14 @@ stub() {
   chmod +x "$sandbox/stubbin/$1"
 }
 
+stub_extract_mtp_weights() {
+  cat >"$sandbox/repo/bin/extract-mtp-weights" <<EOF
+#!/bin/sh
+echo "\$*" >> "$logs/extract.log"
+EOF
+  chmod +x "$sandbox/repo/bin/extract-mtp-weights"
+}
+
 stub_messages_bench() {
   cat >"$sandbox/repo/bin/messages-bench" <<EOF
 #!/bin/sh
@@ -39,6 +47,7 @@ EOF
 }
 
 stub_messages_bench
+stub_extract_mtp_weights
 stub hf <<EOF
 echo "\$*" >> "$logs/hf.log"
 mkdir -p "\$4"
@@ -60,6 +69,7 @@ wait"
 stub omlx <<EOF
 echo "OMLX_PORT=\${OMLX_PORT:-} \$*" >> "$logs/omlx.log"
 [ "\$2" = --help ] && exit 0
+echo "Speculative backend selected for \$BENCH_MODELS/tiel-coder-35b: Lightning MTP (model_type=qwen3_5_moe, active)"
 $serve_until_stopped
 EOF
 stub vllm-mlx <<EOF
@@ -72,7 +82,10 @@ echo "\$*" >> "$logs/curl.log"
 ids='{"id": "tiel-coder-35b"}, {"id": "qwen3.8-27b-oq4e"}'
 [ -n "\${STUB_MODEL_IDS:-}" ] && ids="\$STUB_MODEL_IDS"
 case "\$*" in
+  *"-X PUT"*)
+    if [ -n "\${STUB_OMLX_MTP_REFUSE:-}" ]; then printf '%s\n%s' '{"detail": "no mtp tensors"}' 400; else printf '%s\n%s' '{}' 200; fi ;;
   */v1/models*) [ -e "$logs/serving" ] || exit 7; echo "{\"data\": [\$ids]}" ;;
+  */v1/status*) echo '{"mtp": {"enabled": true, "attempted": 100, "accepted": 80, "rejected": 20, "acceptance_rate": 0.8}}' ;;
 esac
 exit 0
 EOF
@@ -156,6 +169,40 @@ check "vllm-mlx records the uv tool version" test "$(jq -r .version "$BENCH_RESU
 VLLM_MLX_EXTRA_ARGS='--enable-mtp --x 1' run vllm-mlx
 check "vllm-mlx appends extra args" grep -qF -- '--reasoning-parser qwen3 --enable-mtp --x 1' "$logs/vllm.log"
 
+"$script" --help >"$sandbox/help"
+check "help lists the MTP subcommands" test "$(grep -cE '^  (ollama-mtp|omlx-mtp|vllm-mlx-mtp) ' "$sandbox/help")" -eq 3
+
+: >"$logs/bench.log"
+run ollama-mtp
+check "ollama-mtp exits 0" test "$?" -eq 0
+check "ollama-mtp imports with draft_num_predict 4" grep -qxF 'PARAMETER draft_num_predict 4' "$logs/ollama.log"
+check "ollama-mtp benches the mtp model tag" grep -qF -- '--model bench-tiel-coder-35b-mtp --auth-token ollama --json' "$logs/bench.log"
+check "ollama-mtp unloads its mtp model after the run" grep -qxF 'stop bench-tiel-coder-35b-mtp' "$logs/ollama.log"
+check "ollama-mtp reports MTP as unverified" test "$(jq -r '.mtp.active' "$BENCH_RESULTS/ollama-mtp--tiel-coder-35b.json")" = null
+
+: >"$logs/bench.log"
+: >"$logs/curl.log"
+run omlx-mtp
+check "omlx-mtp exits 0" test "$?" -eq 0
+check "omlx-mtp turns MTP on before and off after each model" \
+  test "$(grep -o 'mtp_enabled": [a-z]*' "$logs/curl.log" | tr '\n' ' ')" = 'mtp_enabled": true mtp_enabled": false mtp_enabled": true mtp_enabled": false '
+check "omlx-mtp reports MTP active from its server log" test "$(jq -r .mtp.active "$BENCH_RESULTS/omlx-mtp--tiel-coder-35b.json")" = true
+check "omlx-mtp logs to its own file" test -s "$BENCH_RESULTS/logs/omlx-mtp.log"
+
+STUB_OMLX_MTP_REFUSE=1 run omlx-mtp
+check "omlx-mtp exits 1 when oMLX refuses MTP" test "$?" -eq 1
+check "omlx-mtp says why oMLX refused" grep -qF 'no mtp tensors' "$sandbox/err"
+
+: >"$logs/bench.log"
+run vllm-mlx-mtp
+check "vllm-mlx-mtp exits 0" test "$?" -eq 0
+check "vllm-mlx-mtp extracts the MTP head before serving" grep -qxF "$BENCH_MODELS/tiel-coder-35b" "$logs/extract.log"
+check "vllm-mlx-mtp serves with --enable-mtp after the qwen parsers" \
+  grep -qxF "serve $BENCH_MODELS/tiel-coder-35b --host 127.0.0.1 --port 8200 --served-model-name tiel-coder-35b --continuous-batching --use-paged-cache --enable-auto-tool-choice --tool-call-parser qwen --reasoning-parser qwen3 --enable-mtp" "$logs/vllm.log"
+check "vllm-mlx-mtp reads acceptance from /v1/status" \
+  test "$(jq -r .mtp.detail "$BENCH_RESULTS/vllm-mlx-mtp--tiel-coder-35b.json")" = "accepted 80 of attempted 100 drafts, acceptance 80%"
+check "vllm-mlx-mtp reports MTP active when drafts were accepted" test "$(jq -r .mtp.active "$BENCH_RESULTS/vllm-mlx-mtp--tiel-coder-35b.json")" = true
+
 run report
 check "report exits 0" test "$?" -eq 0
 check "report writes one HTML file" test -s "$BENCH_RESULTS/bench-off.html"
@@ -165,7 +212,9 @@ rm "$sandbox/stubbin/omlx" "$BENCH_RESULTS"/*.json "$BENCH_RESULTS/bench-off.htm
 run all
 check "all exits 1 when a server fails" test "$?" -eq 1
 check "all names the failed server" grep -qF 'failed: omlx' "$sandbox/err"
+check "all names both oMLX variants as failed" grep -qF 'failed: omlx omlx-mtp' "$sandbox/err"
 check "all still benches the other servers" test -s "$BENCH_RESULTS/vllm-mlx--tiel-coder-35b.json"
+check "all still benches vllm-mlx with MTP" test -s "$BENCH_RESULTS/vllm-mlx-mtp--tiel-coder-35b.json"
 check "all still writes the report" test -s "$BENCH_RESULTS/bench-off.html"
 
 run nonsense
