@@ -206,7 +206,8 @@ check "vllm-mlx-mtp reports MTP active when drafts were accepted" test "$(jq -r 
 run report
 check "report exits 0" test "$?" -eq 0
 check "report writes one HTML file" test -s "$BENCH_RESULTS/bench-off.html"
-check "report puts every server side by side" grep -qF '<th>ollama</th><th>omlx</th><th>vllm-mlx</th>' "$BENCH_RESULTS/bench-off.html"
+check "report puts every server side by side" \
+  grep -qF '<th>ollama</th><th>ollama-mtp</th><th>omlx</th><th>omlx-mtp</th><th>vllm-mlx</th><th>vllm-mlx-mtp</th>' "$BENCH_RESULTS/bench-off.html"
 
 rm "$sandbox/stubbin/omlx" "$BENCH_RESULTS"/*.json "$BENCH_RESULTS/bench-off.html"
 run all
