@@ -56,7 +56,7 @@ new_sandbox() {
   export HOME="$sandbox/home"
   mkdir -p "$HOME" "$sandbox/stubbin"
   unset ZDOTDIR XDG_CONFIG_HOME CLAUDE_CONFIG_DIR STUB_OLLAMA_SHOW_EXIT STUB_OLLAMA_PULL_EXIT
-  unset STUB_OLLAMA_PID STUB_OLLAMA_ENV STUB_CURL_EXIT STUB_OLLAMA_MISSING STUB_OLLAMA_NUM_CTX
+  unset STUB_OLLAMA_PID STUB_OLLAMA_ENV STUB_CURL_EXIT STUB_OLLAMA_MISSING STUB_OLLAMA_NUM_CTX STUB_AGENT_EXIT
   export SHELL=/bin/zsh
   record_installed_num_ctx
   export CLAUDE_OLLAMA_MANAGED_SETTINGS="$sandbox/managed-settings.json"
@@ -87,6 +87,12 @@ EOF
 #!/bin/sh
 echo "\$*" >> "$sandbox/python.log"
 EOF
+  cat > "$sandbox/stubbin/ollama-agent" <<EOF
+#!/bin/sh
+echo "\$*" >> "$sandbox/agent.log"
+exit "\${STUB_AGENT_EXIT:-0}"
+EOF
+  export CLAUDE_OLLAMA_AGENT="$sandbox/stubbin/ollama-agent"
   cat > "$sandbox/stubbin/pgrep" <<'EOF'
 #!/bin/sh
 [ -n "${STUB_OLLAMA_PID:-}" ] && echo "$STUB_OLLAMA_PID"
@@ -95,7 +101,7 @@ EOF
 #!/bin/sh
 echo "ollama serve ${STUB_OLLAMA_ENV:-}"
 EOF
-  chmod +x "$sandbox/stubbin/claude" "$sandbox/stubbin/ollama" "$sandbox/stubbin/curl" "$sandbox/stubbin/python3" "$sandbox/stubbin/pgrep" "$sandbox/stubbin/ps"
+  chmod +x "$sandbox/stubbin/claude" "$sandbox/stubbin/ollama" "$sandbox/stubbin/ollama-agent" "$sandbox/stubbin/curl" "$sandbox/stubbin/python3" "$sandbox/stubbin/pgrep" "$sandbox/stubbin/ps"
   link_system_tools
   export PATH="$sandbox/stubbin:$sandbox/sysbin"
 }
@@ -403,6 +409,25 @@ PATH="$sandbox/stubbin:$nojq" run_capture "$repo/bin/claude-ollama" doctor 27b
 check_eq "doctor without jq exit status" 1 "$?"
 check_that "doctor without jq says jq is required" grep -qxF "claude-ollama: jq is required (brew install jq)" "$sandbox/err"
 check_not "doctor without jq does not launch claude" grep -q '^ARGS:' "$sandbox/out"
+
+full_server_env="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2"
+new_sandbox
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$full_server_env" run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_not "a server with every server.env value is left alone" test -e "$sandbox/agent.log"
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_KEEP_ALIVE=30m" run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_that "a server missing server.env values gets them applied" grep -qxF -- "-apply" "$sandbox/agent.log"
+check_that "claude-ollama says it applies server.env" grep -qF "applying them" "$sandbox/err"
+check_that "claude-ollama launches after applying server.env" grep -qF -- "--model qwen3.8-27b-cc --tools" "$sandbox/out"
+rm -f "$sandbox/agent.log"
+run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_that "a stopped server gets server.env applied" grep -qxF -- "-apply" "$sandbox/agent.log"
+STUB_AGENT_EXIT=1 STUB_OLLAMA_PID=42 run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_that "a failed apply says how to fix it" grep -qF "claude-custom agent" "$sandbox/err"
+check_that "claude-ollama still launches after a failed apply" grep -qF -- "--model qwen3.8-27b-cc --tools" "$sandbox/out"
+rm -f "$sandbox/agent.log"
+STUB_OLLAMA_PID=42 run_capture "$repo/bin/claude-ollama" doctor 27b
+check_that "doctor names the fix for missing server env" grep -qF "claude-custom agent -apply" "$sandbox/out"
+check_not "doctor does not apply server.env" grep -sqxF -- "-apply" "$sandbox/agent.log"
 
 if [ "$failures" -eq 0 ]; then
   echo "all passed"

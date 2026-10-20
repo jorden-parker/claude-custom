@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/jordenparker/claude-custom/go/internal/agent/apply"
 	"github.com/jordenparker/claude-custom/go/internal/agent/launchd"
 	"github.com/jordenparker/claude-custom/go/internal/agent/ui"
 	"github.com/jordenparker/claude-custom/go/internal/agent/variables"
@@ -37,11 +39,15 @@ func run() error {
 	path := flag.String("file", defaultPath, "LaunchAgent plist to edit")
 	serverEnvPath := flag.String("server-env", "", "server.env with the recommended values")
 	program := flag.String("ollama", "", "ollama binary the agent runs (default: ollama on PATH)")
+	applyOnly := flag.Bool("apply", false, "write the server.env values into the agent and reload it, without the menu")
 	flag.Parse()
 
 	config, err := newConfig(*path, *serverEnvPath, *program, logPath)
 	if err != nil {
 		return err
+	}
+	if *applyOnly {
+		return applyServerEnv(config)
 	}
 	model, err := ui.New(config)
 	if err != nil {
@@ -71,12 +77,35 @@ func newConfig(path, serverEnvPath, program, logPath string) (ui.Config, error) 
 	}, nil
 }
 
+func applyServerEnv(config ui.Config) error {
+	if runtime.GOOS != "darwin" {
+		return fmt.Errorf("-apply needs launchd (macOS); start ollama with the values in server.env yourself")
+	}
+	return apply.ServerEnv(apply.Setup{
+		Path:       config.Path,
+		Agent:      config.Agent,
+		ServerEnv:  config.ServerEnv,
+		Reload:     config.Reload,
+		StopBrew:   func() *exec.Cmd { return exec.Command("brew", "services", "stop", "ollama") },
+		BrewLoaded: brewLoaded(os.Getuid()),
+		AppRunning: appRunning(),
+	}, os.Stdout)
+}
+
+func brewLoaded(uid int) bool {
+	return launchd.ServiceLoaded(uid, launchd.BrewLabel)
+}
+
+func appRunning() bool {
+	return exec.Command("pgrep", "-xq", "Ollama").Run() == nil
+}
+
 func conflicts(uid int) []string {
 	var found []string
-	if launchd.ServiceLoaded(uid, launchd.BrewLabel) {
+	if brewLoaded(uid) {
 		found = append(found, brewConflict)
 	}
-	if exec.Command("pgrep", "-xq", "Ollama").Run() == nil {
+	if appRunning() {
 		found = append(found, appConflict)
 	}
 	return found

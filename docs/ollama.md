@@ -91,8 +91,12 @@ launch only when a Go source file is newer than the binary. Details:
 ### Ollama server settings
 
 The profiles expect an Ollama server on `localhost:11434` with the settings in
-`ollama/server.env`. Nothing applies them automatically (see
-`claude-custom agent` below). The launcher also sends a warm-up request with
+`ollama/server.env`. Before each launch, `claude-ollama` checks the running
+server; when a value is missing (or no server runs) it calls
+`claude-custom agent -apply`, which writes the values into the `local.ollama`
+LaunchAgent, stops `brew services ollama` if it is loaded, reloads the agent and
+waits for the server. It refuses while the Ollama menu-bar app runs; quit it
+first. On a failure the launch goes on with a warning. The launcher also sends a warm-up request with
 `keep_alive` 30m (`CLAUDE_OLLAMA_KEEP_ALIVE` overrides) so the first prompt
 doesn't wait for the model to load. `OLLAMA_MAX_LOADED_MODELS=2` keeps the
 main and side models loaded and evicts a third (the embedding model) instead
@@ -115,6 +119,9 @@ exported there never reach a server that `brew services` or the Ollama app
 starts. `claude-custom agent` (`go/cmd/ollama-agent/`) edits a `local.ollama`
 LaunchAgent that sets them, starting from `server.env`, and reloads it. Stop the
 Homebrew service and the app first; the TUI warns when either is running.
+`claude-custom agent -apply` does the same without the menu: it sets every
+`server.env` value, keeps the agent's other variables, and stops the Homebrew
+service itself.
 
 ### Checking the setup
 

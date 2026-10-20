@@ -12,12 +12,18 @@ there. This agent sets them in the plist instead. Built with
 claude-custom agent           # or: ollama-agent
 ollama-agent -file PATH       # edit another plist (default ~/Library/LaunchAgents/local.ollama.plist)
 ollama-agent -ollama PATH     # binary the agent runs (default: ollama on PATH)
+ollama-agent -apply          # write server.env into the agent and reload it, no menu
 cd go && go run ./cmd/ollama-agent -server-env ../ollama/server.env
 ```
 
 `claude-custom install` builds the binary, and `bin/ollama-agent` rebuilds it
 only when a Go source file is newer than the binary. The launcher passes
 `-server-env ollama/server.env`.
+
+`-apply` sets every `server.env` value in the plist (other variables stay),
+runs `brew services stop ollama` when the Homebrew service is loaded, and
+reloads the agent. It refuses while the Ollama app runs. `claude-ollama` calls
+it before a launch when the running server lacks a `server.env` value.
 
 ## What it shows
 

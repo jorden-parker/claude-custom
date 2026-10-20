@@ -60,3 +60,26 @@ func TestSummaryOfUnknownVariableIsEmpty(t *testing.T) {
 		t.Fatal("wrong summaries")
 	}
 }
+
+func TestWithServerEnvAddsAndOverridesOnlyServerEnvNames(t *testing.T) {
+	current := map[string]string{"OLLAMA_KEEP_ALIVE": "5m", "OLLAMA_DEBUG": "1", "OLLAMA_FLASH_ATTENTION": "1"}
+	serverEnv := map[string]string{"OLLAMA_KEEP_ALIVE": "30m", "OLLAMA_FLASH_ATTENTION": "1", "OLLAMA_MAX_LOADED_MODELS": "2"}
+	env, changed := WithServerEnv(current, serverEnv)
+	want := map[string]string{"OLLAMA_KEEP_ALIVE": "30m", "OLLAMA_DEBUG": "1", "OLLAMA_FLASH_ATTENTION": "1", "OLLAMA_MAX_LOADED_MODELS": "2"}
+	if !reflect.DeepEqual(env, want) {
+		t.Fatalf("env %v", env)
+	}
+	if !reflect.DeepEqual(changed, []string{"OLLAMA_KEEP_ALIVE", "OLLAMA_MAX_LOADED_MODELS"}) {
+		t.Fatalf("changed %v", changed)
+	}
+	if current["OLLAMA_KEEP_ALIVE"] != "5m" {
+		t.Fatal("current was modified")
+	}
+}
+
+func TestWithServerEnvStartsFromNoAgent(t *testing.T) {
+	env, changed := WithServerEnv(nil, map[string]string{"OLLAMA_KEEP_ALIVE": "30m"})
+	if env["OLLAMA_KEEP_ALIVE"] != "30m" || len(changed) != 1 {
+		t.Fatalf("got %v, %v", env, changed)
+	}
+}

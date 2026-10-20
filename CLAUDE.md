@@ -240,11 +240,15 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   agree. The Ollama profiles allow the tool in `permissions.allow`.
 - `ollama/server.env` documents the Ollama server env the profiles expect,
   including `OLLAMA_MAX_LOADED_MODELS=2` so a subagent's side model never
-  loads beside two others. Nothing applies it automatically;
-  `bin/ollama-agent` passes it as `-server-env`, so a new LaunchAgent starts
-  from its values. `bin/claude-ollama` sends a background warm-up `keep_alive`
+  loads beside two others. `bin/ollama-agent` passes it as `-server-env`, so
+  a new LaunchAgent starts from its values. Before each launch
+  `bin/claude-ollama` runs `ollama-agent -apply` (`CLAUDE_OLLAMA_AGENT`
+  overrides the command; tests stub it) when the running server lacks a
+  value: it merges `server.env` into the `local.ollama` plist, stops
+  `brew services ollama` if loaded, reloads, and waits for `/api/version`. It
+  refuses while the Ollama app runs (`go/internal/agent/apply`). `bin/claude-ollama` sends a background warm-up `keep_alive`
   request to `OLLAMA_HOST` (default `localhost:11434`) before `exec claude`.
-- `go/internal/agent/` has three packages: `launchd` (renders and reads the
+- `go/internal/agent/` has four packages (`apply` is the `-apply` mode): `launchd` (renders and reads the
   plist, saves atomically, builds the `launchctl bootout`/`bootstrap` reload
   command), `variables` (the known `OLLAMA_*` list and the `server.env` parser)
   and `ui` (the Bubble Tea model; `Config.Reload` is injected so tests never

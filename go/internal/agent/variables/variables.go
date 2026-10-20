@@ -80,3 +80,16 @@ func ParseServerEnv(data []byte) (map[string]string, error) {
 	}
 	return env, nil
 }
+
+func WithServerEnv(current, serverEnv map[string]string) (map[string]string, []string) {
+	env := map[string]string{}
+	maps.Copy(env, current)
+	var changed []string
+	for _, name := range slices.Sorted(maps.Keys(serverEnv)) {
+		if env[name] != serverEnv[name] {
+			env[name] = serverEnv[name]
+			changed = append(changed, name)
+		}
+	}
+	return env, changed
+}
