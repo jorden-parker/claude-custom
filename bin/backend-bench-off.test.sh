@@ -70,6 +70,7 @@ stub omlx <<EOF
 echo "OMLX_PORT=\${OMLX_PORT:-} \$*" >> "$logs/omlx.log"
 [ "\$2" = --help ] && exit 0
 echo "Speculative backend selected for \$BENCH_MODELS/tiel-coder-35b: Lightning MTP (model_type=qwen3_5_moe, active)"
+echo "Lightning MTP is inactive for \$BENCH_MODELS/qwen3.8-27b-oq4e"
 $serve_until_stopped
 EOF
 stub vllm-mlx <<EOF
@@ -187,6 +188,7 @@ check "omlx-mtp exits 0" test "$?" -eq 0
 check "omlx-mtp turns MTP on before and off after each model" \
   test "$(grep -o 'mtp_enabled": [a-z]*' "$logs/curl.log" | tr '\n' ' ')" = 'mtp_enabled": true mtp_enabled": false mtp_enabled": true mtp_enabled": false '
 check "omlx-mtp reports MTP active from its server log" test "$(jq -r .mtp.active "$BENCH_RESULTS/omlx-mtp--tiel-coder-35b.json")" = true
+check "omlx-mtp reports MTP inactive per model from the same log" test "$(jq -r .mtp.active "$BENCH_RESULTS/omlx-mtp--qwen3.8-27b-oq4e.json")" = false
 check "omlx-mtp logs to its own file" test -s "$BENCH_RESULTS/logs/omlx-mtp.log"
 
 STUB_OMLX_MTP_REFUSE=1 run omlx-mtp

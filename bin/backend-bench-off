@@ -276,16 +276,16 @@ omlx_set_mtp() {
 }
 
 omlx_mtp_status() {
-  local model="$1" lines
-  lines="$(grep -F "$model" "$results_dir/logs/omlx-mtp.log" 2>/dev/null || true)"
-  case "$lines" in
-    *'Lightning MTP is inactive for'*)
-      echo '{"active": false, "detail": "oMLX log: Lightning MTP inactive"}' ;;
-    *'Speculative backend selected for'*"$model"*'active)'*)
-      echo '{"active": true, "detail": "oMLX log: Lightning MTP active"}' ;;
-    *)
-      echo '{"active": null, "detail": "no oMLX MTP log line found"}' ;;
-  esac
+  local model="$1" line verdict='{"active": null, "detail": "no oMLX MTP log line found"}'
+  while IFS= read -r line; do
+    case "$line" in
+      *'Lightning MTP is inactive for '*"$model"*)
+        verdict='{"active": false, "detail": "oMLX log: Lightning MTP inactive"}' ;;
+      *'Speculative backend selected for '*"$model"*'active)'*)
+        verdict='{"active": true, "detail": "oMLX log: Lightning MTP active"}' ;;
+    esac
+  done < <(grep -F "$model" "$results_dir/logs/omlx-mtp.log" 2>/dev/null || true)
+  echo "$verdict"
 }
 
 start_omlx() {
