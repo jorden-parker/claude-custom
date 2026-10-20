@@ -13,5 +13,15 @@
     "base": "hf.co/empero-ai/Qwen3.8-35B-A3B-Distill-GGUF:Q4_K_M",
     "model": "qwen3.8-35b-distill-cc",
     "context": 65536
+  },
+  "35b-tiel": {
+    "base": "hf.co/peculiar-ragdoll/Tiel-Coder-35B-A3B-GGUF:UD-Q4_K_XL",
+    "model": "tiel-coder-35b-cc",
+    "context": 65536
+  },
+  "27b-dirk": {
+    "base": "hf.co/peculiar-ragdoll/Dirk-Qwen3.8-27B-GGUF:UD-Q4_K_XL",
+    "model": "dirk-qwen3.8-27b-cc",
+    "context": 65536
   }
 }

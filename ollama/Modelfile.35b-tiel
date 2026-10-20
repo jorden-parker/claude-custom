@@ -1,0 +1,2 @@
+FROM hf.co/peculiar-ragdoll/Tiel-Coder-35B-A3B-GGUF:UD-Q4_K_XL
+PARAMETER num_ctx 65536
