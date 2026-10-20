@@ -69,7 +69,7 @@ EOF
 stub curl <<EOF
 echo "\$*" >> "$logs/curl.log"
 [ -n "\${STUB_CURL_FAIL:-}" ] && exit 7
-ids='{"id": "tiel-coder-35b"}, {"id": "qwen3.8-27b"}'
+ids='{"id": "tiel-coder-35b"}, {"id": "qwen3.8-27b-oq4e"}'
 [ -n "\${STUB_MODEL_IDS:-}" ] && ids="\$STUB_MODEL_IDS"
 case "\$*" in
   */v1/models*) [ -e "$logs/serving" ] || exit 7; echo "{\"data\": [\$ids]}" ;;
@@ -107,7 +107,7 @@ check "ollama before download says to download" grep -qF 'backend-bench-off down
 run download
 check "download exits 0" test "$?" -eq 0
 check "download fetches the 35B MoE" grep -qxF "download peculiar-ragdoll/Tiel-Coder-35B-A3B-MLX-oQ4e-MTP --local-dir $BENCH_MODELS/tiel-coder-35b" "$logs/hf.log"
-check "download fetches the 27B dense" grep -qxF "download mlx-community/Qwen3.8-27B-4bit --local-dir $BENCH_MODELS/qwen3.8-27b" "$logs/hf.log"
+check "download fetches the 27B dense" grep -qxF "download Jundot/Qwen3.8-27B-oQ4e-mtp --local-dir $BENCH_MODELS/qwen3.8-27b-oq4e" "$logs/hf.log"
 check "download fetches the side model" grep -qxF "download mlx-community/Qwen3-4B-4bit --local-dir $BENCH_MODELS/qwen3-4b-cc" "$logs/hf.log"
 run download
 check "a second download skips what is there" test "$(wc -l <"$logs/hf.log")" -eq 3
@@ -118,9 +118,9 @@ check "ollama imports the downloaded weights" grep -qxF "FROM $BENCH_MODELS/tiel
 check "ollama import sets a 64k context" grep -qxF 'PARAMETER num_ctx 65536' "$logs/ollama.log"
 check "ollama benches each model twice" \
   test "$(grep -cF -- '--base-url http://localhost:11434 --model bench-tiel-coder-35b --auth-token ollama --json' "$logs/bench.log")" -eq 2
-check "ollama unloads the model after its run" grep -qxF 'stop bench-qwen3.8-27b' "$logs/ollama.log"
+check "ollama unloads the model after its run" grep -qxF 'stop bench-qwen3.8-27b-oq4e' "$logs/ollama.log"
 result="$BENCH_RESULTS/ollama--tiel-coder-35b.json"
-check "ollama writes a result per model" test -s "$BENCH_RESULTS/ollama--qwen3.8-27b.json"
+check "ollama writes a result per model" test -s "$BENCH_RESULTS/ollama--qwen3.8-27b-oq4e.json"
 check "result names server, version and repo" \
   test "$(jq -r '[.server, .version, .model, .repo] | join(" ")' "$result")" = "ollama 0.19.0 tiel-coder-35b peculiar-ragdoll/Tiel-Coder-35B-A3B-MLX-oQ4e-MTP"
 check "result records peak memory from vm_stat" test "$(jq -r .peak_memory_gb "$result")" = 26.2
@@ -136,7 +136,7 @@ check "omlx exits 0" test "$?" -eq 0
 check "omlx serves the models dir headless on its own port" \
   grep -qxF "OMLX_PORT=8100 serve --headless --model-dir $BENCH_MODELS --api-key local-bench" "$logs/omlx.log"
 check "omlx benches by directory name with the api key" \
-  test "$(grep -cF -- '--base-url http://127.0.0.1:8100 --model qwen3.8-27b --auth-token local-bench --json' "$logs/bench.log")" -eq 2
+  test "$(grep -cF -- '--base-url http://127.0.0.1:8100 --model qwen3.8-27b-oq4e --auth-token local-bench --json' "$logs/bench.log")" -eq 2
 check "omlx records the brew version" test "$(jq -r .version "$BENCH_RESULTS/omlx--tiel-coder-35b.json")" = 0.6.3
 check "omlx server is stopped afterwards" test -z "$(pgrep -f "$sandbox/stubbin/omlx" || true)"
 
@@ -151,7 +151,7 @@ check "vllm-mlx serves one model with the qwen parsers" \
   grep -qxF "serve $BENCH_MODELS/tiel-coder-35b --host 127.0.0.1 --port 8200 --served-model-name tiel-coder-35b --continuous-batching --use-paged-cache --enable-auto-tool-choice --tool-call-parser qwen --reasoning-parser qwen3" "$logs/vllm.log"
 check "vllm-mlx benches each model on its port" \
   test "$(grep -cF -- '--base-url http://127.0.0.1:8200 --model tiel-coder-35b' "$logs/bench.log")" -eq 2
-check "vllm-mlx records the uv tool version" test "$(jq -r .version "$BENCH_RESULTS/vllm-mlx--qwen3.8-27b.json")" = v0.4.1
+check "vllm-mlx records the uv tool version" test "$(jq -r .version "$BENCH_RESULTS/vllm-mlx--qwen3.8-27b-oq4e.json")" = v0.4.1
 VLLM_MLX_EXTRA_ARGS='--enable-mtp --x 1' run vllm-mlx
 check "vllm-mlx appends extra args" grep -qF -- '--reasoning-parser qwen3 --enable-mtp --x 1' "$logs/vllm.log"
 
