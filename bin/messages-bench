@@ -15,6 +15,7 @@ DEFAULT_PREFIX_TOKENS = [20000, 60000]
 DEFAULT_MAX_TOKENS = 256
 TOOL_MAX_TOKENS = 2048
 DEFAULT_TOOL_TRIALS = 5
+TEMPERATURE = 0
 ANTHROPIC_VERSION = "2023-06-01"
 REQUEST_TIMEOUT_SECONDS = 1800
 CHARS_PER_TOKEN = 4
@@ -99,7 +100,9 @@ def parse_args(argv):
     parser.add_argument("--prefix-tokens", nargs="+", type=positive_int, default=DEFAULT_PREFIX_TOKENS)
     parser.add_argument("--max-tokens", type=positive_int, default=DEFAULT_MAX_TOKENS)
     parser.add_argument("--tool-trials", type=non_negative_int, default=DEFAULT_TOOL_TRIALS)
-    parser.add_argument("--json", action="store_true")
+    output = parser.add_mutually_exclusive_group()
+    output.add_argument("--json", action="store_true")
+    output.add_argument("--jsonl", action="store_true")
     return parser.parse_args(argv)
 
 
@@ -121,6 +124,7 @@ def build_body(model, max_tokens, text, tools=None):
     body = {
         "model": model,
         "max_tokens": max_tokens,
+        "temperature": TEMPERATURE,
         "stream": True,
         "messages": [{"role": "user", "content": text}],
     }
@@ -280,12 +284,23 @@ def tool_jobs(config):
     return [("tool call", functools.partial(run_tool_trial, config)) for _ in range(config.tool_trials)]
 
 
-def run_jobs(jobs):
+def emit_line(record):
+    print(json.dumps(record), flush=True)
+
+
+def stream_result(config, result):
+    if config.jsonl and isinstance(result, Run):
+        emit_line({"type": "run", **asdict(result)})
+
+
+def run_jobs(jobs, on_result):
     results = []
     for index, (label, job) in enumerate(jobs, start=1):
         print(f"[{index}/{len(jobs)}] {label}: sending", file=sys.stderr, flush=True)
         started_at = time.perf_counter()
-        results.append(job())
+        result = job()
+        on_result(result)
+        results.append(result)
         elapsed = time.perf_counter() - started_at
         print(f"[{index}/{len(jobs)}] {label}: done in {elapsed:.1f}s", file=sys.stderr, flush=True)
     return results
@@ -295,7 +310,7 @@ def run_bench(config):
     run_marker = f"Run {time.time_ns()}."
     prefix_list = prefix_jobs(config, run_marker)
     tool_list = tool_jobs(config)
-    results = run_jobs(prefix_list + tool_list)
+    results = run_jobs(prefix_list + tool_list, functools.partial(stream_result, config))
     tool_results = results[len(prefix_list):]
     return {
         "base_url": config.base_url,
@@ -338,7 +353,9 @@ def main(argv):
     except BenchError as error:
         print(f"messages-bench: {error}", file=sys.stderr)
         return 1
-    if config.json:
+    if config.jsonl:
+        emit_line({"type": "tool_calls", **report["tool_calls"]})
+    elif config.json:
         print(json.dumps(report, indent=2))
     else:
         print(render_table(report))

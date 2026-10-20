@@ -56,10 +56,11 @@ before changing how any file gets applied.
   and results in `docs/backend-bench.md`; tests: `bin/messages-bench.test.sh`
   (stub server)
 - Bench-off: `bin/backend-bench-off install|download|all` benches Ollama, oMLX
-  and vllm-mlx on the same MLX weights, each with MTP off and on (`all` runs the
-  MTP-on runs too), and writes one side-by-side HTML page
-  (`bin/backend-bench-report`, default `~/bench-results/bench-off.html`); MTP-on
-  runs copy the vllm-mlx head with `bin/extract-mtp-weights`; tests:
+  and vllm-mlx, each with MTP off (stock MLX weights) and on (`oQ4e` MTP
+  weights), model by model, and streams each run's JSONL into one side-by-side
+  HTML page that reloads while it runs (`bin/backend-bench-report`, default
+  `~/bench-results/bench-off.html`); `run SERVER MODEL` reruns one cell; MTP-on
+  vllm-mlx runs copy the head with `bin/extract-mtp-weights`; tests:
   `bin/backend-bench-off.test.sh` (stub servers),
   `bin/backend-bench-report.test.sh`, `bin/extract-mtp-weights.test.sh`
 - Code search MCP server: `shared/mcp/code-search.py`; its tests are

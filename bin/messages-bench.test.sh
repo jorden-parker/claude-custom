@@ -157,6 +157,25 @@ def json_shape(path):
         fail("tool_calls lacks parsed or trials")
 
 
+def temperature_zero(path):
+    for request in requests_in(path):
+        if request["body"].get("temperature") != 0:
+            fail(f"a request sent temperature {request['body'].get('temperature')!r}")
+
+
+def jsonl_shape(path, runs, trials):
+    lines = [json.loads(line) for line in Path(path).read_text().splitlines()]
+    kinds = [line.get("type") for line in lines]
+    if kinds != ["run"] * runs + ["tool_calls"]:
+        fail(f"jsonl line types were {kinds}")
+    for line in lines[:-1]:
+        missing = [key for key in PROBE_KEYS if key not in line]
+        if missing:
+            fail(f"run line is missing {missing}")
+    if lines[-1].get("trials") != trials:
+        fail(f"tool_calls line reported {lines[-1].get('trials')} trials")
+
+
 command, arguments = sys.argv[1], sys.argv[2:]
 if command == "requests-ok":
     requests_ok(arguments[0], arguments[1])
@@ -170,6 +189,10 @@ elif command == "max-tokens":
     max_tokens_is(arguments[0], int(arguments[1]), int(arguments[2]))
 elif command == "json-shape":
     json_shape(arguments[0])
+elif command == "temperature-zero":
+    temperature_zero(arguments[0])
+elif command == "jsonl-shape":
+    jsonl_shape(arguments[0], int(arguments[1]), int(arguments[2]))
 PY
 
 start_stub() {
@@ -228,6 +251,13 @@ fi
 
 python3 "$tmp/inspect.py" same-start "$log" 1 2 || fail "warm request shares the cold prefix and differs in the question"
 python3 "$tmp/inspect.py" max-tokens "$log" 3 2048 || fail "tool trial requests max_tokens 2048 under default flags"
+python3 "$tmp/inspect.py" temperature-zero "$log" || fail "every request sends temperature 0 so servers decode the same way"
+
+start_stub "$healthy" || exit 1
+if ! bench_run --model stub --prefix-tokens 2000 3000 --tool-trials 2 --jsonl > "$run_dir/report.jsonl" 2> "$run_dir/stderr"; then
+  fail "--jsonl exits 0"
+fi
+python3 "$tmp/inspect.py" jsonl-shape "$run_dir/report.jsonl" 4 2 || fail "--jsonl prints one line per run, then the tool calls"
 
 start_stub "$healthy" || exit 1
 bench_run --model stub --prefix-tokens 2000 3000 --tool-trials 0 > "$run_dir/stdout" 2> "$run_dir/stderr"

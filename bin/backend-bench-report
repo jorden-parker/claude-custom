@@ -3,10 +3,11 @@ import argparse
 import html
 import json
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 REPORT_NAME = "bench-off.html"
+PLAN_NAME = "plan.json"
 BASELINE = "ollama"
 OLLAMA_MTP = "ollama-mtp"
 MTP_SUFFIX = "-mtp"
@@ -21,31 +22,44 @@ SERVER_LABELS = {
     "vllm-mlx-mtp": "vllm-mlx with MTP",
 }
 MTP_ACTIVE_WORDS = {True: "yes", False: "no", None: "unverified"}
+STOCK_WEIGHTS = "stock 4-bit"
+MTP_WEIGHTS = "oQ4e + MTP head"
 NO_VALUE = "–"
 WARM_TTFT_CUT = 0.30
 DECODE_FLOOR = 0.90
+REFRESH_SECONDS = 5
+AC_POWER = "AC Power"
 LOWER_IS_BETTER = "lower"
 HIGHER_IS_BETTER = "higher"
+DONE = "done"
+FAILED = "failed"
+RUNNING = "running"
+WAITING = "waiting"
+NOT_RUN = "not run"
 STYLE = """
-:root { --bg: #ffffff; --fg: #1d1d1f; --muted: #6e6e73; --line: #d2d2d7;
-  --best: #e3f5e1; --pass: #1a7f37; --fail: #c62828; --head: #f5f5f7; }
+:root { --bg: #ffffff; --fg: #1d1d1f; --muted: #6e6e73; --line: #d2d2d7; --best: #e3f5e1;
+  --pass: #1a7f37; --fail: #c62828; --head: #f5f5f7; --warn-bg: #fff4e5; --run: #0b63c5; }
 @media (prefers-color-scheme: dark) {
-  :root { --bg: #161618; --fg: #f5f5f7; --muted: #a1a1a6; --line: #3a3a3c;
-    --best: #1f3a24; --pass: #4ac26b; --fail: #ff6b6b; --head: #222225; } }
-body { background: var(--bg); color: var(--fg); margin: 0 auto; max-width: 980px;
+  :root { --bg: #161618; --fg: #f5f5f7; --muted: #a1a1a6; --line: #3a3a3c; --best: #1f3a24;
+    --pass: #4ac26b; --fail: #ff6b6b; --head: #222225; --warn-bg: #3a2a10; --run: #6cb4ff; } }
+body { background: var(--bg); color: var(--fg); margin: 0 auto; max-width: 1240px;
   padding: 24px 16px; font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
 h1 { margin: 0 0 4px; } h2 { margin: 32px 0 4px; }
 .muted { color: var(--muted); }
 .headline { font-size: 20px; font-weight: 600; margin: 16px 0; }
+.warning { background: var(--warn-bg); padding: 8px 12px; border-radius: 6px; }
 .scroll { overflow-x: auto; }
-table { border-collapse: collapse; width: 100%; margin-top: 12px; font-variant-numeric: tabular-nums; }
-th, td { border-bottom: 1px solid var(--line); padding: 6px 10px; text-align: right; white-space: nowrap; }
-th:first-child, td:first-child { text-align: left; }
+table { border-collapse: collapse; width: 100%; margin-top: 12px; font-variant-numeric: tabular-nums;
+  table-layout: fixed; min-width: 560px; }
+th, td { border-bottom: 1px solid var(--line); padding: 6px 8px; text-align: right; overflow-wrap: break-word; }
+th:first-child, td:first-child { text-align: left; width: 20%; }
 thead th { background: var(--head); }
 td.best { background: var(--best); font-weight: 600; }
-td.pass { color: var(--pass); font-weight: 600; white-space: normal; }
-td.fail { color: var(--fail); font-weight: 600; white-space: normal; }
-td.baseline { color: var(--muted); }
+td.pass, td.done { color: var(--pass); font-weight: 600; }
+td.fail { color: var(--fail); font-weight: 600; }
+td.running { color: var(--run); font-weight: 600; }
+td.baseline, td.waiting { color: var(--muted); }
+details { margin-top: 8px; } pre { overflow-x: auto; background: var(--head); padding: 8px; }
 """
 
 
@@ -54,16 +68,28 @@ class ReportError(Exception):
 
 
 @dataclass
-class Result:
+class Unit:
     server: str
-    version: str
     model: str
-    repo: str
-    peak_memory_gb: float | None
-    date: str
-    runs: list
-    tool_calls: dict
-    mtp: dict | None
+    version: str = ""
+    weights: str = ""
+    repo: str = ""
+    conditions: dict = field(default_factory=dict)
+    runs: list = field(default_factory=list)
+    tool_calls: dict | None = None
+    status: str = RUNNING
+    peak_memory_gb: float | None = None
+    error: str = ""
+    log_tail: str = ""
+    mtp: dict | None = None
+
+
+@dataclass
+class Plan:
+    servers: list
+    models: list
+    prefix_tokens: list
+    finished: bool
 
 
 @dataclass
@@ -81,62 +107,105 @@ def parse_args(argv):
     return parser.parse_args(argv)
 
 
-def load_result(path):
+def apply_line(unit, line):
+    kind = line.get("type")
+    if kind == "meta":
+        unit.version = line.get("version", "")
+        unit.weights = line.get("weights", "")
+        unit.repo = line.get("repo", "")
+        unit.conditions = line.get("conditions", {})
+    elif kind == "run":
+        unit.runs.append(line)
+    elif kind == "tool_calls":
+        unit.tool_calls = {"parsed": line["parsed"], "trials": line["trials"]}
+    elif kind == "end":
+        unit.status = line.get("status", FAILED)
+        unit.peak_memory_gb = line.get("peak_memory_gb")
+        unit.error = line.get("error", "")
+        unit.log_tail = line.get("log_tail", "")
+        unit.mtp = line.get("mtp")
+
+
+def parse_lines(path):
+    lines = []
+    for text in path.read_text(encoding="utf-8").splitlines():
+        try:
+            lines.append(json.loads(text))
+        except json.JSONDecodeError:
+            continue
+    return lines
+
+
+def load_unit(path):
+    server, model = path.stem.split("--", 1)
+    unit = Unit(server=server, model=model)
+    for line in parse_lines(path):
+        apply_line(unit, line)
+    return unit
+
+
+def load_plan(results_dir):
+    path = results_dir / PLAN_NAME
+    if not path.exists():
+        return None
     data = json.loads(path.read_text(encoding="utf-8"))
-    bench = data["bench"]
-    return Result(
-        server=data["server"],
-        version=data.get("version", "unknown"),
-        model=data["model"],
-        repo=data.get("repo", ""),
-        peak_memory_gb=data.get("peak_memory_gb"),
-        date=data.get("date", ""),
-        runs=bench["runs"],
-        tool_calls=bench["tool_calls"],
-        mtp=data.get("mtp"),
-    )
+    return Plan(data["servers"], data["models"], data.get("prefix_tokens", []), data.get("finished", False))
 
 
-def load_results(results_dir):
-    results = [load_result(path) for path in sorted(results_dir.glob("*--*.json"))]
-    if not results:
-        raise ReportError(f"no results in {results_dir}")
-    return results
+def load_units(results_dir):
+    return {(unit.server, unit.model): unit for unit in map(load_unit, sorted(results_dir.glob("*--*.jsonl")))}
 
 
 def server_rank(server):
     return SERVER_ORDER.index(server) if server in SERVER_ORDER else len(SERVER_ORDER)
 
 
-def group_by_model(results):
-    models = {}
-    for result in results:
-        models.setdefault(result.model, []).append(result)
-    for model_results in models.values():
-        model_results.sort(key=lambda result: (server_rank(result.server), result.server))
-    return models
+def ordered_unique(values):
+    return list(dict.fromkeys(values))
 
 
-def run_value(result, prefix_tokens, scenario, key):
-    for run in result.runs:
+def grid_axes(plan, units):
+    servers = plan.servers if plan else []
+    models = plan.models if plan else []
+    servers = ordered_unique(servers + sorted({s for s, _ in units}, key=lambda s: (server_rank(s), s)))
+    models = ordered_unique(models + sorted({m for _, m in units}))
+    return servers, models
+
+
+def placeholder(server, model, plan):
+    status = WAITING if plan and not plan.finished else NOT_RUN
+    return Unit(server=server, model=model, status=status)
+
+
+def build_grid(plan, units):
+    servers, models = grid_axes(plan, units)
+    return {
+        model: [units.get((server, model)) or placeholder(server, model, plan) for server in servers]
+        for model in models
+    }
+
+
+def run_value(unit, prefix_tokens, scenario, key):
+    for run in unit.runs:
         if run["prefix_tokens"] == prefix_tokens and run["scenario"] == scenario:
             return run[key]
     return None
 
 
-def prefix_sizes(results):
-    return sorted({run["prefix_tokens"] for result in results for run in result.runs})
+def prefix_sizes(units, plan=None):
+    found = {run["prefix_tokens"] for unit in units for run in unit.runs}
+    return sorted(found | set(plan.prefix_tokens if plan else []))
 
 
 def short_tokens(prefix_tokens):
     return f"{prefix_tokens // 1000}k" if prefix_tokens >= 1000 else str(prefix_tokens)
 
 
-def prefix_rows(results, prefix_tokens):
+def prefix_rows(units, prefix_tokens):
     size = short_tokens(prefix_tokens)
 
     def values(scenario, key):
-        return [run_value(result, prefix_tokens, scenario, key) for result in results]
+        return [run_value(unit, prefix_tokens, scenario, key) for unit in units]
 
     return [
         Row(f"Cold TTFT {size} (s)", values("cold", "ttft_seconds"), LOWER_IS_BETTER, 2),
@@ -146,20 +215,17 @@ def prefix_rows(results, prefix_tokens):
     ]
 
 
-def build_rows(results):
+def measurement_rows(units, plan):
     rows = []
-    for prefix_tokens in prefix_sizes(results):
-        rows.extend(prefix_rows(results, prefix_tokens))
+    for prefix_tokens in prefix_sizes(units, plan):
+        rows.extend(prefix_rows(units, prefix_tokens))
+    rows.append(Row("Peak memory used (GB)", [unit.peak_memory_gb for unit in units], LOWER_IS_BETTER, 1))
     return rows
-
-
-def peak_row(results):
-    return Row("Peak memory used (GB)", [result.peak_memory_gb for result in results], LOWER_IS_BETTER, 1)
 
 
 def best_value(row):
     present = [value for value in row.values if value is not None]
-    if row.better is None or len(present) < 2:
+    if row.better is None or len(set(present)) < 2:
         return None
     return min(present) if row.better == LOWER_IS_BETTER else max(present)
 
@@ -167,9 +233,8 @@ def best_value(row):
 def number_cell(value, digits, best):
     if value is None:
         return "<td>–</td>"
-    text = f"{value:.{digits}f}"
     css = ' class="best"' if best is not None and value == best else ""
-    return f"<td{css}>{text}</td>"
+    return f"<td{css}>{value:.{digits}f}</td>"
 
 
 def render_row(row):
@@ -178,13 +243,50 @@ def render_row(row):
     return f"<tr><td>{html.escape(row.label)}</td>{cells}</tr>"
 
 
-def text_row(label, texts):
-    cells = "".join(f"<td>{html.escape(text)}</td>" for text in texts)
-    return f"<tr><td>{html.escape(label)}</td>{cells}</tr>"
+def cell(css, text):
+    css_attribute = f' class="{css}"' if css else ""
+    return f"<td{css_attribute}>{html.escape(text)}</td>"
 
 
-def tool_text(result):
-    return f"{result.tool_calls['parsed']}/{result.tool_calls['trials']}"
+def labelled_row(label, cells):
+    return f"<tr><td>{html.escape(label)}</td>{''.join(cells)}</tr>"
+
+
+def expected_measurements(plan):
+    return 2 * len(plan.prefix_tokens) if plan and plan.prefix_tokens else None
+
+
+def status_cell(unit, plan):
+    if unit.status == RUNNING:
+        expected = expected_measurements(plan)
+        progress = f"{len(unit.runs)} of {expected}" if expected else str(len(unit.runs))
+        return cell("running", f"running, {progress} measurements")
+    if unit.status == FAILED:
+        return cell("fail", f"failed: {unit.error or 'see the log below'}")
+    if unit.status == DONE:
+        return cell("done", "done")
+    return cell("waiting", unit.status)
+
+
+def tool_text(unit):
+    return f"{unit.tool_calls['parsed']}/{unit.tool_calls['trials']}" if unit.tool_calls else "–"
+
+
+def conditions_text(unit):
+    if not unit.conditions:
+        return "–"
+    parts = [unit.conditions.get("power") or "power unknown"]
+    if unit.conditions.get("low_power_mode"):
+        parts.append("Low Power Mode")
+    memory = unit.conditions.get("memory_before_gb")
+    if memory is not None:
+        parts.append(f"{memory} GB in use")
+    return ", ".join(parts)
+
+
+def unfair_conditions(unit):
+    power = unit.conditions.get("power")
+    return bool(unit.conditions) and (power != AC_POWER or unit.conditions.get("low_power_mode"))
 
 
 def deciding_prefix(baseline, candidate):
@@ -195,6 +297,8 @@ def deciding_prefix(baseline, candidate):
 def warm_ttft_failure(baseline, candidate, prefix_tokens):
     base = run_value(baseline, prefix_tokens, "warm", "ttft_seconds")
     ours = run_value(candidate, prefix_tokens, "warm", "ttft_seconds")
+    if None in (base, ours):
+        return f"no warm TTFT at {short_tokens(prefix_tokens)}"
     if ours > base * (1 - WARM_TTFT_CUT):
         saved = (1 - ours / base) * 100
         return f"warm TTFT {short_tokens(prefix_tokens)} only {saved:.0f}% lower (needs {WARM_TTFT_CUT:.0%})"
@@ -211,14 +315,8 @@ def decode_failure(baseline, candidate, prefix_tokens):
 
 def tool_failure(candidate):
     calls = candidate.tool_calls
-    if calls["trials"] == 0 or calls["parsed"] < calls["trials"]:
+    if not calls or calls["trials"] == 0 or calls["parsed"] < calls["trials"]:
         return f"tool calls {tool_text(candidate)}"
-    return None
-
-
-def mtp_inactive_failure(candidate):
-    if candidate.mtp is not None and candidate.mtp.get("active") is False:
-        return "MTP not active"
     return None
 
 
@@ -230,7 +328,6 @@ def candidate_failures(baseline, candidate):
         warm_ttft_failure(baseline, candidate, prefix_tokens),
         decode_failure(baseline, candidate, prefix_tokens),
         tool_failure(candidate),
-        mtp_inactive_failure(candidate),
     )
     return [failure for failure in checks if failure]
 
@@ -240,124 +337,223 @@ def mtp_base(server):
     return base if base != server else None
 
 
-def mtp_text(result):
-    if result.mtp is None:
-        return NO_VALUE
-    word = MTP_ACTIVE_WORDS.get(result.mtp.get("active"), "unverified")
-    detail = result.mtp.get("detail")
-    return f"{word} ({detail})" if detail else word
+def baseline_server(server):
+    return OLLAMA_MTP if mtp_base(server) else BASELINE
 
 
-def decode_ratio(result, results):
-    base_server = mtp_base(result.server)
-    base = next((other for other in results if other.server == base_server), None)
-    if base is None:
+def finished_unit(units, server):
+    return next((unit for unit in units if unit.server == server and unit.status == DONE), None)
+
+
+def mtp_inactive(unit):
+    return unit.mtp is not None and unit.mtp.get("active") is False
+
+
+def missing_baseline_text(server):
+    return "no Ollama MTP baseline" if mtp_base(server) else "no Ollama baseline"
+
+
+def verdict_cell(units, unit):
+    if unit.server == BASELINE:
+        return cell("baseline", "baseline")
+    if unit.server == OLLAMA_MTP:
+        return cell("baseline", "baseline for MTP columns")
+    if unit.status == FAILED:
+        return cell("fail", "FAIL: the run failed")
+    if unit.status != DONE:
+        return cell("waiting", NO_VALUE)
+    if mtp_inactive(unit):
+        return cell("fail", "FAIL: MTP not active")
+    baseline = finished_unit(units, baseline_server(unit.server))
+    if baseline is None:
+        return cell("baseline", missing_baseline_text(unit.server))
+    failures = candidate_failures(baseline, unit)
+    if failures:
+        return cell("fail", "FAIL: " + "; ".join(failures))
+    return cell("pass", "PASS")
+
+
+def candidate_passes(units, candidate):
+    unit = finished_unit(units, candidate)
+    baseline = finished_unit(units, baseline_server(candidate))
+    if baseline is None:
+        return None
+    return unit is not None and not mtp_inactive(unit) and not candidate_failures(baseline, unit)
+
+
+def candidate_verdicts(grid, candidate):
+    verdicts = (candidate_passes(units, candidate) for units in grid.values())
+    return [verdict for verdict in verdicts if verdict is not None]
+
+
+def mtp_word(unit):
+    if unit.mtp is None:
         return NO_VALUE
-    prefix_tokens = deciding_prefix(base, result)
+    return MTP_ACTIVE_WORDS.get(unit.mtp.get("active"), "unverified")
+
+
+def mtp_note(units):
+    parts = [
+        f"{unit.server} {mtp_word(unit)} ({unit.mtp['detail']})"
+        for unit in units
+        if unit.mtp is not None and unit.mtp.get("detail")
+    ]
+    return f'<p class="muted">MTP: {html.escape("; ".join(parts))}</p>' if parts else ""
+
+
+def weights_label(unit):
+    if not unit.weights:
+        return NO_VALUE
+    return MTP_WEIGHTS if mtp_base(unit.server) else STOCK_WEIGHTS
+
+
+def decode_ratio(unit, units):
+    base = finished_unit(units, mtp_base(unit.server) or "")
+    if base is None or unit.status != DONE:
+        return NO_VALUE
+    prefix_tokens = deciding_prefix(base, unit)
     if prefix_tokens is None:
         return NO_VALUE
-    ours = run_value(result, prefix_tokens, "warm", "decode_tokens_per_second")
+    ours = run_value(unit, prefix_tokens, "warm", "decode_tokens_per_second")
     theirs = run_value(base, prefix_tokens, "warm", "decode_tokens_per_second")
     if not ours or not theirs:
         return NO_VALUE
     return f"×{ours / theirs:.2f}"
 
 
-def mtp_summary_lines(models):
+def mtp_summary_lines(grid):
     lines = []
-    for model, results in models.items():
+    for model, units in grid.items():
         parts = [
-            f"{SERVER_LABELS.get(mtp_base(result.server), mtp_base(result.server))} {decode_ratio(result, results)}"
-            for result in results
-            if mtp_base(result.server)
+            f"{SERVER_LABELS.get(mtp_base(unit.server), mtp_base(unit.server))} {decode_ratio(unit, units)}"
+            for unit in units
+            if mtp_base(unit.server) and decode_ratio(unit, units) != NO_VALUE
         ]
         if parts:
             lines.append(f"MTP decode: {model}: {', '.join(parts)}")
     return lines
 
 
-def baseline_of(results):
-    return next((result for result in results if result.server == BASELINE), None)
+def all_units(grid):
+    return [unit for units in grid.values() for unit in units]
 
 
-def verdict_cell(baseline, result):
-    if result.server == BASELINE:
-        return '<td class="baseline">baseline</td>'
-    if result.server == OLLAMA_MTP:
-        return '<td class="baseline">MTP variant of baseline</td>'
-    if baseline is None:
-        return '<td class="baseline">no Ollama baseline</td>'
-    failures = candidate_failures(baseline, result)
-    if failures:
-        return f'<td class="fail">FAIL: {html.escape("; ".join(failures))}</td>'
-    return '<td class="pass">PASS</td>'
+def is_running(plan):
+    return plan is not None and not plan.finished
 
 
-def passing_candidates(results):
-    baseline = baseline_of(results)
-    if baseline is None:
-        return None
-    return {result.server for result in results if result.server != BASELINE and not candidate_failures(baseline, result)}
-
-
-def headline(models):
-    verdicts = [passing for passing in map(passing_candidates, models.values()) if passing is not None]
-    for candidate in CANDIDATES:
-        if verdicts and all(candidate in passing for passing in verdicts):
+def headline(grid, plan):
+    if is_running(plan):
+        units = all_units(grid)
+        finished = sum(unit.status in (DONE, FAILED) for unit in units)
+        return f"Running: {finished} of {len(units)} runs done"
+    judged = {candidate: candidate_verdicts(grid, candidate) for candidate in CANDIDATES}
+    if not any(judged.values()):
+        return "No Ollama baseline: see the errors below"
+    for candidate, verdicts in judged.items():
+        if verdicts and all(verdicts):
             return f"Switch to {SERVER_LABELS[candidate]}"
     return "Stay on Ollama"
 
 
-def render_model(model, results):
-    baseline = baseline_of(results)
-    header = "".join(f"<th>{html.escape(result.server)}</th>" for result in results)
+def failure_details(units):
+    blocks = []
+    for unit in units:
+        if unit.status == FAILED:
+            summary = html.escape(f"{unit.server} on {unit.model} failed: {unit.error}")
+            blocks.append(f"<details open><summary>{summary}</summary><pre>{html.escape(unit.log_tail)}</pre></details>")
+    return "".join(blocks)
+
+
+def render_model(model, units, plan):
+    header = "".join(f"<th>{html.escape(unit.server)}</th>" for unit in units)
     body = [
-        text_row("Version", [result.version for result in results]),
-        text_row("MTP active", [mtp_text(result) for result in results]),
+        labelled_row("Status", [status_cell(unit, plan) for unit in units]),
+        labelled_row("Version", [cell("", unit.version or NO_VALUE) for unit in units]),
+        labelled_row("Weights", [cell("", weights_label(unit)) for unit in units]),
+        labelled_row("MTP active", [cell("", mtp_word(unit)) for unit in units]),
     ]
-    body.extend(render_row(row) for row in build_rows(results))
-    body.append(text_row("Decode vs MTP off", [decode_ratio(result, results) for result in results]))
-    body.append(render_row(peak_row(results)))
-    body.append(text_row("Tool calls parsed", [tool_text(result) for result in results]))
-    body.append(text_row("Date", [result.date for result in results]))
-    verdicts = "".join(verdict_cell(baseline, result) for result in results)
-    body.append(f"<tr><td>Verdict</td>{verdicts}</tr>")
-    repo = html.escape(results[0].repo)
+    body.extend(render_row(row) for row in measurement_rows(units, plan))
+    body.append(labelled_row("Decode vs MTP off", [cell("", decode_ratio(unit, units)) for unit in units]))
+    body.append(labelled_row("Tool calls parsed", [cell("", tool_text(unit)) for unit in units]))
+    body.append(labelled_row("Conditions", [cell("", conditions_text(unit)) for unit in units]))
+    body.append(labelled_row("Verdict", [verdict_cell(units, unit) for unit in units]))
+    repo = html.escape(" · ".join(ordered_unique(unit.repo for unit in units if unit.repo)))
     rows = "\n".join(body)
     return (
         f'<h2>{html.escape(model)}</h2><p class="muted">{repo}</p>'
         f'<div class="scroll"><table><thead><tr><th>Metric</th>{header}</tr></thead>'
-        f"<tbody>\n{rows}\n</tbody></table></div>"
+        f"<tbody>\n{rows}\n</tbody></table></div>{mtp_note(units)}{failure_details(units)}"
     )
 
 
-def render_page(models):
-    sections = "\n".join(render_model(model, results) for model, results in models.items())
-    summary = "".join(f'<p class="muted">{html.escape(line)}</p>' for line in mtp_summary_lines(models))
+def warning(grid):
+    if any(unfair_conditions(unit) for unit in all_units(grid)):
+        return (
+            '<p class="warning">Some runs were on battery or in Low Power Mode. Their numbers are not '
+            "comparable with runs on AC power; rerun them plugged in.</p>"
+        )
+    return ""
+
+
+def mtp_summary(grid):
+    return "".join(f'<p class="muted">{html.escape(line)}</p>' for line in mtp_summary_lines(grid))
+
+
+def refresh_tag(plan):
+    return f'<meta http-equiv="refresh" content="{REFRESH_SECONDS}">' if is_running(plan) else ""
+
+
+def explanation(plan):
     rule = (
         f"A candidate passes when its warm TTFT at the largest prefix is at least {WARM_TTFT_CUT:.0%} "
-        f"lower than Ollama's, its warm decode is at least {DECODE_FLOOR:.0%} of Ollama's, and every "
-        "tool call parses. Then confirm with a real Claude Code session of about 20 tool-using turns."
+        f"lower than its Ollama baseline's, its warm decode is at least {DECODE_FLOOR:.0%} of the "
+        "baseline's, and every tool call parses. Then confirm with a real Claude Code session of about "
+        "20 tool-using turns. Every server gets the same prompts, temperature 0 and token limits, and "
+        "each model is benched on all servers back to back. MTP-off columns share the stock 4-bit "
+        "weights and are judged against Ollama; MTP columns share the MTP weights (oMLX's oQ4e "
+        "quantizer, which keeps the draft head) and are judged against Ollama with MTP. Decode vs MTP "
+        "off compares across the two sets of weights, so read it as a guide, not an exact speed-up. "
+        "Highlighted cells are the best value in their row."
     )
+    live = f" This page reloads every {REFRESH_SECONDS} s while the bench runs." if is_running(plan) else ""
+    return f'<p class="muted">{html.escape(rule + live)}</p>'
+
+
+def render_page(grid, plan):
+    sections = "\n".join(render_model(model, units, plan) for model, units in grid.items())
     return (
         '<!doctype html><html lang="en"><head><meta charset="utf-8">'
         '<meta name="viewport" content="width=device-width, initial-scale=1">'
-        f"<title>Backend bench-off</title><style>{STYLE}</style></head><body>"
-        f'<h1>Backend bench-off</h1><p class="headline">{headline(models)}</p>{summary}'
-        f'<p class="muted">{html.escape(rule)} Highlighted cells are the best value in their row.</p>'
-        f"{sections}</body></html>\n"
+        f"{refresh_tag(plan)}<title>Backend bench-off</title><style>{STYLE}</style></head><body>"
+        f'<h1>Backend bench-off</h1><p class="headline">{html.escape(headline(grid, plan))}</p>'
+        f"{mtp_summary(grid)}{warning(grid)}{explanation(plan)}{sections}</body></html>\n"
     )
+
+
+def load_grid(results_dir):
+    plan = load_plan(results_dir)
+    units = load_units(results_dir)
+    if not units and plan is None:
+        raise ReportError(f"no results in {results_dir}")
+    return build_grid(plan, units), plan
+
+
+def write_atomically(path, text):
+    partial = path.with_name(path.name + ".partial")
+    partial.write_text(text, encoding="utf-8")
+    partial.replace(path)
 
 
 def main(argv):
     arguments = parse_args(argv)
     output = arguments.output or arguments.results_dir / REPORT_NAME
     try:
-        models = group_by_model(load_results(arguments.results_dir))
+        grid, plan = load_grid(arguments.results_dir)
     except (ReportError, OSError, ValueError, KeyError) as error:
         print(f"backend-bench-report: {error}", file=sys.stderr)
         return 1
-    output.write_text(render_page(models), encoding="utf-8")
+    write_atomically(output, render_page(grid, plan))
     print(output)
     return 0
 
