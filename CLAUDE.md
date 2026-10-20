@@ -55,6 +55,11 @@ before changing how any file gets applied.
   `/v1/messages` server (cold/warm TTFT, prefill, decode, tool calls); runbook
   and results in `docs/backend-bench.md`; tests: `bin/messages-bench.test.sh`
   (stub server)
+- Bench-off: `bin/backend-bench-off install|download|all` benches Ollama, oMLX
+  and vllm-mlx on the same MLX weights and writes one side-by-side HTML page
+  (`bin/backend-bench-report`, default `~/bench-results/bench-off.html`); tests:
+  `bin/backend-bench-off.test.sh` (stub servers),
+  `bin/backend-bench-report.test.sh`
 - Code search MCP server: `shared/mcp/code-search.py`; its tests are
   `shared/mcp/code-search.test.sh` (stub embedding server, temp git repo)
 - Feed the hook one command by hand:

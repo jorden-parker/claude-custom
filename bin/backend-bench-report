@@ -1,0 +1,294 @@
+#!/usr/bin/env python3
+import argparse
+import html
+import json
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+
+REPORT_NAME = "bench-off.html"
+BASELINE = "ollama"
+CANDIDATES = ("omlx", "vllm-mlx")
+SERVER_ORDER = (BASELINE, *CANDIDATES)
+SERVER_LABELS = {"ollama": "Ollama", "omlx": "oMLX", "vllm-mlx": "vllm-mlx"}
+WARM_TTFT_CUT = 0.30
+DECODE_FLOOR = 0.90
+LOWER_IS_BETTER = "lower"
+HIGHER_IS_BETTER = "higher"
+STYLE = """
+:root { --bg: #ffffff; --fg: #1d1d1f; --muted: #6e6e73; --line: #d2d2d7;
+  --best: #e3f5e1; --pass: #1a7f37; --fail: #c62828; --head: #f5f5f7; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #161618; --fg: #f5f5f7; --muted: #a1a1a6; --line: #3a3a3c;
+    --best: #1f3a24; --pass: #4ac26b; --fail: #ff6b6b; --head: #222225; } }
+body { background: var(--bg); color: var(--fg); margin: 0 auto; max-width: 980px;
+  padding: 24px 16px; font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+h1 { margin: 0 0 4px; } h2 { margin: 32px 0 4px; }
+.muted { color: var(--muted); }
+.headline { font-size: 20px; font-weight: 600; margin: 16px 0; }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; margin-top: 12px; font-variant-numeric: tabular-nums; }
+th, td { border-bottom: 1px solid var(--line); padding: 6px 10px; text-align: right; white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+thead th { background: var(--head); }
+td.best { background: var(--best); font-weight: 600; }
+td.pass { color: var(--pass); font-weight: 600; white-space: normal; }
+td.fail { color: var(--fail); font-weight: 600; white-space: normal; }
+td.baseline { color: var(--muted); }
+"""
+
+
+class ReportError(Exception):
+    pass
+
+
+@dataclass
+class Result:
+    server: str
+    version: str
+    model: str
+    repo: str
+    peak_memory_gb: float | None
+    date: str
+    runs: list
+    tool_calls: dict
+
+
+@dataclass
+class Row:
+    label: str
+    values: list
+    better: str | None
+    digits: int
+
+
+def parse_args(argv):
+    parser = argparse.ArgumentParser(description="Render bench-off results side by side as one HTML page.")
+    parser.add_argument("results_dir", type=Path)
+    parser.add_argument("--output", type=Path)
+    return parser.parse_args(argv)
+
+
+def load_result(path):
+    data = json.loads(path.read_text(encoding="utf-8"))
+    bench = data["bench"]
+    return Result(
+        server=data["server"],
+        version=data.get("version", "unknown"),
+        model=data["model"],
+        repo=data.get("repo", ""),
+        peak_memory_gb=data.get("peak_memory_gb"),
+        date=data.get("date", ""),
+        runs=bench["runs"],
+        tool_calls=bench["tool_calls"],
+    )
+
+
+def load_results(results_dir):
+    results = [load_result(path) for path in sorted(results_dir.glob("*--*.json"))]
+    if not results:
+        raise ReportError(f"no results in {results_dir}")
+    return results
+
+
+def server_rank(server):
+    return SERVER_ORDER.index(server) if server in SERVER_ORDER else len(SERVER_ORDER)
+
+
+def group_by_model(results):
+    models = {}
+    for result in results:
+        models.setdefault(result.model, []).append(result)
+    for model_results in models.values():
+        model_results.sort(key=lambda result: (server_rank(result.server), result.server))
+    return models
+
+
+def run_value(result, prefix_tokens, scenario, key):
+    for run in result.runs:
+        if run["prefix_tokens"] == prefix_tokens and run["scenario"] == scenario:
+            return run[key]
+    return None
+
+
+def prefix_sizes(results):
+    return sorted({run["prefix_tokens"] for result in results for run in result.runs})
+
+
+def short_tokens(prefix_tokens):
+    return f"{prefix_tokens // 1000}k" if prefix_tokens >= 1000 else str(prefix_tokens)
+
+
+def prefix_rows(results, prefix_tokens):
+    size = short_tokens(prefix_tokens)
+
+    def values(scenario, key):
+        return [run_value(result, prefix_tokens, scenario, key) for result in results]
+
+    return [
+        Row(f"Cold TTFT {size} (s)", values("cold", "ttft_seconds"), LOWER_IS_BETTER, 2),
+        Row(f"Warm TTFT {size} (s)", values("warm", "ttft_seconds"), LOWER_IS_BETTER, 2),
+        Row(f"Cold prefill {size} (t/s)", values("cold", "prefill_tokens_per_second"), HIGHER_IS_BETTER, 0),
+        Row(f"Warm decode {size} (t/s)", values("warm", "decode_tokens_per_second"), HIGHER_IS_BETTER, 1),
+    ]
+
+
+def build_rows(results):
+    rows = []
+    for prefix_tokens in prefix_sizes(results):
+        rows.extend(prefix_rows(results, prefix_tokens))
+    rows.append(Row("Peak memory used (GB)", [result.peak_memory_gb for result in results], LOWER_IS_BETTER, 1))
+    return rows
+
+
+def best_value(row):
+    present = [value for value in row.values if value is not None]
+    if row.better is None or len(present) < 2:
+        return None
+    return min(present) if row.better == LOWER_IS_BETTER else max(present)
+
+
+def number_cell(value, digits, best):
+    if value is None:
+        return "<td>–</td>"
+    text = f"{value:.{digits}f}"
+    css = ' class="best"' if best is not None and value == best else ""
+    return f"<td{css}>{text}</td>"
+
+
+def render_row(row):
+    best = best_value(row)
+    cells = "".join(number_cell(value, row.digits, best) for value in row.values)
+    return f"<tr><td>{html.escape(row.label)}</td>{cells}</tr>"
+
+
+def text_row(label, texts):
+    cells = "".join(f"<td>{html.escape(text)}</td>" for text in texts)
+    return f"<tr><td>{html.escape(label)}</td>{cells}</tr>"
+
+
+def tool_text(result):
+    return f"{result.tool_calls['parsed']}/{result.tool_calls['trials']}"
+
+
+def deciding_prefix(baseline, candidate):
+    shared = set(prefix_sizes([baseline])) & set(prefix_sizes([candidate]))
+    return max(shared) if shared else None
+
+
+def warm_ttft_failure(baseline, candidate, prefix_tokens):
+    base = run_value(baseline, prefix_tokens, "warm", "ttft_seconds")
+    ours = run_value(candidate, prefix_tokens, "warm", "ttft_seconds")
+    if ours > base * (1 - WARM_TTFT_CUT):
+        saved = (1 - ours / base) * 100
+        return f"warm TTFT {short_tokens(prefix_tokens)} only {saved:.0f}% lower (needs {WARM_TTFT_CUT:.0%})"
+    return None
+
+
+def decode_failure(baseline, candidate, prefix_tokens):
+    base = run_value(baseline, prefix_tokens, "warm", "decode_tokens_per_second")
+    ours = run_value(candidate, prefix_tokens, "warm", "decode_tokens_per_second")
+    if base and (ours is None or ours < base * DECODE_FLOOR):
+        return f"decode {ours or 0:.1f} t/s vs {base:.1f} (needs {DECODE_FLOOR:.0%})"
+    return None
+
+
+def tool_failure(candidate):
+    calls = candidate.tool_calls
+    if calls["trials"] == 0 or calls["parsed"] < calls["trials"]:
+        return f"tool calls {tool_text(candidate)}"
+    return None
+
+
+def candidate_failures(baseline, candidate):
+    prefix_tokens = deciding_prefix(baseline, candidate)
+    if prefix_tokens is None:
+        return ["no shared prefix size with Ollama"]
+    checks = (
+        warm_ttft_failure(baseline, candidate, prefix_tokens),
+        decode_failure(baseline, candidate, prefix_tokens),
+        tool_failure(candidate),
+    )
+    return [failure for failure in checks if failure]
+
+
+def baseline_of(results):
+    return next((result for result in results if result.server == BASELINE), None)
+
+
+def verdict_cell(baseline, result):
+    if result.server == BASELINE:
+        return '<td class="baseline">baseline</td>'
+    if baseline is None:
+        return '<td class="baseline">no Ollama baseline</td>'
+    failures = candidate_failures(baseline, result)
+    if failures:
+        return f'<td class="fail">FAIL: {html.escape("; ".join(failures))}</td>'
+    return '<td class="pass">PASS</td>'
+
+
+def passing_candidates(results):
+    baseline = baseline_of(results)
+    if baseline is None:
+        return None
+    return {result.server for result in results if result.server != BASELINE and not candidate_failures(baseline, result)}
+
+
+def headline(models):
+    verdicts = [passing for passing in map(passing_candidates, models.values()) if passing is not None]
+    for candidate in CANDIDATES:
+        if verdicts and all(candidate in passing for passing in verdicts):
+            return f"Switch to {SERVER_LABELS[candidate]}"
+    return "Stay on Ollama"
+
+
+def render_model(model, results):
+    baseline = baseline_of(results)
+    header = "".join(f"<th>{html.escape(result.server)}</th>" for result in results)
+    body = [text_row("Version", [result.version for result in results])]
+    body.extend(render_row(row) for row in build_rows(results))
+    body.append(text_row("Tool calls parsed", [tool_text(result) for result in results]))
+    body.append(text_row("Date", [result.date for result in results]))
+    verdicts = "".join(verdict_cell(baseline, result) for result in results)
+    body.append(f"<tr><td>Verdict</td>{verdicts}</tr>")
+    repo = html.escape(results[0].repo)
+    rows = "\n".join(body)
+    return (
+        f'<h2>{html.escape(model)}</h2><p class="muted">{repo}</p>'
+        f'<div class="scroll"><table><thead><tr><th>Metric</th>{header}</tr></thead>'
+        f"<tbody>\n{rows}\n</tbody></table></div>"
+    )
+
+
+def render_page(models):
+    sections = "\n".join(render_model(model, results) for model, results in models.items())
+    rule = (
+        f"A candidate passes when its warm TTFT at the largest prefix is at least {WARM_TTFT_CUT:.0%} "
+        f"lower than Ollama's, its warm decode is at least {DECODE_FLOOR:.0%} of Ollama's, and every "
+        "tool call parses. Then confirm with a real Claude Code session of about 20 tool-using turns."
+    )
+    return (
+        '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width, initial-scale=1">'
+        f"<title>Backend bench-off</title><style>{STYLE}</style></head><body>"
+        f'<h1>Backend bench-off</h1><p class="headline">{headline(models)}</p>'
+        f'<p class="muted">{html.escape(rule)} Highlighted cells are the best value in their row.</p>'
+        f"{sections}</body></html>\n"
+    )
+
+
+def main(argv):
+    arguments = parse_args(argv)
+    output = arguments.output or arguments.results_dir / REPORT_NAME
+    try:
+        models = group_by_model(load_results(arguments.results_dir))
+    except (ReportError, OSError, ValueError, KeyError) as error:
+        print(f"backend-bench-report: {error}", file=sys.stderr)
+        return 1
+    output.write_text(render_page(models), encoding="utf-8")
+    print(output)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

@@ -23,110 +23,84 @@ Use `--prefix-tokens 20000 60000` (the default) to match a coding agent's system
 prompt plus history, `--tool-trials 0` to skip the tool check, and `--json` for
 machine-readable output.
 
+## Bench-off on the work laptop
+
+The owner runs this, not an agent. Three commands, from the repo root:
+
+```sh
+bin/backend-bench-off install    # brew install oMLX, uv tool install vllm-mlx 0.4.1
+bin/backend-bench-off download   # about 40 GB into ~/bench-models
+bin/backend-bench-off all        # Ollama, oMLX, vllm-mlx, then the report
+```
+
+`all` ends by writing `~/bench-results/bench-off.html` and opening it. The page
+has one table per model with the servers side by side, the best value in each
+row highlighted, a PASS/FAIL verdict per candidate against Ollama, and a
+headline: "Switch to oMLX", "Switch to vllm-mlx" or "Stay on Ollama".
+
+Before `all`, start Ollama (`brew services start ollama`), stop the oMLX
+Homebrew service if it runs (`brew services stop omlx`), and close anything
+heavy. The bench needs `hf`, `jq` and `uv` on `PATH`. A full run takes about an
+hour. If one server fails, `all` still benches the others, writes the report and
+names the failure. Server logs are in `~/bench-results/logs/`.
+
+Each step also runs on its own: `bin/backend-bench-off ollama`, `omlx`,
+`vllm-mlx`, then `report` to rebuild the page from whatever results exist.
+`--help` lists the environment variables: `BENCH_MODELS`, `BENCH_RESULTS`,
+`BENCH_OMLX_PORT` (8100), `BENCH_VLLM_PORT` (8200) and `VLLM_MLX_EXTRA_ARGS`.
+For example, `VLLM_MLX_EXTRA_ARGS=--enable-mtp bin/backend-bench-off vllm-mlx`
+tries the 35B's MTP heads.
+
 ## Models
 
-Every server loads the same Hugging Face MLX weights, so the comparison measures
-the server, not the quantization. All are 4-bit MLX repos.
+Every server loads the same Hugging Face MLX weights from `~/bench-models`, so
+the comparison measures the server, not the quantization.
 
-| Role                       | Hugging Face repo                                  | Size on disk | Ollama name                             | oMLX directory / ID      |
-| -------------------------- | -------------------------------------------------- | ------------ | --------------------------------------- | ------------------------ |
-| Main, MoE (bench 1st)      | `peculiar-ragdoll/Tiel-Coder-35B-A3B-MLX-oQ4e-MTP` | about 22 GB  | `tiel-coder-35b-mlx-cc`                 | `tiel-coder-35b-omlx-cc` |
-| Main, dense (bench 2nd)    | `mlx-community/Qwen3.8-27B-4bit`                   | about 16 GB  | `bench-qwen3.8-27b`                     | `bench-qwen3.8-27b`      |
-| Side model (session check) | `mlx-community/Qwen3-4B-4bit`                      | about 2.3 GB | `qwen3-4b-cc` (Ollama's own `qwen3:4b`) | `qwen3-4b-cc`            |
+| Model ID         | Hugging Face repo                                  | Size    | Role                                |
+| ---------------- | -------------------------------------------------- | ------- | ----------------------------------- |
+| `tiel-coder-35b` | `peculiar-ragdoll/Tiel-Coder-35B-A3B-MLX-oQ4e-MTP` | 21.6 GB | 35B-A3B MoE; decides the switch     |
+| `qwen3.8-27b`    | `mlx-community/Qwen3.8-27B-4bit`                   | 16.1 GB | 27B dense; the slow case            |
+| `qwen3-4b-cc`    | `mlx-community/Qwen3-4B-4bit`                      | 2.3 GB  | side model; downloaded, not benched |
 
-- The 35B-A3B MoE is the one that decides the switch. It is already an Ollama
-  size (`35b-tiel-mlx`), and its MTP heads may let vllm-mlx's `--enable-mtp`
-  speed up decode. Bench it first.
-- The 27B dense model is the slow case: every token reads all 27B weights. It is
-  the same base as the `27b` size (`qwen3.8:27b-mlx`), but Ollama's tag is not
-  byte-identical to the Hugging Face repo, so import the repo into Ollama for
-  the bench (below).
-- The side model only matters for the real Claude Code session in the decision
-  rule. Subagents and the Haiku slot use it, and Claude Code sends both models
-  to the same `ANTHROPIC_BASE_URL`, so the candidate server must serve it too.
-  `qwen3-4b-cc` is the name every profile uses; keep it. Skip it for the
-  `messages-bench` runs.
+- Each server names a model after its directory: Ollama as `bench-<id>`
+  (imported with `ollama create` and a 64k `num_ctx`), oMLX and vllm-mlx as
+  `<id>`.
+- The side model is for the real Claude Code session in the decision rule.
+  Subagents and the Haiku slot use it, and Claude Code sends both models to the
+  same `ANTHROPIC_BASE_URL`, so the winning server must serve it too under the
+  name every profile uses, `qwen3-4b-cc`.
 - The embedding model (`qwen3-embedding:0.6b`) is not benchmarked.
   `semantic_search` keeps calling Ollama's `/api/embed` whichever server runs
   the chat model.
+- Only one server runs at a time, and Ollama unloads each model after its run.
+  On 48 GB the 35B plus a 64k KV cache fits; two main models would not.
 
-Download each repo once and point every server at the same copy:
+## How each server runs
 
-```sh
-export BENCH_MODELS=~/bench-models
-hf download peculiar-ragdoll/Tiel-Coder-35B-A3B-MLX-oQ4e-MTP --local-dir "$BENCH_MODELS/tiel-coder-35b-omlx-cc"
-hf download mlx-community/Qwen3.8-27B-4bit --local-dir "$BENCH_MODELS/bench-qwen3.8-27b"
-hf download mlx-community/Qwen3-4B-4bit --local-dir "$BENCH_MODELS/qwen3-4b-cc"
-```
+- Ollama: the running service at `$OLLAMA_HOST` (default `localhost:11434`).
+- oMLX: `omlx serve --headless --model-dir ~/bench-models --api-key local-bench`
+  with `OMLX_PORT=8100`, so it doesn't collide with a Homebrew service on 8000.
+  It serves both models from one process.
+- vllm-mlx: one process per model,
+  `vllm-mlx serve ~/bench-models/<id> --port 8200 --served-model-name <id> --continuous-batching --use-paged-cache --enable-auto-tool-choice --tool-call-parser qwen --reasoning-parser qwen3`.
 
-The directory names are the oMLX model IDs, so `$BENCH_MODELS` doubles as oMLX's
-`--model-dir`. On 48 GB, load one main model at a time: the 35B (about 22 GB)
-plus a 64k KV cache and the side model fits, but two main models do not.
-
-## Bench-off on the work laptop
-
-The owner runs this, not an agent. Use the models above.
-
-Run one server at a time, and keep anything else heavy closed during a
-measurement. Run each bench twice and keep the second run.
-
-- Ollama:
-
-  ```sh
-  claude-ollama doctor 35b-tiel-mlx
-  bin/messages-bench --model tiel-coder-35b-mlx-cc
-
-  printf 'FROM %s\nPARAMETER num_ctx 65536\n' "$BENCH_MODELS/bench-qwen3.8-27b" > /tmp/Modelfile.bench-27b
-  ollama create bench-qwen3.8-27b -f /tmp/Modelfile.bench-27b
-  bin/messages-bench --model bench-qwen3.8-27b
-  ```
-
-- oMLX (first candidate):
-
-  ```sh
-  brew tap jundot/omlx && brew install jundot/omlx/omlx
-  omlx serve --headless --model-dir "$BENCH_MODELS"
-  curl -s <url>/v1/models
-  bin/messages-bench --base-url <url> --model tiel-coder-35b-omlx-cc
-  bin/messages-bench --base-url <url> --model bench-qwen3.8-27b
-  ```
-
-  If `/v1/models` lists different IDs, use those and record it under "oMLX
-  facts".
-
-- vllm-mlx (fallback, only if oMLX fails). It serves one model per process:
-
-  ```sh
-  uv tool install 'vllm-mlx==0.4.1'
-  vllm-mlx serve "$BENCH_MODELS/tiel-coder-35b-omlx-cc" --host 127.0.0.1 --port 8000 --continuous-batching --enable-mtp
-  curl -s http://127.0.0.1:8000/v1/models
-  bin/messages-bench --base-url http://127.0.0.1:8000 --model <id-from-v1-models>
-  ```
-
-  Then stop it and repeat with `"$BENCH_MODELS/bench-qwen3.8-27b"`, without
-  `--enable-mtp`. Enable its Qwen tool parser and Qwen3 reasoning parser; the
-  flag names are in `vllm-mlx serve --help`.
-
-## Results
-
-| Server + version | Model | Prefix | Cold TTFT | Warm TTFT | Prefill t/s | Decode t/s | Tool calls | Peak memory | Date |
-| ---------------- | ----- | ------ | --------- | --------- | ----------- | ---------- | ---------- | ----------- | ---- |
-|                  |       |        |           |           |             |            |            |             |      |
-
-Peak memory comes from Activity Monitor.
+For each model, `messages-bench` runs twice: a warm-up that loads the model and
+a measured run. Peak memory is the highest system memory in use (active, wired
+and compressed pages from `vm_stat`) during the two runs. It covers the whole
+machine, so close other apps.
 
 ## Decision rule
 
-Switch only if a candidate meets all four:
+The report applies it. A candidate passes when all three hold at the largest
+prefix (60k):
 
-- warm TTFT at a 60k prefix is at least 30% lower than Ollama's;
-- decode t/s is no more than 10% below Ollama's;
-- tool calls parse 5/5;
-- a real Claude Code session of about 20 tool-using turns shows no malformed
-  tool calls.
+- warm TTFT is at least 30% lower than Ollama's;
+- warm decode t/s is at least 90% of Ollama's;
+- every tool call parses (5/5).
 
-Try oMLX first. Try vllm-mlx only if oMLX fails. If neither passes, stay on
-Ollama and record that here.
+The headline picks oMLX if it passes on every model, else vllm-mlx, else "Stay
+on Ollama". Before switching, confirm with a real Claude Code session of about
+20 tool-using turns on the winner, with no malformed tool calls.
 
 ## oMLX facts (fill in when oMLX wins)
 

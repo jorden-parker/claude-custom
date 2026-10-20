@@ -1,0 +1,307 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_dir="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+self="$repo_dir/bin/backend-bench-off"
+models_dir="${BENCH_MODELS:-$HOME/bench-models}"
+results_dir="${BENCH_RESULTS:-$HOME/bench-results}"
+ollama_url="${OLLAMA_HOST:-http://localhost:11434}"
+case "$ollama_url" in http://*|https://*) ;; *) ollama_url="http://$ollama_url" ;; esac
+omlx_port="${BENCH_OMLX_PORT:-8100}"
+vllm_port="${BENCH_VLLM_PORT:-8200}"
+server_timeout="${BENCH_SERVER_TIMEOUT:-900}"
+omlx_api_key=local-bench
+context_tokens=65536
+side_model=qwen3-4b-cc
+vllm_mlx_version=0.4.1
+vllm_args=(--continuous-batching --use-paged-cache --enable-auto-tool-choice --tool-call-parser qwen --reasoning-parser qwen3)
+server_pid=""
+sampler_pid=""
+sampler_file=""
+
+usage() {
+  cat <<EOF
+usage: backend-bench-off <command>
+
+  install    brew install oMLX, uv tool install vllm-mlx $vllm_mlx_version
+  download   download the bench models into \$BENCH_MODELS ($models_dir)
+  ollama     bench the models on the running Ollama ($ollama_url)
+  omlx       start oMLX on port $omlx_port, bench, stop it
+  vllm-mlx   start vllm-mlx on port $vllm_port per model, bench, stop it
+  report     write \$BENCH_RESULTS/bench-off.html ($results_dir)
+  all        ollama, omlx, vllm-mlx, then report
+
+Extra vllm-mlx flags: VLLM_MLX_EXTRA_ARGS='--enable-mtp'
+EOF
+}
+
+say() {
+  printf 'backend-bench-off: %s\n' "$*" >&2
+}
+
+die() {
+  say "$*"
+  exit 1
+}
+
+require() {
+  command -v "$1" >/dev/null 2>&1 || die "$1 not found ($2)"
+}
+
+bench_models() {
+  echo tiel-coder-35b qwen3.8-27b
+}
+
+model_repo() {
+  case "$1" in
+    tiel-coder-35b) echo peculiar-ragdoll/Tiel-Coder-35B-A3B-MLX-oQ4e-MTP ;;
+    qwen3.8-27b) echo mlx-community/Qwen3.8-27B-4bit ;;
+    "$side_model") echo mlx-community/Qwen3-4B-4bit ;;
+  esac
+}
+
+is_downloaded() {
+  [ -f "$models_dir/$1/config.json" ]
+}
+
+download_model() {
+  if is_downloaded "$1"; then
+    say "$1 already in $models_dir"
+    return 0
+  fi
+  hf download "$(model_repo "$1")" --local-dir "$models_dir/$1"
+}
+
+download_models() {
+  local name
+  require hf "curl -LsSf https://hf.co/cli/install.sh | bash -s"
+  mkdir -p "$models_dir"
+  for name in $(bench_models) "$side_model"; do
+    download_model "$name"
+  done
+}
+
+require_models() {
+  local name
+  for name in $(bench_models); do
+    is_downloaded "$name" || die "$name missing in $models_dir: run backend-bench-off download"
+  done
+}
+
+install_servers() {
+  require brew "https://brew.sh"
+  require uv "brew install uv"
+  brew tap jundot/omlx https://github.com/jundot/omlx
+  brew install jundot/omlx/omlx
+  uv tool install "vllm-mlx==$vllm_mlx_version"
+}
+
+memory_used_gb() {
+  vm_stat | awk '
+    /page size of/ { size = $8 }
+    /Pages active|Pages wired down|Pages occupied by compressor/ { gsub(/\./, "", $NF); pages += $NF }
+    END { if (size) printf "%.1f\n", pages * size / 1e9 }'
+}
+
+record_peak() {
+  local used
+  used="$(memory_used_gb)"
+  awk -v used="$used" -v peak="$(cat "$sampler_file")" 'BEGIN { exit !(used + 0 > peak + 0) }' &&
+    echo "$used" >"$sampler_file"
+}
+
+start_sampler() {
+  sampler_file="$(mktemp)"
+  echo null >"$sampler_file"
+  command -v vm_stat >/dev/null 2>&1 || return 0
+  echo 0 >"$sampler_file"
+  while :; do
+    record_peak || true
+    sleep 1
+  done &
+  sampler_pid=$!
+}
+
+stop_sampler() {
+  if [ -n "$sampler_pid" ]; then
+    kill "$sampler_pid" 2>/dev/null || true
+    wait "$sampler_pid" 2>/dev/null || true
+    record_peak || true
+  fi
+  sampler_pid=""
+  cat "$sampler_file"
+  rm -f "$sampler_file"
+}
+
+start_server() {
+  local log="$results_dir/logs/$1.log"
+  shift
+  mkdir -p "$results_dir/logs"
+  "$@" >"$log" 2>&1 &
+  server_pid=$!
+}
+
+stop_server() {
+  [ -n "$server_pid" ] || return 0
+  kill "$server_pid" 2>/dev/null || true
+  wait "$server_pid" 2>/dev/null || true
+  server_pid=""
+}
+
+cleanup() {
+  stop_server
+  [ -z "$sampler_pid" ] || kill "$sampler_pid" 2>/dev/null || true
+}
+
+trap cleanup EXIT
+
+served_ids() {
+  curl -sf -m 5 -H "Authorization: Bearer $2" "$1/v1/models" | jq -r '.data[].id'
+}
+
+wait_for_server() {
+  local url="$1" token="$2" log="$3" waited=0
+  until served_ids "$url" "$token" >/dev/null 2>&1; do
+    kill -0 "$server_pid" 2>/dev/null || die "server exited before it was ready; see $log"
+    [ "$waited" -lt "$server_timeout" ] || die "server not ready after ${server_timeout}s; see $log"
+    sleep 2
+    waited=$((waited + 2))
+  done
+}
+
+require_served() {
+  local url="$1" token="$2" name="$3" ids
+  ids="$(served_ids "$url" "$token")"
+  printf '%s\n' "$ids" | grep -qxF "$name" ||
+    die "$url does not serve $name; it lists: $(printf '%s' "$ids" | tr '\n' ' ')"
+}
+
+run_bench() {
+  local server="$1" version="$2" name="$3" url="$4" model_id="$5" token="$6" raw peak
+  raw="$results_dir/raw/$server--$name.json"
+  mkdir -p "$results_dir/raw"
+  start_sampler
+  say "$server $name: warm-up run"
+  "$repo_dir/bin/messages-bench" --base-url "$url" --model "$model_id" --auth-token "$token" --json >/dev/null
+  say "$server $name: measured run"
+  "$repo_dir/bin/messages-bench" --base-url "$url" --model "$model_id" --auth-token "$token" --json >"$raw"
+  peak="$(stop_sampler)"
+  jq -n --arg server "$server" --arg version "$version" --arg model "$name" \
+    --arg repo "$(model_repo "$name")" --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --argjson peak "$peak" --slurpfile bench "$raw" \
+    '{server: $server, version: $version, model: $model, repo: $repo, peak_memory_gb: $peak, date: $date, bench: $bench[0]}' \
+    >"$results_dir/$server--$name.json"
+  say "$server $name: saved $results_dir/$server--$name.json"
+}
+
+ollama_version() {
+  ollama --version 2>/dev/null | awk 'NF { version = $NF } END { print (version ? version : "unknown") }'
+}
+
+ensure_ollama_model() {
+  local modelfile
+  ollama show "bench-$1" >/dev/null 2>&1 && return 0
+  modelfile="$(mktemp)"
+  printf 'FROM %s\nPARAMETER num_ctx %s\n' "$models_dir/$1" "$context_tokens" >"$modelfile"
+  ollama create "bench-$1" -f "$modelfile"
+  rm -f "$modelfile"
+}
+
+bench_ollama() {
+  local name version
+  require ollama "brew install ollama"
+  require_models
+  curl -sf -m 2 "$ollama_url/api/version" >/dev/null 2>&1 ||
+    die "Ollama not reachable at $ollama_url (brew services start ollama)"
+  version="$(ollama_version)"
+  for name in $(bench_models); do
+    ensure_ollama_model "$name"
+    run_bench ollama "$version" "$name" "$ollama_url" "bench-$name" ollama
+    ollama stop "bench-$name" >/dev/null 2>&1 || true
+  done
+}
+
+omlx_version() {
+  brew list --versions omlx 2>/dev/null | awk '{ print $2 }' | grep . || echo unknown
+}
+
+omlx_serve_args() {
+  printf '%s\n' serve --headless --model-dir "$models_dir" --api-key "$omlx_api_key"
+  if omlx serve --help 2>/dev/null | grep -q -- '--port'; then
+    printf '%s\n' --port "$omlx_port"
+  fi
+}
+
+bench_omlx() {
+  local url="http://127.0.0.1:$omlx_port" name version args=()
+  require omlx "backend-bench-off install"
+  require_models
+  version="$(omlx_version)"
+  while IFS= read -r line; do
+    args+=("$line")
+  done < <(omlx_serve_args)
+  start_server omlx env "OMLX_PORT=$omlx_port" omlx "${args[@]}"
+  wait_for_server "$url" "$omlx_api_key" "$results_dir/logs/omlx.log"
+  for name in $(bench_models); do
+    require_served "$url" "$omlx_api_key" "$name"
+    run_bench omlx "$version" "$name" "$url" "$name" "$omlx_api_key"
+  done
+  stop_server
+}
+
+vllm_mlx_installed_version() {
+  uv tool list 2>/dev/null | awk '$1 == "vllm-mlx" { print $2 }' | grep . || echo unknown
+}
+
+bench_vllm_mlx() {
+  local url="http://127.0.0.1:$vllm_port" name version extra=()
+  require vllm-mlx "backend-bench-off install"
+  require_models
+  read -r -a extra <<<"${VLLM_MLX_EXTRA_ARGS:-}"
+  version="$(vllm_mlx_installed_version)"
+  for name in $(bench_models); do
+    start_server "vllm-mlx-$name" vllm-mlx serve "$models_dir/$name" --host 127.0.0.1 --port "$vllm_port" \
+      --served-model-name "$name" "${vllm_args[@]}" ${extra[@]+"${extra[@]}"}
+    wait_for_server "$url" local "$results_dir/logs/vllm-mlx-$name.log"
+    run_bench vllm-mlx "$version" "$name" "$url" "$name" local
+    stop_server
+  done
+}
+
+render_report() {
+  local page
+  page="$("$repo_dir/bin/backend-bench-report" "$results_dir")"
+  echo "$page"
+  if [ -t 1 ] && command -v open >/dev/null 2>&1; then
+    open "$page"
+  fi
+}
+
+run_all() {
+  local server failed=""
+  require_models
+  for server in ollama omlx vllm-mlx; do
+    "$self" "$server" || failed="$failed $server"
+  done
+  render_report
+  [ -z "$failed" ] || die "failed:$failed (server logs in $results_dir/logs)"
+}
+
+main() {
+  case "${1:-}" in
+    -h|--help) usage; exit 0 ;;
+    install) install_servers; exit ;;
+  esac
+  require jq "brew install jq"
+  case "${1:-}" in
+    download) download_models ;;
+    ollama) bench_ollama ;;
+    omlx) bench_omlx ;;
+    vllm-mlx) bench_vllm_mlx ;;
+    report) render_report ;;
+    all) run_all ;;
+    *) usage >&2; exit 2 ;;
+  esac
+}
+
+main "$@"
