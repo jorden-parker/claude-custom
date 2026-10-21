@@ -1,0 +1,332 @@
+#!/usr/bin/env bash
+set -u
+repo_dir="$(cd "$(dirname "$0")/.." && pwd)"
+reviewer="$repo_dir/bin/pr-review-local"
+tmp="$(mktemp -d)"
+failures=0
+stub_pid=""
+port=""
+export PR_REVIEW_TEST_TMP="$tmp"
+export GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.test
+export GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.test
+
+trap 'stop_stub; rm -rf "$tmp"' EXIT
+
+cat > "$tmp/stub.py" <<'PY'
+import json
+import sys
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from pathlib import Path
+
+LOG_PATH, PORT_PATH = sys.argv[1], sys.argv[2]
+BAD_REPLY = json.dumps([
+    {"label": "issue", "blocking": True, "path": "src/bad.ts", "line": 3,
+     "summary": "Null deref on empty list", "why": "items[0] when items is []",
+     "confidence": "high"},
+    {"label": "nitpick", "blocking": False, "path": "src/bad.ts", "line": 2,
+     "summary": "Name the variable", "why": "", "confidence": "high"},
+])
+PRAISE_REPLY = json.dumps([
+    {"label": "praise", "blocking": False, "line": None,
+     "summary": "Clear usage section", "why": "", "confidence": "medium"},
+])
+SUMMARY_REPLY = "Adds a widget; one blocking bug."
+
+
+def reply_for(body):
+    if body.get("system", "").startswith("You summarise"):
+        return SUMMARY_REPLY
+    user = body["messages"][0]["content"]
+    if "File: src/bad.ts" in user:
+        return BAD_REPLY
+    if "File: README.md" in user:
+        return PRAISE_REPLY
+    if "File: src/weird.ts" in user:
+        return "I think it is fine."
+    return "[]"
+
+
+def sse(kind, **fields):
+    return f"event: {kind}\ndata: {json.dumps(dict(type=kind, **fields))}\n\n".encode("utf-8")
+
+
+def events_for(text):
+    usage = {"input_tokens": 10, "output_tokens": 1}
+    yield sse("message_start", message={"id": "msg_stub", "role": "assistant", "usage": usage})
+    yield sse("content_block_start", index=0, content_block={"type": "text", "text": ""})
+    for start in range(0, len(text), 12):
+        yield sse("content_block_delta", index=0, delta={"type": "text_delta", "text": text[start:start + 12]})
+    yield sse("content_block_stop", index=0)
+    yield sse("message_delta", delta={"stop_reason": "end_turn"}, usage={"output_tokens": 3})
+    yield sse("message_stop")
+
+
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, format, *args):
+        return
+
+    def do_POST(self):
+        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        record = {"anthropic-version": self.headers.get("anthropic-version"), "body": body}
+        with open(LOG_PATH, "a") as log:
+            log.write(json.dumps(record) + "\n")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.end_headers()
+        for chunk in events_for(reply_for(body)):
+            self.wfile.write(chunk)
+            self.wfile.flush()
+
+
+server = HTTPServer(("127.0.0.1", 0), Handler)
+Path(PORT_PATH).write_text(str(server.server_port))
+server.serve_forever()
+PY
+
+cat > "$tmp/inspect.py" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+EXPECTED_VERSION = "2023-06-01"
+
+
+def requests(path):
+    return [json.loads(line) for line in Path(path).read_text().splitlines() if line]
+
+
+def user_text(request):
+    return request["body"]["messages"][0]["content"]
+
+
+def matching(path, pattern):
+    return [request for request in requests(path) if pattern in user_text(request)]
+
+
+def every_request_ok(path, model):
+    for request in requests(path):
+        body = request["body"]
+        if body.get("model") != model or body.get("stream") is not True:
+            return False
+        if request.get("anthropic-version") != EXPECTED_VERSION or "system" not in body:
+            return False
+        if body.get("thinking") != {"type": "disabled"}:
+            return False
+    return True
+
+
+def main(argv):
+    command, path, *args = argv
+    if command == "count-user":
+        print(len(matching(path, args[0])))
+        return 0
+    if command == "request-user-has":
+        return 0 if args[1] in user_text(matching(path, args[0])[-1]) else 1
+    if command == "request-user-lacks":
+        return 0 if args[1] not in user_text(matching(path, args[0])[-1]) else 1
+    if command == "every-request-ok":
+        return 0 if every_request_ok(path, args[0]) else 1
+    if command == "last-system-starts":
+        last = requests(path)[-1]["body"].get("system", "")
+        return 0 if last.startswith(args[0]) else 1
+    return 2
+
+
+sys.exit(main(sys.argv[1:]))
+PY
+
+cat > "$tmp/stubbin_gh.sh" <<'SH'
+#!/usr/bin/env bash
+echo "$*" >> "$PR_REVIEW_TEST_TMP/gh.log"
+case "$1" in
+  api) echo "src/ok.ts:1 Please add a test" ;;
+  pr)
+    case "$2" in
+      view)
+        printf '{"number":%s,"title":"Add widget","url":"https://example.test/pull/%s","author":{"login":"reviewer"},"isDraft":false,"baseRefName":"main","headRefName":"widget","headRefOid":"0123","additions":3,"deletions":0,"changedFiles":4,"body":"Adds the widget."}\n' "$3" "$3" ;;
+      checks)
+        printf '[{"name":"ci","bucket":"pass"},{"name":"lint","bucket":"pending"}]\n'
+        exit 8 ;;
+      review)
+        cp "$6" "$PR_REVIEW_TEST_TMP/posted.md" ;;
+      *) exit 1 ;;
+    esac ;;
+  *) exit 1 ;;
+esac
+SH
+
+cat > "$tmp/stubbin_fallow.sh" <<'SH'
+#!/usr/bin/env bash
+echo "$*" >> "$PR_REVIEW_TEST_TMP/fallow.log"
+printf 'pwd=%s\nbad=%s\n' "$PWD" "$(tail -n 1 src/bad.ts)" >> "$PR_REVIEW_TEST_TMP/fallow-env.log"
+printf '%s\n' '{"verdict":"warn","summary":{"dead_code_issues":1,"complexity_findings":0,"duplication_clone_groups":0},"dead_code":{"unused_exports":[{"path":"src/ok.ts","line":1,"export_name":"ok","introduced":true},{"path":"src/old.ts","line":9,"export_name":"old","introduced":false}]}}'
+SH
+
+mkdir -p "$tmp/stubbin"
+mv "$tmp/stubbin_gh.sh" "$tmp/stubbin/gh"
+mv "$tmp/stubbin_fallow.sh" "$tmp/stubbin/fallow"
+chmod +x "$tmp/stubbin/gh" "$tmp/stubbin/fallow"
+
+git init -q --bare "$tmp/origin.git"
+git init -q -b main "$tmp/work"
+git -C "$tmp/work" remote add origin "$tmp/origin.git"
+mkdir -p "$tmp/work/src"
+printf 'export const ok = 1;\n' > "$tmp/work/src/ok.ts"
+printf 'export function first(items: string[]) {\n  return items[0];\n}\n' > "$tmp/work/src/bad.ts"
+printf 'export const weird = 1;\n' > "$tmp/work/src/weird.ts"
+printf '# Widget\n\nUsage section.\n' > "$tmp/work/README.md"
+printf '{"name":"t"}\n' > "$tmp/work/package.json"
+seq 500 | sed 's/^/const v/; s/$/ = 1;/' > "$tmp/work/big.ts"
+printf 'lockfile\n' > "$tmp/work/pnpm-lock.yaml"
+git -C "$tmp/work" add -A
+git -C "$tmp/work" commit -q -m base
+git -C "$tmp/work" push -q origin main
+git -C "$tmp/work" checkout -q -b widget
+printf 'export const added = 2;\n' >> "$tmp/work/src/ok.ts"
+printf 'export const extra = 3;\n' >> "$tmp/work/src/bad.ts"
+printf 'export const more = 4;\n' >> "$tmp/work/src/weird.ts"
+printf 'More usage.\n' >> "$tmp/work/README.md"
+printf 'const appended = 1;\n' >> "$tmp/work/big.ts"
+printf 'more\n' >> "$tmp/work/pnpm-lock.yaml"
+printf 'PNG\0data\n' > "$tmp/work/img.png"
+git -C "$tmp/work" add -A
+git -C "$tmp/work" commit -q -m "widget"
+git -C "$tmp/work" push -q origin HEAD:refs/pull/7/head
+git -C "$tmp/work" checkout -q main
+git -C "$tmp/work" checkout -q -b docs-only
+printf 'More usage.\n' >> "$tmp/work/README.md"
+git -C "$tmp/work" add -A
+git -C "$tmp/work" commit -q -m "docs"
+git -C "$tmp/work" push -q origin HEAD:refs/pull/8/head
+git -C "$tmp/work" checkout -q main
+
+stop_stub() {
+  if [ -n "$stub_pid" ]; then
+    kill "$stub_pid" 2>/dev/null
+    wait "$stub_pid" 2>/dev/null
+    stub_pid=""
+  fi
+}
+
+start_stub() {
+  rm -f "$tmp/port"
+  python3 "$tmp/stub.py" "$tmp/requests.log" "$tmp/port" &
+  stub_pid=$!
+  for _ in $(seq 200); do
+    [ -s "$tmp/port" ] && break
+    sleep 0.05
+  done
+  port="$(cat "$tmp/port")"
+}
+
+fail() {
+  echo "FAIL: $1"
+  failures=$((failures + 1))
+}
+
+check_that() {
+  local name="$1"
+  shift
+  if ! "$@"; then
+    fail "$name"
+  fi
+}
+
+check_not() {
+  local name="$1"
+  shift
+  if "$@"; then
+    fail "$name"
+  fi
+}
+
+check_eq() {
+  local name="$1" expected="$2" actual="$3"
+  if [ "$expected" != "$actual" ]; then
+    fail "$name (expected $expected, got $actual)"
+  fi
+}
+
+inspect() {
+  python3 "$tmp/inspect.py" "$@"
+}
+
+report_has() {
+  grep -qF -- "$1" "$tmp/report.md"
+}
+
+fallow_ran_with_merge_base() {
+  [ "$(grep -cE '^audit --base [0-9a-f]{40} --format json --quiet$' "$tmp/fallow.log")" = 1 ]
+}
+
+review_ref_gone() {
+  ! git -C "$tmp/work" show-ref -q refs/pr-review/7
+}
+
+review_in_work() {
+  (cd "$tmp/work" && PATH="$tmp/stubbin:$PATH" "$reviewer" --base-url "http://127.0.0.1:$port" --model stub-model "$@")
+}
+
+start_stub
+: > "$tmp/requests.log"
+review_in_work 7 > "$tmp/report.md" 2> "$tmp/err"
+check_eq "exit status" 0 "$?"
+check_that "verdict is REQUEST CHANGES" grep -q '^\*\*Verdict:\*\* REQUEST CHANGES\. Adds a widget; one blocking bug\.$' "$tmp/report.md"
+check_that "checks line counts buckets" report_has 'CI 1 pass, 0 fail, 1 pending; Fallow warn'
+check_that "blocking finding rendered" report_has "- **issue (blocking):** Null deref on empty list — \`src/bad.ts:3\`"
+check_that "nitpick under Nits" awk '/^### Nits/ {inside = 1; next} /^### / {inside = 0} inside && /^- \*\*nitpick \(if-minor\):\*\*/ {found = 1} END {exit !found}' "$tmp/report.md"
+check_that "praise rendered without a line" report_has '- **praise:** Clear usage section'
+check_that "fallow introduced finding listed" report_has 'unused_export src/ok.ts:1 ok'
+check_not "fallow finding that is not introduced is omitted" report_has 'src/old.ts'
+check_that "fallow ran with the merge base" fallow_ran_with_merge_base
+check_that "fallow ran at the PR head, which appended the bad.ts line" grep -qxF 'bad=export const extra = 3;' "$tmp/fallow-env.log"
+check_not "fallow did not run in the checkout" grep -qF "pwd=$tmp/work" "$tmp/fallow-env.log"
+check_eq "temporary worktree is removed" 1 "$(git -C "$tmp/work" worktree list | wc -l | tr -d ' ')"
+check_that "unparsable file is skipped after one retry" report_has 'src/weird.ts: skipped (unparsable answer)'
+check_eq "unparsable file gets exactly two requests" 2 "$(inspect count-user "$tmp/requests.log" 'File: src/weird.ts')"
+check_that "the retry says the answer was not a JSON array" inspect request-user-has "$tmp/requests.log" 'File: src/weird.ts' 'was not a JSON array'
+check_that "big file is omitted from the prompt" inspect request-user-has "$tmp/requests.log" 'File: big.ts' 'Whole file omitted: 501 lines'
+check_that "big file's first line is not in the prompt" inspect request-user-lacks "$tmp/requests.log" 'File: big.ts' 'const v1 = 1;'
+check_that "short file is included whole" inspect request-user-has "$tmp/requests.log" 'File: src/ok.ts' 'Whole file at the PR head ('
+check_that "short file includes its appended line" inspect request-user-has "$tmp/requests.log" 'File: src/ok.ts' 'export const added = 2;'
+check_eq "lockfile and binary are not sent to the model" 0 "$(( $(inspect count-user "$tmp/requests.log" 'File: pnpm-lock.yaml') + $(inspect count-user "$tmp/requests.log" 'File: img.png') ))"
+check_that "lockfile skip is reported" report_has '- pnpm-lock.yaml: skipped (generated or vendored path)'
+check_that "binary skip is reported" report_has '- img.png: skipped (binary)'
+check_that "already-raised comments reach the prompt" test "$(inspect count-user "$tmp/requests.log" 'Please add a test')" -ge 1
+check_that "requests name the model and version" inspect every-request-ok "$tmp/requests.log" stub-model
+check_that "summary request is last" inspect last-system-starts "$tmp/requests.log" 'You summarise'
+check_not "no post without --post" grep -q '^pr review' "$tmp/gh.log"
+check_not "no posted body without --post" test -e "$tmp/posted.md"
+
+review_in_work 7 --post > "$tmp/report.md" 2> "$tmp/err"
+check_eq "post run exit status" 0 "$?"
+check_that "post sends a comment review" grep -qE '^pr review 7 --comment --body-file ' "$tmp/gh.log"
+check_that "posted body equals the printed report" cmp -s "$tmp/posted.md" "$tmp/report.md"
+check_that "review ref is deleted afterwards" review_ref_gone
+
+review_in_work 7 --json > "$tmp/json.out" 2> "$tmp/err"
+check_eq "json verdict" "REQUEST CHANGES" "$(jq -r .verdict "$tmp/json.out")"
+check_eq "json lists three findings" 3 "$(jq '.findings | length' "$tmp/json.out")"
+
+(cd "$tmp/work" && PATH="$tmp/stubbin:$PATH" "$reviewer" --base-url http://127.0.0.1:1 --model stub-model 7 > "$tmp/down.out" 2> "$tmp/down.err")
+check_eq "unreachable server exits 1" 1 "$?"
+check_that "unreachable server is named in the error" grep -q '^pr-review-local: request to http://127.0.0.1:1/v1/messages failed' "$tmp/down.err"
+
+(cd "$tmp" && "$reviewer" --model stub-model 7 > "$tmp/norepo.out" 2> "$tmp/norepo.err")
+check_eq "outside a repository exits 1" 1 "$?"
+check_that "outside a repository says so" grep -qx 'pr-review-local: not inside a git repository' "$tmp/norepo.err"
+
+fallow_lines_before="$(grep -c '' "$tmp/fallow.log")"
+review_in_work 8 > "$tmp/report8.md" 2> "$tmp/err8"
+check_eq "README-only PR exits 0" 0 "$?"
+check_that "fallow is not run without TypeScript" grep -qF 'Fallow not run: no TypeScript changed' "$tmp/report8.md"
+check_eq "fallow is not invoked for a README-only PR" "$fallow_lines_before" "$(grep -c '' "$tmp/fallow.log")"
+
+stop_stub
+
+if [ "$failures" -eq 0 ]; then
+  echo "all passed"
+else
+  echo "$failures failed"
+  exit 1
+fi
