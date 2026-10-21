@@ -193,12 +193,25 @@ Blocking, Non-blocking, Nits, Praise, Fallow and Not checked, which always says
 that files were reviewed one at a time. Nothing is posted unless `--post` is
 given, and then only as a comment review. Expect a 27b to take tens of seconds
 per file. While it runs, stderr names each stage (fetch, files to review, each
-file before its request, retries, Fallow, summary, CI, post), echoes the model's
-reply as it streams, and prints `waiting for the first token, Ns` every 10
-seconds (`--heartbeat-seconds`) until the first token arrives. stdout holds only
-the report. A failed request names the server's error message (for example a
-model that does not fit in memory), and a failed summary is reported on stderr
-as well as in the report.
+file before its request, retries, Fallow, summary, CI, post), prints each
+finding as one line (`[i/N] path:   issue (blocking)  path:line  summary`) as
+soon as the model finishes it, and prints `waiting for the first token, Ns`
+every 10 seconds (`--heartbeat-seconds`) until the first token arrives. On a
+terminal, one status line shows the wait and the writing in place, and colors
+follow `--color auto|always|never` (`auto` colors only a terminal and honours
+`NO_COLOR`). stdout holds only the report, styled on a terminal and plain
+otherwise.
+
+Each review also writes an event log, one JSON object per line with `t`, `kind`
+and the event's fields, flushed as it goes and ending with an `end` line whose
+`status` is `ok` or `error`. The file is `YYYYmmdd-HHMMSS-<slug>.jsonl` in UTC
+under `--log-dir DIR`, else `PR_REVIEW_LOG_DIR`, else
+`~/.local/share/claude-custom/reviews`; `--no-log` turns it off. The log opens
+at the `start` event, once the PR is known, so stage lines and errors before it
+show on the terminal only, and a failure before `start` writes no file. A log
+that cannot be written is reported once and the review goes on. A failed request
+names the server's error message (for example a model that does not fit in
+memory), and a failed summary is reported on stderr as well as in the report.
 
 `--range BASE..HEAD` reviews local commits instead of a PR, with the same
 reviewer and report. It runs no `gh`, so there are no PR comments and no CI (the

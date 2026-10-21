@@ -175,7 +175,7 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   `claude --agent pr-review`; as a subagent it lands on the forced Haiku model.
   No `model:` key: FORCE ignores it and `--agent` must keep the session model.
   `bin/check-config` checks the frontmatter and the Fallow command.
-- `bin/pr-review-local --model M [--base-url URL] [--post] [--json] [--range BASE..HEAD | PR]`
+- `bin/pr-review-local --model M [--base-url URL] [--post] [--json] [--color auto|always|never] [--log-dir DIR] [--no-log] [--range BASE..HEAD | PR]`
   reviews a GitHub PR with a local model, or local commits with `--range` (no
   `gh`, no comments or CI, no `--post`): `gh`/`git` gather the PR (no checkout
   in the user's tree), Fallow runs on changed TypeScript in a temporary worktree
