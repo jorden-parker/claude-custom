@@ -1,0 +1,26 @@
+{"t":0,"kind":"start","name":"PR #41","title":"Harden the diff parser against CRLF input","model":"qwen3.6-35b-cc","base_url":"http://localhost:11434"}
+{"t":1,"kind":"stage","message":"fetching PR #41 with gh"}
+{"t":3,"kind":"stage","message":"running fallow on 3 changed TypeScript files"}
+{"t":4,"kind":"file_start","index":1,"total":3,"path":"src/parser/crlf.ts","chars":5120}
+{"t":6,"kind":"waiting","seconds":2}
+{"t":9,"kind":"writing","index":1,"path":"src/parser/crlf.ts","chars":640}
+{"t":12,"kind":"finding","index":1,"path":"src/parser/crlf.ts","finding":{"label":"issue","blocking":true,"path":"src/parser/crlf.ts","line":42,"summary":"Hunks split on newlines keep a trailing carriage return on every line, so `parseHunk` never matches","why":"Windows checkouts and some editors send CRLF line endings, so `parseHunk` receives a line that ends in a carriage return and the hunk header regex never matches. Every file after the first hunk is then reported as empty, which means the reviewer silently skips most of the change. Normalise the line endings once at the boundary, where the diff text enters the parser, and add a test that feeds it CRLF input from a real Windows diff.","confidence":"high"}}
+{"t":12,"kind":"finding","index":1,"path":"src/parser/crlf.ts","finding":{"label":"issue","blocking":false,"path":"src/parser/crlf.ts","line":88,"summary":"Unbounded buffer when a hunk never ends","why":"`readHunk` keeps appending until it sees the next `@@` marker, so a malformed diff grows memory without a limit.","confidence":"high"}}
+{"t":12,"kind":"finding","index":1,"path":"src/parser/crlf.ts","finding":{"label":"suggestion","blocking":false,"path":"src/parser/crlf.ts","line":17,"summary":"Use `split` with a limit of 2 for the header","why":"","confidence":"high"}}
+{"t":12,"kind":"finding","index":1,"path":"src/parser/crlf.ts","finding":{"label":"question","blocking":false,"path":"src/parser/crlf.ts","line":60,"summary":"Is `parseHunk` expected to accept a bare carriage return?","why":"Old Mac exports use bare carriage returns and the tests do not say either way.","confidence":"low"}}
+{"t":12,"kind":"finding","index":1,"path":"src/parser/crlf.ts","finding":{"label":"nitpick","blocking":false,"path":"src/parser/crlf.ts","line":5,"summary":"Rename `buf` to `pending`","why":"","confidence":"high"}}
+{"t":12,"kind":"finding","index":1,"path":"src/parser/crlf.ts","finding":{"label":"praise","blocking":false,"path":"src/parser/crlf.ts","line":120,"summary":"The hunk kinds form a discriminated union, so the switch is exhaustive","why":"","confidence":"high"}}
+{"t":14,"kind":"retry","index":1,"path":"src/parser/crlf.ts","reply":"Sure! Here are **the** findings [draft]: not JSON"}
+{"t":15,"kind":"check","index":1,"path":"src/parser/crlf.ts","count":6,"kept":5}
+{"t":16,"kind":"file_done","index":1,"total":3,"path":"src/parser/crlf.ts","outcome":"5 findings","seconds":12}
+{"t":17,"kind":"file_start","index":2,"total":3,"path":"docs/parser.md","chars":900}
+{"t":18,"kind":"writing","index":2,"path":"docs/parser.md","chars":120}
+{"t":19,"kind":"finding","index":2,"path":"docs/parser.md","finding":{"label":"issue","blocking":false,"path":"docs/parser.md","line":null,"summary":"The parser doc still says the input is LF only","why":"","confidence":"medium"}}
+{"t":20,"kind":"file_done","index":2,"total":3,"path":"docs/parser.md","outcome":"1 finding","seconds":3}
+{"t":21,"kind":"file_start","index":3,"total":3,"path":"src/generated/protobuf/bindings/extremely-long-generated-module-name-that-nobody-would-type-by-hand-and-that-wraps-badly-everywhere.ts","chars":300}
+{"t":22,"kind":"writing","index":3,"path":"src/generated/protobuf/bindings/extremely-long-generated-module-name-that-nobody-would-type-by-hand-and-that-wraps-badly-everywhere.ts","chars":80}
+{"t":23,"kind":"file_done","index":3,"total":3,"path":"src/generated/protobuf/bindings/extremely-long-generated-module-name-that-nobody-would-type-by-hand-and-that-wraps-badly-everywhere.ts","outcome":"clean","seconds":4}
+{"t":26,"kind":"summary","text":"Two problems block the merge: CRLF input drops most of the diff, and the hunk reader has no size limit.\n\nThe fix for the first is small:\n\n```ts\nconst lines = raw.replace(/\\r\\n/g, \"\\n\").split(\"\\n\");\n```\n\nThe rest is minor."}
+{"t":28,"kind":"verdict","verdict":"REQUEST CHANGES","seconds":28}
+{"t":29,"kind":"report","markdown":"## Review of PR #41\n\n### Blocking\n\n- **CRLF input**: `parseHunk` never matches a line that ends in a carriage return, so most of the diff is skipped.\n- **Hunk size**: `readHunk` has no upper bound. A malformed diff grows memory without limit.\n\n### Minor\n\n- **Naming**: `buf` is vague. Rename it to `pending`.\n- **Docs**: the parser doc still says LF only.\n\n### Open question\n\nThe question about bare carriage returns is still open. Everything else is clear: no secrets, no new dependencies, and the union keeps the switch exhaustive."}
+{"t":30,"kind":"end","status":"ok"}

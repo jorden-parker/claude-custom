@@ -1,0 +1,5 @@
+{"t":0,"kind":"start","name":"PR #42","title":"Bump the lockfile","model":"qwen3.6-35b-cc","base_url":"http://localhost:11434"}
+{"t":1,"kind":"stage","message":"fetching PR #42 with gh"}
+{"t":4,"kind":"file_start","index":1,"total":2,"path":"pnpm-lock.yaml","chars":88000}
+{"t":5,"kind":"error","message":"request to http://localhost:11434/v1/messages failed: [Errno 61] Connection refused"}
+{"t":5,"kind":"end","status":"error"}

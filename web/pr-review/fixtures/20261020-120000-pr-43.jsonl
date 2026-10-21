@@ -1,0 +1,4 @@
+{"t":0,"kind":"start","name":"PR #43","title":"Add retry to the webhook client","model":"qwen3.6-35b-cc","base_url":"http://localhost:11434"}
+{"t":1,"kind":"stage","message":"fetching PR #43 with gh"}
+{"t":3,"kind":"file_start","index":1,"total":1,"path":"src/webhook/client.ts","chars":2400}
+{"t":5,"kind":"waiting","seconds":2}
