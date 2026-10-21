@@ -5,17 +5,18 @@ tmp="$(mktemp -d)"
 failures=0
 stub_pid=""
 
-trap 'stop_stub; rm -rf "$tmp"' EXIT
+trap 'stop_server; stop_stub; rm -rf "$tmp"' EXIT
 
 cat > "$tmp/stub.py" <<'PY'
 import hashlib
 import json
 import math
+import os
 import re
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-log_path, port_path = sys.argv[1:3]
+log_path, port_path, flag_path = sys.argv[1:4]
 
 
 def word_vector(text):
@@ -30,10 +31,23 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         return
 
+    def do_GET(self):
+        if self.path != "/api/ps":
+            self.send_response(404)
+            self.end_headers()
+            return
+        models = [{"name": "qwen3-embedding:0.6b", "model": "qwen3-embedding:0.6b"}] if os.path.exists(flag_path) else []
+        payload = json.dumps({"models": models}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         with open(log_path, "a") as log:
-            log.write(json.dumps({"path": self.path, "model": body["model"], "inputs": len(body["input"])}) + "\n")
+            log.write(json.dumps({"path": self.path, "model": body["model"], "inputs": len(body["input"]), "keep_alive": body.get("keep_alive")}) + "\n")
         payload = json.dumps({"embeddings": [word_vector(text) for text in body["input"]]}).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
@@ -72,7 +86,7 @@ PY
 
 start_stub() {
   rm -f "$tmp/port"
-  python3 "$tmp/stub.py" "$tmp/embed.log" "$tmp/port" &
+  python3 "$tmp/stub.py" "$tmp/embed.log" "$tmp/port" "$tmp/loaded" &
   stub_pid=$!
   while [ ! -s "$tmp/port" ]; do sleep 0.05; done
   CODE_SEARCH_OLLAMA_URL="http://127.0.0.1:$(cat "$tmp/port")"
@@ -120,6 +134,36 @@ check() {
 contains() { printf '%s' "$1" | grep -qF -- "$2"; }
 lacks() { ! contains "$1" "$2"; }
 first_line_starts_with() { case "${1%%$'\n'*}" in "$2"*) return 0 ;; esac; return 1; }
+model_loaded() { touch "$tmp/loaded"; }
+model_unloaded() { rm -f "$tmp/loaded"; }
+index_with_stub() { rm -f "$tmp/embed.log"; (cd "$repo" && python3 "$server" --index >"$tmp/index.out" 2>&1); }
+server_pid=""
+start_server() {
+  rm -f "$tmp/in" "$tmp/out"
+  mkfifo "$tmp/in" "$tmp/out"
+  (cd "$repo" && python3 "$server" < "$tmp/in" > "$tmp/out") &
+  server_pid=$!
+  exec 3> "$tmp/in" 4< "$tmp/out"
+  send '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"0"}}}' >/dev/null
+}
+send() {
+  local reply
+  printf '%s\n' "$1" >&3
+  IFS= read -r reply <&4
+  printf '%s' "$reply"
+}
+live_search() {
+  rm -f "$tmp/embed.log"
+  send "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"semantic_search\",\"arguments\":{\"query\":\"$1\"}}}" |
+    python3 -c 'import json,sys; r=json.load(sys.stdin)["result"]; print("\n".join(c["text"] for c in r["content"]))'
+}
+stop_server() {
+  if [ -n "$server_pid" ]; then
+    exec 3>&- 4<&-
+    wait "$server_pid" 2>/dev/null
+    server_pid=""
+  fi
+}
 
 repo="$tmp/repo"
 mkdir -p "$repo/src"
