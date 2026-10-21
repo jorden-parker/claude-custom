@@ -13,7 +13,7 @@ tests_for() {
     *.test.sh) printf '%s\n' "$1" ;;
     bin/claude-custom) printf '%s\n' personal/install.test.sh bin/claude-ollama.test.sh ;;
     bin/claude-tools | bin/ollama-agent | ollama/*) printf '%s\n' bin/claude-ollama.test.sh ;;
-    personal/* | shared/settings/*) printf '%s\n' personal/install.test.sh ;;
+    personal/* | shared/settings/* | shared/agents/*) printf '%s\n' personal/install.test.sh ;;
     shared/hooks/fallow-lib.sh | shared/hooks/fallow-test-lib.sh) printf '%s\n' shared/hooks/fallow-*.test.sh ;;
     *) sibling_test "$1" ;;
   esac
