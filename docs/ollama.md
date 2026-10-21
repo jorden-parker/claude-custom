@@ -226,3 +226,5 @@ The page only reads those logs; it calls no model. The first run installs and
 builds `web/pr-review` with pnpm (Node 22 or later and pnpm 10 are required;
 `brew install pnpm` if pnpm is missing). While it runs, the command writes the
 page URL to `.web-url` in the log directory and removes that file when it exits.
+`pnpm --dir web/pr-review demo --serve` serves fixture reviews (every event
+kind) and a live replay.
