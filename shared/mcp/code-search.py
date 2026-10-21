@@ -47,6 +47,12 @@ STOP_WORDS = set(
 )
 QUERY_SUFFIXES = ("ing", "ed", "es", "s")
 VARIANT_SUFFIXES = ("", "s", "es", "ed", "ing", "er", "ers", "e", "d", "ion", "ions")
+BM25_K1 = 1.2
+BM25_B = 0.75
+CANDIDATES = 50
+RRF_K = 60
+PS_TIMEOUT = 1
+WORDS_ONLY_NOTE = "words only: the embedding model is not loaded, so synonyms will not match; use the code's own terms."
 
 TOOL = {
     "name": "semantic_search",
@@ -243,17 +249,65 @@ def refreshed_index(root, files):
     return current
 
 
-def ranked_chunks(files, query_vector, limit):
-    scored = (
-        (sum(a * b for a, b in zip(query_vector, chunk["vector"])), name, chunk)
-        for name, entry in files.items()
-        for chunk in entry["chunks"]
-    )
-    return heapq.nlargest(limit, scored, key=lambda item: item[0])
+def flat_chunks(files):
+    return [(name, chunk) for name, entry in files.items() for chunk in entry["chunks"]]
 
 
-def result_line(score, name, chunk):
-    return f"{name}:{chunk['start']}-{chunk['end']}  {score:.2f}  {chunk['preview']}"
+def query_groups(query):
+    return [variants(stem(word)) for word in dict.fromkeys(words(query)) if word not in STOP_WORDS]
+
+
+def lexical_ranking(chunks, query):
+    groups = query_groups(query)
+    if not groups or not chunks:
+        return []
+    average_length = sum(chunk["length"] for _, chunk in chunks) / len(chunks)
+    hits = [[sum(chunk["terms"].get(form, 0) for form in group) for group in groups] for _, chunk in chunks]
+    containing = [sum(1 for chunk_hits in hits if chunk_hits[i]) for i in range(len(groups))]
+    idf = [math.log(1 + (len(chunks) - count + 0.5) / (count + 0.5)) for count in containing]
+    scored = []
+    for position, ((_, chunk), chunk_hits) in enumerate(zip(chunks, hits)):
+        length_norm = BM25_K1 * (1 - BM25_B + BM25_B * chunk["length"] / average_length)
+        score = sum(idf[i] * tf * (BM25_K1 + 1) / (tf + length_norm) for i, tf in enumerate(chunk_hits) if tf)
+        if score > 0:
+            scored.append((score, position))
+    return top_positions(scored)
+
+
+def semantic_ranking(chunks, query_vector):
+    scored = []
+    for position, (_, chunk) in enumerate(chunks):
+        if "vector" in chunk:
+            score = sum(a * b for a, b in zip(query_vector, chunk["vector"]))
+            if score > 0:
+                scored.append((score, position))
+    return top_positions(scored)
+
+
+def top_positions(scored):
+    return [position for _, position in heapq.nlargest(CANDIDATES, scored, key=lambda item: item[0])]
+
+
+def fused_ranking(rankings, limit):
+    scores = {}
+    for ranking in rankings:
+        for rank, position in enumerate(ranking):
+            scores[position] = scores.get(position, 0.0) + 1 / (RRF_K + rank)
+    return heapq.nlargest(limit, scores.items(), key=lambda item: item[1])
+
+
+def embedding_loaded():
+    try:
+        with urllib.request.urlopen(f"{OLLAMA_URL}/api/ps", timeout=PS_TIMEOUT) as response:
+            loaded = json.load(response).get("models", [])
+    except (urllib.error.URLError, OSError, ValueError):
+        return False
+    return any(EMBED_MODEL in (model.get("name"), model.get("model")) for model in loaded)
+
+
+def result_line(chunks, position, score, top_score):
+    name, chunk = chunks[position]
+    return f"{name}:{chunk['start']}-{chunk['end']}  {score / top_score:.2f}  {chunk['preview']}"
 
 
 def refreshed_files(root):
@@ -269,13 +323,24 @@ def build_index():
     return len(refreshed_files(repo_root()))
 
 
-def search(query, limit):
-    files = refreshed_files(repo_root())
+def rankings(chunks, query):
+    ranked = [lexical_ranking(chunks, query)]
+    if not embedding_loaded():
+        return ranked, WORDS_ONLY_NOTE
     query_vectors = embed([QUERY_INSTRUCTION + query])
-    if not query_vectors:
-        raise SearchError(f"{EMBED_MODEL} returned no embedding for the query.")
-    lines = [result_line(*item) for item in ranked_chunks(files, query_vectors[0], limit)]
-    return "\n".join(lines) or "No indexed code yet."
+    if query_vectors:
+        ranked.append(semantic_ranking(chunks, query_vectors[0]))
+    return ranked, None
+
+
+def search(query, limit):
+    chunks = flat_chunks(refreshed_files(repo_root()))
+    if not chunks:
+        return "No indexed code yet."
+    ranked, note = rankings(chunks, query)
+    fused = fused_ranking(ranked, limit)
+    lines = [result_line(chunks, position, score, fused[0][1]) for position, score in fused] or ["No matching code."]
+    return "\n".join(lines + [note] if note else lines)
 
 
 def clamped_limit(value):
