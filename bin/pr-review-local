@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 import argparse
 import dataclasses
+import datetime
 import http.client
+import itertools
 import json
 import os
 import re
@@ -21,6 +23,7 @@ DEFAULT_MAX_TOKENS = 1500
 DEFAULT_FULL_FILE_LINES = 400
 DEFAULT_PROMPT_CHARS = 48000
 DEFAULT_HEARTBEAT_SECONDS = 10.0
+DEFAULT_LOG_DIR = "~/.local/share/claude-custom/reviews"
 WRITING_INTERVAL_SECONDS = 0.2
 RETRY_REPLY_CHARS = 300
 SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
@@ -185,6 +188,8 @@ class ReviewConfig:
     post: bool
     as_json: bool
     color: str
+    log_dir: str | None
+    no_log: bool
 
 
 @dataclasses.dataclass
@@ -269,6 +274,8 @@ def parse_args(argv):
     parser.add_argument("--post", action="store_true")
     parser.add_argument("--json", dest="as_json", action="store_true")
     parser.add_argument("--color", choices=("auto", "always", "never"), default="auto")
+    parser.add_argument("--log-dir", default=None, help="directory for the event log (one JSON line per event)")
+    parser.add_argument("--no-log", action="store_true", help="do not write the event log")
     options = parser.parse_args(argv)
     if (options.target is None) == (options.commit_range is None):
         parser.error("give a pull request or --range BASE..HEAD")
@@ -300,9 +307,33 @@ def load_json(text, source):
         raise ReviewError(f"{source} returned no JSON") from error
 
 
+class JsonlLog:
+    def __init__(self, path, handle):
+        self.path = path
+        self.handle = handle
+
+    @classmethod
+    def create(cls, directory, slug):
+        directory.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.datetime.now(datetime.UTC).strftime("%Y%m%d-%H%M%S")
+        for number in itertools.count(1):
+            suffix = "" if number == 1 else f"-{number}"
+            path = directory / f"{stamp}-{slug}{suffix}.jsonl"
+            try:
+                return cls(path, path.open("x", encoding="utf-8"))
+            except FileExistsError:
+                continue
+
+    def write(self, event):
+        self.handle.write(json.dumps(event) + "\n")
+        self.handle.flush()
+
+
 class Reporter:
-    def __init__(self, terminal):
+    def __init__(self, terminal, log_directory):
         self.terminal = terminal
+        self.log_directory = log_directory
+        self.log = None
         self.lock = threading.Lock()
         self.started_at = time.perf_counter()
 
@@ -310,12 +341,32 @@ class Reporter:
         event = {"t": round(time.perf_counter() - self.started_at, 2), "kind": kind, **fields}
         with self.lock:
             self.terminal.handle(event)
+            self.write_log(event)
+
+    def write_log(self, event):
+        if self.log is None:
+            return
+        try:
+            self.log.write(event)
+        except OSError as error:
+            self.log = None
+            self.terminal.handle({"kind": "stage", "message": f"event log disabled: {error}"})
 
     def stage(self, message):
         self.emit("stage", message=message)
 
-    def begin(self, name, title, model, base_url):
+    def begin(self, slug, name, title, model, base_url):
+        if self.log_directory is not None:
+            self.open_log(slug)
         self.emit("start", name=name, title=title, model=model, base_url=base_url)
+        if self.log is not None:
+            self.stage(f"log {self.log.path}")
+
+    def open_log(self, slug):
+        try:
+            self.log = JsonlLog.create(self.log_directory, slug)
+        except OSError as error:
+            self.stage(f"event log disabled: {error}")
 
 
 class TerminalRenderer:
@@ -776,6 +827,12 @@ def review_name(meta):
     return meta["name"]
 
 
+def review_slug(meta):
+    if meta["number"] is not None:
+        return f"pr-{meta['number']}"
+    return re.sub(r"[^A-Za-z0-9._-]", "-", meta["name"])
+
+
 def prompt_head(meta, path, comments):
     return (
         f"{review_name(meta)}: {meta['title']}\n\n"
@@ -1136,7 +1193,7 @@ def review_pull_request(config, reporter):
     root = repo_root()
     reporter.stage(f"looking up PR {config.target}")
     meta = pr_metadata(root, config.target)
-    reporter.begin(review_name(meta), meta["title"], config.model, config.base_url)
+    reporter.begin(review_slug(meta), review_name(meta), meta["title"], config.model, config.base_url)
     ref = REVIEW_REF.format(number=meta["number"])
     try:
         reporter.stage(f"fetching PR #{meta['number']} and {meta['baseRefName']}")
@@ -1167,7 +1224,7 @@ def review_range(config, reporter):
         "body": run(["git", "log", "-1", "--format=%b", head_rev], root).strip(),
         "baseRefName": base,
     }
-    reporter.begin(review_name(meta), meta["title"], config.model, config.base_url)
+    reporter.begin(review_slug(meta), review_name(meta), meta["title"], config.model, config.base_url)
     reporter.stage("local range: no review comments or CI to read")
     return build_review(config, reporter, root, meta, head_rev, merge_base)
 
@@ -1265,9 +1322,29 @@ def post_review(target, report):
         run(["gh", "pr", "review", target, "--comment", "--body-file", str(body_path)])
 
 
+def log_directory_for(config):
+    chosen = config.log_dir or os.environ.get("PR_REVIEW_LOG_DIR") or DEFAULT_LOG_DIR
+    return Path(chosen).expanduser().absolute()
+
+
+def build_reporter(config):
+    terminal = TerminalRenderer(sys.stderr, wants_color(config.color, sys.stderr))
+    log_directory = None if config.no_log else log_directory_for(config)
+    return Reporter(terminal, log_directory)
+
+
 def main(argv):
     config = parse_args(argv)
-    reporter = Reporter(TerminalRenderer(sys.stderr, wants_color(config.color, sys.stderr)))
+    reporter = build_reporter(config)
+    status = 1
+    try:
+        status = run_review(config, reporter)
+    finally:
+        reporter.emit("end", status="ok" if status == 0 else "error")
+    return status
+
+
+def run_review(config, reporter):
     started_at = time.perf_counter()
     try:
         review = review_range(config, reporter) if config.commit_range is not None else review_pull_request(config, reporter)
@@ -1279,6 +1356,7 @@ def main(argv):
         reporter.emit("error", message=str(error))
         return 1
     reporter.emit("verdict", verdict=review.verdict, seconds=round(time.perf_counter() - started_at, 1))
+    reporter.emit("report", markdown=report)
     if config.as_json:
         print(json.dumps(review_as_dict(review), indent=2))
     elif sys.stdout.isatty() and wants_color(config.color, sys.stdout):

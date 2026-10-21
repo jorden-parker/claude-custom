@@ -7,6 +7,7 @@ failures=0
 stub_pid=""
 port=""
 export PR_REVIEW_TEST_TMP="$tmp"
+export PR_REVIEW_LOG_DIR="$tmp/default-logs"
 export GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.test
 export GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.test
 
@@ -325,7 +326,7 @@ review_in_work() {
 
 start_stub
 : > "$tmp/requests.log"
-review_in_work 7 > "$tmp/report.md" 2> "$tmp/err"
+review_in_work 7 --log-dir "$tmp/logs" > "$tmp/report.md" 2> "$tmp/err"
 check_eq "exit status" 0 "$?"
 check_that "verdict is REQUEST CHANGES" grep -q '^\*\*Verdict:\*\* REQUEST CHANGES\. Adds a widget; one blocking bug\.$' "$tmp/report.md"
 check_that "checks line counts buckets" report_has 'CI 1 pass, 0 fail, 1 pending; Fallow warn'
@@ -399,6 +400,14 @@ review_in_work 7 --color always > "$tmp/color.md" 2> "$tmp/color.err"
 check_that "color mode styles the blocking label red" grep -qF "$(printf '\033[31missue (blocking)')" "$tmp/color.err"
 check_that "color mode rewrites the status line in place" grep -qF "$(printf '\r\033[K')" "$tmp/color.err"
 check_not "stdout stays plain markdown when not a TTY" grep -q "$(printf '\033')" "$tmp/color.md"
+logs=("$tmp/logs"/*-pr-7.jsonl)
+log="${logs[0]}"
+check_that "log file named after the PR" test -f "$log"
+check_eq "log starts with start" start "$(head -1 "$log" | jq -r .kind)"
+check_eq "log ends with end ok" "end ok" "$(tail -1 "$log" | jq -r '"\(.kind) \(.status)"')"
+check_that "log has the live finding" jq -e 'select(.kind == "finding" and .finding.summary == "Null deref on empty list")' "$log" > /dev/null
+check_that "log has the report" jq -e 'select(.kind == "report") | .markdown | contains("## PR #7")' "$log" > /dev/null
+check_that "stderr names the log" grep -qE '^pr-review-local: log .*/logs/[0-9]{8}-[0-9]{6}-pr-7\.jsonl$' "$tmp/err"
 
 review_in_work 7 --post > "$tmp/report.md" 2> "$tmp/err"
 check_eq "post run exit status" 0 "$?"
@@ -411,10 +420,22 @@ review_in_work 7 --json > "$tmp/json.out" 2> "$tmp/err"
 check_eq "json verdict" "REQUEST CHANGES" "$(jq -r .verdict "$tmp/json.out")"
 check_eq "json lists three findings" 3 "$(jq '.findings | length' "$tmp/json.out")"
 
-(cd "$tmp/work" && PATH="$tmp/stubbin:$PATH" "$reviewer" --base-url http://127.0.0.1:1 --model stub-model 7 > "$tmp/down.out" 2> "$tmp/down.err")
+(cd "$tmp/work" && PATH="$tmp/stubbin:$PATH" "$reviewer" --base-url http://127.0.0.1:1 --model stub-model 7 --log-dir "$tmp/down-logs" > "$tmp/down.out" 2> "$tmp/down.err")
 check_eq "unreachable server exits 1" 1 "$?"
 check_that "unreachable server is named in the error" grep -q '^pr-review-local: request to http://127.0.0.1:1/v1/messages failed' "$tmp/down.err"
 check_not "no heartbeat after a failed request" grep -qF 'waiting for the first token' "$tmp/down.err"
+down_logs=("$tmp/down-logs"/*-pr-7.jsonl)
+check_eq "failed run log ends with end error" "end error" "$(tail -1 "${down_logs[0]}" | jq -r '"\(.kind) \(.status)"')"
+check_that "failed run log names the failed request" jq -e 'select(.kind == "error") | .message | contains("request to http://127.0.0.1:1/v1/messages failed")' "${down_logs[0]}" > /dev/null
+review_in_work 7 --no-log --log-dir "$tmp/nolog" > /dev/null 2> /dev/null
+check_not "--no-log writes no log directory" test -e "$tmp/nolog"
+(export PR_REVIEW_LOG_DIR="$tmp/env-logs"; review_in_work 7 > /dev/null 2> /dev/null)
+env_logs=("$tmp/env-logs"/*-pr-7.jsonl)
+check_that "PR_REVIEW_LOG_DIR is honoured" test -f "${env_logs[0]}"
+touch "$tmp/not-a-dir"
+review_in_work 7 --log-dir "$tmp/not-a-dir/logs" > "$tmp/unwritable.out" 2> "$tmp/unwritable.err"
+check_eq "unwritable log dir still exits 0" 0 "$?"
+check_that "unwritable log dir is reported" grep -qF 'pr-review-local: event log disabled:' "$tmp/unwritable.err"
 
 review_in_work 7 --model oom-model > "$tmp/oom.out" 2> "$tmp/oom.err"
 check_eq "server error exits 1" 1 "$?"
