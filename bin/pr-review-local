@@ -59,12 +59,6 @@ NOT_CHECKED_LOCAL_RANGE = "CI not checked (local range)"
 TRUNCATED_MARK = "\n[diff truncated]"
 TRUNCATED_NOTE = "diff truncated to fit the prompt"
 RETRY_NOTE = "\n\nYour previous answer was not a JSON array. Answer with the JSON array only."
-VERIFY_PROMPT = (
-    "Check each finding in your answer against the numbered code above. Remove a "
-    "finding if the line it names does not show the problem, if it misreads the "
-    "code, or if it only matters for malformed input. Keep every other finding "
-    "exactly as it was. Answer with the JSON array only."
-)
 LABELS = ("issue", "suggestion", "question", "nitpick", "praise")
 CONFIDENCE_ORDER = ("high", "medium", "low")
 UNSTATED_CONFIDENCE = "medium"
@@ -168,7 +162,6 @@ class ReviewConfig:
     heartbeat_seconds: float
     post: bool
     as_json: bool
-    no_verify: bool
 
 
 @dataclasses.dataclass
@@ -252,7 +245,6 @@ def parse_args(argv):
     parser.add_argument("--heartbeat-seconds", type=positive_float, default=DEFAULT_HEARTBEAT_SECONDS)
     parser.add_argument("--post", action="store_true")
     parser.add_argument("--json", dest="as_json", action="store_true")
-    parser.add_argument("--no-verify", dest="no_verify", action="store_true")
     options = parser.parse_args(argv)
     if (options.target is None) == (options.commit_range is None):
         parser.error("give a pull request or --range BASE..HEAD")
@@ -688,10 +680,6 @@ def http_error_detail(error):
 
 
 def request_text(config, system, user, max_tokens):
-    return request_messages(config, system, [{"role": "user", "content": user}], max_tokens)
-
-
-def request_messages(config, system, messages, max_tokens):
     url = config.base_url.rstrip("/") + "/v1/messages"
     body = {
         "model": config.model,
@@ -700,7 +688,7 @@ def request_messages(config, system, messages, max_tokens):
         "stream": True,
         "system": system,
         "thinking": {"type": "disabled"},
-        "messages": messages,
+        "messages": [{"role": "user", "content": user}],
     }
     request = urllib.request.Request(
         url,
@@ -787,7 +775,7 @@ def system_prompt_for(source):
 
 def ask_for_findings(config, system, prompt, path):
     reply = request_text(config, system, prompt, config.max_tokens)
-    return parse_findings(reply, path), reply
+    return parse_findings(reply, path)
 
 
 def review_prompt_answer(config, system, prompt, path, tag):
@@ -798,38 +786,13 @@ def review_prompt_answer(config, system, prompt, path, tag):
         return ask_for_findings(config, system, prompt + RETRY_NOTE, path)
 
 
-def needs_check(config, found):
-    return not config.no_verify and any(finding.label != "praise" for finding in found)
-
-
-def checked_findings(config, system, prompt, path, reply, found, tag):
-    print(f"{tag}: checking {len(found)} findings", file=sys.stderr, flush=True)
-    messages = [
-        {"role": "user", "content": prompt},
-        {"role": "assistant", "content": reply},
-        {"role": "user", "content": VERIFY_PROMPT},
-    ]
-    try:
-        return parse_findings(request_messages(config, system, messages, config.max_tokens), path)
-    except (ReviewError, ValueError):
-        print(f"{tag}: check failed, keeping the first answer", file=sys.stderr, flush=True)
-        return found
-
-
-def review_findings(config, system, prompt, path, tag):
-    found, reply = review_prompt_answer(config, system, prompt, path, tag)
-    if not needs_check(config, found):
-        return found
-    return checked_findings(config, system, prompt, path, reply, found, tag)
-
-
 def review_source(config, meta, comments, source, index, total):
     started_at = time.perf_counter()
     prompt, truncated = build_prompt(config, meta, comments, source)
     tag = f"[{index}/{total}] {source.path}"
     print(f"{tag}: reviewing, {len(prompt)} chars", file=sys.stderr, flush=True)
     try:
-        found = review_findings(config, system_prompt_for(source), prompt, source.path, tag)
+        found = review_prompt_answer(config, system_prompt_for(source), prompt, source.path, tag)
     except ValueError:
         found = None
     seconds = time.perf_counter() - started_at

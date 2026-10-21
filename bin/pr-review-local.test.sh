@@ -58,22 +58,9 @@ def without_confidence(reply):
     return json.dumps(findings)
 
 
-def is_check(body):
-    return len(body["messages"]) == 3
-
-
-def check_reply_for(body):
-    user = body["messages"][0]["content"]
-    if body["model"] == "verify-drops-model" and "File: src/bad.ts" in user:
-        return json.dumps(json.loads(BAD_REPLY)[:1])
-    return body["messages"][1]["content"]
-
-
 def plain_reply_for(body):
     if is_summary(body):
         return SUMMARY_REPLY
-    if is_check(body):
-        return check_reply_for(body)
     user = body["messages"][0]["content"]
     if "File: src/bad.ts" in user:
         return without_confidence(BAD_REPLY) if body["model"] == "no-confidence-model" else BAD_REPLY
@@ -159,14 +146,6 @@ def matching(path, pattern):
     return [request for request in requests(path) if pattern in user_text(request)]
 
 
-def first_pass_matching(path, pattern):
-    return [request for request in matching(path, pattern) if len(request["body"]["messages"]) == 1]
-
-
-def check_requests(path, pattern):
-    return [request for request in matching(path, pattern) if len(request["body"]["messages"]) == 3]
-
-
 def every_request_ok(path, model):
     for request in requests(path):
         body = request["body"]
@@ -182,12 +161,8 @@ def every_request_ok(path, model):
 def main(argv):
     command, path, *args = argv
     if command == "count-user":
-        print(len(first_pass_matching(path, args[0])))
+        print(len(matching(path, args[0])))
         return 0
-    if command == "count-check":
-        return 0 if len(check_requests(path, args[0])) == int(args[1]) else 1
-    if command == "check-has":
-        return 0 if any(args[1] in request["body"]["messages"][1]["content"] for request in check_requests(path, args[0])) else 1
     if command == "request-user-has":
         return 0 if args[1] in user_text(matching(path, args[0])[-1]) else 1
     if command == "request-user-lacks":
@@ -479,21 +454,6 @@ check_eq "range without .. exits 1" 1 "$?"
 check_that "bad range is explained" grep -qF 'pr-review-local: --range must be BASE..HEAD' "$tmp/badrange.err"
 review_in_work > /dev/null 2> "$tmp/none.err"
 check_eq "no PR and no range is a usage error" 2 "$?"
-
-: > "$tmp/requests.log"
-review_in_work 7 --model verify-drops-model > "$tmp/verify.md" 2> "$tmp/verify.err"
-check_eq "verify run exit status" 0 "$?"
-check_not "verify drops the nitpick" grep -qF 'Name the variable' "$tmp/verify.md"
-check_that "verify keeps the blocking finding" grep -qF 'Null deref on empty list' "$tmp/verify.md"
-check_that "stderr announces the check" grep -qE '^\[[0-9]+/[0-9]+\] src/bad\.ts: checking 2 findings$' "$tmp/verify.err"
-check_that "one check request for the file with findings" inspect count-check "$tmp/requests.log" 'File: src/bad.ts' 1
-check_that "no check request when there were no findings" inspect count-check "$tmp/requests.log" 'File: src/ok.ts' 0
-check_that "the check request carries the first answer" inspect check-has "$tmp/requests.log" 'File: src/bad.ts' 'Null deref on empty list'
-: > "$tmp/requests.log"
-review_in_work 7 --model verify-drops-model --no-verify > "$tmp/noverify.md" 2>/dev/null
-check_eq "no-verify run exit status" 0 "$?"
-check_that "--no-verify keeps the nitpick" grep -qF 'Name the variable' "$tmp/noverify.md"
-check_that "--no-verify sends no check request" inspect count-check "$tmp/requests.log" 'File: src/bad.ts' 0
 
 stop_stub
 start_stub 0.6
