@@ -366,6 +366,58 @@ follow_logs() {
   exec tail -n "$lines" -F "$path"
 }
 
+remove_web_url() {
+  rm -f "${web_url_file:-}"
+}
+
+reviews_build_needed() {
+  local web_dir="$1" build_marker="$1/.next/BUILD_ID"
+  [ -f "$build_marker" ] || return 0
+  [ -n "$(find "$web_dir/src" "$web_dir/package.json" "$web_dir/pnpm-lock.yaml" "$web_dir"/next.config.* -newer "$build_marker" 2>/dev/null)" ]
+}
+
+serve_reviews() {
+  local port=8765 web_dir log_dir url
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --port)
+        port="${2:-}"
+        shift 2 || shift
+        ;;
+      *)
+        echo "claude-ollama reviews: unknown argument: $1" >&2
+        exit 2
+        ;;
+    esac
+  done
+  case "$port" in
+    ''|*[!0-9]*)
+      echo "claude-ollama reviews: --port needs a number" >&2
+      exit 2
+      ;;
+  esac
+  if ! command -v pnpm >/dev/null 2>&1; then
+    echo "claude-ollama: pnpm is required for the reviews page (brew install pnpm)" >&2
+    exit 1
+  fi
+  web_dir="${CLAUDE_OLLAMA_WEB_DIR:-$repo_dir/web/pr-review}"
+  if [ ! -d "$web_dir/node_modules" ]; then
+    pnpm --dir "$web_dir" install --frozen-lockfile || exit 1
+  fi
+  if reviews_build_needed "$web_dir"; then
+    pnpm --dir "$web_dir" build || exit 1
+  fi
+  log_dir="${PR_REVIEW_LOG_DIR:-$HOME/.local/share/claude-custom/reviews}"
+  url="http://127.0.0.1:$port/"
+  mkdir -p "$log_dir"
+  web_url_file="$log_dir/.web-url"
+  printf '%s\n' "$url" > "$web_url_file"
+  trap remove_web_url EXIT INT TERM
+  echo "claude-ollama: reviews at $url"
+  pnpm --dir "$web_dir" exec next start -H 127.0.0.1 -p "$port"
+  exit 0
+}
+
 case "${1:-}" in
   -h|--help)
     echo "usage: claude-ollama [size] [claude args...]"
@@ -376,6 +428,7 @@ case "${1:-}" in
     echo "--print-config [size]: print the resolved settings and the claude command"
     echo "logs [-n LINES]: follow the Ollama server log (LaunchAgent, Homebrew service or app)"
     echo "review [size] PR [--post]: review a pull request with the size's model, one file per request"
+    echo "reviews [--port N]: serve live and past reviews at http://127.0.0.1:8765/"
     exit 0 ;;
 esac
 
@@ -385,9 +438,11 @@ case "${1:-}" in
   --print-config) mode=print-config; shift ;;
   logs) mode=logs; shift ;;
   review) mode=review; shift ;;
+  reviews) mode=reviews; shift ;;
 esac
 
 [ "$mode" != logs ] || follow_logs "$@"
+[ "$mode" != reviews ] || serve_reviews "$@"
 
 if ! command -v jq >/dev/null 2>&1; then
   echo "claude-ollama: jq is required (brew install jq)" >&2

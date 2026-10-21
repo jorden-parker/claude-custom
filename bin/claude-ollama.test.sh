@@ -500,6 +500,53 @@ STUB_OLLAMA_PID=42 run_capture "$repo/bin/claude-ollama" doctor 27b
 check_that "doctor names the fix for missing server env" grep -qF "claude-custom agent -apply" "$sandbox/out"
 check_not "doctor does not apply server.env" grep -sqxF -- "-apply" "$sandbox/agent.log"
 
+export PNPM_LOG="$sandbox/pnpm.log"
+export PR_REVIEW_LOG_DIR="$sandbox/reviews"
+web="$sandbox/web"
+mkdir -p "$web/src"
+printf '{}\n' > "$web/package.json"
+: > "$web/pnpm-lock.yaml"
+: > "$web/src/page.tsx"
+touch -t 202001010200 "$web/src" "$web/src/page.tsx" "$web/package.json" "$web/pnpm-lock.yaml"
+cat > "$sandbox/stubbin/pnpm" <<'EOF'
+#!/bin/sh
+echo "PNPM: $*" >> "$PNPM_LOG"
+case "$3" in
+  build) mkdir -p "$2/.next" && touch "$2/.next/BUILD_ID" ;;
+  install) mkdir -p "$2/node_modules" ;;
+  exec) cat "$PR_REVIEW_LOG_DIR/.web-url" >> "$PNPM_LOG" 2>/dev/null || true ;;
+esac
+EOF
+chmod +x "$sandbox/stubbin/pnpm"
+export CLAUDE_OLLAMA_WEB_DIR="$web"
+rm -f "$PNPM_LOG"
+run_capture "$repo/bin/claude-ollama" reviews --port 9000
+check_eq "reviews exit status" 0 "$?"
+check_that "reviews installs when node_modules is missing" grep -qxF -- "PNPM: --dir $web install --frozen-lockfile" "$PNPM_LOG"
+check_that "reviews builds when BUILD_ID is missing" grep -qxF -- "PNPM: --dir $web build" "$PNPM_LOG"
+check_that "reviews serves on loopback at the port" grep -qxF -- "PNPM: --dir $web exec next start -H 127.0.0.1 -p 9000" "$PNPM_LOG"
+check_that "reviews writes .web-url while serving" grep -qxF "http://127.0.0.1:9000/" "$PNPM_LOG"
+check_that "reviews prints its URL" grep -qxF "claude-ollama: reviews at http://127.0.0.1:9000/" "$sandbox/out"
+check_not "reviews removes .web-url after it exits" test -e "$PR_REVIEW_LOG_DIR/.web-url"
+check_not "reviews does not launch claude" grep -q '^ARGS:' "$sandbox/out"
+rm -f "$PNPM_LOG"
+mkdir -p "$web/.next"
+touch -t 202001010100 "$web/.next/BUILD_ID"
+run_capture "$repo/bin/claude-ollama" reviews
+check_that "reviews rebuilds when a source is newer than BUILD_ID" grep -qxF -- "PNPM: --dir $web build" "$PNPM_LOG"
+rm -f "$PNPM_LOG"
+touch -t 202001010300 "$web/.next/BUILD_ID"
+run_capture "$repo/bin/claude-ollama" reviews
+check_not "reviews skips the build when BUILD_ID is newer than every source" grep -qxF -- "PNPM: --dir $web build" "$PNPM_LOG"
+check_not "reviews skips the install when node_modules exists" grep -qxF -- "PNPM: --dir $web install --frozen-lockfile" "$PNPM_LOG"
+rm -f "$sandbox/stubbin/pnpm"
+run_capture "$repo/bin/claude-ollama" reviews
+check_eq "reviews without pnpm exits 1" 1 "$?"
+check_that "reviews without pnpm says how to install it" grep -qxF "claude-ollama: pnpm is required for the reviews page (brew install pnpm)" "$sandbox/err"
+unset CLAUDE_OLLAMA_WEB_DIR PR_REVIEW_LOG_DIR PNPM_LOG
+run_capture "$repo/bin/claude-ollama" --help
+check_that "claude-ollama help lists reviews" grep -qF -- "reviews [--port N]: serve live and past reviews at http://127.0.0.1:8765/" "$sandbox/out"
+
 if [ "$failures" -eq 0 ]; then
   echo "all passed"
 else
