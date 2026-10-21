@@ -41,4 +41,8 @@ expect_eq "global option before fix" deny "$(decision 'fallow --root . fix --yes
 expect_eq "root option with explain" allow "$(decision 'fallow --root . explain unused-export')"
 expect_eq "heredoc body line starting with fallow" allow "$(decision $'cat > f <<\'EOF\'\n- 001: fallow hook\nfallow audit\nEOF\ngit status')"
 expect_eq "multi-line commit message with fallow line" allow "$(decision $'git commit -m "subject\n\nfallow line here"')"
+expect_eq "apostrophe in a shell comment" deny "$(failing_decision $'grep -n "x" f # it\'s\ngit push')"
+expect_eq "ansi-c quoted apostrophe" deny "$(failing_decision $'echo $\'it\\\'s\' && git push')"
+expect_eq "fix --yes after an unlexable comment" deny "$(decision $'ls # don\'t\nfallow fix --yes --format json')"
+expect_eq "unlexable command without a gated word" allow "$(failing_decision $'ls # it\'s fine')"
 finish

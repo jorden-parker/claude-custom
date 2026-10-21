@@ -57,6 +57,7 @@ import shlex
 import sys
 
 SEPARATOR_CHARS = ";|&()\n"
+SEPARATORS = re.compile(r"[;|&()\n]+")
 HEREDOC_BODY = re.compile(r"(<<-?[ \t]*(['\"]?)(\w+)\2[^\n]*)\n.*?^[ \t]*\3[ \t]*$", re.S | re.M)
 
 
@@ -69,25 +70,37 @@ def is_separator(token):
 
 
 def lex(command):
-    lexer = shlex.shlex(HEREDOC_BODY.sub(r"\1", command), posix=True, punctuation_chars=SEPARATOR_CHARS)
+    lexer = shlex.shlex(command, posix=True, punctuation_chars=SEPARATOR_CHARS)
     lexer.whitespace = " \t\r"
     lexer.whitespace_split = True
     lexer.commenters = ""
     return lexer
 
 
-def emit(words):
+def quoted_segments(command):
+    segments = [[]]
+    for token in lex(command):
+        if is_separator(token):
+            segments.append([])
+        else:
+            segments[-1].append(token)
+    return segments
+
+
+def plain_segments(command):
+    return [segment.split() for segment in SEPARATORS.split(command)]
+
+
+def segments(command):
+    without_heredocs = HEREDOC_BODY.sub(r"\1", command)
+    try:
+        return quoted_segments(without_heredocs)
+    except ValueError:
+        return plain_segments(without_heredocs)
+
+
+for words in segments(sys.argv[1]):
     if words:
         print("\t".join(flatten(word) for word in words))
-
-
-current = []
-for token in lex(sys.argv[1]):
-    if is_separator(token):
-        emit(current)
-        current = []
-    else:
-        current.append(token)
-emit(current)
 PY
 }
