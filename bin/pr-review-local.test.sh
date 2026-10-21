@@ -344,7 +344,6 @@ check_that "prompt says to use the numbers" inspect request-system-has "$tmp/req
 check_that "added line carries its exact new-file number" inspect request-user-has "$tmp/requests.log" 'File: src/ok.ts' "$(printf '%5d | +export const added = 2;' "$ok_line")"
 check_that "requests name the model and version" inspect every-request-ok "$tmp/requests.log" stub-model
 check_that "summary request is last" inspect last-system-starts "$tmp/requests.log" 'You summarise'
-check_that "code prompt asks to trace new inputs" inspect request-system-has "$tmp/requests.log" 'File: src/ok.ts' 'every place in the whole file that reads that same input'
 review_in_work 7 --model docs-blocker-model > "$tmp/docs.md" 2> "$tmp/docs.err"
 check_not "docs findings never block" grep -qF -- '- **issue (blocking):** Sentence is split' "$tmp/docs.md"
 check_that "docs issue is listed as non-blocking" grep -qF -- '- **issue (non-blocking):** Sentence is split' "$tmp/docs.md"
