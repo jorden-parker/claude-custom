@@ -45,6 +45,7 @@ export type ReviewState = {
   report: string | null;
   error: string | null;
   ended: boolean;
+  lastSeconds: number;
 };
 
 export const initialReviewState: ReviewState = {
@@ -56,7 +57,12 @@ export const initialReviewState: ReviewState = {
   report: null,
   error: null,
   ended: false,
+  lastSeconds: 0,
 };
+
+export function isFileOpenByDefault(file: FileView): boolean {
+  return file.state !== "done" || file.findings.length > 0;
+}
 
 export function reduceEvents(events: ReviewEvent[]): ReviewState {
   return events.reduce(applyEvent, initialReviewState);
@@ -82,7 +88,8 @@ const handlers = new Map<string, Handler>([
 
 export function applyEvent(state: ReviewState, event: ReviewEvent): ReviewState {
   const handler = handlers.get(event.kind);
-  return handler ? handler(state, event) : state;
+  const next = handler ? handler(state, event) : state;
+  return { ...next, lastSeconds: Math.max(next.lastSeconds, numberOf(event, "t") ?? 0) };
 }
 
 function applyStart(state: ReviewState, event: ReviewEvent): ReviewState {

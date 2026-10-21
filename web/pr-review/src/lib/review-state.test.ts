@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { initialReviewState, reduceEvents } from "./review-state";
+import { initialReviewState, isFileOpenByDefault, reduceEvents } from "./review-state";
 import type { ReviewEvent } from "./review-event";
 
 const events: ReviewEvent[] = [
@@ -74,5 +74,39 @@ describe("reduceEvents", () => {
     const state = reduceEvents([{ kind: "error", message: "model unreachable" }, { kind: "end", status: "error" }]);
     expect(state.error).toBe("model unreachable");
     expect(state.header.status).toBe("error");
+  });
+
+  it("keeps the latest event time as the elapsed seconds", () => {
+    const state = reduceEvents([
+      { kind: "start", t: 0, name: "x", title: "", model: "", base_url: "" },
+      { kind: "file_start", t: 4, index: 1, total: 1, path: "a.ts", chars: 1 },
+      { kind: "end", t: 79, status: "ok" },
+    ]);
+    expect(state.lastSeconds).toBe(79);
+  });
+
+  it("keeps the waiting seconds on the current file", () => {
+    const state = reduceEvents([
+      { kind: "file_start", t: 1, index: 1, total: 1, path: "a.ts", chars: 1 },
+      { kind: "waiting", t: 13, seconds: 12 },
+    ]);
+    expect(state.files[0].waitingSeconds).toBe(12);
+  });
+
+  it("opens a file by default only while it runs or when it has findings", () => {
+    const running = reduceEvents([{ kind: "file_start", index: 1, total: 1, path: "a.ts", chars: 1 }]);
+    const doneClean = reduceEvents([
+      { kind: "file_start", index: 1, total: 1, path: "a.ts", chars: 1 },
+      { kind: "file_done", index: 1, total: 1, path: "a.ts", outcome: "clean", seconds: 2 },
+    ]);
+    const doneWithFinding = reduceEvents([
+      { kind: "file_start", index: 1, total: 1, path: "a.ts", chars: 1 },
+      { kind: "finding", index: 1, path: "a.ts", finding: { label: "issue", blocking: false, path: "a.ts", line: 1, summary: "s", why: "w", confidence: "high" } },
+      { kind: "file_done", index: 1, total: 1, path: "a.ts", outcome: "1 finding", seconds: 2 },
+    ]);
+
+    expect(isFileOpenByDefault(running.files[0])).toBe(true);
+    expect(isFileOpenByDefault(doneClean.files[0])).toBe(false);
+    expect(isFileOpenByDefault(doneWithFinding.files[0])).toBe(true);
   });
 });
