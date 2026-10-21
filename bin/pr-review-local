@@ -533,7 +533,7 @@ def review_name(meta):
 def prompt_head(meta, path, comments):
     return (
         f"{review_name(meta)}: {meta['title']}\n\n"
-        f"Description (the author's claim; review the code, not the claim):\n{meta.get('body') or '(none)'}\n\n"
+        f"Description:\n{meta.get('body') or '(none)'}\n\n"
         f"Already raised by reviewers:\n{comments or '(none)'}\n\n"
         f"File: {path}\n\n"
         f"Diff against {meta['baseRefName']}:\n"
