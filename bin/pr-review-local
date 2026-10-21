@@ -49,7 +49,6 @@ SKIPPED_SUFFIXES = (
 TYPESCRIPT_SUFFIXES = (".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs")
 FALLOW_LIB = "shared/hooks/fallow-lib.sh"
 FALLOW_USAGE_EXIT_CODE = 2
-CHECKS_OK_EXIT_CODES = (0, 8)
 NOT_RUN_NO_TYPESCRIPT = "not run: no TypeScript changed"
 TRUNCATED_MARK = "\n[diff truncated]"
 TRUNCATED_NOTE = "diff truncated to fit the prompt"
@@ -268,13 +267,17 @@ def existing_comments(root, number):
     return completed.stdout.strip()
 
 
+def check_buckets(text):
+    try:
+        return [check["bucket"] for check in json.loads(text)]
+    except (ValueError, KeyError, TypeError):
+        return None
+
+
 def check_summary(root, target):
     completed = capture(["gh", "pr", "checks", target, "--json", "name,bucket"], root)
-    if completed.returncode not in CHECKS_OK_EXIT_CODES:
-        return "CI unavailable"
-    try:
-        buckets = [check["bucket"] for check in json.loads(completed.stdout)]
-    except (ValueError, KeyError, TypeError):
+    buckets = check_buckets(completed.stdout)
+    if buckets is None:
         return "CI unavailable"
     counts = {name: buckets.count(name) for name in ("pass", "fail", "pending")}
     return f"CI {counts['pass']} pass, {counts['fail']} fail, {counts['pending']} pending"
@@ -320,19 +323,42 @@ def fallow_lines(report_text):
     return run(["jq", "-r", program], stdin=report_text).splitlines()
 
 
-def fallow_result(root, merge_base, paths):
-    typescript = [path for path in paths if path.endswith(TYPESCRIPT_SUFFIXES)]
-    if not typescript:
-        return FallowResult(NOT_RUN_NO_TYPESCRIPT, [])
-    package_dir = nearest_package_dir(root, typescript[0])
-    if package_dir is None:
-        return FallowResult("did not run: no package.json above the changed TypeScript", [])
+def audit_in_package(package_dir, merge_base):
     args = [*fallow_runner(package_dir), "audit", "--base", merge_base, "--format", "json", "--quiet"]
     completed = capture(args, package_dir)
     report = parse_json_object(completed.stdout)
     if completed.returncode == FALLOW_USAGE_EXIT_CODE or report is None or "error" in report:
         return FallowResult(f"did not run: {fallow_error(completed, report)}", [])
     return FallowResult(str(report.get("verdict", "unknown")), fallow_lines(completed.stdout))
+
+
+def link_node_modules(package_dir, head_package_dir):
+    user_modules = package_dir / "node_modules"
+    if user_modules.exists():
+        (head_package_dir / "node_modules").symlink_to(user_modules)
+
+
+def audit_at_head(root, package_dir, merge_base, ref):
+    temp_dir = Path(tempfile.mkdtemp(prefix="pr-review-fallow-"))
+    worktree = temp_dir / "head"
+    try:
+        run(["git", "worktree", "add", "-q", "--detach", str(worktree), ref], root)
+        head_package_dir = worktree / package_dir.relative_to(root)
+        link_node_modules(package_dir, head_package_dir)
+        return audit_in_package(head_package_dir, merge_base)
+    finally:
+        capture(["git", "worktree", "remove", "--force", str(worktree)], root)
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def fallow_result(root, merge_base, ref, paths):
+    typescript = [path for path in paths if path.endswith(TYPESCRIPT_SUFFIXES)]
+    if not typescript:
+        return FallowResult(NOT_RUN_NO_TYPESCRIPT, [])
+    package_dir = nearest_package_dir(root, typescript[0])
+    if package_dir is None:
+        return FallowResult("did not run: no package.json above the changed TypeScript", [])
+    return audit_at_head(root, package_dir, merge_base, ref)
 
 
 def prompt_head(meta, path, comments):
@@ -555,9 +581,7 @@ def summary_sentence(config, meta, verdict, findings):
 
 
 def fallow_failure_finding():
-    return Finding(
-        "issue", True, "", None, "Fallow audit failed — see the Fallow section", "", "high"
-    )
+    return Finding("issue", True, "fallow", None, "Fallow audit failed", "see the Fallow section", "high")
 
 
 def build_review(config, root, meta, ref, merge_base):
@@ -565,7 +589,7 @@ def build_review(config, root, meta, ref, merge_base):
     sources, notes = gather_sources(root, merge_base, ref, paths, config.full_file_lines)
     comments = existing_comments(root, meta["number"])
     findings, review_notes = review_sources(config, meta, comments, sources)
-    fallow = fallow_result(root, merge_base, paths)
+    fallow = fallow_result(root, merge_base, ref, paths)
     if fallow.failed:
         findings.append(fallow_failure_finding())
     verdict = verdict_for(findings)
