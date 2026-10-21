@@ -2,11 +2,14 @@
 import hashlib
 import heapq
 import json
+import math
 import os
+import re
 import subprocess
 import sys
 import urllib.error
 import urllib.request
+from collections import Counter
 from pathlib import Path
 
 OLLAMA_URL = os.environ.get("CODE_SEARCH_OLLAMA_URL", "http://localhost:11434")
@@ -32,6 +35,18 @@ SKIPPED_NAMES = {
     "go.sum",
 }
 SKIPPED_SUFFIXES = (".min.js", ".map", ".svg", ".png", ".jpg", ".gif", ".ico", ".pdf")
+INDEX_VERSION = 2
+EMBED_KEEP_ALIVE = "30m"
+CAMEL_BOUNDARY = re.compile(r"([a-z0-9])([A-Z])")
+ACRONYM_BOUNDARY = re.compile(r"([A-Z]+)([A-Z][a-z])")
+WORD = re.compile(r"[a-z]{2,}")
+STOP_WORDS = set(
+    "the is are was be of in to an and or for on at by with from how what where "
+    "which when who why does do did that this it its as we you our your into not "
+    "no any all some there here than then so if".split()
+)
+QUERY_SUFFIXES = ("ing", "ed", "es", "s")
+VARIANT_SUFFIXES = ("", "s", "es", "ed", "ing", "er", "ers", "e", "d", "ion", "ions")
 
 TOOL = {
     "name": "semantic_search",
@@ -128,7 +143,7 @@ def embed(texts):
 def embed_batch(texts):
     request = urllib.request.Request(
         f"{OLLAMA_URL}/api/embed",
-        data=json.dumps({"model": EMBED_MODEL, "input": texts}).encode("utf-8"),
+        data=json.dumps({"model": EMBED_MODEL, "input": texts, "keep_alive": EMBED_KEEP_ALIVE}).encode("utf-8"),
         headers={"Content-Type": "application/json"},
     )
     try:
@@ -147,23 +162,52 @@ def load_index(path):
         index = json.loads(path.read_text())
     except (OSError, ValueError):
         return {}
-    return index.get("files", {}) if index.get("model") == EMBED_MODEL else {}
+    if index.get("version") != INDEX_VERSION or index.get("model") != EMBED_MODEL:
+        return {}
+    return index.get("files", {})
 
 
 def save_index(path, files):
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(".tmp")
-    temporary.write_text(json.dumps({"model": EMBED_MODEL, "files": files}))
+    temporary.write_text(json.dumps({"version": INDEX_VERSION, "model": EMBED_MODEL, "files": files}))
     temporary.replace(path)
 
 
-def indexed_file(name, text):
-    chunks = file_chunks(name, text)
-    vectors = embed([chunk["text"] for chunk in chunks])
-    return [
-        {"start": chunk["start"], "end": chunk["end"], "preview": preview(chunk["text"]), "vector": vector}
-        for chunk, vector in zip(chunks, vectors)
-    ]
+def words(text):
+    spaced = ACRONYM_BOUNDARY.sub(r"\1 \2", CAMEL_BOUNDARY.sub(r"\1 \2", text))
+    return WORD.findall(spaced.lower())
+
+
+def stem(word):
+    for suffix in QUERY_SUFFIXES:
+        if word.endswith(suffix) and len(word) - len(suffix) >= 4 and not word.endswith("ss"):
+            word = word[: -len(suffix)]
+            break
+    if len(word) >= 4 and word[-1] == word[-2] and word[-1] not in "aeiou":
+        word = word[:-1]
+    return word
+
+
+def variants(stem_word):
+    forms = {stem_word + suffix for suffix in VARIANT_SUFFIXES}
+    forms |= {stem_word + stem_word[-1] + suffix for suffix in ("ed", "ing", "er", "ers")}
+    return forms
+
+
+def worded_chunk(chunk):
+    terms = Counter(words(chunk["text"]))
+    return {
+        "start": chunk["start"],
+        "end": chunk["end"],
+        "preview": preview(chunk["text"]),
+        "terms": dict(terms),
+        "length": sum(terms.values()),
+    }
+
+
+def worded_file(name, text):
+    return [worded_chunk(chunk) for chunk in file_chunks(name, text)]
 
 
 def preview(chunk_text):
@@ -187,7 +231,7 @@ def refreshed_entry(name, root, known):
     digest = hashlib.sha1(text.encode("utf-8")).hexdigest()
     if known and known["hash"] == digest:
         return {**known, "stat": signature}
-    return {"hash": digest, "stat": signature, "chunks": indexed_file(name, text)}
+    return {"hash": digest, "stat": signature, "chunks": worded_file(name, text)}
 
 
 def refreshed_index(root, files):
