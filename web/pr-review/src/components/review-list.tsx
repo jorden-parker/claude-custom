@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { formatLocalTime, formatRelative } from "@/lib/format-time";
+import { findingCountText } from "@/lib/review-state";
 import type { ReviewSummary } from "@/lib/reviews";
 import { headerStatusLabel, statusDotClass, statusTextClass } from "@/lib/status-style";
 import { verdictBadgeClass } from "@/lib/verdict-style";
@@ -64,7 +65,7 @@ function ReviewRow({ review, now }: { review: ReviewSummary; now: number }) {
           <p className="break-words text-sm text-muted-foreground">{review.title}</p>
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <VerdictBadge review={review} />
-            <span>{review.findings} findings</span>
+            <span>{findingCountText(review.findings)}</span>
             {review.seconds === null ? null : <span>{Math.round(review.seconds)}s</span>}
             <time dateTime={review.started} title={review.started}>
               {formatLocalTime(review.started)}

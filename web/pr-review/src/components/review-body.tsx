@@ -19,6 +19,7 @@ import {
   durationSeconds,
   fileFindingCount,
   fileOutcomeText,
+  findingCountText,
   isFileOpenByDefault,
   type CheckView,
   type FileView,
@@ -112,7 +113,7 @@ function ChangedFiles({ files, status }: { files: FileView[]; status: ReviewStat
 function fileBadgeText(file: FileView, status: ReviewState["header"]["status"]): string {
   const state = displayFileState(file, status);
   const findings = fileFindingCount(file);
-  return findings > 0 ? `${state} · ${findings} finding${findings === 1 ? "" : "s"}` : state;
+  return findings > 0 ? `${state} · ${findingCountText(findings)}` : state;
 }
 
 function fileStateClass(state: ReturnType<typeof displayFileState>): string {

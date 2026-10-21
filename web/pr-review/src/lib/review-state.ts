@@ -97,10 +97,14 @@ function reportedCount(outcome: string | null): number | null {
   return match ? Number(match[1]) : null;
 }
 
+export function findingCountText(count: number): string {
+  return `${count} ${count === 1 ? "finding" : "findings"}`;
+}
+
 export function fileOutcomeText(file: FileView): string {
-  if (typeof file.check?.kept === "number") {
-    const count = fileFindingCount(file);
-    return `${count} finding${count === 1 ? "" : "s"}`;
+  const reported = reportedCount(file.outcome);
+  if (typeof file.check?.kept === "number" || (reported !== null && file.outcome !== "clean")) {
+    return findingCountText(fileFindingCount(file));
   }
   return file.outcome ?? "";
 }

@@ -4,6 +4,7 @@ import {
   displayFileState,
   durationSeconds,
   fileFindingCount,
+  findingCountText,
   fileOutcomeText,
   initialReviewState,
   isFileOpenByDefault,
@@ -203,6 +204,22 @@ describe("reduceEvents", () => {
       const state = reduceEvents([start, fileStart, finding(3), finding(4)]);
 
       expect(fileFindingCount(state.files[0])).toBe(2);
+    });
+
+    it("renders the outcome count with the right plural, whatever the outcome spelling", () => {
+      const state = reduceEvents([
+        start,
+        fileStart,
+        { kind: "file_done", t: 2, index: 1, total: 1, path: "src/a.ts", outcome: "1 findings", seconds: 1 },
+      ]);
+
+      expect(fileOutcomeText(state.files[0])).toBe("1 finding");
+    });
+
+    it("pluralizes the finding count helper", () => {
+      expect(findingCountText(0)).toBe("0 findings");
+      expect(findingCountText(1)).toBe("1 finding");
+      expect(findingCountText(3)).toBe("3 findings");
     });
   });
 
