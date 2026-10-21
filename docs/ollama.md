@@ -188,4 +188,6 @@ to take tens of seconds per file. While it runs, stderr names each stage
 (fetch, files to review, each file before its request, retries, Fallow, summary,
 CI, post), echoes the model's reply as it streams, and prints
 `waiting for the first token, Ns` every 10 seconds (`--heartbeat-seconds`) until
-the first token arrives. stdout holds only the report.
+the first token arrives. stdout holds only the report. A failed request names
+the server's error message (for example a model that does not fit in memory),
+and a failed summary is reported on stderr as well as in the report.
