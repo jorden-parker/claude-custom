@@ -102,7 +102,7 @@ LANGUAGE_NOTES = {
         "Python pitfalls: slice and range bounds (off by one); // floors where / "
         "was meant; mutable default arguments; hand-parsed sys.argv where an "
         "option can be taken for a positional argument; a bare except that hides "
-        "errors; subprocess with shell=True on a string that includes input (a constant command string is safe)."
+        "errors; subprocess with shell=True or a command string built from input."
     ),
     "shell": (
         "Shell pitfalls: unquoted variables (word splitting, globbing, an empty "
@@ -119,7 +119,7 @@ LANGUAGE_NOTES = {
     "go": (
         "Go pitfalls: an ignored error return, including from Write and Close; "
         "defer inside a loop holds every resource until the function returns; a "
-        "write to a nil map, including a map field left nil by a struct literal such as &T{}; a goroutine that captures loop state; slices that "
+        "write to a nil map; a goroutine that captures loop state; slices that "
         "share a backing array."
     ),
     "test": (
