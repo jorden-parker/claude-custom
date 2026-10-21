@@ -98,6 +98,7 @@ def build_repo(fixture, repo, expected):
     copy_side(fixture / "base", repo)
     git(repo, "add", "-A")
     git_commit(repo, "-m", "base")
+    git(repo, "checkout", "-q", "-b", "change")
     copy_side(fixture / "head", repo)
     git(repo, "add", "-A")
     git_commit(repo, "-m", expected["title"], "-m", expected["body"])
@@ -111,7 +112,7 @@ def reviewer_command(args, reviewer_args):
         "--base-url",
         args.base_url,
         "--range",
-        "main..HEAD",
+        "main..change",
         "--json",
         *reviewer_args,
     ]

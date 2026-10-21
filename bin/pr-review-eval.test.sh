@@ -23,6 +23,7 @@ cat > "$sandbox/reviewer" <<'STUB'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$STUB_DIR/reviewer.args"
 git log --format=%s > "$STUB_DIR/reviewer.log"
+git diff --name-only main..HEAD | sort | tr '\n' ' ' > "$STUB_DIR/reviewer.diff"
 echo "stub progress" >&2
 cat "$STUB_DIR/review.json"
 STUB
@@ -63,10 +64,11 @@ check "blocking catch is listed" grep -Eq '^caught blocking +top-slice-off-by-on
 check "non-blocking catch is listed" grep -Eq '^caught +cache-dir-empty-or-unquoted$' <<<"$out"
 check "stub progress reaches stderr" grep -qF 'stub progress' "$sandbox/err"
 check "reviewer got --model stub" grep -qF -- '--model stub' "$sandbox/reviewer.args"
-check "reviewer got --range main..HEAD" grep -qF -- '--range main..HEAD' "$sandbox/reviewer.args"
+check "reviewer got --range main..change" grep -qF -- '--range main..change' "$sandbox/reviewer.args"
 check "reviewer got --json" grep -qF -- '--json' "$sandbox/reviewer.args"
 check "reviewer repo has the head commit" test "$(sed -n 1p "$sandbox/reviewer.log")" = "$title"
 check "reviewer repo has the base commit" test "$(sed -n 2p "$sandbox/reviewer.log")" = base
+check "reviewer sees the four changed paths" test "$(cat "$sandbox/reviewer.diff")" = "bin/cache-clean bin/telemetry-report docs/telemetry.md lib/sizes.py "
 
 json="$("$eval_script" --model stub --reviewer "$sandbox/reviewer" --fixture "$fixture" --json 2>/dev/null)"
 check "json caught is 2" test "$(jq .caught <<<"$json")" = 2
