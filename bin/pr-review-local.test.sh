@@ -15,10 +15,12 @@ trap 'stop_stub; rm -rf "$tmp"' EXIT
 cat > "$tmp/stub.py" <<'PY'
 import json
 import sys
+import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 LOG_PATH, PORT_PATH = sys.argv[1], sys.argv[2]
+DELAY_SECONDS = float(sys.argv[3]) if len(sys.argv) > 3 else 0.0
 BAD_REPLY = json.dumps([
     {"label": "issue", "blocking": True, "path": "src/bad.ts", "line": 3,
      "summary": "Null deref on empty list", "why": "items[0] when items is []",
@@ -66,6 +68,7 @@ class Handler(BaseHTTPRequestHandler):
         return
 
     def do_POST(self):
+        time.sleep(DELAY_SECONDS)
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         record = {"anthropic-version": self.headers.get("anthropic-version"), "body": body}
         with open(LOG_PATH, "a") as log:
@@ -210,7 +213,7 @@ stop_stub() {
 
 start_stub() {
   rm -f "$tmp/port"
-  python3 "$tmp/stub.py" "$tmp/requests.log" "$tmp/port" &
+  python3 "$tmp/stub.py" "$tmp/requests.log" "$tmp/port" "${1:-0}" &
   stub_pid=$!
   for _ in $(seq 200); do
     [ -s "$tmp/port" ] && break
@@ -255,6 +258,10 @@ report_has() {
   grep -qF -- "$1" "$tmp/report.md"
 }
 
+err_has() {
+  grep -qF -- "$1" "$tmp/err"
+}
+
 fallow_ran_with_merge_base() {
   [ "$(grep -cE '^audit --base [0-9a-f]{40} --format json --quiet$' "$tmp/fallow.log")" = 1 ]
 }
@@ -297,12 +304,30 @@ check_that "requests name the model and version" inspect every-request-ok "$tmp/
 check_that "summary request is last" inspect last-system-starts "$tmp/requests.log" 'You summarise'
 check_not "no post without --post" grep -q '^pr review' "$tmp/gh.log"
 check_not "no posted body without --post" test -e "$tmp/posted.md"
+check_that "stderr names the lookup" err_has 'pr-review-local: looking up PR 7'
+check_that "stderr names the fetch" err_has 'pr-review-local: fetching PR #7 and main'
+check_that "stderr counts files" grep -qE '^pr-review-local: [0-9]+ files to review, 2 skipped$' "$tmp/err"
+check_that "stderr names the comment read" err_has 'pr-review-local: reading review comments already on the PR'
+check_that "stderr announces each file before its request" grep -qE '^\[[0-9]+/[0-9]+\] src/bad\.ts: reviewing, [0-9]+ chars$' "$tmp/err"
+check_that "stderr echoes the model text" err_has 'Null deref on empty list'
+check_that "stderr result line starts on its own line" grep -qE '^\[[0-9]+/[0-9]+\] src/bad\.ts: 2 findings in ' "$tmp/err"
+check_that "announce comes before the result" awk '/src\/bad\.ts: reviewing/ {seen = 1} /src\/bad\.ts: 2 findings/ {ok = seen} END {exit !ok}' "$tmp/err"
+check_that "stderr names the retry" grep -qE '^\[[0-9]+/[0-9]+\] src/weird\.ts: retrying, the answer was not a JSON array$' "$tmp/err"
+check_that "stderr names the Fallow run" err_has 'pr-review-local: running Fallow in . at the PR head'
+check_that "stderr gives the Fallow status" err_has 'pr-review-local: Fallow warn'
+check_that "stderr names the summary" err_has 'pr-review-local: writing the summary'
+check_that "stderr echoes the summary text" err_has 'Adds a widget; one blocking bug.'
+check_that "stderr names the CI read" err_has 'pr-review-local: reading CI checks'
+check_that "stderr ends with the verdict" grep -qE '^pr-review-local: REQUEST CHANGES after [0-9.]+s$' "$tmp/err"
+check_not "no heartbeat on a fast server" err_has 'waiting for the first token'
+check_not "model text stays off stdout" grep -qF '"confidence"' "$tmp/report.md"
 
 review_in_work 7 --post > "$tmp/report.md" 2> "$tmp/err"
 check_eq "post run exit status" 0 "$?"
 check_that "post sends a comment review" grep -qE '^pr review 7 --comment --body-file ' "$tmp/gh.log"
 check_that "posted body equals the printed report" cmp -s "$tmp/posted.md" "$tmp/report.md"
 check_that "review ref is deleted afterwards" review_ref_gone
+check_that "stderr names the post" err_has 'pr-review-local: posting the review to 7'
 
 review_in_work 7 --json > "$tmp/json.out" 2> "$tmp/err"
 check_eq "json verdict" "REQUEST CHANGES" "$(jq -r .verdict "$tmp/json.out")"
@@ -311,6 +336,7 @@ check_eq "json lists three findings" 3 "$(jq '.findings | length' "$tmp/json.out
 (cd "$tmp/work" && PATH="$tmp/stubbin:$PATH" "$reviewer" --base-url http://127.0.0.1:1 --model stub-model 7 > "$tmp/down.out" 2> "$tmp/down.err")
 check_eq "unreachable server exits 1" 1 "$?"
 check_that "unreachable server is named in the error" grep -q '^pr-review-local: request to http://127.0.0.1:1/v1/messages failed' "$tmp/down.err"
+check_not "no heartbeat after a failed request" grep -qF 'waiting for the first token' "$tmp/down.err"
 
 (cd "$tmp" && "$reviewer" --model stub-model 7 > "$tmp/norepo.out" 2> "$tmp/norepo.err")
 check_eq "outside a repository exits 1" 1 "$?"
@@ -321,7 +347,15 @@ review_in_work 8 > "$tmp/report8.md" 2> "$tmp/err8"
 check_eq "README-only PR exits 0" 0 "$?"
 check_that "fallow is not run without TypeScript" grep -qF 'Fallow not run: no TypeScript changed' "$tmp/report8.md"
 check_eq "fallow is not invoked for a README-only PR" "$fallow_lines_before" "$(grep -c '' "$tmp/fallow.log")"
+check_that "fallow not-run status on stderr" grep -qF 'pr-review-local: Fallow not run: no TypeScript changed' "$tmp/err8"
+check_not "no Fallow run line without TypeScript" grep -qF 'running Fallow' "$tmp/err8"
 
+stop_stub
+start_stub 0.6
+review_in_work 8 --heartbeat-seconds 0.2 > "$tmp/slow.out" 2> "$tmp/slow.err"
+check_eq "slow server exit status" 0 "$?"
+check_that "heartbeat while waiting for the first token" grep -qE '^pr-review-local: waiting for the first token, [0-9]+\.[0-9]s$' "$tmp/slow.err"
+check_that "slow run report is unchanged" grep -qF 'Fallow not run: no TypeScript changed' "$tmp/slow.out"
 stop_stub
 
 if [ "$failures" -eq 0 ]; then
