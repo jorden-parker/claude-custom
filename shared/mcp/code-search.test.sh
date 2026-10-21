@@ -180,31 +180,43 @@ check "server answers initialize and tools/list" contains "$listing" '"ids": [1,
 check "tools/list offers semantic_search" contains "$listing" '"name": "semantic_search"'
 check "initialize echoes the protocol version" contains "$listing" '"protocolVersion": "2025-06-18"'
 
+model_loaded
+index_with_stub
+check "index mode embeds every chunk once while the model is loaded" [ "$(embedded_inputs_last_call)" = "2" ]
+check "index entries carry words and counts" grep -q '"terms": {' "$repo/.git/code-search/index.json"
+check "index entries carry a version key" grep -q '"version": 2' "$repo/.git/code-search/index.json"
+
 first="$(search "password check")"
 first_text="$(printf '%s' "$first" | reply_text)"
 check "best match comes first" first_line_starts_with "$first_text" "src/auth.py:1-2"
-check "results include other files ranked lower" contains "$first_text" "src/chart.py:1-3"
-check "previews skip shebang lines" contains "$first_text" "def draw_chart(points)"
+check "the best match scores 1.00" contains "$first_text" "src/auth.py:1-2  1.00  "
+check "files with no matching word are left out" lacks "$first_text" "src/chart.py"
 check "lockfiles are not indexed" lacks "$first_text" "package-lock.json"
-check "results show a preview of the chunk" contains "$first_text" "def check_password"
-check "first search embeds the two chunks and the query" [ "$(embedded_inputs_last_call)" = "3" ]
-check "embeddings use qwen3-embedding:0.6b" grep -qF '"model": "qwen3-embedding:0.6b"' "$tmp/embed.log"
-check "index is kept inside the git dir" test -f "$repo/.git/code-search/index.json"
+check "a search embeds only the query" [ "$(embedded_inputs_last_call)" = "1" ]
+check "the query embedding keeps the model alive" grep -q '"keep_alive": "30m"' "$tmp/embed.log"
+check "no words-only note while the model is loaded" lacks "$first_text" "words only"
 
-search "password check" >/dev/null
-check "unchanged files are not embedded again" [ "$(embedded_inputs_last_call)" = "1" ]
+svg="$(search "svg axis" | reply_text)"
+check "camelCase and snake_case identifiers are split into words" first_line_starts_with "$svg" "src/chart.py:1-3"
+check "previews skip shebang lines" contains "$svg" "def draw_chart(points)"
+check "plural and inflected query words match the code's form" first_line_starts_with "$(search "checking passwords" | reply_text)" "src/auth.py:1-2"
+check "english function words do not count" first_line_starts_with "$(search "where is the password" | reply_text)" "src/auth.py:1-2"
 
 printf 'def draw_chart(points, password):\n    return render_svg_axis(points)\n' > "$repo/src/chart.py"
-search "password check" >/dev/null
-check "a changed file is embedded again on its own" [ "$(embedded_inputs_last_call)" = "2" ]
+changed="$(search "password" | reply_text)"
+check "a changed file is searchable by its new words at once" contains "$changed" "src/chart.py:1-2"
+check "a search embeds the query but never a changed file" [ "$(embedded_inputs_last_call)" = "1" ]
+check "a search does not write the index" lacks "$(cat "$repo/.git/code-search/index.json")" '"end": 2, "preview": "def draw_chart(points, password)'
 
-index_file="$repo/.git/code-search/index.json"
-modified_time() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1"; }
-before="$(modified_time "$index_file")"
-sleep 2
-search "password check" >/dev/null
-after="$(modified_time "$index_file")"
-check "the index is not rewritten when nothing changed" [ "$before" = "$after" ]
+index_with_stub
+check "index mode embeds only the changed file" [ "$(embedded_inputs_last_call)" = "1" ]
+
+model_unloaded
+plain="$(search "password check" | reply_text)"
+check "without the model the search still finds the words" first_line_starts_with "$plain" "src/auth.py:1-2"
+check "without the model nothing is embedded" [ ! -e "$tmp/embed.log" ]
+check "without the model the reply says words only" contains "$plain" "words only"
+check "a query of only function words finds nothing" contains "$(search "where is the" | reply_text)" "No matching code."
 
 chmod 000 "$repo/src/chart.py"
 still="$(search "chart" | reply_text)"
@@ -222,20 +234,33 @@ check "long files are split into line ranges" contains "$long" "src/long.py:31-7
 limited="$(call semantic_search '{"query": "filler", "limit": 1}' | reply_text)"
 check "limit caps the number of results" [ "$(printf '%s\n' "$limited" | grep -c '^src/')" = "1" ]
 
+model_unloaded
 rm -f "$repo/.git/code-search/index.json"
-(cd "$repo" && python3 "$server" --index >"$tmp/index.out" 2>&1)
+index_with_stub
 check "index mode exit status" [ $? -eq 0 ]
 check "index mode writes the index" test -f "$repo/.git/code-search/index.json"
 check "index mode prints a summary" grep -qE '^indexed [0-9]+ files' "$tmp/index.out"
+check "index mode without the model writes no vectors" lacks "$(cat "$repo/.git/code-search/index.json")" '"vector"'
+check "index mode without the model embeds nothing" [ ! -e "$tmp/embed.log" ]
 (cd "$tmp" && python3 "$server" --index >"$tmp/index-nogit.out" 2>&1)
 check "index mode outside git exits 1" [ $? -eq 1 ]
 check "index mode outside git says why" grep -q 'git repository' "$tmp/index-nogit.out"
 
+printf 'x = 1\n' > "$repo/src/x.py"
+start_server
+check "a running server answers" first_line_starts_with "$(live_search "filler")" "src/long.py:"
+rm -f "$repo/.git/code-search/index.json"
+check "the server answers from memory after the index file is deleted" first_line_starts_with "$(live_search "filler")" "src/long.py:"
+check "single letters are not words" contains "$(live_search "x")" "No matching code."
+model_loaded
+index_with_stub
+check "a newer index file is reloaded by the running server" first_line_starts_with "$(live_search "x")" "src/x.py:1-1"
+stop_server
+
 stop_stub
-down="$(search "password check")"
-check "an unreachable Ollama is reported as a tool error" [ "$(printf '%s' "$down" | reply_is_error)" = "True" ]
-check "the error says how to fix it" contains "$(printf '%s' "$down" | reply_text)" "ollama pull qwen3-embedding:0.6b"
-check "the error names the picker row" contains "$(printf '%s' "$down" | reply_text)" "Set up embedding model"
+down="$(search "filler")"
+check "an unreachable Ollama still answers from the word index" [ "$(printf '%s' "$down" | reply_is_error)" = "False" ]
+check "an unreachable Ollama is reported as words only" contains "$(printf '%s' "$down" | reply_text)" "words only"
 
 outside="$(cd "$tmp" && python3 "$tmp/client.py" "$server" semantic_search '{"query": "x"}' | reply_text)"
 check "outside a git repo the tool explains why it can't search" contains "$outside" "git repository"
