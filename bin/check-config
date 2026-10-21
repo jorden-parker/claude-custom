@@ -126,6 +126,19 @@ check_eq "tool-telemetry counts the same line limit that bash-output-trim applie
   "$(sed -n 's/^MAX_LINES = //p' "$repo/shared/hooks/bash-output-trim.py")" \
   "$(sed -n 's/^TRIM_LINE_LIMIT = //p' "$repo/shared/hooks/tool-telemetry.py")"
 
+agent="$repo/shared/agents/pr-review.md"
+agent_frontmatter() {
+  sed -n '2,/^---$/p' "$agent" | sed '$d'
+}
+check_eq "pr-review agent name matches its file name" pr-review "$(agent_frontmatter | sed -n 's/^name: *//p')"
+check_that "pr-review agent has a description" test -n "$(agent_frontmatter | sed -n '/^description:/,/^[a-z]*:/p' | sed '$d' | sed 's/^description://' | tr -d ' \n')"
+check_eq "pr-review agent lists the review tools" "Bash, Read, Grep, Glob" "$(agent_frontmatter | sed -n 's/^tools: *//p')"
+check_not "pr-review agent pins no model, so --agent keeps the session model" grep -q '^model:' <<<"$(agent_frontmatter)"
+check_that "pr-review agent runs fallow audit with --format json" grep -qF 'fallow audit --base MERGE_BASE --format json' "$agent"
+check_that "pr-review agent names the 250-line Read window" grep -q '250' "$agent"
+check_that "pr-review agent posts only a comment review" grep -qF -- '--comment --body-file' "$agent"
+check_that "pr-review agent removes its worktree" grep -qF 'worktree remove --force' "$agent"
+
 if [ "$failures" -eq 0 ]; then
   echo "all passed"
 else
