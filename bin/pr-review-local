@@ -85,6 +85,15 @@ FILE_SYSTEM_PROMPT = (
     "an \"issue\" that must change before merge. An empty array [] is a valid "
     "answer."
 )
+DOC_SUFFIXES = (".md", ".mdx", ".rst", ".txt", ".adoc")
+DOC_SYSTEM_NOTE = (
+    "This file is documentation. Its lines are wrapped, so a sentence that "
+    "continues on the next line is normal. Report only text that is wrong, "
+    "missing or misleading given the change the PR describes, and commands, "
+    "paths or links that would not work. Documentation findings are never "
+    "blocking."
+)
+DOC_OMITTED_NOTE = "Whole file omitted: documentation is reviewed from the diff."
 SUMMARY_SYSTEM_PROMPT = (
     "You summarise a code review. Answer with one sentence of at most 40 words "
     "that says what the pull request does and the main reason for the verdict. "
@@ -297,12 +306,21 @@ def numbered_diff(diff):
     return "\n".join(numbered)
 
 
+def is_doc(path):
+    return path.endswith(DOC_SUFFIXES)
+
+
+def whole_text_for(path, text, line_count, limit):
+    if is_doc(path) or line_count > limit:
+        return None
+    return numbered_file(text)
+
+
 def source_for(root, merge_base, ref, path, blob, limit):
     text = blob.decode("utf-8", errors="replace")
     line_count = len(text.splitlines())
     diff = run(["git", "diff", f"-U{DIFF_CONTEXT_LINES}", merge_base, ref, "--", path], root)
-    whole = numbered_file(text) if line_count <= limit else None
-    return Source(path, numbered_diff(diff), line_count, whole)
+    return Source(path, numbered_diff(diff), line_count, whole_text_for(path, text, line_count, limit))
 
 
 def gather_sources(root, merge_base, ref, paths, limit):
@@ -446,6 +464,8 @@ def prompt_head(meta, path, comments):
 
 
 def omitted_section(source, limit):
+    if is_doc(source.path):
+        return DOC_OMITTED_NOTE
     return f"Whole file omitted: {source.line_count} lines, over the {limit}-line limit."
 
 
@@ -621,14 +641,15 @@ def finding_from(item, path):
     label = item.get("label")
     if label not in LABELS:
         label = "question"
-    blocking = label == "issue" and item.get("blocking") is True
+    finding_path = item.get("path", path)
+    blocking = label == "issue" and item.get("blocking") is True and not is_doc(str(finding_path))
     if confidence == "low" and label != "praise":
         label, blocking = "question", False
     line = item.get("line")
     return Finding(
         label=label,
         blocking=blocking,
-        path=item.get("path", path),
+        path=finding_path,
         line=line if isinstance(line, int) else None,
         summary=str(item.get("summary", "")),
         why=str(item.get("why", "")),
@@ -666,8 +687,15 @@ def parse_findings(reply, path):
     return [finding_from(item, path) for item in items[:MAX_FINDINGS_PER_FILE]]
 
 
+def system_prompt_for(path):
+    if is_doc(path):
+        return f"{FILE_SYSTEM_PROMPT}\n\n{DOC_SYSTEM_NOTE}"
+    return FILE_SYSTEM_PROMPT
+
+
 def ask_for_findings(config, prompt, path):
-    return parse_findings(request_text(config, FILE_SYSTEM_PROMPT, prompt, config.max_tokens), path)
+    reply = request_text(config, system_prompt_for(path), prompt, config.max_tokens)
+    return parse_findings(reply, path)
 
 
 def review_prompt_answer(config, prompt, path, tag):

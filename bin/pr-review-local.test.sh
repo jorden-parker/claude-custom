@@ -32,6 +32,11 @@ PRAISE_REPLY = json.dumps([
     {"label": "praise", "blocking": False, "line": None,
      "summary": "Clear usage section", "why": "", "confidence": "medium"},
 ])
+DOCS_BLOCKER_REPLY = json.dumps([
+    {"label": "issue", "blocking": True, "path": "README.md", "line": 2,
+     "summary": "Sentence is split across two lines", "why": "line break",
+     "confidence": "high"},
+])
 SUMMARY_REPLY = "Adds a widget; one blocking bug."
 ERROR_BODY = json.dumps({"type": "error", "error": {"type": "api_error", "message": "model requires 22.0 GiB but only 11.3 GiB are available"}}).encode("utf-8")
 
@@ -53,7 +58,7 @@ def plain_reply_for(body):
     if "File: src/bad.ts" in user:
         return BAD_REPLY
     if "File: README.md" in user:
-        return PRAISE_REPLY
+        return DOCS_BLOCKER_REPLY if body["model"] == "docs-blocker-model" else PRAISE_REPLY
     if "File: src/weird.ts" in user:
         return "I think it is fine."
     return "[]"
@@ -339,6 +344,12 @@ check_that "prompt says to use the numbers" inspect request-system-has "$tmp/req
 check_that "added line carries its exact new-file number" inspect request-user-has "$tmp/requests.log" 'File: src/ok.ts' "$(printf '%5d | +export const added = 2;' "$ok_line")"
 check_that "requests name the model and version" inspect every-request-ok "$tmp/requests.log" stub-model
 check_that "summary request is last" inspect last-system-starts "$tmp/requests.log" 'You summarise'
+review_in_work 7 --model docs-blocker-model > "$tmp/docs.md" 2> "$tmp/docs.err"
+check_not "docs findings never block" grep -qF -- '- **issue (blocking):** Sentence is split' "$tmp/docs.md"
+check_that "docs issue is listed as non-blocking" grep -qF -- '- **issue (non-blocking):** Sentence is split' "$tmp/docs.md"
+check_that "docs prompt has no whole file" inspect request-user-lacks "$tmp/requests.log" 'File: README.md' 'Whole file at the PR head'
+check_that "docs prompt is told it is docs" inspect request-system-has "$tmp/requests.log" 'File: README.md' 'This file is documentation'
+check_that "code prompt is not told it is docs" inspect request-system-lacks "$tmp/requests.log" 'File: src/ok.ts' 'This file is documentation'
 check_not "no post without --post" grep -q '^pr review' "$tmp/gh.log"
 check_not "no posted body without --post" test -e "$tmp/posted.md"
 check_that "stderr names the lookup" err_has 'pr-review-local: looking up PR 7'
