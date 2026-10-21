@@ -426,6 +426,13 @@ check_eq "log ends with end ok" "end ok" "$(tail -1 "$log" | jq -r '"\(.kind) \(
 check_that "log has the live finding" jq_quiet -e 'select(.kind == "finding" and .finding.summary == "Null deref on empty list")' "$log"
 check_that "log has the report" jq_quiet -e 'select(.kind == "report") | .markdown | contains("## PR #7")' "$log"
 check_not "log has no log path stage" jq_quiet -e 'select(.kind == "stage" and (.message | startswith("log ")))' "$log"
+printf 'http://127.0.0.1:9/\n' > "$tmp/logs/.web-url"
+review_in_work 7 --log-dir "$tmp/logs" > /dev/null 2> "$tmp/live.err"
+check_that "stderr links the live reviews page" grep -qE '^pr-review-local: live at http://127\.0\.0\.1:9/reviews/[0-9]{8}-[0-9]{6}-pr-7$' "$tmp/live.err"
+live_id=$(sed -n 's#^pr-review-local: live at .*/reviews/##p' "$tmp/live.err")
+check_that "live link names an existing log" test -f "$tmp/logs/$live_id.jsonl"
+check_not "live link is not a log stage" jq_quiet -e 'select(.kind == "stage" and (.message | startswith("live at ")))' "$tmp/logs/$live_id.jsonl"
+rm -f "$tmp/logs/.web-url"
 check_that "stderr names the log" grep -qE '^pr-review-local: log .*/logs/[0-9]{8}-[0-9]{6}-pr-7\.jsonl$' "$tmp/err"
 
 review_in_work 7 --post > "$tmp/report.md" 2> "$tmp/err"

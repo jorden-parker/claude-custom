@@ -24,6 +24,7 @@ DEFAULT_FULL_FILE_LINES = 400
 DEFAULT_PROMPT_CHARS = 48000
 DEFAULT_HEARTBEAT_SECONDS = 10.0
 DEFAULT_LOG_DIR = "~/.local/share/claude-custom/reviews"
+WEB_URL_FILE = ".web-url"
 WRITING_INTERVAL_SECONDS = 0.2
 RETRY_REPLY_CHARS = 300
 SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
@@ -308,6 +309,16 @@ def load_json(text, source):
         raise ReviewError(f"{source} returned no JSON") from error
 
 
+def live_page_link(log_path):
+    try:
+        base = (log_path.parent / WEB_URL_FILE).read_text(encoding="utf-8").strip()
+    except (OSError, ValueError):
+        return None
+    if not base:
+        return None
+    return f"{base.rstrip('/')}/reviews/{log_path.stem}"
+
+
 class JsonlLog:
     def __init__(self, path, handle):
         self.path = path
@@ -366,6 +377,9 @@ class Reporter:
         self.emit("start", name=name, title=title, model=model, base_url=base_url)
         if self.log is not None:
             self.announce(f"log {self.log.path}")
+            live_link = live_page_link(self.log.path)
+            if live_link is not None:
+                self.announce(f"live at {live_link}")
 
     def open_log(self, slug):
         try:
