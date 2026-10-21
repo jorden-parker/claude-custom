@@ -277,6 +277,10 @@ fail() {
   failures=$((failures + 1))
 }
 
+jq_quiet() {
+  jq "$@" > /dev/null
+}
+
 check_that() {
   local name="$1"
   shift
@@ -396,7 +400,21 @@ check_that "finding rendered as a line" grep -qE '^\[[0-9]+/[0-9]+\] src/bad\.ts
 check_not "raw JSON is not echoed" grep -qF '"confidence"' "$tmp/err"
 check_that "unparsable reply is shown on retry" grep -qE '^\[[0-9]+/[0-9]+\] src/weird\.ts:   reply was: I think it is fine\.$' "$tmp/err"
 check_not "plain mode has no escape codes" grep -q "$(printf '\033')" "$tmp/err"
-review_in_work 7 --color always > "$tmp/color.md" 2> "$tmp/color.err"
+cat > "$tmp/frames.py" <<'PY'
+import re
+import sys
+
+ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+CLEAR = "\r\x1b[K"
+WIDTH = int(sys.argv[2])
+text = open(sys.argv[1], encoding="utf-8", newline="").read()
+frames = [segment for segment in text.split(CLEAR)[1:] if "\n" not in segment]
+too_wide = [frame for frame in frames if len(ANSI.sub("", frame)) > WIDTH]
+print(len(frames), "frames", len(too_wide), "too wide")
+sys.exit(0 if frames and not too_wide else 1)
+PY
+(export COLUMNS=40; review_in_work 7 --color always > "$tmp/color.md" 2> "$tmp/color.err")
+check_that "status frames fit one terminal row" python3 "$tmp/frames.py" "$tmp/color.err" 39
 check_that "color mode styles the blocking label red" grep -qF "$(printf '\033[31missue (blocking)')" "$tmp/color.err"
 check_that "color mode rewrites the status line in place" grep -qF "$(printf '\r\033[K')" "$tmp/color.err"
 check_not "stdout stays plain markdown when not a TTY" grep -q "$(printf '\033')" "$tmp/color.md"
@@ -405,8 +423,9 @@ log="${logs[0]}"
 check_that "log file named after the PR" test -f "$log"
 check_eq "log starts with start" start "$(head -1 "$log" | jq -r .kind)"
 check_eq "log ends with end ok" "end ok" "$(tail -1 "$log" | jq -r '"\(.kind) \(.status)"')"
-check_that "log has the live finding" jq -e 'select(.kind == "finding" and .finding.summary == "Null deref on empty list")' "$log" > /dev/null
-check_that "log has the report" jq -e 'select(.kind == "report") | .markdown | contains("## PR #7")' "$log" > /dev/null
+check_that "log has the live finding" jq_quiet -e 'select(.kind == "finding" and .finding.summary == "Null deref on empty list")' "$log"
+check_that "log has the report" jq_quiet -e 'select(.kind == "report") | .markdown | contains("## PR #7")' "$log"
+check_not "log has no log path stage" jq_quiet -e 'select(.kind == "stage" and (.message | startswith("log ")))' "$log"
 check_that "stderr names the log" grep -qE '^pr-review-local: log .*/logs/[0-9]{8}-[0-9]{6}-pr-7\.jsonl$' "$tmp/err"
 
 review_in_work 7 --post > "$tmp/report.md" 2> "$tmp/err"
@@ -426,7 +445,7 @@ check_that "unreachable server is named in the error" grep -q '^pr-review-local:
 check_not "no heartbeat after a failed request" grep -qF 'waiting for the first token' "$tmp/down.err"
 down_logs=("$tmp/down-logs"/*-pr-7.jsonl)
 check_eq "failed run log ends with end error" "end error" "$(tail -1 "${down_logs[0]}" | jq -r '"\(.kind) \(.status)"')"
-check_that "failed run log names the failed request" jq -e 'select(.kind == "error") | .message | contains("request to http://127.0.0.1:1/v1/messages failed")' "${down_logs[0]}" > /dev/null
+check_that "failed run log names the failed request" jq_quiet -e 'select(.kind == "error") | .message | contains("request to http://127.0.0.1:1/v1/messages failed")' "${down_logs[0]}"
 review_in_work 7 --no-log --log-dir "$tmp/nolog" > /dev/null 2> /dev/null
 check_not "--no-log writes no log directory" test -e "$tmp/nolog"
 (export PR_REVIEW_LOG_DIR="$tmp/env-logs"; review_in_work 7 > /dev/null 2> /dev/null)

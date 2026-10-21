@@ -46,6 +46,7 @@ VERDICT_COLORS = {"REQUEST CHANGES": RED, "APPROVE WITH COMMENTS": YELLOW, "APPR
 HEADING_LINE = re.compile(r"^#{2,3} (.*)$")
 VERDICT_WORD = re.compile(r"^(\*\*Verdict:\*\* )(REQUEST CHANGES|APPROVE WITH COMMENTS|APPROVE)")
 LABEL_PREFIX = re.compile(r"\*\*([^*]+?):\*\*")
+ANSI_SEQUENCE = re.compile(r"(\033\[[0-9;]*m)")
 DIFF_CONTEXT_LINES = 20
 NUMBER_WIDTH = 5
 HUNK_HEADER = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
@@ -355,12 +356,16 @@ class Reporter:
     def stage(self, message):
         self.emit("stage", message=message)
 
+    def announce(self, message):
+        with self.lock:
+            self.terminal.handle({"kind": "stage", "message": message})
+
     def begin(self, slug, name, title, model, base_url):
         if self.log_directory is not None:
             self.open_log(slug)
         self.emit("start", name=name, title=title, model=model, base_url=base_url)
         if self.log is not None:
-            self.stage(f"log {self.log.path}")
+            self.announce(f"log {self.log.path}")
 
     def open_log(self, slug):
         try:
@@ -415,7 +420,9 @@ class TerminalRenderer:
 
     def status(self, text):
         self.spinner = (self.spinner + 1) % len(SPINNER_FRAMES)
-        self.stream.write(f"{CLEAR_STATUS}  {SPINNER_FRAMES[self.spinner]} {text}")
+        columns = shutil.get_terminal_size(fallback=(80, 24)).columns
+        frame = fit_to_columns(f"  {SPINNER_FRAMES[self.spinner]} {text}", columns)
+        self.stream.write(f"{CLEAR_STATUS}{frame}")
         self.stream.flush()
         self.status_shown = True
 
@@ -469,6 +476,22 @@ class TerminalRenderer:
 
 def ansi(text, code):
     return f"\033[{code}m{text}\033[0m"
+
+
+def fit_to_columns(text, columns):
+    limit = columns - 1
+    if len(ANSI_SEQUENCE.sub("", text)) <= limit:
+        return text
+    budget = max(limit - 1, 0)
+    pieces = []
+    for index, part in enumerate(ANSI_SEQUENCE.split(text)):
+        if index % 2:
+            pieces.append(part)
+        else:
+            kept = part[:budget]
+            pieces.append(kept)
+            budget -= len(kept)
+    return "".join(pieces) + "\033[0m…"
 
 
 def styled_report_line(line):
