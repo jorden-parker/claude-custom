@@ -358,6 +358,7 @@ check_that "ts prompt has no Python notes" inspect request-system-lacks "$tmp/re
 check_that "docs prompt has no language notes" inspect request-system-lacks "$tmp/requests.log" 'File: README.md' 'pitfalls'
 check_that "shebang script gets the shell notes" inspect request-system-has "$tmp/requests.log" 'File: bin/run' 'Shell pitfalls'
 check_that "prompt defines blocking" inspect request-system-has "$tmp/requests.log" 'File: src/ok.ts' 'a normal, expected input'
+check_that "description is framed as a claim" inspect request-user-has "$tmp/requests.log" 'File: src/ok.ts' "Description (the author's claim; review the code, not the claim):"
 check_that "added line carries its exact new-file number" inspect request-user-has "$tmp/requests.log" 'File: src/ok.ts' "$(printf '%5d | +export const added = 2;' "$ok_line")"
 check_that "requests name the model and version" inspect every-request-ok "$tmp/requests.log" stub-model
 check_that "summary request is last" inspect last-system-starts "$tmp/requests.log" 'You summarise'
