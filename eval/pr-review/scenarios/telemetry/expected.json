@@ -21,5 +21,6 @@
       "what": "an empty CLAUDE_CUSTOM_CACHE makes it rm -rf /edit-check; the path is unquoted"
     }
   ],
-  "clean": ["docs/telemetry.md", "lib/sizes.py"]
+  "clean": ["docs/telemetry.md", "lib/sizes.py"],
+  "verdicts": ["REQUEST CHANGES"]
 }

@@ -13,7 +13,7 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent
 DEFAULT_REVIEWER = SCRIPT_DIR / "pr-review-local"
-DEFAULT_FIXTURE = REPO_ROOT / "eval" / "pr-review"
+DEFAULT_SCENARIOS = REPO_ROOT / "eval" / "pr-review" / "scenarios"
 DEFAULT_BASE_URL = "http://localhost:11434"
 TEMP_PREFIX = "pr-review-eval-"
 LINE_WINDOW = 3
@@ -28,11 +28,14 @@ MISSED = "missed"
 
 @dataclasses.dataclass
 class Scorecard:
+    name: str
     outcomes: list
     false_blockers: list
     clean_findings: list
     unparsable: int
     seconds: float
+    verdict: str
+    expected_verdicts: list
 
     @property
     def bug_count(self):
@@ -50,6 +53,29 @@ class Scorecard:
     def missed(self):
         return [bug_id for bug_id, outcome in self.outcomes if outcome == MISSED]
 
+    @property
+    def verdict_ok(self):
+        return not self.expected_verdicts or self.verdict in self.expected_verdicts
+
+
+@dataclasses.dataclass
+class Totals:
+    caught: int
+    caught_blocking: int
+    bugs: int
+    false_blockers: int
+    clean_findings: int
+    verdicts_ok: int
+    scenarios: int
+    unparsable: int
+    seconds: float
+
+
+class ReviewerFailed(Exception):
+    def __init__(self, code):
+        super().__init__(code)
+        self.code = code
+
 
 def split_reviewer_args(argv):
     if "--" not in argv:
@@ -60,12 +86,13 @@ def split_reviewer_args(argv):
 
 def parse_args(argv):
     parser = argparse.ArgumentParser(
-        description="Run pr-review-local on the eval fixture and print a scorecard. Arguments after -- go to the reviewer."
+        description="Run pr-review-local on each eval scenario and print a scorecard. Arguments after -- go to the reviewer."
     )
     parser.add_argument("--model", required=True)
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
     parser.add_argument("--reviewer", type=Path, default=DEFAULT_REVIEWER)
-    parser.add_argument("--fixture", type=Path, default=DEFAULT_FIXTURE)
+    parser.add_argument("--scenarios", type=Path, default=DEFAULT_SCENARIOS)
+    parser.add_argument("--scenario", action="append")
     parser.add_argument("--keep", action="store_true")
     parser.add_argument("--json", dest="as_json", action="store_true")
     return parser.parse_args(argv)
@@ -89,17 +116,17 @@ def copy_side(side_root, repo):
             target.chmod(target.stat().st_mode | EXEC_BITS)
 
 
-def load_expected(fixture):
-    return json.loads((fixture / "expected.json").read_text(encoding="utf-8"))
+def load_expected(scenario_dir):
+    return json.loads((scenario_dir / "expected.json").read_text(encoding="utf-8"))
 
 
-def build_repo(fixture, repo, expected):
+def build_repo(scenario_dir, repo, expected):
     git(repo, "init", "-q", "-b", "main")
-    copy_side(fixture / "base", repo)
+    copy_side(scenario_dir / "base", repo)
     git(repo, "add", "-A")
     git_commit(repo, "-m", "base")
     git(repo, "checkout", "-q", "-b", "change")
-    copy_side(fixture / "head", repo)
+    copy_side(scenario_dir / "head", repo)
     git(repo, "add", "-A")
     git_commit(repo, "-m", expected["title"], "-m", expected["body"])
 
@@ -162,7 +189,7 @@ def outcome_for(findings, bug, lines):
     return MISSED
 
 
-def score(expected, review, repo, seconds):
+def score(name, expected, review, repo, seconds):
     findings = review.get("findings", [])
     scoped_bugs = [(bug, anchor_lines(repo, bug)) for bug in expected["bugs"]]
     outcomes = [(bug["id"], outcome_for(findings, bug, lines)) for bug, lines in scoped_bugs]
@@ -180,18 +207,59 @@ def score(expected, review, repo, seconds):
     unparsable = sum(
         1 for note in review.get("skipped", []) if "unparsable" in note.get("note", "")
     )
-    return Scorecard(outcomes, false_blockers, clean_findings, unparsable, seconds)
+    return Scorecard(
+        name,
+        outcomes,
+        false_blockers,
+        clean_findings,
+        unparsable,
+        seconds,
+        review.get("verdict", ""),
+        expected.get("verdicts", []),
+    )
+
+
+def totals_of(cards):
+    return Totals(
+        caught=sum(card.caught for card in cards),
+        caught_blocking=sum(card.caught_blocking for card in cards),
+        bugs=sum(card.bug_count for card in cards),
+        false_blockers=sum(len(card.false_blockers) for card in cards),
+        clean_findings=sum(len(card.clean_findings) for card in cards),
+        verdicts_ok=sum(1 for card in cards if card.verdict_ok),
+        scenarios=len(cards),
+        unparsable=sum(card.unparsable for card in cards),
+        seconds=sum(card.seconds for card in cards),
+    )
 
 
 def finding_line(kind, finding):
     return f"{kind:<15} {finding.get('path')}:{finding.get('line')}  {finding.get('summary')}"
 
 
-def score_line(card):
+def counts_text(totals):
     return (
-        f"score: caught {card.caught}/{card.bug_count} (blocking {card.caught_blocking}/{card.bug_count}), "
-        f"false blockers {len(card.false_blockers)}, clean-file findings {len(card.clean_findings)}, "
-        f"unparsable {card.unparsable}, {card.seconds:.1f}s"
+        f"caught {totals.caught}/{totals.bugs} (blocking {totals.caught_blocking}/{totals.bugs}), "
+        f"false blockers {totals.false_blockers}, clean-file findings {totals.clean_findings}"
+    )
+
+
+def verdict_line(card):
+    expected = " or ".join(card.expected_verdicts) or "any"
+    result = "right" if card.verdict_ok else "wrong"
+    return f"verdict {card.verdict} (expected {expected}): {result}"
+
+
+def score_line(card):
+    totals = totals_of([card])
+    return f"score: {counts_text(totals)}, unparsable {totals.unparsable}, {totals.seconds:.1f}s"
+
+
+def total_line(cards):
+    totals = totals_of(cards)
+    return (
+        f"total: {counts_text(totals)}, verdicts {totals.verdicts_ok}/{totals.scenarios}, "
+        f"unparsable {totals.unparsable}, {totals.seconds:.1f}s"
     )
 
 
@@ -199,38 +267,48 @@ def text_report(card):
     lines = [f"{outcome:<15} {bug_id}" for bug_id, outcome in card.outcomes]
     lines += [finding_line("false blocker", finding) for finding in card.false_blockers]
     lines += [finding_line("clean file", finding) for finding in card.clean_findings]
+    lines.append(verdict_line(card))
     lines.append(score_line(card))
     return "\n".join(lines)
 
 
-def json_report(card):
+def scenario_json(card):
+    return {
+        "caught": card.caught,
+        "caught_blocking": card.caught_blocking,
+        "bugs": card.bug_count,
+        "false_blockers": len(card.false_blockers),
+        "clean_findings": len(card.clean_findings),
+        "unparsable": card.unparsable,
+        "seconds": round(card.seconds, 1),
+        "missed": card.missed,
+        "verdict": card.verdict,
+        "verdict_ok": card.verdict_ok,
+    }
+
+
+def total_json(totals):
+    return {
+        "caught": totals.caught,
+        "caught_blocking": totals.caught_blocking,
+        "bugs": totals.bugs,
+        "false_blockers": totals.false_blockers,
+        "clean_findings": totals.clean_findings,
+        "verdicts_ok": totals.verdicts_ok,
+        "scenarios": totals.scenarios,
+        "unparsable": totals.unparsable,
+        "seconds": round(totals.seconds, 1),
+    }
+
+
+def json_report(cards):
     return json.dumps(
         {
-            "caught": card.caught,
-            "caught_blocking": card.caught_blocking,
-            "bugs": card.bug_count,
-            "false_blockers": len(card.false_blockers),
-            "clean_findings": len(card.clean_findings),
-            "unparsable": card.unparsable,
-            "seconds": round(card.seconds, 1),
-            "missed": card.missed,
+            "scenarios": {card.name: scenario_json(card) for card in cards},
+            "total": total_json(totals_of(cards)),
         },
         indent=2,
     )
-
-
-def run_eval(args, reviewer_args, repo):
-    expected = load_expected(args.fixture)
-    build_repo(args.fixture, repo, expected)
-    started = time.perf_counter()
-    completed = run_reviewer(args, repo, reviewer_args)
-    seconds = time.perf_counter() - started
-    if completed.returncode != 0:
-        print(f"pr-review-eval: reviewer exited {completed.returncode}", file=sys.stderr)
-        return completed.returncode
-    card = score(expected, parse_review(completed.stdout), repo, seconds)
-    print(json_report(card) if args.as_json else text_report(card))
-    return 0
 
 
 def finish_repo(repo, keep):
@@ -240,14 +318,56 @@ def finish_repo(repo, keep):
         shutil.rmtree(repo, ignore_errors=True)
 
 
+def evaluate_scenario(args, reviewer_args, name, scenario_dir):
+    expected = load_expected(scenario_dir)
+    repo = Path(tempfile.mkdtemp(prefix=TEMP_PREFIX))
+    try:
+        build_repo(scenario_dir, repo, expected)
+        started = time.perf_counter()
+        completed = run_reviewer(args, repo, reviewer_args)
+        seconds = time.perf_counter() - started
+        if completed.returncode != 0:
+            print(f"pr-review-eval: reviewer exited {completed.returncode}", file=sys.stderr)
+            raise ReviewerFailed(completed.returncode)
+        return score(name, expected, parse_review(completed.stdout), repo, seconds)
+    finally:
+        finish_repo(repo, args.keep)
+
+
+def run_eval(args, reviewer_args, scenarios):
+    cards = []
+    for name, scenario_dir in scenarios:
+        if not args.as_json:
+            print(f"== {name} ==", flush=True)
+        print(f"pr-review-eval: scenario {name}", file=sys.stderr, flush=True)
+        card = evaluate_scenario(args, reviewer_args, name, scenario_dir)
+        cards.append(card)
+        if not args.as_json:
+            print(text_report(card), flush=True)
+    if args.as_json:
+        print(json_report(cards))
+    else:
+        print(total_line(cards))
+    return 0
+
+
+def scenario_dirs(root):
+    return sorted(path for path in root.iterdir() if (path / "expected.json").is_file())
+
+
 def main(argv):
     own_argv, reviewer_args = split_reviewer_args(argv)
     args = parse_args(own_argv)
-    repo = Path(tempfile.mkdtemp(prefix=TEMP_PREFIX))
+    available = {path.name: path for path in scenario_dirs(args.scenarios)}
+    selected = args.scenario or sorted(available)
+    for name in selected:
+        if name not in available:
+            print(f"pr-review-eval: no scenario {name}", file=sys.stderr)
+            return 2
     try:
-        return run_eval(args, reviewer_args, repo)
-    finally:
-        finish_repo(repo, args.keep)
+        return run_eval(args, reviewer_args, [(name, available[name]) for name in selected])
+    except ReviewerFailed as failure:
+        return failure.code
 
 
 if __name__ == "__main__":
