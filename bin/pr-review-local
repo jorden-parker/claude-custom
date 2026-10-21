@@ -61,6 +61,7 @@ TRUNCATED_NOTE = "diff truncated to fit the prompt"
 RETRY_NOTE = "\n\nYour previous answer was not a JSON array. Answer with the JSON array only."
 LABELS = ("issue", "suggestion", "question", "nitpick", "praise")
 CONFIDENCE_ORDER = ("high", "medium", "low")
+UNSTATED_CONFIDENCE = "medium"
 FILE_SYSTEM_PROMPT = (
     "You are reviewing one file from a pull request. You see the PR title and "
     "description, the file's diff against the base branch, and the whole file "
@@ -637,7 +638,7 @@ def request_text(config, system, user, max_tokens):
 def finding_from(item, path):
     confidence = item.get("confidence")
     if confidence not in CONFIDENCE_ORDER:
-        confidence = "low"
+        confidence = UNSTATED_CONFIDENCE
     label = item.get("label")
     if label not in LABELS:
         label = "question"

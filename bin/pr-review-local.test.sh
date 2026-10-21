@@ -51,12 +51,19 @@ def is_server_error(body):
     return body["model"] == "summary-fails-model" and is_summary(body)
 
 
+def without_confidence(reply):
+    findings = json.loads(reply)
+    for finding in findings:
+        finding.pop("confidence", None)
+    return json.dumps(findings)
+
+
 def plain_reply_for(body):
     if is_summary(body):
         return SUMMARY_REPLY
     user = body["messages"][0]["content"]
     if "File: src/bad.ts" in user:
-        return BAD_REPLY
+        return without_confidence(BAD_REPLY) if body["model"] == "no-confidence-model" else BAD_REPLY
     if "File: README.md" in user:
         return DOCS_BLOCKER_REPLY if body["model"] == "docs-blocker-model" else PRAISE_REPLY
     if "File: src/weird.ts" in user:
@@ -344,6 +351,11 @@ check_that "prompt says to use the numbers" inspect request-system-has "$tmp/req
 check_that "added line carries its exact new-file number" inspect request-user-has "$tmp/requests.log" 'File: src/ok.ts' "$(printf '%5d | +export const added = 2;' "$ok_line")"
 check_that "requests name the model and version" inspect every-request-ok "$tmp/requests.log" stub-model
 check_that "summary request is last" inspect last-system-starts "$tmp/requests.log" 'You summarise'
+review_in_work 7 --model no-confidence-model > "$tmp/noconf.md" 2> "$tmp/noconf.err"
+check_that "finding without confidence stays blocking" grep -qF -- '- **issue (blocking):** Null deref on empty list' "$tmp/noconf.md"
+check_that "verdict without confidence is REQUEST CHANGES" grep -qF '**Verdict:** REQUEST CHANGES.' "$tmp/noconf.md"
+review_in_work 7 --model no-confidence-model --json > "$tmp/noconf.json" 2>/dev/null
+check_eq "missing confidence becomes medium" medium "$(jq -r '.findings[] | select(.summary == "Null deref on empty list") | .confidence' "$tmp/noconf.json")"
 review_in_work 7 --model docs-blocker-model > "$tmp/docs.md" 2> "$tmp/docs.err"
 check_not "docs findings never block" grep -qF -- '- **issue (blocking):** Sentence is split' "$tmp/docs.md"
 check_that "docs issue is listed as non-blocking" grep -qF -- '- **issue (non-blocking):** Sentence is split' "$tmp/docs.md"
