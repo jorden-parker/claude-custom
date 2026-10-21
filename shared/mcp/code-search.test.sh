@@ -220,6 +220,10 @@ check "without the model nothing is embedded" [ ! -e "$tmp/embed.log" ]
 check "without the model the reply says words only" contains "$plain" "words only"
 check "a query of only function words finds nothing" contains "$(search "where is the" | reply_text)" "No matching code."
 
+allowed="$(CODE_SEARCH_EMBED=1 search "password check" | reply_text)"
+check "with embeddings allowed the query is embedded even when the model is not loaded" [ "$(embedded_inputs_last_call)" = "1" ]
+check "with embeddings allowed there is no words-only note" lacks "$allowed" "words only"
+
 chmod 000 "$repo/src/chart.py"
 still="$(search "chart" | reply_text)"
 chmod 644 "$repo/src/chart.py"
@@ -244,6 +248,10 @@ check "index mode writes the index" test -f "$repo/.git/code-search/index.json"
 check "index mode prints a summary" grep -qE '^indexed [0-9]+ files' "$tmp/index.out"
 check "index mode without the model writes no vectors" lacks "$(cat "$repo/.git/code-search/index.json")" '"vector"'
 check "index mode without the model embeds nothing" [ ! -e "$tmp/embed.log" ]
+rm -f "$tmp/embed.log"
+(cd "$repo" && CODE_SEARCH_EMBED=1 python3 "$server" --index >"$tmp/index.out" 2>&1)
+check "index mode with embeddings allowed embeds the chunks" [ "$(embedded_inputs_last_call)" -ge 1 ]
+check "index mode with embeddings allowed writes vectors" contains "$(cat "$repo/.git/code-search/index.json")" '"vector"'
 (cd "$tmp" && python3 "$server" --index >"$tmp/index-nogit.out" 2>&1)
 check "index mode outside git exits 1" [ $? -eq 1 ]
 check "index mode outside git says why" grep -q 'git repository' "$tmp/index-nogit.out"
@@ -263,6 +271,9 @@ stop_stub
 down="$(search "filler")"
 check "an unreachable Ollama still answers from the word index" [ "$(printf '%s' "$down" | reply_is_error)" = "False" ]
 check "an unreachable Ollama is reported as words only" contains "$(printf '%s' "$down" | reply_text)" "words only"
+down_allowed="$(CODE_SEARCH_EMBED=1 search "filler")"
+check "an unreachable Ollama with embeddings allowed is not a tool error" [ "$(printf '%s' "$down_allowed" | reply_is_error)" = "False" ]
+check "an unreachable Ollama with embeddings allowed says words only and why" contains "$(printf '%s' "$down_allowed" | reply_text)" "words only: Embedding request to"
 
 outside="$(cd "$tmp" && python3 "$tmp/client.py" "$server" semantic_search '{"query": "x"}' | reply_text)"
 check "outside a git repo the tool explains why it can't search" contains "$outside" "git repository"

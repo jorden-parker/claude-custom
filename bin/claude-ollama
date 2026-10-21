@@ -173,6 +173,11 @@ embedding_model_fits() {
   [ -n "$cap" ] && [ "$cap" -ge 3 ] 2>/dev/null
 }
 
+allow_search_embeddings() {
+  embedding_model_fits || return 0
+  export CODE_SEARCH_EMBED=1
+}
+
 warm_embedding_model() {
   embedding_model_fits || return 0
   command -v curl >/dev/null 2>&1 || return 0
@@ -419,6 +424,7 @@ esac
 apply_server_env
 ensure_model
 ensure_embedding_model
+allow_search_embeddings
 warm_embedding_model
 warm_search_index
 ensure_side_model || settings_file="$(fallback_settings_file)"

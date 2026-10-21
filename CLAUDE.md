@@ -245,8 +245,9 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   agree. The Ollama profiles allow the tool in `permissions.allow`.
 - `ollama/server.env` documents the Ollama server env the profiles expect,
   including `OLLAMA_MAX_LOADED_MODELS`, which `bin/claude-ollama` reads
-  from the running server: at 3 or more it warms the embedding model
-  before the indexer, otherwise `semantic_search` ranks by words only.
+  from the running server: at 3 or more it exports `CODE_SEARCH_EMBED=1` (the
+  search server then loads and uses the embedding model) and warms the model
+  before the indexer; otherwise `semantic_search` ranks by words only.
   `bin/ollama-agent` passes it as `-server-env`, so
   a new LaunchAgent starts from its values. Before each launch
   `bin/claude-ollama` runs `ollama-agent -apply` (`CLAUDE_OLLAMA_AGENT`

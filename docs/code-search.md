@@ -19,9 +19,13 @@ until the tool has been called; exact names go through `git grep -n` after that.
   and the two rankings are merged by reciprocal rank fusion; otherwise the
   reply ends with a "words only" line. The server never loads the model, so
   a search can never evict the main or side model.
-- `claude-ollama` warms the embedding model before the indexer only when the
-  running server's `OLLAMA_MAX_LOADED_MODELS` is 3 or more; see
-  [docs/ollama.md](ollama.md) for the memory trade-off.
+- When the running server's `OLLAMA_MAX_LOADED_MODELS` is 3 or more,
+  `claude-ollama` exports `CODE_SEARCH_EMBED=1` to the search server and the
+  indexer and warms the embedding model before the indexer. With that variable
+  set the server embeds whether or not the model is loaded (Ollama loads it on
+  the first request and `keep_alive` keeps it), and an embedding failure
+  degrades to a "words only" reply that names the error instead of a tool
+  error. See [docs/ollama.md](ollama.md) for the memory trade-off.
 - Index: `.git/code-search/index.json`, written only by
   `code-search.py --index`, which `claude-ollama` runs in the background on
   launch (set `CLAUDE_OLLAMA_NO_INDEX=1` to skip). The server keeps the index

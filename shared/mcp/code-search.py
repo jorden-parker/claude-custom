@@ -53,6 +53,7 @@ BM25_B = 0.75
 CANDIDATES = 50
 RRF_K = 60
 PS_TIMEOUT = 1
+EMBED_ALLOWED = os.environ.get("CODE_SEARCH_EMBED") == "1"
 WORDS_ONLY_NOTE = "words only: the embedding model is not loaded, so synonyms will not match; use the code's own terms."
 
 TOOL = {
@@ -356,17 +357,24 @@ def build_index():
     path = index_path(root)
     files = refreshed_index(root, load_index(path))
     save_index(path, files)
-    if embedding_loaded():
+    if embedding_available():
         embed_missing_vectors(root, files)
         save_index(path, files)
     return len(files)
 
 
+def embedding_available():
+    return EMBED_ALLOWED or embedding_loaded()
+
+
 def rankings(chunks, query):
     ranked = [lexical_ranking(chunks, query)]
-    if not embedding_loaded():
+    if not embedding_available():
         return ranked, WORDS_ONLY_NOTE
-    query_vectors = embed([QUERY_INSTRUCTION + query])
+    try:
+        query_vectors = embed([QUERY_INSTRUCTION + query])
+    except SearchError as error:
+        return ranked, f"words only: {error}"
     if query_vectors:
         ranked.append(semantic_ranking(chunks, query_vectors[0]))
     return ranked, None

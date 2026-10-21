@@ -99,9 +99,10 @@ waits for the server. It refuses while the Ollama menu-bar app runs; quit it
 first. On a failure the launch goes on with a warning. The launcher also sends a warm-up request with
 `keep_alive` 30m (`CLAUDE_OLLAMA_KEEP_ALIVE` overrides) so the first prompt
 doesn't wait for the model to load. `OLLAMA_MAX_LOADED_MODELS=3` (the shipped
-value) keeps the main, side and embedding models loaded: the launcher warms
-`qwen3-embedding:0.6b` (about 2.2 GB) before starting the indexer, so
-`semantic_search` can use embeddings. At 2 the main and side models fill both
+value) keeps the main, side and embedding models loaded: the launcher exports
+`CODE_SEARCH_EMBED=1` so `semantic_search` loads and uses
+`qwen3-embedding:0.6b` (about 2.2 GB), and warms it before starting the
+indexer. At 2 the main and side models fill both
 slots, the embedding model is evicted and searches rank by words only. The
 Homebrew service (`brew services start ollama`)
 uses these paths; add any `server.env` value it lacks with `claude-custom agent`:
