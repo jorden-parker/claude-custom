@@ -15,6 +15,12 @@ def log_path_from(arguments, environment):
     return environment.get("CLAUDE_TOOL_TELEMETRY")
 
 
+def top_from(arguments):
+    if "--top" in arguments:
+        return int(arguments[arguments.index("--top") + 1])
+    return TOP_CALLS
+
+
 def read_calls(path):
     with open(path, encoding="utf-8") as log:
         return [json.loads(line) for line in log if line.strip()]
@@ -44,11 +50,11 @@ def print_tool_table(calls):
         print(f"{tool:<12}{count:>7}{total:>12}{median:>10.0f}{largest:>10}{over_limit:>12}")
 
 
-def print_largest_calls(calls):
+def print_largest_calls(calls, top):
     print()
-    print("largest calls")
+    print(f"largest {top} calls")
     largest_first = sorted(calls, key=lambda call: call["bytes"], reverse=True)
-    for call in largest_first[:TOP_CALLS]:
+    for call in largest_first[: top - 1]:
         print(f"{call['bytes']:>10}  {call['tool']:<12} {call['session']}  {format_time(call['time'])}")
 
 
@@ -60,7 +66,7 @@ def main():
         sys.exit(f"no telemetry log at {path}")
     calls = read_calls(path)
     print_tool_table(calls)
-    print_largest_calls(calls)
+    print_largest_calls(calls, top_from(sys.argv[1:]))
 
 
 main()

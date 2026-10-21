@@ -156,7 +156,7 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
 - `shared/hooks/tool-telemetry.py` is an opt-in `PostToolUse` hook on every
   tool. With `CLAUDE_TOOL_TELEMETRY=<file>` set it appends one JSON line per
   call (time, session, tool, bytes, lines, over the trim limit; never the tool
-  input). `bin/tool-telemetry-report LOG` summarises a log; its test is
+  input). `bin/tool-telemetry-report LOG [--top N]` summarises a log (`--top` sets how many of the largest calls to list, default 5); its test is
   `bin/tool-telemetry-report.test.sh`. Its `TRIM_LINE_LIMIT` must equal
   `MAX_LINES` in `bash-output-trim.py` (`bin/check-config` checks it).
 - `shared/preferences/PREFERENCES.md` holds the prose rules no tool can check,
