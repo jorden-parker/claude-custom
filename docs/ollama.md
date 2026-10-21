@@ -181,28 +181,24 @@ suffix or shebang (Python, shell, TypeScript/JavaScript, Go) and for test files,
 so a shebang-only script still gets the shell notes. A finding is blocking only
 when a normal, expected input gives a wrong result, a crash, lost data or a
 security hole; malformed input, style and unlikely misuse are non-blocking. The
-PR description is labelled as the author's claim, to be checked against the
-code. The prompts number every diff and file line, so findings name the line in
-the new file. Documentation files (`.md`, `.mdx`, `.rst`, `.txt`, `.adoc`) are
-reviewed from the diff only, with a docs note, and their findings never block.
-The model answers with a JSON array of findings; a reply that is not JSON is
-retried once and then the file is listed as skipped. A file whose findings
-include a non-praise one gets one more request in the same conversation, asking
-the model to drop findings that do not hold against the numbered code;
-`--no-verify` skips it, and a failed check keeps the first answer. The verdict
-is a fixed rule (any blocking finding → REQUEST CHANGES; any other finding →
-APPROVE WITH COMMENTS; else APPROVE); the model only writes the one-sentence
-summary. The report has the same sections as the `pr-review` agent (see
-[install](install.md)): Blocking, Non-blocking, Nits, Praise, Fallow and Not
-checked, which always says that files were reviewed one at a time. Nothing is
-posted unless `--post` is given, and then only as a comment review. Expect a 27b
-to take tens of seconds per file. While it runs, stderr names each stage (fetch,
-files to review, each file before its request, retries, Fallow, summary, CI,
-post), echoes the model's reply as it streams, and prints
-`waiting for the first token, Ns` every 10 seconds (`--heartbeat-seconds`) until
-the first token arrives. stdout holds only the report. A failed request names
-the server's error message (for example a model that does not fit in memory),
-and a failed summary is reported on stderr as well as in the report.
+prompts number every diff and file line, so findings name the line in the new
+file. Documentation files (`.md`, `.mdx`, `.rst`, `.txt`, `.adoc`) are reviewed
+from the diff only, with a docs note, and their findings never block. The model
+answers with a JSON array of findings; a reply that is not JSON is retried once
+and then the file is listed as skipped. The verdict is a fixed rule (any
+blocking finding → REQUEST CHANGES; any other finding → APPROVE WITH COMMENTS;
+else APPROVE); the model only writes the one-sentence summary. The report has
+the same sections as the `pr-review` agent (see [install](install.md)):
+Blocking, Non-blocking, Nits, Praise, Fallow and Not checked, which always says
+that files were reviewed one at a time. Nothing is posted unless `--post` is
+given, and then only as a comment review. Expect a 27b to take tens of seconds
+per file. While it runs, stderr names each stage (fetch, files to review, each
+file before its request, retries, Fallow, summary, CI, post), echoes the model's
+reply as it streams, and prints `waiting for the first token, Ns` every 10
+seconds (`--heartbeat-seconds`) until the first token arrives. stdout holds only
+the report. A failed request names the server's error message (for example a
+model that does not fit in memory), and a failed summary is reported on stderr
+as well as in the report.
 
 `--range BASE..HEAD` reviews local commits instead of a PR, with the same
 reviewer and report. It runs no `gh`, so there are no PR comments and no CI (the
