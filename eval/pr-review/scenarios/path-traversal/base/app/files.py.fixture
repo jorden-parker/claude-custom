@@ -1,0 +1,9 @@
+from pathlib import Path
+
+ALLOWED = {"readme.txt", "license.txt"}
+
+
+def read_public(root, name):
+    if name not in ALLOWED:
+        raise PermissionError(name)
+    return (Path(root) / name).read_text()

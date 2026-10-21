@@ -1,0 +1,9 @@
+def find_user(connection, email, active_only=False):
+    query = f"SELECT id, name FROM users WHERE email = '{email}'"
+    if active_only:
+        query += " AND active = 1"
+    return connection.execute(query).fetchone()
+
+
+def count_rows(connection, table):
+    return connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]

@@ -1,0 +1,5 @@
+def take(queue, lock):
+    with lock:
+        if not queue:
+            return None
+        return queue.pop(0)

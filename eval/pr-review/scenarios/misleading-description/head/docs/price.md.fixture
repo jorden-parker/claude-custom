@@ -1,0 +1,4 @@
+# Prices
+
+`discount(price, percent)` takes `percent` off `price`.
+`with_tax(price, rate)` adds tax at `rate`, for example `0.2` for 20%.

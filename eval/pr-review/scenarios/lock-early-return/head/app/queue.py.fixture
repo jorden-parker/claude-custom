@@ -1,0 +1,8 @@
+def take(queue, lock, timeout=None):
+    if not lock.acquire(timeout=-1 if timeout is None else timeout):
+        raise TimeoutError("queue lock")
+    if not queue:
+        return None
+    item = queue.pop(0)
+    lock.release()
+    return item

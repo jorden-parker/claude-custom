@@ -1,0 +1,17 @@
+package stats
+
+type Counter struct {
+	counts map[string]int
+}
+
+func NewCounter() *Counter {
+	return &Counter{}
+}
+
+func (c *Counter) Add(key string) {
+	c.counts[key]++
+}
+
+func (c *Counter) Get(key string) int {
+	return c.counts[key]
+}

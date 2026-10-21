@@ -1,0 +1,7 @@
+{
+  "title": "chore: status shows the branch; integer page count; clean-build clears the cache",
+  "body": "short_status adds --branch. page_count uses integer ceiling division instead of math.ceil on a float. clean-build also removes the cache directory.",
+  "bugs": [],
+  "clean": ["tools/status.py", "tools/pages.py", "bin/clean-build"],
+  "verdicts": ["APPROVE", "APPROVE WITH COMMENTS"]
+}

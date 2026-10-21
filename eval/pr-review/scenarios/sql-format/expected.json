@@ -1,0 +1,14 @@
+{
+  "title": "feat: find_user can skip inactive users",
+  "body": "find_user takes active_only to return only active users.",
+  "bugs": [
+    {
+      "id": "sql-injection",
+      "path": "app/users.py",
+      "anchors": ["WHERE email = '{email}'"],
+      "what": "email is formatted into the SQL; a quote in it breaks or injects the query"
+    }
+  ],
+  "clean": [],
+  "verdicts": ["REQUEST CHANGES"]
+}

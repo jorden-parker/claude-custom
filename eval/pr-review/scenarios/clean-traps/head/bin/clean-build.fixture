@@ -1,0 +1,4 @@
+#!/bin/bash
+set -euo pipefail
+build_dir="${BUILD_DIR:-build}"
+rm -rf -- "${build_dir:?}/out" "${build_dir:?}/cache"

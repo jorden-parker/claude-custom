@@ -1,0 +1,7 @@
+def find_user(connection, email):
+    row = connection.execute("SELECT id, name FROM users WHERE email = ?", (email,)).fetchone()
+    return row
+
+
+def count_rows(connection, table):
+    return connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]

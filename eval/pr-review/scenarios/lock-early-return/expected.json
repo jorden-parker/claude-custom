@@ -1,0 +1,14 @@
+{
+  "title": "feat: take() accepts a lock timeout",
+  "body": "take waits at most timeout seconds for the queue lock and raises TimeoutError otherwise.",
+  "bugs": [
+    {
+      "id": "lock-held-on-empty",
+      "path": "app/queue.py",
+      "anchors": ["return None"],
+      "what": "an empty queue returns with the lock still held; the next caller blocks forever"
+    }
+  ],
+  "clean": [],
+  "verdicts": ["REQUEST CHANGES"]
+}

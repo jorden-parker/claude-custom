@@ -1,0 +1,14 @@
+{
+  "title": "feat: Counter.Get",
+  "body": "Adds Get to read a count. NewCounter is simplified.",
+  "bugs": [
+    {
+      "id": "nil-map-write",
+      "path": "stats/counter.go",
+      "anchors": ["return &Counter{}", "c.counts[key]++"],
+      "what": "NewCounter leaves counts nil, so the first Add panics"
+    }
+  ],
+  "clean": [],
+  "verdicts": ["REQUEST CHANGES"]
+}

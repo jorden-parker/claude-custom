@@ -1,0 +1,6 @@
+def discount(price, percent):
+    return price * (100 - percent) // 100
+
+
+def with_tax(price, rate):
+    return price * (1 + rate)

@@ -1,0 +1,8 @@
+import subprocess
+
+STATUS_COMMAND = "git status --short --branch"
+
+
+def short_status():
+    result = subprocess.run(STATUS_COMMAND, shell=True, capture_output=True, text=True, check=True)
+    return result.stdout

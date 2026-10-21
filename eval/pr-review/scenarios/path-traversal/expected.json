@@ -1,0 +1,14 @@
+{
+  "title": "feat: read_public serves any file under root",
+  "body": "read_public no longer needs an allowlist; it serves any file in the public root and raises FileNotFoundError for missing ones.",
+  "bugs": [
+    {
+      "id": "path-traversal",
+      "path": "app/files.py",
+      "anchors": ["path = Path(root) / name"],
+      "what": "name = '../../etc/passwd' or an absolute path escapes root"
+    }
+  ],
+  "clean": [],
+  "verdicts": ["REQUEST CHANGES"]
+}

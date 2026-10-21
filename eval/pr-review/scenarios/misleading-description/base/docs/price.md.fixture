@@ -1,0 +1,3 @@
+# Prices
+
+`discount(price, percent)` takes `percent` off `price`.

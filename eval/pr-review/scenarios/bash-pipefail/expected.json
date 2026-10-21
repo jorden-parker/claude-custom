@@ -1,0 +1,14 @@
+{
+  "title": "feat: fetch-release defaults the directory to release",
+  "body": "The second argument is optional now and defaults to release.",
+  "bugs": [
+    {
+      "id": "pipefail-dropped",
+      "path": "bin/fetch-release",
+      "anchors": ["set -eu", "| tar -xz"],
+      "what": "without pipefail a failed curl is hidden by tar's exit status and the script reports success"
+    }
+  ],
+  "clean": [],
+  "verdicts": ["REQUEST CHANGES"]
+}

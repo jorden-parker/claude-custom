@@ -1,0 +1,7 @@
+#!/bin/bash
+set -eu
+url="$1"
+dir="${2:-release}"
+mkdir -p "$dir"
+curl -fsSL "$url" | tar -xz -C "$dir"
+echo "unpacked into $dir"
