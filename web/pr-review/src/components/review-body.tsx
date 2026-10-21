@@ -9,18 +9,16 @@ import {
   PauseCircleIcon,
 } from "lucide-react";
 import type { ReactNode } from "react";
-import {
-  Attachment,
-  AttachmentInfo,
-  AttachmentPreview,
-  Attachments,
-} from "@/components/ai-elements/attachments";
 import { Task, TaskContent, TaskItem, TaskTrigger } from "@/components/ai-elements/task";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Message, MessageContent } from "@/components/ui/message";
 import {
+  displayFileState,
+  durationSeconds,
+  fileFindingCount,
+  fileOutcomeText,
   isFileOpenByDefault,
   type CheckView,
   type FileView,
@@ -39,19 +37,19 @@ type ReviewBodyProps = {
 };
 
 export function ReviewBody({ state, elapsedSeconds }: ReviewBodyProps) {
-  const shownSeconds = state.ended ? state.lastSeconds : elapsedSeconds;
+  const shownSeconds = state.ended ? durationSeconds(state) : elapsedSeconds;
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex min-w-0 flex-col gap-6">
       <ReviewHeader state={state} seconds={shownSeconds} />
       {state.header.status === "stopped" ? (
         <p className="text-sm text-muted-foreground">The review ended without a result.</p>
       ) : null}
       {state.error ? <ErrorBanner message={state.error} /> : null}
-      <ChangedFiles files={state.files} />
+      <ChangedFiles files={state.files} status={state.header.status} />
       <ProgressTask stages={state.stages} />
-      <div className="flex flex-col gap-3">
+      <div className="flex min-w-0 flex-col gap-3">
         {state.files.map((file) => (
-          <FileTask key={file.index} file={file} interrupted={state.header.status !== "running"} />
+          <FileTask key={file.index} file={file} status={state.header.status} />
         ))}
       </div>
       {state.verdict ? <VerdictBanner verdict={state.verdict} summary={state.summary} /> : null}
@@ -86,41 +84,39 @@ function ErrorBanner({ message }: { message: string }) {
   );
 }
 
-function ChangedFiles({ files }: { files: FileView[] }) {
+function ChangedFiles({ files, status }: { files: FileView[]; status: ReviewState["header"]["status"] }) {
   if (files.length === 0) {
     return null;
   }
   return (
-    <section className="flex flex-col gap-2">
+    <section className="flex min-w-0 flex-col gap-2">
       <h2 className="font-medium text-sm">Changed files</h2>
-      <Attachments variant="inline">
+      <ul className="flex min-w-0 flex-wrap gap-2">
         {files.map((file) => (
-          <Attachment
-            key={file.index}
-            data={{
-              id: String(file.index),
-              type: "file",
-              mediaType: "text/plain",
-              filename: file.path,
-              url: "",
-            }}
-          >
-            <AttachmentPreview />
-            <AttachmentInfo />
-            <Badge variant="secondary" className="shrink-0 text-xs">
-              {fileBadgeText(file)}
-            </Badge>
-          </Attachment>
+          <li key={file.index} className="flex min-w-0 max-w-full">
+            <span className="flex min-w-0 max-w-full items-center gap-2 rounded-md border px-2 py-1 text-xs">
+              <span className="min-w-0 truncate" title={file.path}>
+                {file.path}
+              </span>
+              <Badge variant="secondary" className={`shrink-0 text-xs ${fileStateClass(displayFileState(file, status))}`}>
+                {fileBadgeText(file, status)}
+              </Badge>
+            </span>
+          </li>
         ))}
-      </Attachments>
+      </ul>
     </section>
   );
 }
 
-function fileBadgeText(file: FileView): string {
-  const state = file.state === "done" ? "done" : "running";
-  const findings = file.findings.length;
+function fileBadgeText(file: FileView, status: ReviewState["header"]["status"]): string {
+  const state = displayFileState(file, status);
+  const findings = fileFindingCount(file);
   return findings > 0 ? `${state} · ${findings} finding${findings === 1 ? "" : "s"}` : state;
+}
+
+function fileStateClass(state: ReturnType<typeof displayFileState>): string {
+  return state === "stopped" ? "text-muted-foreground" : "";
 }
 
 function ProgressTask({ stages }: { stages: StageView[] }) {
@@ -143,15 +139,15 @@ function ProgressTask({ stages }: { stages: StageView[] }) {
   );
 }
 
-function FileTask({ file, interrupted }: { file: FileView; interrupted: boolean }) {
+function FileTask({ file, status }: { file: FileView; status: ReviewState["header"]["status"] }) {
   const title = `[${file.index}/${file.total}] ${file.path}`;
   return (
-    <Task defaultOpen={isFileOpenByDefault(file)}>
-      <TaskTrigger title={title}>
-        <TaskHeading icon={<FileStateIcon file={file} interrupted={interrupted} />} title={title} />
+    <Task defaultOpen={isFileOpenByDefault(file)} className="min-w-0">
+      <TaskTrigger title={title} className="w-full min-w-0 justify-start text-left">
+        <TaskHeading icon={<FileStateIcon file={file} status={status} />} title={title} />
       </TaskTrigger>
       <TaskContent>
-        <FileStatusLine file={file} interrupted={interrupted} />
+        <FileStatusLine file={file} status={status} />
         {file.findings.map((finding, index) => (
           <FindingMessage key={index} finding={finding} />
         ))}
@@ -177,19 +173,20 @@ function CheckLine({ check }: { check: CheckView }) {
 
 function TaskHeading({ icon, title }: { icon: ReactNode; title: string }) {
   return (
-    <div className="flex w-full min-w-0 cursor-pointer items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground">
+    <div className="flex w-full min-w-0 cursor-pointer items-start gap-2 text-left text-sm text-muted-foreground transition-colors hover:text-foreground">
       {icon}
-      <span className="min-w-0 break-words">{title}</span>
+      <span className="min-w-0 [overflow-wrap:anywhere]">{title}</span>
       <ChevronDownIcon className="ml-auto size-4 shrink-0 transition-transform group-data-[state=open]:rotate-180" />
     </div>
   );
 }
 
-function FileStateIcon({ file, interrupted }: { file: FileView; interrupted: boolean }) {
-  if (file.state !== "done" && interrupted) {
+function FileStateIcon({ file, status }: { file: FileView; status: ReviewState["header"]["status"] }) {
+  const state = displayFileState(file, status);
+  if (state === "stopped") {
     return <PauseCircleIcon className="size-4 shrink-0 text-muted-foreground" />;
   }
-  if (file.state !== "done") {
+  if (state === "running") {
     return <Loader2Icon className="size-4 shrink-0 animate-spin text-blue-500" />;
   }
   if (/error|fail/i.test(file.outcome ?? "")) {
@@ -205,14 +202,17 @@ const fileStatusText: Record<FileView["state"], (file: FileView) => string> = {
       : `waiting for the first token, ${formatSeconds(file.waitingSeconds)}`,
   writing: (file) => `writing, ${file.chars} chars`,
   done: (file) =>
-    file.seconds === null ? (file.outcome ?? "") : `${file.outcome ?? ""} · ${formatSeconds(file.seconds)}`,
+    file.seconds === null
+      ? fileOutcomeText(file)
+      : `${fileOutcomeText(file)} · ${formatSeconds(file.seconds)}`,
 };
 
-function FileStatusLine({ file, interrupted }: { file: FileView; interrupted: boolean }) {
-  if (file.state !== "done" && interrupted) {
+function FileStatusLine({ file, status }: { file: FileView; status: ReviewState["header"]["status"] }) {
+  const state = displayFileState(file, status);
+  if (state === "stopped") {
     return <p className="text-sm text-muted-foreground">stopped before a result</p>;
   }
-  const pulse = file.state === "done" ? "" : "animate-pulse ";
+  const pulse = state === "running" ? "animate-pulse " : "";
   return <p className={`${pulse}text-sm text-muted-foreground`}>{fileStatusText[file.state](file)}</p>;
 }
 

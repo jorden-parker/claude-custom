@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { parseReviewEvent, type ReviewEvent } from "./review-event";
+import { durationSeconds, fileFindingCount, reduceEvents } from "./review-state";
 
 export type ReviewStatus = "running" | "stopped" | "ok" | "error";
 
@@ -69,6 +70,7 @@ export function summarize(
   const start = events.find((event) => event.kind === "start");
   const verdict = events.find((event) => event.kind === "verdict");
   const end = events.find((event) => event.kind === "end");
+  const state = reduceEvents(events);
   return {
     id,
     name: textField(start, "name"),
@@ -76,8 +78,8 @@ export function summarize(
     model: textField(start, "model"),
     status: statusOf(end, mtimeMs, now),
     verdict: verdict ? textField(verdict, "verdict") : null,
-    seconds: verdict ? numberField(verdict, "seconds") : null,
-    findings: events.filter((event) => event.kind === "finding").length,
+    seconds: durationSeconds(state),
+    findings: state.files.reduce((total, file) => total + fileFindingCount(file), 0),
     started: startedFromId(id),
   };
 }
@@ -96,11 +98,6 @@ function statusOf(
 function textField(event: ReviewEvent | undefined, field: string): string {
   const value = event?.[field];
   return typeof value === "string" ? value : "";
-}
-
-function numberField(event: ReviewEvent, field: string): number | null {
-  const value = event[field];
-  return typeof value === "number" ? value : null;
 }
 
 function startedFromId(id: string): string {

@@ -2,7 +2,7 @@ import type { ComponentPropsWithoutRef } from "react";
 import Markdown from "react-markdown";
 
 const BLOCK_BODY_CLASS =
-  "break-words text-sm leading-relaxed [overflow-wrap:anywhere] [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-muted [&_pre]:p-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5";
+  "break-words text-sm leading-relaxed [overflow-wrap:anywhere] [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_p+p]:mt-2 [&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-muted [&_pre]:p-2 [&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-5";
 
 const INLINE_BODY_CLASS =
   "break-words [overflow-wrap:anywhere] [&_code]:rounded [&_code]:bg-muted [&_code]:px-1";

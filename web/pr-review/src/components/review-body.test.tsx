@@ -8,13 +8,13 @@ const hostile = "<img src=x onerror=alert(1)>";
 const runningFileEvents = [
   { kind: "start", name: "PR #7", title: "Hostile", model: "qwen", base_url: "" },
   { kind: "file_start", index: 1, total: 1, path: "src/a.ts", chars: 10 },
+  { kind: "retry", index: 1, path: "src/a.ts", reply: hostile },
   {
     kind: "finding",
     index: 1,
     path: "src/a.ts",
     finding: { label: "issue", blocking: true, path: "src/a.ts", line: 3, summary: hostile, why: hostile, confidence: "high" },
   },
-  { kind: "retry", index: 1, path: "src/a.ts", reply: hostile },
 ];
 
 function eventsWithFinding(summary: string, why: string) {
@@ -176,5 +176,22 @@ describe("ReviewBody review states", () => {
     expect(markup).toContain("retried: the answer was not a JSON array");
     expect(markup).toContain("<pre");
     expect(markup).toContain("checked 6 findings, kept 4");
+  });
+
+  it("shows a file still running when the review errored as a stopped chip, with the full path as title", () => {
+    const longPath = `src/generated/${"x".repeat(120)}.ts`;
+    const state = reduceEvents([
+      started,
+      { kind: "file_start", t: 1, index: 1, total: 1, path: longPath, chars: 10 },
+      { kind: "error", t: 2, message: "failed" },
+      { kind: "end", t: 2, status: "error" },
+    ]);
+    const markup = renderToStaticMarkup(<ReviewBody state={state} elapsedSeconds={5} />);
+
+    expect(markup).toContain("stopped");
+    expect(markup).not.toContain("running");
+    expect(markup).toContain(`title="${longPath}"`);
+    expect(markup).toContain("truncate");
+    expect(markup).toContain("text-left");
   });
 });

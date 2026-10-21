@@ -75,7 +75,23 @@ describe("review log reading", () => {
     const summary = summarize(RUNNING_ID, events, now, now);
     expect(summary.status).toBe("running");
     expect(summary.verdict).toBeNull();
-    expect(summary.seconds).toBeNull();
+    expect(summary.seconds).toBe(1);
+  });
+
+  it("counts a file's findings from its outcome and check, not every finding event", () => {
+    const events = parseEvents(
+      toJsonl([
+        { t: 0, kind: "start", name: "PR #5", title: "t", model: "m", base_url: "" },
+        { t: 1, kind: "file_start", index: 1, total: 1, path: "src/a.ts", chars: 10 },
+        { t: 2, kind: "finding", index: 1, path: "src/a.ts", finding: { label: "issue", blocking: false, path: "src/a.ts", line: 1, summary: "a", why: "", confidence: "high" } },
+        { t: 2, kind: "finding", index: 1, path: "src/a.ts", finding: { label: "issue", blocking: false, path: "src/a.ts", line: 2, summary: "b", why: "", confidence: "high" } },
+        { t: 3, kind: "check", index: 1, path: "src/a.ts", count: 2, kept: 1 },
+        { t: 4, kind: "file_done", index: 1, total: 1, path: "src/a.ts", outcome: "1 finding", seconds: 4 },
+      ]),
+    );
+    const summary = summarize(RUNNING_ID, events, Date.now(), Date.now());
+
+    expect(summary.findings).toBe(1);
   });
 
   it("reports stopped after ten minutes without an end event", () => {

@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { formatLocalTime, formatRelative } from "@/lib/format-time";
 import type { ReviewSummary } from "@/lib/reviews";
-import { headerStatusLabel, statusDotClass } from "@/lib/status-style";
+import { headerStatusLabel, statusDotClass, statusTextClass } from "@/lib/status-style";
 import { verdictBadgeClass } from "@/lib/verdict-style";
 
 const POLL_INTERVAL_MS = 2000;
@@ -79,7 +79,11 @@ function ReviewRow({ review, now }: { review: ReviewSummary; now: number }) {
 
 function VerdictBadge({ review }: { review: ReviewSummary }) {
   if (review.verdict === null) {
-    return <Badge variant="outline">{headerStatusLabel(review.status)}</Badge>;
+    return (
+      <Badge variant="outline" className={statusTextClass(review.status)}>
+        {headerStatusLabel(review.status)}
+      </Badge>
+    );
   }
   return <Badge variant="outline" className={verdictBadgeClass(review.verdict)}>{review.verdict}</Badge>;
 }

@@ -69,6 +69,46 @@ export function isFileOpenByDefault(file: FileView): boolean {
   return file.state !== "done" || file.findings.length > 0;
 }
 
+type FileDisplayState = "running" | "done" | "stopped";
+
+export function displayFileState(file: FileView, status: ReviewState["header"]["status"]): FileDisplayState {
+  if (file.state === "done") {
+    return "done";
+  }
+  return status === "running" ? "running" : "stopped";
+}
+
+const COUNT_OUTCOME = /^(\d+) findings?$/;
+
+export function fileFindingCount(file: FileView): number {
+  const kept = file.check?.kept;
+  if (typeof kept === "number") {
+    return kept;
+  }
+  const reported = reportedCount(file.outcome);
+  return reported ?? file.findings.length;
+}
+
+function reportedCount(outcome: string | null): number | null {
+  if (outcome === "clean") {
+    return 0;
+  }
+  const match = COUNT_OUTCOME.exec(outcome ?? "");
+  return match ? Number(match[1]) : null;
+}
+
+export function fileOutcomeText(file: FileView): string {
+  if (typeof file.check?.kept === "number") {
+    const count = fileFindingCount(file);
+    return `${count} finding${count === 1 ? "" : "s"}`;
+  }
+  return file.outcome ?? "";
+}
+
+export function durationSeconds(state: ReviewState): number {
+  return state.verdict?.seconds ?? state.lastSeconds;
+}
+
 export function markStopped(state: ReviewState): ReviewState {
   if (state.ended) {
     return state;
@@ -165,6 +205,7 @@ function applyFinding(state: ReviewState, event: ReviewEvent): ReviewState {
 function applyRetry(state: ReviewState, event: ReviewEvent): ReviewState {
   return upsertFile(state, indexOf(event), (file) => ({
     ...file,
+    findings: [],
     retries: [...file.retries, textOf(event, "reply")],
   }));
 }

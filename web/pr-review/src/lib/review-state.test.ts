@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { applyEvent, initialReviewState, isFileOpenByDefault, reduceEvents } from "./review-state";
+import {
+  applyEvent,
+  displayFileState,
+  durationSeconds,
+  fileFindingCount,
+  fileOutcomeText,
+  initialReviewState,
+  isFileOpenByDefault,
+  reduceEvents,
+} from "./review-state";
 import type { ReviewEvent } from "./review-event";
 
 const events: ReviewEvent[] = [
@@ -8,13 +17,13 @@ const events: ReviewEvent[] = [
   { kind: "file_start", index: 1, total: 2, path: "src/a.ts", chars: 120 },
   { kind: "waiting", seconds: 3 },
   { kind: "writing", index: 1, path: "src/a.ts", chars: 400 },
+  { kind: "retry", index: 1, path: "src/a.ts", reply: "not json" },
   {
     kind: "finding",
     index: 1,
     path: "src/a.ts",
     finding: { label: "issue", blocking: true, path: "src/a.ts", line: 3, summary: "Null deref", why: "x can be null", confidence: "high" },
   },
-  { kind: "retry", index: 1, path: "src/a.ts", reply: "not json" },
   { kind: "check", index: 1, path: "src/a.ts", count: 2, kept: 1 },
   { kind: "file_done", index: 1, total: 2, path: "src/a.ts", outcome: "1 finding", seconds: 9 },
   { kind: "file_start", index: 2, total: 2, path: "src/b.ts", chars: 50 },
@@ -123,5 +132,114 @@ describe("reduceEvents", () => {
     const twice = applyEvent(applyEvent(initialReviewState, stage), stage);
 
     expect(twice.stages).toHaveLength(2);
+  });
+
+  describe("finding counts", () => {
+    const start = { kind: "start", t: 0, name: "PR #3", title: "t", model: "m", base_url: "" };
+    const fileStart = { kind: "file_start", t: 1, index: 1, total: 1, path: "src/a.ts", chars: 10 };
+    const finding = (line: number): ReviewEvent => ({
+      kind: "finding",
+      t: 2,
+      index: 1,
+      path: "src/a.ts",
+      finding: { label: "issue", blocking: false, path: "src/a.ts", line, summary: "s", why: "", confidence: "high" },
+    });
+
+    it("drops live findings when a retry arrives", () => {
+      const state = reduceEvents([
+        start,
+        fileStart,
+        { kind: "retry", t: 2, index: 1, path: "src/a.ts", reply: "not json" },
+        finding(3),
+        finding(4),
+      ]);
+
+      expect(state.files[0].findings).toHaveLength(2);
+      expect(fileFindingCount(state.files[0])).toBe(2);
+    });
+
+    it("uses the count in file_done's outcome over the live findings", () => {
+      const state = reduceEvents([
+        start,
+        fileStart,
+        finding(3),
+        finding(4),
+        finding(5),
+        finding(6),
+        finding(7),
+        finding(8),
+        { kind: "file_done", t: 9, index: 1, total: 1, path: "src/a.ts", outcome: "5 findings", seconds: 3 },
+      ]);
+
+      expect(fileFindingCount(state.files[0])).toBe(5);
+      expect(fileOutcomeText(state.files[0])).toBe("5 findings");
+    });
+
+    it("lets a check's kept count win over the outcome", () => {
+      const state = reduceEvents([
+        start,
+        fileStart,
+        finding(3),
+        { kind: "check", t: 4, index: 1, path: "src/a.ts", count: 6, kept: 4 },
+        { kind: "file_done", t: 5, index: 1, total: 1, path: "src/a.ts", outcome: "5 findings", seconds: 3 },
+      ]);
+
+      expect(fileFindingCount(state.files[0])).toBe(4);
+      expect(fileOutcomeText(state.files[0])).toBe("4 findings");
+    });
+
+    it("counts a clean file as zero", () => {
+      const state = reduceEvents([
+        start,
+        fileStart,
+        { kind: "file_done", t: 2, index: 1, total: 1, path: "src/a.ts", outcome: "clean", seconds: 1 },
+      ]);
+
+      expect(fileFindingCount(state.files[0])).toBe(0);
+      expect(fileOutcomeText(state.files[0])).toBe("clean");
+    });
+
+    it("falls back to live findings for a file without file_done", () => {
+      const state = reduceEvents([start, fileStart, finding(3), finding(4)]);
+
+      expect(fileFindingCount(state.files[0])).toBe(2);
+    });
+  });
+
+  describe("displayFileState", () => {
+    const runningFile = reduceEvents([
+      { kind: "start", t: 0, name: "PR #3", title: "t", model: "m", base_url: "" },
+      { kind: "file_start", t: 1, index: 1, total: 1, path: "src/a.ts", chars: 10 },
+    ]).files[0];
+
+    it("shows a running file as running while the review runs", () => {
+      expect(displayFileState(runningFile, "running")).toBe("running");
+    });
+
+    it("shows a file still running when the review failed or stopped as stopped", () => {
+      expect(displayFileState(runningFile, "error")).toBe("stopped");
+      expect(displayFileState(runningFile, "stopped")).toBe("stopped");
+    });
+
+    it("shows a finished file as done", () => {
+      const done = { ...runningFile, state: "done" as const };
+
+      expect(displayFileState(done, "error")).toBe("done");
+    });
+  });
+
+  it("uses the verdict's seconds for the duration, else the last event time", () => {
+    const withVerdict = reduceEvents([
+      { kind: "start", t: 0, name: "PR #3", title: "t", model: "m", base_url: "" },
+      { kind: "verdict", t: 28, verdict: "APPROVE", seconds: 28 },
+      { kind: "end", t: 30, status: "ok" },
+    ]);
+    const withoutVerdict = reduceEvents([
+      { kind: "start", t: 0, name: "PR #3", title: "t", model: "m", base_url: "" },
+      { kind: "end", t: 30, status: "ok" },
+    ]);
+
+    expect(durationSeconds(withVerdict)).toBe(28);
+    expect(durationSeconds(withoutVerdict)).toBe(30);
   });
 });
