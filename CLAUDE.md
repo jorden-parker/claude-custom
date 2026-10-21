@@ -172,8 +172,9 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   `claude --agent pr-review`; as a subagent it lands on the forced Haiku model.
   No `model:` key: FORCE ignores it and `--agent` must keep the session model.
   `bin/check-config` checks the frontmatter and the Fallow command.
-- `bin/pr-review-local --model M [--base-url URL] [--post] [--json] PR` reviews
-  a GitHub PR with a local model: `gh`/`git` gather the PR (no checkout in the
+- `bin/pr-review-local --model M [--base-url URL] [--post] [--json] [--range BASE..HEAD | PR]`
+  reviews a GitHub PR with a local model, or local commits with `--range`
+  (no `gh`, no comments or CI, no `--post`): `gh`/`git` gather the PR (no checkout in the
   user's tree), Fallow runs on changed TypeScript in a temporary worktree of the
   PR head through `fallow_report_filter` from `shared/hooks/fallow-lib.sh`, one
   `/v1/messages` request per changed file returns a JSON findings array (one
@@ -182,6 +183,7 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   warms it and execs the script (`CLAUDE_OLLAMA_REVIEWER` overrides the path;
   tests stub it). Tests: `bin/pr-review-local.test.sh` (stub `/v1/messages`,
   stub `gh`, stub `fallow`, two temp git repos).
+- Review eval: `bin/pr-review-eval --model M [--base-url URL] [-- reviewer args]` reviews the fixture in `eval/pr-review/` (three planted bugs, two clean files) with `pr-review-local --range` and prints a scorecard; tests: `bin/pr-review-eval.test.sh` (stub reviewer)
 - `shared/hooks/tool-nudge.py` is wired only in the Ollama profiles
   (UserPromptSubmit resets its per-session state under
   `~/.claude/cache/tool-nudge/`). As PreToolUse on Bash and

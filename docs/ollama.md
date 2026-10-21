@@ -191,3 +191,13 @@ CI, post), echoes the model's reply as it streams, and prints
 the first token arrives. stdout holds only the report. A failed request names
 the server's error message (for example a model that does not fit in memory),
 and a failed summary is reported on stderr as well as in the report.
+
+`--range BASE..HEAD` reviews local commits instead of a PR, with the same
+reviewer and report. It runs no `gh`, so there are no PR comments and no CI
+(the report says `CI not checked (local range)`), and `--post` is refused.
+`bin/pr-review-eval --model qwen3.8-9b-distill-cc` runs the fixture in
+`eval/pr-review/` through `--range` and prints one line per planted bug
+(`caught blocking`, `caught` or `missed`), then a score line: bugs caught and
+caught as blocking, false blockers (blocking findings on no planted bug),
+findings on the two clean files, unparsable replies and seconds. Run it twice
+before trusting a one-point change.
