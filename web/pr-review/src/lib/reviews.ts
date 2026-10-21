@@ -54,6 +54,12 @@ export function parseEvents(text: string): ReviewEvent[] {
   return events;
 }
 
+export function isStoppedReview(file: string): boolean {
+  const events = parseEvents(fs.readFileSync(file, "utf8"));
+  const id = path.basename(file, ".jsonl");
+  return summarize(id, events, fs.statSync(file).mtimeMs, Date.now()).status === "stopped";
+}
+
 export function summarize(
   id: string,
   events: ReviewEvent[],

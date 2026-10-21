@@ -32,7 +32,11 @@ export function ReviewList() {
     return <p className="text-sm text-muted-foreground">Loading reviews...</p>;
   }
   if (reviews.length === 0) {
-    return <p className="text-sm text-muted-foreground">No reviews yet. Run `claude-ollama review PR`.</p>;
+    return (
+      <p className="text-sm text-muted-foreground">
+        No reviews yet. Run <code className="rounded bg-muted px-1 font-mono text-xs">claude-ollama review PR</code>.
+      </p>
+    );
   }
   return (
     <ul className="flex flex-col gap-3">

@@ -6,6 +6,7 @@ import {
   ChevronDownIcon,
   ListIcon,
   Loader2Icon,
+  PauseCircleIcon,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import {
@@ -21,6 +22,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Message, MessageContent } from "@/components/ui/message";
 import {
   isFileOpenByDefault,
+  type CheckView,
   type FileView,
   type FindingView,
   type ReviewState,
@@ -41,12 +43,15 @@ export function ReviewBody({ state, elapsedSeconds }: ReviewBodyProps) {
   return (
     <div className="flex flex-col gap-6">
       <ReviewHeader state={state} seconds={shownSeconds} />
+      {state.header.status === "stopped" ? (
+        <p className="text-sm text-muted-foreground">The review ended without a result.</p>
+      ) : null}
       {state.error ? <ErrorBanner message={state.error} /> : null}
       <ChangedFiles files={state.files} />
       <ProgressTask stages={state.stages} />
       <div className="flex flex-col gap-3">
         {state.files.map((file) => (
-          <FileTask key={file.index} file={file} />
+          <FileTask key={file.index} file={file} interrupted={state.header.status !== "running"} />
         ))}
       </div>
       {state.verdict ? <VerdictBanner verdict={state.verdict} summary={state.summary} /> : null}
@@ -138,29 +143,36 @@ function ProgressTask({ stages }: { stages: StageView[] }) {
   );
 }
 
-function FileTask({ file }: { file: FileView }) {
+function FileTask({ file, interrupted }: { file: FileView; interrupted: boolean }) {
   const title = `[${file.index}/${file.total}] ${file.path}`;
   return (
     <Task defaultOpen={isFileOpenByDefault(file)}>
       <TaskTrigger title={title}>
-        <TaskHeading icon={<FileStateIcon file={file} />} title={title} />
+        <TaskHeading icon={<FileStateIcon file={file} interrupted={interrupted} />} title={title} />
       </TaskTrigger>
       <TaskContent>
-        <FileStatusLine file={file} />
+        <FileStatusLine file={file} interrupted={interrupted} />
         {file.findings.map((finding, index) => (
           <FindingMessage key={index} finding={finding} />
         ))}
         {file.retries.map((reply, index) => (
-          <pre
-            key={index}
-            className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-muted p-2 font-mono text-xs text-muted-foreground"
-          >
-            {reply}
-          </pre>
+          <div key={index} className="flex flex-col gap-1">
+            <p className="text-xs text-muted-foreground">retried: the answer was not a JSON array</p>
+            <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-muted p-2 font-mono text-xs text-muted-foreground">
+              {reply}
+            </pre>
+          </div>
         ))}
+        {file.check ? <CheckLine check={file.check} /> : null}
       </TaskContent>
     </Task>
   );
+}
+
+function CheckLine({ check }: { check: CheckView }) {
+  const count = `${check.count} finding${check.count === 1 ? "" : "s"}`;
+  const text = check.kept === null ? `checked ${count}` : `checked ${count}, kept ${check.kept}`;
+  return <p className="text-xs text-muted-foreground">{text}</p>;
 }
 
 function TaskHeading({ icon, title }: { icon: ReactNode; title: string }) {
@@ -173,7 +185,10 @@ function TaskHeading({ icon, title }: { icon: ReactNode; title: string }) {
   );
 }
 
-function FileStateIcon({ file }: { file: FileView }) {
+function FileStateIcon({ file, interrupted }: { file: FileView; interrupted: boolean }) {
+  if (file.state !== "done" && interrupted) {
+    return <PauseCircleIcon className="size-4 shrink-0 text-muted-foreground" />;
+  }
   if (file.state !== "done") {
     return <Loader2Icon className="size-4 shrink-0 animate-spin text-blue-500" />;
   }
@@ -193,7 +208,10 @@ const fileStatusText: Record<FileView["state"], (file: FileView) => string> = {
     file.seconds === null ? (file.outcome ?? "") : `${file.outcome ?? ""} · ${formatSeconds(file.seconds)}`,
 };
 
-function FileStatusLine({ file }: { file: FileView }) {
+function FileStatusLine({ file, interrupted }: { file: FileView; interrupted: boolean }) {
+  if (file.state !== "done" && interrupted) {
+    return <p className="text-sm text-muted-foreground">stopped before a result</p>;
+  }
   const pulse = file.state === "done" ? "" : "animate-pulse ";
   return <p className={`${pulse}text-sm text-muted-foreground`}>{fileStatusText[file.state](file)}</p>;
 }
@@ -203,12 +221,14 @@ function FindingMessage({ finding }: { finding: FindingView }) {
     <Message>
       <MessageContent>
         <div className="flex flex-wrap items-center gap-2">
-          <Badge className={labelClass(finding)}>
+          <Badge variant={labelVariant(finding)} className={labelClass(finding)}>
             {finding.label}
             {finding.blocking ? " · blocking" : ""}
           </Badge>
           <code className="break-all rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{locationOf(finding)}</code>
-          <span className="text-xs text-muted-foreground">confidence: {finding.confidence}</span>
+          {finding.confidence && finding.confidence !== "high" ? (
+            <span className="text-xs text-muted-foreground">confidence: {finding.confidence}</span>
+          ) : null}
         </div>
         <div className="mt-2 break-words text-sm font-medium">
           <InlineMarkdown>{finding.summary}</InlineMarkdown>
@@ -244,7 +264,10 @@ function VerdictBanner({ verdict, summary }: { verdict: VerdictView; summary: st
 function ReportSection({ report }: { report: string }) {
   return (
     <Collapsible>
-      <CollapsibleTrigger className="text-sm font-medium underline">Full report</CollapsibleTrigger>
+      <CollapsibleTrigger className="group flex items-center gap-2 text-sm font-medium">
+        <ChevronDownIcon className="size-4 shrink-0 transition-transform group-data-[panel-open]:rotate-180" />
+        Full report
+      </CollapsibleTrigger>
       <CollapsibleContent className="pt-3">
         <MarkdownText>{report}</MarkdownText>
       </CollapsibleContent>
@@ -252,14 +275,23 @@ function ReportSection({ report }: { report: string }) {
   );
 }
 
+const LABEL_CLASSES: Record<string, string> = {
+  issue: "bg-amber-500 text-black",
+  suggestion: "bg-amber-500 text-black",
+  question: "bg-blue-600 text-white",
+  nitpick: "text-muted-foreground",
+  praise: "bg-green-600 text-white",
+};
+
 function labelClass(finding: FindingView): string {
   if (finding.blocking) {
     return "bg-destructive text-white";
   }
-  if (finding.label === "issue") {
-    return "bg-amber-500 text-black";
-  }
-  return "bg-muted text-foreground";
+  return LABEL_CLASSES[finding.label] ?? "bg-muted text-foreground";
+}
+
+function labelVariant(finding: FindingView): "default" | "outline" {
+  return !finding.blocking && finding.label === "nitpick" ? "outline" : "default";
 }
 
 function locationOf(finding: FindingView): string {

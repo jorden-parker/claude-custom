@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { reduceEvents } from "@/lib/review-state";
+import { markStopped, reduceEvents } from "@/lib/review-state";
 import { ReviewBody } from "./review-body";
 
 const hostile = "<img src=x onerror=alert(1)>";
@@ -105,5 +105,76 @@ describe("ReviewBody", () => {
     expect(markup).toContain("[1/1] src/a.ts");
     expect(markup).toContain("src/a.ts:3");
     expect(markup).toContain("REQUEST CHANGES");
+  });
+});
+
+describe("ReviewBody review states", () => {
+  const started = { kind: "start", t: 0, name: "PR #9", title: "states", model: "qwen", base_url: "" };
+  const fileStarted = { kind: "file_start", t: 1, index: 1, total: 2, path: "src/a.ts", chars: 10 };
+
+  it("colors labels and shows confidence only when it is not high", () => {
+    const state = reduceEvents([
+      started,
+      fileStarted,
+      { kind: "finding", index: 1, path: "src/a.ts", finding: { label: "question", blocking: false, path: "src/a.ts", line: 2, summary: "Why?", why: "", confidence: "low" } },
+      { kind: "finding", index: 1, path: "src/a.ts", finding: { label: "praise", blocking: false, path: "src/a.ts", line: 4, summary: "Nice", why: "", confidence: "high" } },
+    ]);
+    const markup = renderToStaticMarkup(<ReviewBody state={state} elapsedSeconds={5} />);
+
+    expect(markup).toContain("bg-blue-600");
+    expect(markup).toContain("bg-green-600");
+    expect(markup).toContain("confidence: low");
+    expect(markup).not.toContain("confidence: high");
+  });
+
+  it("shows only the path when a finding has no line", () => {
+    const state = reduceEvents([
+      started,
+      fileStarted,
+      { kind: "finding", index: 1, path: "docs/a.md", finding: { label: "issue", blocking: false, path: "docs/a.md", line: null, summary: "Doc", why: "", confidence: "high" } },
+    ]);
+    const markup = renderToStaticMarkup(<ReviewBody state={state} elapsedSeconds={5} />);
+
+    expect(markup).toContain(">docs/a.md<");
+    expect(markup).not.toContain("null");
+  });
+
+  it("shows the running file as stopped, not spinning, when an error ends the review", () => {
+    const state = reduceEvents([
+      started,
+      fileStarted,
+      { kind: "error", t: 2, message: "request failed" },
+      { kind: "end", t: 2, status: "error" },
+    ]);
+    const markup = renderToStaticMarkup(<ReviewBody state={state} elapsedSeconds={5} />);
+
+    expect(markup).toContain(">failed<");
+    expect(markup).toContain("request failed");
+    expect(markup).toContain("stopped before a result");
+    expect(markup).not.toContain("animate-spin");
+  });
+
+  it("marks a stopped review with a note, a grey pill and no spinners", () => {
+    const state = markStopped(reduceEvents([started, fileStarted, { kind: "waiting", t: 3, seconds: 2 }]));
+    const markup = renderToStaticMarkup(<ReviewBody state={state} elapsedSeconds={900} />);
+
+    expect(markup).toContain(">stopped<");
+    expect(markup).toContain("The review ended without a result.");
+    expect(markup).not.toContain("animate-spin");
+    expect(markup).not.toContain("animate-pulse");
+  });
+
+  it("shows what the check kept and the retried reply as preformatted text", () => {
+    const state = reduceEvents([
+      started,
+      fileStarted,
+      { kind: "retry", t: 2, index: 1, path: "src/a.ts", reply: "**raw**" },
+      { kind: "check", t: 3, index: 1, path: "src/a.ts", count: 6, kept: 4 },
+    ]);
+    const markup = renderToStaticMarkup(<ReviewBody state={state} elapsedSeconds={5} />);
+
+    expect(markup).toContain("retried: the answer was not a JSON array");
+    expect(markup).toContain("<pre");
+    expect(markup).toContain("checked 6 findings, kept 4");
   });
 });

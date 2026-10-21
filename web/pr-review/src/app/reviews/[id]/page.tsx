@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { connection } from "next/server";
 import { Suspense } from "react";
 import { ReviewView } from "@/components/review-view";
-import { resolveReviewFile } from "@/lib/reviews";
+import { isStoppedReview, resolveReviewFile } from "@/lib/reviews";
 
 type ReviewPageProps = { params: Promise<{ id: string }> };
 
@@ -23,8 +23,9 @@ export default function ReviewPage({ params }: ReviewPageProps) {
 async function LiveReview({ params }: ReviewPageProps) {
   await connection();
   const { id } = await params;
-  if (!resolveReviewFile(id)) {
+  const file = resolveReviewFile(id);
+  if (!file) {
     notFound();
   }
-  return <ReviewView id={id} />;
+  return <ReviewView id={id} stopped={isStoppedReview(file)} />;
 }

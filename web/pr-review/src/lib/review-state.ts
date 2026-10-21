@@ -12,6 +12,8 @@ export type FindingView = {
   confidence: string;
 };
 
+export type CheckView = { count: number; kept: number | null };
+
 export type FileView = {
   index: number;
   total: number;
@@ -21,6 +23,7 @@ export type FileView = {
   waitingSeconds: number | null;
   findings: FindingView[];
   retries: string[];
+  check: CheckView | null;
   outcome: string | null;
   seconds: number | null;
 };
@@ -33,7 +36,7 @@ export type ReviewHeader = {
   name: string;
   title: string;
   model: string;
-  status: "running" | "ok" | "error";
+  status: "running" | "ok" | "error" | "stopped";
 };
 
 export type ReviewState = {
@@ -66,6 +69,13 @@ export function isFileOpenByDefault(file: FileView): boolean {
   return file.state !== "done" || file.findings.length > 0;
 }
 
+export function markStopped(state: ReviewState): ReviewState {
+  if (state.ended) {
+    return state;
+  }
+  return { ...state, ended: true, header: { ...state.header, status: "stopped" } };
+}
+
 export function reduceEvents(events: ReviewEvent[]): ReviewState {
   return events.reduce((state, event) => applyEvent(state, event), initialReviewState);
 }
@@ -80,6 +90,7 @@ const handlers = new Map<string, Handler>([
   ["writing", applyWriting],
   ["finding", applyFinding],
   ["retry", applyRetry],
+  ["check", applyCheck],
   ["file_done", applyFileDone],
   ["summary", applySummary],
   ["verdict", applyVerdict],
@@ -158,6 +169,13 @@ function applyRetry(state: ReviewState, event: ReviewEvent): ReviewState {
   }));
 }
 
+function applyCheck(state: ReviewState, event: ReviewEvent): ReviewState {
+  return upsertFile(state, indexOf(event), (file) => ({
+    ...file,
+    check: { count: numberOf(event, "count") ?? 0, kept: numberOf(event, "kept") },
+  }));
+}
+
 function applyFileDone(state: ReviewState, event: ReviewEvent): ReviewState {
   return upsertFile(state, indexOf(event), (file) => ({
     ...file,
@@ -233,6 +251,7 @@ function emptyFile(index: number): FileView {
     waitingSeconds: null,
     findings: [],
     retries: [],
+    check: null,
     outcome: null,
     seconds: null,
   };

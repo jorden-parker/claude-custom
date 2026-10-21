@@ -2,14 +2,15 @@
 
 import { useEffect, useState } from "react";
 import { parseReviewEvent } from "@/lib/review-event";
-import { applyEvent, initialReviewState, type ReviewState } from "@/lib/review-state";
+import { applyEvent, initialReviewState, markStopped, type ReviewState } from "@/lib/review-state";
 import { ReviewBody } from "./review-body";
 
 const SECOND_MS = 1000;
 
-export function ReviewView({ id }: { id: string }) {
+export function ReviewView({ id, stopped }: { id: string; stopped: boolean }) {
   const [state, setState] = useState<ReviewState>(initialReviewState);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const shown = stopped ? markStopped(state) : state;
 
   useEffect(() => {
     const source = new EventSource(`/api/reviews/${encodeURIComponent(id)}/events`);
@@ -28,12 +29,12 @@ export function ReviewView({ id }: { id: string }) {
   }, [id]);
 
   useEffect(() => {
-    if (state.ended) {
+    if (shown.ended) {
       return;
     }
     const timer = setInterval(() => setElapsedSeconds((seconds) => seconds + 1), SECOND_MS);
     return () => clearInterval(timer);
-  }, [state.ended]);
+  }, [shown.ended]);
 
-  return <ReviewBody state={state} elapsedSeconds={elapsedSeconds} />;
+  return <ReviewBody state={shown} elapsedSeconds={elapsedSeconds} />;
 }
