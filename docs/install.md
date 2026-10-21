@@ -28,21 +28,30 @@ This wires every shell it finds: zsh (`~/.zshrc`), bash (`~/.bashrc`,
 `~/.bash_profile`), ksh (`~/.kshrc`) and fish
 (`~/.config/fish/conf.d/claude-custom.fish`). Rc edits sit between
 `# >>> claude-custom >>>` markers and put `~/.local/bin` on PATH. It also links
-`claude-ollama`, `claude-tools` and `claude-custom` into `~/.local/bin`, removes
-hook links an older install left in `~/.claude/hooks/` (the hooks, see
-[Enforced preferences](hooks.md), now run straight from `shared/hooks/`), adds
-an `@` import for `shared/preferences/PREFERENCES.md` to `~/.claude/CLAUDE.md`
-(and removes the retired `personal/CLAUDE.tokens.md` import), and rebuilds the
-Ollama models whose base model is pulled. Re-running it is safe.
-`~/.claude/settings.json` is left as is: the overlay loads on top of it via
-`--settings` on every interactive `claude` launch. Scripts, IDE extensions, the
-desktop app and `claude-ollama` don't get it. Run `command claude` to skip it
-once.
+`claude-ollama`, `claude-tools`, `ollama-agent` and `claude-custom` into
+`~/.local/bin`, links the `pr-review` agent (`shared/agents/pr-review.md`) into
+`~/.claude/agents/`, removes hook links an older install left in
+`~/.claude/hooks/` (the hooks, see [Enforced preferences](hooks.md), now run
+straight from `shared/hooks/`), adds an `@` import for
+`shared/preferences/PREFERENCES.md` to `~/.claude/CLAUDE.md` (and removes the
+retired `personal/CLAUDE.tokens.md` import), and rebuilds the Ollama models
+whose base model is pulled. Re-running it is safe. `~/.claude/settings.json` is
+left as is: the overlay loads on top of it via `--settings` on every interactive
+`claude` launch. Scripts, IDE extensions, the desktop app and `claude-ollama`
+don't get it. Run `command claude` to skip it once.
 
 Per repo, when you don't need claude.ai connectors there:
 `cp project/settings.local.json <repo>/.claude/settings.local.json`.
 
 Revert: `claude-custom uninstall`.
+
+Review a pull request with the main model:
+`claude --agent pr-review "Review PR 123"`. Inside a session,
+`@agent-pr-review review PR 123` runs it as a subagent, which the overlay sends
+to Haiku (`CLAUDE_CODE_SUBAGENT_MODEL_FORCE`), so expect a lighter review that
+way. The agent never posts to GitHub unless the request says to, and then only
+as a comment review. A `~/.claude/agents/` directory that did not exist when a
+session started needs a restart to be seen.
 
 ## Another machine / updating
 

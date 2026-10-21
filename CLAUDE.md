@@ -75,9 +75,9 @@ before changing how any file gets applied.
   the default size; `--help` lists sizes)
 - Check the work harness: `claude-ollama doctor [size]` (exit 1 on a missing
   model, hook, context mismatch or server env var; needs `jq`) and
-  `claude-ollama --print-config [size]` (resolved values, no launch). Follow
-  the server log: `claude-ollama logs [-n LINES]` (LaunchAgent plist path, else
-  the Homebrew log, else the app log)
+  `claude-ollama --print-config [size]` (resolved values, no launch). Follow the
+  server log: `claude-ollama logs [-n LINES]` (LaunchAgent plist path, else the
+  Homebrew log, else the app log)
 - Launch the tools TUI: `claude-tools [user|project|local|FILE]`. Launch the
   agent TUI: `ollama-agent [-file PLIST] [-ollama BIN]`. All three are also
   `claude-custom ollama|tools|agent [...]`.
@@ -161,8 +161,17 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   `MAX_LINES` in `bash-output-trim.py` (`bin/check-config` checks it).
 - `shared/preferences/PREFERENCES.md` holds the prose rules no tool can check,
   including token discipline. `bin/claude-custom install` `@`-imports it into
-  `~/.claude/CLAUDE.md`, so both backends load it. Keep it short: Ollama has 64k-96k
-  context.
+  `~/.claude/CLAUDE.md`, so both backends load it. Keep it short: Ollama has
+  64k-96k context.
+- `shared/agents/pr-review.md` is a Claude Code subagent definition that
+  `bin/claude-custom install` links into `~/.claude/agents/`. It reviews a
+  GitHub PR from a temporary worktree (`gh pr view`/`diff`, callers via Grep,
+  Fallow `audit --base <merge-base> --format json` on changed TypeScript through
+  `fallow_report_filter` in `shared/hooks/fallow-lib.sh`) and prints
+  Conventional-Comments findings with a verdict. Run it as the main thread with
+  `claude --agent pr-review`; as a subagent it lands on the forced Haiku model.
+  No `model:` key: FORCE ignores it and `--agent` must keep the session model.
+  `bin/check-config` checks the frontmatter and the Fallow command.
 - `shared/hooks/tool-nudge.py` is wired only in the Ollama profiles
   (UserPromptSubmit resets its per-session state under
   `~/.claude/cache/tool-nudge/`). As PreToolUse on Bash and
@@ -235,45 +244,46 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   search, adds a vector ranking through Ollama `/api/embed` only while
   `GET /api/ps` shows the embedding model loaded, keeps its index in memory and
   reloads `.git/code-search/index.json` when `--index` (the only writer)
-  produced a newer one.
-  `claude-ollama` starts `code-search.py --index` in the background on launch
-  (`CLAUDE_OLLAMA_NO_INDEX=1` skips it). `bin/claude-ollama` pulls its model
-  (`CODE_SEARCH_MODEL`, default `qwen3-embedding:0.6b`); the model picker's "Set
-  up embedding model" row pulls it too. The default name appears once in each of
-  `bin/claude-ollama`, `code-search.py` and
-  `go/internal/picker/profiles/embedding.go`, and `bin/check-config` checks they
-  agree. The Ollama profiles allow the tool in `permissions.allow`.
+  produced a newer one. `claude-ollama` starts `code-search.py --index` in the
+  background on launch (`CLAUDE_OLLAMA_NO_INDEX=1` skips it).
+  `bin/claude-ollama` pulls its model (`CODE_SEARCH_MODEL`, default
+  `qwen3-embedding:0.6b`); the model picker's "Set up embedding model" row pulls
+  it too. The default name appears once in each of `bin/claude-ollama`,
+  `code-search.py` and `go/internal/picker/profiles/embedding.go`, and
+  `bin/check-config` checks they agree. The Ollama profiles allow the tool in
+  `permissions.allow`.
 - `ollama/server.env` documents the Ollama server env the profiles expect,
-  including `OLLAMA_MAX_LOADED_MODELS`, which `bin/claude-ollama` reads
-  from the running server: at 3 or more it exports `CODE_SEARCH_EMBED=1` (the
-  search server then loads and uses the embedding model) and warms the model
-  before the indexer; otherwise `semantic_search` ranks by words only.
-  `bin/ollama-agent` passes it as `-server-env`, so
-  a new LaunchAgent starts from its values. Before each launch
-  `bin/claude-ollama` runs `ollama-agent -apply` (`CLAUDE_OLLAMA_AGENT`
-  overrides the command; tests stub it) when the running server lacks a
-  value: it merges `server.env` into the `local.ollama` plist, stops
-  `brew services ollama` if loaded, reloads, and waits for `/api/version`. It
-  refuses while the Ollama app runs (`go/internal/agent/apply`). `bin/claude-ollama` sends a background warm-up `keep_alive`
-  request to `OLLAMA_HOST` (default `localhost:11434`) before `exec claude`.
-- `go/internal/agent/` has four packages (`apply` is the `-apply` mode): `launchd` (renders and reads the
-  plist, saves atomically, builds the `launchctl bootout`/`bootstrap` reload
-  command), `variables` (the known `OLLAMA_*` list and the `server.env` parser)
-  and `ui` (the Bubble Tea model; `Config.Reload` is injected so tests never
-  call launchctl). Saving rewrites the whole plist, so hand edits to keys other
-  than `EnvironmentVariables` are lost.
+  including `OLLAMA_MAX_LOADED_MODELS`, which `bin/claude-ollama` reads from the
+  running server: at 3 or more it exports `CODE_SEARCH_EMBED=1` (the search
+  server then loads and uses the embedding model) and warms the model before the
+  indexer; otherwise `semantic_search` ranks by words only. `bin/ollama-agent`
+  passes it as `-server-env`, so a new LaunchAgent starts from its values.
+  Before each launch `bin/claude-ollama` runs `ollama-agent -apply`
+  (`CLAUDE_OLLAMA_AGENT` overrides the command; tests stub it) when the running
+  server lacks a value: it merges `server.env` into the `local.ollama` plist,
+  stops `brew services ollama` if loaded, reloads, and waits for `/api/version`.
+  It refuses while the Ollama app runs (`go/internal/agent/apply`).
+  `bin/claude-ollama` sends a background warm-up `keep_alive` request to
+  `OLLAMA_HOST` (default `localhost:11434`) before `exec claude`.
+- `go/internal/agent/` has four packages (`apply` is the `-apply` mode):
+  `launchd` (renders and reads the plist, saves atomically, builds the
+  `launchctl bootout`/`bootstrap` reload command), `variables` (the known
+  `OLLAMA_*` list and the `server.env` parser) and `ui` (the Bubble Tea model;
+  `Config.Reload` is injected so tests never call launchctl). Saving rewrites
+  the whole plist, so hand edits to keys other than `EnvironmentVariables` are
+  lost.
 - `ollama/CLAUDE.local.md` is the appended system prompt for every size, for
   small local models, not memory files. Keep it terse: the 27b has a 64k
-  context, the other sizes 96k and the side model 32k. `ollama/sizes.json` is the single source for each size's `context`:
-  `bin/ollama-profiles` writes it to `Modelfile.<size>` (`num_ctx`),
-  `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, and the `ollama create` names that `model`
-  and the `ANTHROPIC_DEFAULT_*_MODEL` vars refer to. A managed
-  `availableModels` that lacks the model makes Claude Code substitute a `[1m]`
-  ID, which assumes a 1M window; `claude-ollama doctor` warns when that happens.
-  Each profile's own `availableModels` lists its main and side model;
-  `bin/check-config` checks it. `ollama/system-prompt.md` replaces Claude Code's
-  default system prompt for both sizes; keep it short and don't put
-  size-specific rules in it.
+  context, the other sizes 96k and the side model 32k. `ollama/sizes.json` is
+  the single source for each size's `context`: `bin/ollama-profiles` writes it
+  to `Modelfile.<size>` (`num_ctx`), `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, and the
+  `ollama create` names that `model` and the `ANTHROPIC_DEFAULT_*_MODEL` vars
+  refer to. A managed `availableModels` that lacks the model makes Claude Code
+  substitute a `[1m]` ID, which assumes a 1M window; `claude-ollama doctor`
+  warns when that happens. Each profile's own `availableModels` lists its main
+  and side model; `bin/check-config` checks it. `ollama/system-prompt.md`
+  replaces Claude Code's default system prompt for both sizes; keep it short and
+  don't put size-specific rules in it.
 - The personal overlay is loaded with `--settings` by the `claude` shell
   function (`personal/claude.sh` for bash/zsh/ksh, `personal/claude.fish` for
   fish), wired into rc files by `bin/claude-custom install`, never merged into
