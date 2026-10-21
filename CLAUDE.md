@@ -78,9 +78,9 @@ before changing how any file gets applied.
   `claude-ollama --print-config [size]` (resolved values, no launch). Follow the
   server log: `claude-ollama logs [-n LINES]` (LaunchAgent plist path, else the
   Homebrew log, else the app log)
-- Reviews page: `claude-ollama reviews [--port N]` serves `web/pr-review` (Next.js
-  + AI Elements) at `http://127.0.0.1:8765/`, built on first run with pnpm. Its
-  tests run with `make test-web`.
+- Reviews page: `claude-ollama reviews [--port N]` serves `web/pr-review`
+  (Next.js with AI Elements) at `http://127.0.0.1:8765/`, built on first run
+  with pnpm. Its tests run with `make test-web`.
 - Launch the tools TUI: `claude-tools [user|project|local|FILE]`. Launch the
   agent TUI: `ollama-agent [-file PLIST] [-ollama BIN]`. All three are also
   `claude-custom ollama|tools|agent [...]`.
@@ -176,17 +176,24 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   No `model:` key: FORCE ignores it and `--agent` must keep the session model.
   `bin/check-config` checks the frontmatter and the Fallow command.
 - `bin/pr-review-local --model M [--base-url URL] [--post] [--json] [--range BASE..HEAD | PR]`
-  reviews a GitHub PR with a local model, or local commits with `--range`
-  (no `gh`, no comments or CI, no `--post`): `gh`/`git` gather the PR (no checkout in the
-  user's tree), Fallow runs on changed TypeScript in a temporary worktree of the
-  PR head through `fallow_report_filter` from `shared/hooks/fallow-lib.sh`, one
-  `/v1/messages` request per changed file returns a JSON findings array (one
-  retry), the verdict is a fixed rule, and the report matches the `pr-review`
-  agent's shape. `claude-ollama review [size] PR` resolves the size's model,
-  warms it and execs the script (`CLAUDE_OLLAMA_REVIEWER` overrides the path;
-  tests stub it). Tests: `bin/pr-review-local.test.sh` (stub `/v1/messages`,
-  stub `gh`, stub `fallow`, two temp git repos).
-- Review eval: `bin/pr-review-eval --model M [--base-url URL] [-- reviewer args]` reviews every scenario in `eval/pr-review/scenarios/` (six: `telemetry`, `shell-injection`, `async-ts`, `go-errors`, `weak-test`, `clean-refactor`; `--scenario NAME` picks some) with `pr-review-local --range`, checks each verdict, and prints a scorecard ending in a `total:` line; tests: `bin/pr-review-eval.test.sh` (stub reviewer)
+  reviews a GitHub PR with a local model, or local commits with `--range` (no
+  `gh`, no comments or CI, no `--post`): `gh`/`git` gather the PR (no checkout
+  in the user's tree), Fallow runs on changed TypeScript in a temporary worktree
+  of the PR head through `fallow_report_filter` from
+  `shared/hooks/fallow-lib.sh`, one `/v1/messages` request per changed file
+  returns a JSON findings array (one retry), the verdict is a fixed rule, and
+  the report matches the `pr-review` agent's shape.
+  `claude-ollama review [size] PR` resolves the size's model, warms it and execs
+  the script (`CLAUDE_OLLAMA_REVIEWER` overrides the path; tests stub it).
+  Tests: `bin/pr-review-local.test.sh` (stub `/v1/messages`, stub `gh`, stub
+  `fallow`, two temp git repos).
+- Review eval:
+  `bin/pr-review-eval --model M [--base-url URL] [-- reviewer args]` reviews
+  every scenario in `eval/pr-review/scenarios/` (six: `telemetry`,
+  `shell-injection`, `async-ts`, `go-errors`, `weak-test`, `clean-refactor`;
+  `--scenario NAME` picks some) with `pr-review-local --range`, checks each
+  verdict, and prints a scorecard ending in a `total:` line; tests:
+  `bin/pr-review-eval.test.sh` (stub reviewer)
 - `shared/hooks/tool-nudge.py` is wired only in the Ollama profiles
   (UserPromptSubmit resets its per-session state under
   `~/.claude/cache/tool-nudge/`). As PreToolUse on Bash and
@@ -323,7 +330,8 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   The TUI only touches rules that are a bare tool name. Scoped rules like
   `Bash(git log *)` are never changed. "Disable" means a bare deny rule. Write
   rules are in `go/cmd/claude-tools/README.md`.
-- The log dir is the contract between `bin/pr-review-local` and
-  `web/pr-review`: the events route tails the JSONL logs there, the page binds
-  127.0.0.1 only, and the AI Elements components are vendored in
-  `web/pr-review/src/components` (`ui/` and `ai-elements/`).
+
+- The log dir is the contract between `bin/pr-review-local` and `web/pr-review`:
+  the events route tails the JSONL logs there, the page binds 127.0.0.1 only,
+  and the AI Elements components are vendored in `web/pr-review/src/components`
+  (`ui/` and `ai-elements/`).

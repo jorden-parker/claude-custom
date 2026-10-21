@@ -219,11 +219,10 @@ one-point change.
 
 `claude-ollama reviews [--port N]` serves a local page at
 `http://127.0.0.1:8765/` (loopback only) that lists reviews from the log
-directory (`$PR_REVIEW_LOG_DIR`, else `~/.local/share/claude-custom/reviews`).
-A running review streams live: its changed files, per-file progress, findings
-and verdict appear as the reviewer writes them, and finished reviews stay
-listed. The page only reads those logs; it calls no model. The first run
-installs and builds `web/pr-review` with pnpm (Node 22 or later and pnpm 10
-are required; `brew install pnpm` if pnpm is missing). While it runs, the
-command writes the page URL to `.web-url` in the log directory and removes that
-file when it exits.
+directory (`$PR_REVIEW_LOG_DIR`, else `~/.local/share/claude-custom/reviews`). A
+running review streams live: its changed files, per-file progress, findings and
+verdict appear as the reviewer writes them, and finished reviews stay listed.
+The page only reads those logs; it calls no model. The first run installs and
+builds `web/pr-review` with pnpm (Node 22 or later and pnpm 10 are required;
+`brew install pnpm` if pnpm is missing). While it runs, the command writes the
+page URL to `.web-url` in the log directory and removes that file when it exits.
