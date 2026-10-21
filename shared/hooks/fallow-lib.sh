@@ -30,9 +30,9 @@ fallow_report_filter() {
   cat <<'JQ'
 "fallow audit: \(.verdict) (dead code \(.summary.dead_code_issues), complexity \(.summary.complexity_findings), duplication \(.summary.duplication_clone_groups))",
 ( .dead_code // {} | to_entries[] | select(.key != "workspace_diagnostics" and (.value|type) == "array") | .key as $k
-  | .value[] | select(type == "object" and has("path") and (.introduced // true))
+  | .value[] | select(type == "object" and has("path") and (.introduced != false))
   | "  \($k|rtrimstr("s")) \(.path):\(.line // "?") \(.export_name // .name // .message // "")" ),
-( .complexity.findings[]? | select(.introduced // true)
+( .complexity.findings[]? | select(.introduced != false)
   | "  high-complexity \(.path):\(.line) \(.name) cyclomatic=\(.cyclomatic) cognitive=\(.cognitive)" ),
 ( .duplication.clone_groups[]? | "  duplication " + ([.instances[] | "\(.file):\(.start_line)-\(.end_line)"] | join(" = ")) ),
 ( .next_steps[]? | "  next: \(.command)" )
