@@ -1,0 +1,706 @@
+#!/usr/bin/env python3
+import argparse
+import dataclasses
+import http.client
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+DEFAULT_BASE_URL = "http://localhost:11434"
+DEFAULT_AUTH_TOKEN = "local"
+DEFAULT_MAX_TOKENS = 1500
+DEFAULT_FULL_FILE_LINES = 400
+DEFAULT_PROMPT_CHARS = 48000
+DIFF_CONTEXT_LINES = 20
+MAX_FINDINGS_PER_FILE = 5
+SUMMARY_MAX_TOKENS = 120
+TEMPERATURE = 0
+ANTHROPIC_VERSION = "2023-06-01"
+REQUEST_TIMEOUT_SECONDS = 1800
+REVIEW_REF = "refs/pr-review/{number}"
+PR_FIELDS = (
+    "number,title,url,author,isDraft,baseRefName,headRefName,"
+    "headRefOid,additions,deletions,changedFiles,body"
+)
+COMMENTS_JQ = r'.[] | "\(.path):\(.line // .original_line) \(.body | .[0:160])"'
+SKIPPED_PATH_PARTS = ("node_modules/", "dist/", "build/", "coverage/", "vendor/", ".min.")
+SKIPPED_SUFFIXES = (
+    ".lock",
+    ".snap",
+    ".map",
+    ".svg",
+    ".png",
+    ".jpg",
+    ".gif",
+    ".ico",
+    ".pdf",
+    ".woff",
+    ".woff2",
+    "-lock.yaml",
+    "-lock.json",
+)
+TYPESCRIPT_SUFFIXES = (".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs")
+FALLOW_LIB = "shared/hooks/fallow-lib.sh"
+FALLOW_USAGE_EXIT_CODE = 2
+CHECKS_OK_EXIT_CODES = (0, 8)
+NOT_RUN_NO_TYPESCRIPT = "not run: no TypeScript changed"
+TRUNCATED_MARK = "\n[diff truncated]"
+TRUNCATED_NOTE = "diff truncated to fit the prompt"
+RETRY_NOTE = "\n\nYour previous answer was not a JSON array. Answer with the JSON array only."
+LABELS = ("issue", "suggestion", "question", "nitpick", "praise")
+CONFIDENCE_ORDER = ("high", "medium", "low")
+FILE_SYSTEM_PROMPT = (
+    "You are reviewing one file from a pull request. You see the PR title and "
+    "description, the file's diff against the base branch, and the whole file "
+    "when it is short. Report only problems you can argue concretely from what "
+    "you see: wrong behaviour, a missed edge case (empty, null, boundary, error "
+    "path, concurrency), a resource not released, a security hole (untrusted "
+    "input reaching a shell, SQL, HTML, a path or a URL; missing authorization; "
+    "a credential in the diff, which you report by location and kind only), a "
+    "test that would not fail if the code were broken, a name that misleads, "
+    "duplication of code visible in this file, or a change that the PR "
+    "description does not ask for. Do not restate what the diff does. Do not "
+    "comment on formatting. Do not repeat a comment from the \"already raised\" "
+    "list. Prefer few confident findings over many weak ones; at most 5.\n\n"
+    "Answer with a JSON array only, no prose before or after. Each element: "
+    "{\"label\": \"issue\"|\"suggestion\"|\"question\"|\"nitpick\"|\"praise\", "
+    "\"blocking\": true|false, \"path\": \"<path>\", \"line\": <line number in "
+    "the new file or null>, \"summary\": \"<one sentence>\", \"why\": \"<the "
+    "input or state that makes it go wrong, one or two sentences>\", "
+    "\"confidence\": \"high\"|\"medium\"|\"low\"}. \"blocking\" is true only for "
+    "an \"issue\" that must change before merge. An empty array [] is a valid "
+    "answer."
+)
+SUMMARY_SYSTEM_PROMPT = (
+    "You summarise a code review. Answer with one sentence of at most 40 words "
+    "that says what the pull request does and the main reason for the verdict. "
+    "No preamble, no list, no JSON."
+)
+
+
+class ReviewError(Exception):
+    pass
+
+
+@dataclasses.dataclass
+class ReviewConfig:
+    target: str
+    model: str
+    base_url: str
+    auth_token: str
+    full_file_lines: int
+    prompt_chars: int
+    max_tokens: int
+    post: bool
+    as_json: bool
+
+
+@dataclasses.dataclass
+class Finding:
+    label: str
+    blocking: bool
+    path: str
+    line: int | None
+    summary: str
+    why: str
+    confidence: str
+
+
+@dataclasses.dataclass
+class Note:
+    path: str
+    note: str
+
+
+@dataclasses.dataclass
+class Source:
+    path: str
+    diff: str
+    line_count: int
+    text: str | None
+
+
+@dataclasses.dataclass
+class FallowResult:
+    status: str
+    lines: list
+
+    @property
+    def failed(self):
+        return self.status == "fail"
+
+
+@dataclasses.dataclass
+class Review:
+    meta: dict
+    verdict: str
+    summary: str
+    findings: list
+    checks: str
+    fallow: FallowResult
+    notes: list
+
+
+def positive_int(text):
+    value = int(text)
+    if value < 1:
+        raise argparse.ArgumentTypeError("must be at least 1")
+    return value
+
+
+def parse_args(argv):
+    parser = argparse.ArgumentParser(
+        description="Review a GitHub pull request with a local /v1/messages model, one file per request."
+    )
+    parser.add_argument("target", help="pull request number, URL or branch, as gh accepts it")
+    parser.add_argument("--model", required=True)
+    parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
+    parser.add_argument("--auth-token", default=DEFAULT_AUTH_TOKEN)
+    parser.add_argument("--full-file-lines", type=positive_int, default=DEFAULT_FULL_FILE_LINES)
+    parser.add_argument("--prompt-chars", type=positive_int, default=DEFAULT_PROMPT_CHARS)
+    parser.add_argument("--max-tokens", type=positive_int, default=DEFAULT_MAX_TOKENS)
+    parser.add_argument("--post", action="store_true")
+    parser.add_argument("--json", dest="as_json", action="store_true")
+    return ReviewConfig(**vars(parser.parse_args(argv)))
+
+
+def capture(args, cwd=None, stdin=None):
+    try:
+        return subprocess.run(
+            args, cwd=cwd, input=stdin, capture_output=True, text=True, check=False
+        )
+    except OSError as error:
+        return subprocess.CompletedProcess(args, 127, "", str(error))
+
+
+def run(args, cwd=None, stdin=None):
+    completed = capture(args, cwd, stdin)
+    if completed.returncode != 0:
+        raise ReviewError(f"{args[0]} failed: {completed.stderr.strip()}")
+    return completed.stdout
+
+
+def load_json(text, source):
+    try:
+        return json.loads(text)
+    except ValueError as error:
+        raise ReviewError(f"{source} returned no JSON") from error
+
+
+def repo_root():
+    completed = capture(["git", "rev-parse", "--show-toplevel"])
+    if completed.returncode != 0:
+        raise ReviewError("not inside a git repository")
+    return Path(completed.stdout.strip())
+
+
+def pr_metadata(root, target):
+    return load_json(run(["gh", "pr", "view", target, "--json", PR_FIELDS], root), "gh pr view")
+
+
+def fetch_head(root, meta, ref):
+    number, base = meta["number"], meta["baseRefName"]
+    run(["git", "fetch", "-q", "origin", f"refs/pull/{number}/head:{ref}", base], root)
+    return run(["git", "merge-base", ref, f"origin/{base}"], root).strip()
+
+
+def changed_paths(root, merge_base, ref):
+    return run(["git", "diff", "--name-only", merge_base, ref], root).splitlines()
+
+
+def git_blob(root, ref, path):
+    completed = subprocess.run(
+        ["git", "show", f"{ref}:{path}"], cwd=root, capture_output=True, check=False
+    )
+    return completed.stdout if completed.returncode == 0 else None
+
+
+def skip_reason(path, blob):
+    if blob is None:
+        return "deleted"
+    if b"\0" in blob:
+        return "binary"
+    if any(part in path for part in SKIPPED_PATH_PARTS) or path.endswith(SKIPPED_SUFFIXES):
+        return "generated or vendored path"
+    return None
+
+
+def source_for(root, merge_base, ref, path, blob, limit):
+    text = blob.decode("utf-8", errors="replace")
+    line_count = len(text.splitlines())
+    diff = run(["git", "diff", f"-U{DIFF_CONTEXT_LINES}", merge_base, ref, "--", path], root)
+    return Source(path, diff, line_count, text if line_count <= limit else None)
+
+
+def gather_sources(root, merge_base, ref, paths, limit):
+    sources, notes = [], []
+    for path in paths:
+        blob = git_blob(root, ref, path)
+        reason = skip_reason(path, blob)
+        if reason:
+            notes.append(Note(path, f"skipped ({reason})"))
+        else:
+            sources.append(source_for(root, merge_base, ref, path, blob, limit))
+    return sources, notes
+
+
+def existing_comments(root, number):
+    completed = capture(
+        [
+            "gh",
+            "api",
+            f"repos/{{owner}}/{{repo}}/pulls/{number}/comments",
+            "--paginate",
+            "--jq",
+            COMMENTS_JQ,
+        ],
+        root,
+    )
+    if completed.returncode != 0:
+        return ""
+    return completed.stdout.strip()
+
+
+def check_summary(root, target):
+    completed = capture(["gh", "pr", "checks", target, "--json", "name,bucket"], root)
+    if completed.returncode not in CHECKS_OK_EXIT_CODES:
+        return "CI unavailable"
+    try:
+        buckets = [check["bucket"] for check in json.loads(completed.stdout)]
+    except (ValueError, KeyError, TypeError):
+        return "CI unavailable"
+    counts = {name: buckets.count(name) for name in ("pass", "fail", "pending")}
+    return f"CI {counts['pass']} pass, {counts['fail']} fail, {counts['pending']} pending"
+
+
+def nearest_package_dir(root, path):
+    directory = (root / path).parent
+    while not (directory / "package.json").is_file():
+        if directory == root or directory.parent == directory:
+            return None
+        directory = directory.parent
+    return directory
+
+
+def fallow_runner(package_dir):
+    found = shutil.which("fallow")
+    if found:
+        return [found]
+    local = package_dir / "node_modules" / ".bin" / "fallow"
+    if os.access(local, os.X_OK):
+        return [str(local)]
+    return ["npx", "-y", "fallow"]
+
+
+def parse_json_object(text):
+    try:
+        value = json.loads(text)
+    except ValueError:
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def fallow_error(completed, report):
+    if report is not None and "error" in report:
+        return str(report["error"])
+    tail = completed.stderr.strip().splitlines()
+    return tail[-1] if tail else f"exit status {completed.returncode}"
+
+
+def fallow_lines(report_text):
+    library = Path(__file__).resolve().parent.parent / FALLOW_LIB
+    program = run(["bash", "-c", 'source "$1" && fallow_report_filter', "_", str(library)])
+    return run(["jq", "-r", program], stdin=report_text).splitlines()
+
+
+def fallow_result(root, merge_base, paths):
+    typescript = [path for path in paths if path.endswith(TYPESCRIPT_SUFFIXES)]
+    if not typescript:
+        return FallowResult(NOT_RUN_NO_TYPESCRIPT, [])
+    package_dir = nearest_package_dir(root, typescript[0])
+    if package_dir is None:
+        return FallowResult("did not run: no package.json above the changed TypeScript", [])
+    args = [*fallow_runner(package_dir), "audit", "--base", merge_base, "--format", "json", "--quiet"]
+    completed = capture(args, package_dir)
+    report = parse_json_object(completed.stdout)
+    if completed.returncode == FALLOW_USAGE_EXIT_CODE or report is None or "error" in report:
+        return FallowResult(f"did not run: {fallow_error(completed, report)}", [])
+    return FallowResult(str(report.get("verdict", "unknown")), fallow_lines(completed.stdout))
+
+
+def prompt_head(meta, path, comments):
+    return (
+        f"PR #{meta['number']}: {meta['title']}\n\n"
+        f"Description:\n{meta.get('body') or '(none)'}\n\n"
+        f"Already raised by reviewers:\n{comments or '(none)'}\n\n"
+        f"File: {path}\n\n"
+        f"Diff against {meta['baseRefName']}:\n"
+    )
+
+
+def omitted_section(source, limit):
+    return f"Whole file omitted: {source.line_count} lines, over the {limit}-line limit."
+
+
+def whole_file_section(source, limit):
+    if source.text is None:
+        return omitted_section(source, limit)
+    return f"Whole file at the PR head ({source.line_count} lines):\n{source.text}"
+
+
+def compose_prompt(head, diff, tail):
+    return f"{head}{diff}\n{tail}"
+
+
+def fit_prompt(head, diff, tail, omitted, limit):
+    prompt = compose_prompt(head, diff, tail)
+    if len(prompt) <= limit:
+        return prompt, False
+    prompt = compose_prompt(head, diff, omitted)
+    if len(prompt) <= limit:
+        return prompt, False
+    room = limit - len(compose_prompt(head, "", omitted)) - len(TRUNCATED_MARK)
+    return compose_prompt(head, diff[: max(room, 0)] + TRUNCATED_MARK, omitted), True
+
+
+def build_prompt(config, meta, comments, source):
+    return fit_prompt(
+        prompt_head(meta, source.path, comments),
+        source.diff,
+        whole_file_section(source, config.full_file_lines),
+        omitted_section(source, config.full_file_lines),
+        config.prompt_chars,
+    )
+
+
+def request_headers(auth_token):
+    return {
+        "content-type": "application/json",
+        "anthropic-version": ANTHROPIC_VERSION,
+        "x-api-key": auth_token,
+        "authorization": f"Bearer {auth_token}",
+    }
+
+
+def parse_event(payload):
+    try:
+        return json.loads(payload)
+    except json.JSONDecodeError as error:
+        raise ReviewError(f"malformed SSE data: {payload[:80]}") from error
+
+
+def iter_events(lines):
+    data_lines = []
+    for raw_line in lines:
+        line = raw_line.decode("utf-8").rstrip("\r\n")
+        if line.startswith("data:"):
+            data_lines.append(line[len("data:"):].lstrip())
+        elif line == "" and data_lines:
+            yield parse_event("\n".join(data_lines))
+            data_lines = []
+    if data_lines:
+        yield parse_event("\n".join(data_lines))
+
+
+def is_text_delta(event):
+    return event.get("type") == "content_block_delta" and event.get("delta", {}).get("type") == "text_delta"
+
+
+def collect_text(events):
+    pieces = []
+    for event in events:
+        if event.get("type") == "error":
+            raise ReviewError(f"server sent an error event: {event.get('error')}")
+        if is_text_delta(event):
+            pieces.append(event["delta"].get("text", ""))
+    return "".join(pieces)
+
+
+def request_text(config, system, user, max_tokens):
+    url = config.base_url.rstrip("/") + "/v1/messages"
+    body = {
+        "model": config.model,
+        "max_tokens": max_tokens,
+        "temperature": TEMPERATURE,
+        "stream": True,
+        "system": system,
+        "thinking": {"type": "disabled"},
+        "messages": [{"role": "user", "content": user}],
+    }
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(body).encode("utf-8"),
+        headers=request_headers(config.auth_token),
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
+            return collect_text(iter_events(response))
+    except urllib.error.HTTPError as error:
+        raise ReviewError(f"{url} answered HTTP {error.code}") from error
+    except (OSError, http.client.HTTPException) as error:
+        raise ReviewError(f"request to {url} failed: {error}") from error
+
+
+def finding_from(item, path):
+    confidence = item.get("confidence")
+    if confidence not in CONFIDENCE_ORDER:
+        confidence = "low"
+    label = item.get("label")
+    if label not in LABELS:
+        label = "question"
+    blocking = label == "issue" and item.get("blocking") is True
+    if confidence == "low" and label != "praise":
+        label, blocking = "question", False
+    line = item.get("line")
+    return Finding(
+        label=label,
+        blocking=blocking,
+        path=item.get("path", path),
+        line=line if isinstance(line, int) else None,
+        summary=str(item.get("summary", "")),
+        why=str(item.get("why", "")),
+        confidence=confidence,
+    )
+
+
+def parse_findings(reply, path):
+    start, end = reply.find("["), reply.rfind("]")
+    if start < 0 or end < start:
+        raise ValueError("no JSON array in the reply")
+    items = json.loads(reply[start : end + 1])
+    if not isinstance(items, list) or not all(isinstance(item, dict) for item in items):
+        raise ValueError("the JSON is not a list of objects")
+    return [finding_from(item, path) for item in items[:MAX_FINDINGS_PER_FILE]]
+
+
+def ask_for_findings(config, prompt, path):
+    return parse_findings(request_text(config, FILE_SYSTEM_PROMPT, prompt, config.max_tokens), path)
+
+
+def review_prompt_answer(config, prompt, path):
+    try:
+        return ask_for_findings(config, prompt, path)
+    except ValueError:
+        return ask_for_findings(config, prompt + RETRY_NOTE, path)
+
+
+def review_source(config, meta, comments, source, index, total):
+    started_at = time.perf_counter()
+    prompt, truncated = build_prompt(config, meta, comments, source)
+    try:
+        found = review_prompt_answer(config, prompt, source.path)
+    except ValueError:
+        found = None
+    seconds = time.perf_counter() - started_at
+    outcome = f"{len(found)} findings" if found is not None else "unparsable answer"
+    print(f"[{index}/{total}] {source.path}: {outcome} in {seconds:.1f}s", file=sys.stderr, flush=True)
+    return found, truncated
+
+
+def review_sources(config, meta, comments, sources):
+    findings, notes = [], []
+    for index, source in enumerate(sources, start=1):
+        found, truncated = review_source(config, meta, comments, source, index, len(sources))
+        if truncated:
+            notes.append(Note(source.path, TRUNCATED_NOTE))
+        if found is None:
+            notes.append(Note(source.path, "skipped (unparsable answer)"))
+        else:
+            findings.extend(found)
+    return findings, notes
+
+
+def verdict_for(findings):
+    if any(finding.blocking for finding in findings):
+        return "REQUEST CHANGES"
+    if any(finding.label in ("issue", "suggestion", "question") for finding in findings):
+        return "APPROVE WITH COMMENTS"
+    return "APPROVE"
+
+
+def location(finding):
+    if not finding.path:
+        return ""
+    if finding.line is None:
+        return f"`{finding.path}`"
+    return f"`{finding.path}:{finding.line}`"
+
+
+def finding_brief(finding):
+    where = location(finding).strip("`") or "no location"
+    return f"{finding.label}, {where}: {finding.summary}"
+
+
+def summary_sentence(config, meta, verdict, findings):
+    brief = "\n".join(finding_brief(finding) for finding in findings) or "(none)"
+    prompt = (
+        f"PR #{meta['number']}: {meta['title']}\n\n"
+        f"Description:\n{meta.get('body') or '(none)'}\n\n"
+        f"Verdict: {verdict}\n\nFindings:\n{brief}"
+    )
+    try:
+        reply = request_text(config, SUMMARY_SYSTEM_PROMPT, prompt, SUMMARY_MAX_TOKENS)
+    except ReviewError as error:
+        return f"Summary unavailable: {error}."
+    lines = reply.strip().splitlines()
+    return lines[0] if lines else "Summary unavailable: the reply was empty."
+
+
+def fallow_failure_finding():
+    return Finding(
+        "issue", True, "", None, "Fallow audit failed — see the Fallow section", "", "high"
+    )
+
+
+def build_review(config, root, meta, ref, merge_base):
+    paths = changed_paths(root, merge_base, ref)
+    sources, notes = gather_sources(root, merge_base, ref, paths, config.full_file_lines)
+    comments = existing_comments(root, meta["number"])
+    findings, review_notes = review_sources(config, meta, comments, sources)
+    fallow = fallow_result(root, merge_base, paths)
+    if fallow.failed:
+        findings.append(fallow_failure_finding())
+    verdict = verdict_for(findings)
+    summary = summary_sentence(config, meta, verdict, findings)
+    return Review(
+        meta=meta,
+        verdict=verdict,
+        summary=summary,
+        findings=findings,
+        checks=check_summary(root, config.target),
+        fallow=fallow,
+        notes=notes + review_notes,
+    )
+
+
+def review_pull_request(config):
+    root = repo_root()
+    meta = pr_metadata(root, config.target)
+    ref = REVIEW_REF.format(number=meta["number"])
+    try:
+        merge_base = fetch_head(root, meta, ref)
+        return build_review(config, root, meta, ref, merge_base)
+    finally:
+        capture(["git", "update-ref", "-d", ref], root)
+
+
+def label_text(finding):
+    if finding.label == "issue":
+        return "issue (blocking)" if finding.blocking else "issue (non-blocking)"
+    if finding.label == "suggestion":
+        return "suggestion (non-blocking)"
+    if finding.label == "nitpick":
+        return "nitpick (if-minor)"
+    return finding.label
+
+
+def finding_lines(finding):
+    head = f"- **{label_text(finding)}:** {finding.summary}"
+    where = location(finding)
+    if where:
+        head += f" — {where}"
+    lines = [head]
+    if finding.why:
+        lines.append(f"  {finding.why}")
+    return lines
+
+
+def ranked(findings):
+    return sorted(findings, key=lambda finding: CONFIDENCE_ORDER.index(finding.confidence))
+
+
+def section(title, findings):
+    if not findings:
+        return []
+    lines = [f"### {title}", ""]
+    for finding in ranked(findings):
+        lines.extend(finding_lines(finding))
+    return lines + [""]
+
+
+def fallow_section(fallow):
+    if not fallow.lines:
+        return []
+    return ["### Fallow", "", *fallow.lines, ""]
+
+
+def not_checked_section(notes):
+    lines = [
+        "### Not checked",
+        "",
+        "- Cross-file effects: each file was reviewed on its own; callers in other files were not read.",
+    ]
+    lines.extend(f"- {note.path}: {note.note}" for note in notes)
+    lines.append("- Findings with low confidence are listed as questions.")
+    return lines
+
+
+def render_report(config, review):
+    meta = review.meta
+    findings = review.findings
+    lines = [
+        f"## PR #{meta['number']}: {meta['title']}",
+        "",
+        f"**Verdict:** {review.verdict}. {review.summary}",
+        f"**Checks:** {review.checks}; Fallow {review.fallow.status}.",
+        "**Spec:** reviewed against the PR description; no linked issue was read.",
+        f"**Reviewer:** {config.model} at {config.base_url}, one request per file.",
+        "",
+    ]
+    lines += section("Blocking", [finding for finding in findings if finding.blocking])
+    lines += section(
+        "Non-blocking",
+        [f for f in findings if not f.blocking and f.label not in ("nitpick", "praise")],
+    )
+    lines += section("Nits", [finding for finding in findings if finding.label == "nitpick"])
+    lines += section("Praise", [finding for finding in findings if finding.label == "praise"])
+    lines += fallow_section(review.fallow)
+    lines += not_checked_section(review.notes)
+    return "\n".join(lines)
+
+
+def review_as_dict(review):
+    return {
+        "number": review.meta["number"],
+        "verdict": review.verdict,
+        "summary": review.summary,
+        "findings": [dataclasses.asdict(finding) for finding in review.findings],
+        "fallow": {"status": review.fallow.status, "lines": review.fallow.lines},
+        "skipped": [dataclasses.asdict(note) for note in review.notes],
+    }
+
+
+def post_review(target, report):
+    with tempfile.TemporaryDirectory() as directory:
+        body_path = Path(directory) / "review.md"
+        body_path.write_text(report + "\n", encoding="utf-8")
+        run(["gh", "pr", "review", target, "--comment", "--body-file", str(body_path)])
+
+
+def main(argv):
+    config = parse_args(argv)
+    try:
+        review = review_pull_request(config)
+        report = render_report(config, review)
+        if config.post:
+            post_review(config.target, report)
+    except ReviewError as error:
+        print(f"pr-review-local: {error}", file=sys.stderr)
+        return 1
+    if config.as_json:
+        print(json.dumps(review_as_dict(review), indent=2))
+    else:
+        print(report)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
