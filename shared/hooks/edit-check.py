@@ -19,10 +19,19 @@ EXTENSION_LANGUAGES = {
     ".sh": "shell", ".bash": "shell",
 }
 SHELL_SHEBANGS = ("#!/bin/sh", "#!/bin/bash", "#!/usr/bin/env bash", "#!/usr/bin/env sh")
+PYTHON_SHEBANGS = ("#!/usr/bin/env python", "#!/usr/bin/python")
 COMMENT_MARKERS = {"go": ("//", "/*"), "js": ("//", "/*"), "python": ("#",), "shell": ("#",)}
 ALLOWED_DIRECTIVES = ("#!", "//go:", "/// <reference")
 ESLINT_CONFIGS = ("eslint.config.js", "eslint.config.mjs", "eslint.config.cjs", "eslint.config.ts",
                   ".eslintrc", ".eslintrc.js", ".eslintrc.cjs", ".eslintrc.json", ".eslintrc.yml")
+
+
+def shebang_language(first_line):
+    if first_line.startswith(SHELL_SHEBANGS):
+        return "shell"
+    if first_line.startswith(PYTHON_SHEBANGS):
+        return "python"
+    return None
 
 
 def language_of(path):
@@ -30,8 +39,7 @@ def language_of(path):
         return EXTENSION_LANGUAGES[path.suffix]
     if path.suffix == "" and path.is_file():
         with path.open(errors="ignore") as file:
-            if file.readline().startswith(SHELL_SHEBANGS):
-                return "shell"
+            return shebang_language(file.readline())
     return None
 
 

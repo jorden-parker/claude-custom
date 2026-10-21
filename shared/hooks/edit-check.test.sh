@@ -102,6 +102,10 @@ expect allow 'python shebang'      run_write "$sandbox/py/a.py" $'#!/usr/bin/env
 expect deny  'shellcheck failure'  run_write "$sandbox/sh/a.sh" $'#!/bin/sh\necho $SHELLCHECKFAIL\n'
 expect deny  'bash syntax error'   run_write "$sandbox/sh/a.sh" $'#!/bin/sh\nif then\n'
 expect deny  'extensionless bash'  run_write "$sandbox/bin/tool" $'#!/usr/bin/env bash\necho $SHELLCHECKFAIL\n'
+expect deny  'extensionless python comment' run_write "$sandbox/bin/pytool" $'#!/usr/bin/env python3\n# note\nx = 1\n'
+expect deny  'extensionless python ruff'    run_write "$sandbox/bin/pytool" $'#!/usr/bin/env python3\nRUFFFAIL = 1\n'
+expect allow 'extensionless python clean'   run_write "$sandbox/bin/pytool" $'#!/usr/bin/env python3\nx = 1\n'
+expect allow 'extensionless unknown'        run_write "$sandbox/bin/data" $'#!/usr/bin/env node\n// note\n'
 
 expect allow 'markdown headings'   run_write "$sandbox/doc/README.md" $'# Title\n\n## Section\n'
 expect allow 'yaml is not checked' run_write "$sandbox/doc/a.yml" $'# comment\nkey: 1\n'
