@@ -40,11 +40,12 @@ EMBED_KEEP_ALIVE = "30m"
 CAMEL_BOUNDARY = re.compile(r"([a-z0-9])([A-Z])")
 ACRONYM_BOUNDARY = re.compile(r"([A-Z]+)([A-Z][a-z])")
 WORD = re.compile(r"[a-z]{2,}")
-STOP_WORDS = set(
-    "the is are was be of in to an and or for on at by with from how what where "
-    "which when who why does do did that this it its as we you our your into not "
-    "no any all some there here than then so if".split()
-)
+STOP_WORDS = {
+    "the", "is", "are", "was", "be", "of", "in", "to", "an", "and", "or", "for", "on", "at", "by",
+    "with", "from", "how", "what", "where", "which", "when", "who", "why", "does", "do", "did",
+    "that", "this", "it", "its", "as", "we", "you", "our", "your", "into", "not", "no", "any",
+    "all", "some", "there", "here", "than", "then", "so", "if",
+}
 QUERY_SUFFIXES = ("ing", "ed", "es", "s")
 VARIANT_SUFFIXES = ("", "s", "es", "ed", "ing", "er", "ers", "e", "d", "ion", "ions")
 BM25_K1 = 1.2
@@ -310,17 +311,53 @@ def result_line(chunks, position, score, top_score):
     return f"{name}:{chunk['start']}-{chunk['end']}  {score / top_score:.2f}  {chunk['preview']}"
 
 
-def refreshed_files(root):
+STATE = {"path": None, "loaded_mtime": None, "files": {}}
+
+
+def index_mtime(path):
+    try:
+        return path.stat().st_mtime_ns
+    except OSError:
+        return None
+
+
+def current_files(root):
     path = index_path(root)
-    known = load_index(path)
-    files = refreshed_index(root, known)
-    if files != known:
-        save_index(path, files)
-    return files
+    mtime = index_mtime(path)
+    if STATE["path"] != path or (mtime is not None and mtime != STATE["loaded_mtime"]):
+        STATE.update(path=path, loaded_mtime=mtime, files=load_index(path))
+    STATE["files"] = refreshed_index(root, STATE["files"])
+    return STATE["files"]
+
+
+def embedded_chunks(name, text):
+    chunks = file_chunks(name, text)
+    vectors = embed([chunk["text"] for chunk in chunks])
+    return [{**worded_chunk(chunk), "vector": vector} for chunk, vector in zip(chunks, vectors)]
+
+
+def lacks_vectors(entry):
+    return any("vector" not in chunk for chunk in entry["chunks"])
+
+
+def embed_missing_vectors(root, files):
+    for name, entry in files.items():
+        if not lacks_vectors(entry):
+            continue
+        text = read_text(root / name)
+        if text is not None:
+            entry["chunks"] = embedded_chunks(name, text)
 
 
 def build_index():
-    return len(refreshed_files(repo_root()))
+    root = repo_root()
+    path = index_path(root)
+    files = refreshed_index(root, load_index(path))
+    save_index(path, files)
+    if embedding_loaded():
+        embed_missing_vectors(root, files)
+        save_index(path, files)
+    return len(files)
 
 
 def rankings(chunks, query):
@@ -334,7 +371,7 @@ def rankings(chunks, query):
 
 
 def search(query, limit):
-    chunks = flat_chunks(refreshed_files(repo_root()))
+    chunks = flat_chunks(current_files(repo_root()))
     if not chunks:
         return "No indexed code yet."
     ranked, note = rankings(chunks, query)
