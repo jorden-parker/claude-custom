@@ -391,6 +391,10 @@ check_that "stderr names the CI read" err_has 'pr-review-local: reading CI check
 check_that "stderr ends with the verdict" grep -qE '^pr-review-local: REQUEST CHANGES after [0-9.]+s$' "$tmp/err"
 check_not "no heartbeat on a fast server" err_has 'waiting for the first token'
 check_not "model text stays off stdout" grep -qF '"confidence"' "$tmp/report.md"
+check_that "finding rendered as a line" grep -qE '^\[[0-9]+/[0-9]+\] src/bad\.ts:   issue \(blocking\)  src/bad\.ts:3  Null deref on empty list$' "$tmp/err"
+check_not "raw JSON is not echoed" grep -qF '"confidence"' "$tmp/err"
+check_that "unparsable reply is shown on retry" grep -qE '^\[[0-9]+/[0-9]+\] src/weird\.ts:   reply was: I think it is fine\.$' "$tmp/err"
+check_not "plain mode has no escape codes" grep -q "$(printf '\033')" "$tmp/err"
 
 review_in_work 7 --post > "$tmp/report.md" 2> "$tmp/err"
 check_eq "post run exit status" 0 "$?"

@@ -21,6 +21,8 @@ DEFAULT_MAX_TOKENS = 1500
 DEFAULT_FULL_FILE_LINES = 400
 DEFAULT_PROMPT_CHARS = 48000
 DEFAULT_HEARTBEAT_SECONDS = 10.0
+WRITING_INTERVAL_SECONDS = 0.2
+RETRY_REPLY_CHARS = 300
 DIFF_CONTEXT_LINES = 20
 NUMBER_WIDTH = 5
 HUNK_HEADER = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
@@ -276,8 +278,165 @@ def load_json(text, source):
         raise ReviewError(f"{source} returned no JSON") from error
 
 
-def progress(message):
-    print(f"pr-review-local: {message}", file=sys.stderr, flush=True)
+class Reporter:
+    def __init__(self, terminal):
+        self.terminal = terminal
+        self.lock = threading.Lock()
+        self.started_at = time.perf_counter()
+
+    def emit(self, kind, **fields):
+        event = {"t": round(time.perf_counter() - self.started_at, 2), "kind": kind, **fields}
+        with self.lock:
+            self.terminal.handle(event)
+
+    def stage(self, message):
+        self.emit("stage", message=message)
+
+    def begin(self, name, title, model, base_url):
+        self.emit("start", name=name, title=title, model=model, base_url=base_url)
+
+
+class TerminalRenderer:
+    def __init__(self, stream):
+        self.stream = stream
+        self.tag = None
+        self.handlers = {
+            "stage": self.show_stage,
+            "waiting": self.show_waiting,
+            "file_start": self.show_file_start,
+            "finding": self.show_finding,
+            "retry": self.show_retry,
+            "file_done": self.show_file_done,
+            "summary": self.show_summary,
+            "verdict": self.show_verdict,
+            "error": self.show_error,
+        }
+
+    def handle(self, event):
+        handler = self.handlers.get(event["kind"])
+        if handler is not None:
+            handler(event)
+
+    def line(self, text):
+        print(text, file=self.stream, flush=True)
+
+    def show_stage(self, event):
+        self.line(f"pr-review-local: {event['message']}")
+
+    def show_waiting(self, event):
+        self.line(f"pr-review-local: waiting for the first token, {event['seconds']:.1f}s")
+
+    def show_file_start(self, event):
+        self.tag = f"[{event['index']}/{event['total']}] {event['path']}"
+        self.line(f"{self.tag}: reviewing, {event['chars']} chars")
+
+    def show_finding(self, event):
+        finding = Finding(**event["finding"])
+        where = f"{finding.path}:{finding.line}" if finding.line is not None else finding.path
+        self.line(f"{self.tag}:   {label_text(finding)}  {where}  {finding.summary}")
+
+    def show_retry(self, event):
+        self.line(f"{self.tag}: retrying, the answer was not a JSON array")
+        self.line(f"{self.tag}:   reply was: {event['reply'].replace("\n", " ")}")
+
+    def show_file_done(self, event):
+        self.line(f"{self.tag}: {event['outcome']} in {event['seconds']:.1f}s")
+        self.tag = None
+
+    def show_summary(self, event):
+        self.line(event["text"])
+
+    def show_verdict(self, event):
+        self.line(f"pr-review-local: {event['verdict']} after {event['seconds']:.1f}s")
+
+    def show_error(self, event):
+        self.line(f"pr-review-local: {event['message']}")
+
+
+class ArrayObjectScanner:
+    def __init__(self):
+        self.depth = 0
+        self.in_string = False
+        self.escaped = False
+        self.object_chars = None
+
+    def feed(self, text):
+        completed = [self.consume(character) for character in text]
+        return [object_text for object_text in completed if object_text is not None]
+
+    def consume(self, character):
+        if self.depth == 0:
+            self.depth = 1 if character == "[" else 0
+            return None
+        if self.in_string:
+            self.update_string(character)
+        elif character == '"':
+            self.in_string = True
+        elif character in "[{":
+            self.depth += 1
+            if character == "{" and self.depth == 2:
+                self.object_chars = []
+        elif character in "]}":
+            self.depth -= 1
+            if character == "}" and self.depth == 1:
+                self.record(character)
+                return self.take_object()
+        self.record(character)
+        return None
+
+    def update_string(self, character):
+        if self.escaped:
+            self.escaped = False
+        elif character == "\\":
+            self.escaped = True
+        elif character == '"':
+            self.in_string = False
+
+    def record(self, character):
+        if self.object_chars is not None:
+            self.object_chars.append(character)
+
+    def take_object(self):
+        object_text = "".join(self.object_chars)
+        self.object_chars = None
+        return object_text
+
+
+class AnswerStream:
+    def __init__(self, reporter, index, path):
+        self.reporter = reporter
+        self.index = index
+        self.path = path
+        self.scanner = ArrayObjectScanner()
+        self.chars = 0
+        self.last_writing_at = None
+
+    def __call__(self, text):
+        self.chars += len(text)
+        for object_text in self.scanner.feed(text):
+            self.report_finding(object_text)
+        self.report_writing()
+
+    def report_finding(self, object_text):
+        try:
+            item = json.loads(object_text)
+        except ValueError:
+            return
+        if not isinstance(item, dict):
+            return
+        finding = finding_from(item, self.path)
+        self.reporter.emit("finding", index=self.index, path=self.path, finding=dataclasses.asdict(finding))
+
+    def report_writing(self):
+        now = time.perf_counter()
+        if self.last_writing_at is not None and now - self.last_writing_at < WRITING_INTERVAL_SECONDS:
+            return
+        self.last_writing_at = now
+        self.reporter.emit("writing", index=self.index, path=self.path, chars=self.chars)
+
+
+def ignore_text(text):
+    return None
 
 
 def repo_root():
@@ -513,14 +672,14 @@ def audit_at_head(root, package_dir, merge_base, ref):
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
-def fallow_result(root, merge_base, ref, paths):
+def fallow_result(root, merge_base, ref, paths, reporter):
     typescript = [path for path in paths if path.endswith(TYPESCRIPT_SUFFIXES)]
     if not typescript:
         return FallowResult(NOT_RUN_NO_TYPESCRIPT, [])
     package_dir = nearest_package_dir(root, typescript[0])
     if package_dir is None:
         return FallowResult("did not run: no package.json above the changed TypeScript", [])
-    progress(f"running Fallow in {package_dir.relative_to(root)} at the PR head")
+    reporter.stage(f"running Fallow in {package_dir.relative_to(root)} at the PR head")
     return audit_at_head(root, package_dir, merge_base, ref)
 
 
@@ -623,15 +782,16 @@ def collect_text(events, on_text):
 
 
 class Heartbeat:
-    def __init__(self, interval):
+    def __init__(self, interval, reporter):
         self.interval = interval
+        self.reporter = reporter
         self.started_at = time.perf_counter()
         self.stopped = threading.Event()
         self.thread = threading.Thread(target=self.beat, daemon=True)
 
     def beat(self):
         while not self.stopped.wait(self.interval):
-            progress(f"waiting for the first token, {time.perf_counter() - self.started_at:.1f}s")
+            self.reporter.emit("waiting", seconds=round(time.perf_counter() - self.started_at, 1))
 
     def stop(self):
         self.stopped.set()
@@ -644,23 +804,6 @@ class Heartbeat:
 
     def __exit__(self, *exc_info):
         self.stop()
-
-
-class TokenEcho:
-    def __init__(self, heartbeat):
-        self.heartbeat = heartbeat
-        self.wrote = False
-
-    def __call__(self, text):
-        self.heartbeat.stop()
-        sys.stderr.write(text)
-        sys.stderr.flush()
-        self.wrote = True
-
-    def end_line(self):
-        if self.wrote:
-            sys.stderr.write("\n")
-            sys.stderr.flush()
 
 
 def http_error_detail(error):
@@ -679,7 +822,15 @@ def http_error_detail(error):
     return body.strip()[:300]
 
 
-def request_text(config, system, user, max_tokens):
+def stop_waiting_on_first(heartbeat, on_text):
+    def on_delta(text):
+        heartbeat.stop()
+        on_text(text)
+
+    return on_delta
+
+
+def request_text(config, reporter, system, user, max_tokens, on_text):
     url = config.base_url.rstrip("/") + "/v1/messages"
     body = {
         "model": config.model,
@@ -696,19 +847,16 @@ def request_text(config, system, user, max_tokens):
         headers=request_headers(config.auth_token),
         method="POST",
     )
-    with Heartbeat(config.heartbeat_seconds) as heartbeat:
-        echo = TokenEcho(heartbeat)
+    with Heartbeat(config.heartbeat_seconds, reporter) as heartbeat:
         try:
             with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
-                return collect_text(iter_events(response), echo)
+                return collect_text(iter_events(response), stop_waiting_on_first(heartbeat, on_text))
         except urllib.error.HTTPError as error:
             detail = http_error_detail(error)
             suffix = f": {detail}" if detail else ""
             raise ReviewError(f"{url} answered HTTP {error.code}{suffix}") from error
         except (OSError, http.client.HTTPException) as error:
             raise ReviewError(f"request to {url} failed: {error}") from error
-        finally:
-            echo.end_line()
 
 
 def finding_from(item, path):
@@ -773,38 +921,39 @@ def system_prompt_for(source):
     return f"{FILE_SYSTEM_PROMPT}\n\n" + "\n".join(notes)
 
 
-def ask_for_findings(config, system, prompt, path):
-    reply = request_text(config, system, prompt, config.max_tokens)
+def ask_model(config, reporter, system, prompt, index, path):
+    stream = AnswerStream(reporter, index, path)
+    return request_text(config, reporter, system, prompt, config.max_tokens, stream)
+
+
+def review_prompt_answer(config, reporter, system, prompt, path, index):
+    reply = ask_model(config, reporter, system, prompt, index, path)
+    try:
+        return parse_findings(reply, path)
+    except ValueError:
+        reporter.emit("retry", index=index, path=path, reply=reply[:RETRY_REPLY_CHARS])
+    reply = ask_model(config, reporter, system, prompt + RETRY_NOTE, index, path)
     return parse_findings(reply, path)
 
 
-def review_prompt_answer(config, system, prompt, path, tag):
-    try:
-        return ask_for_findings(config, system, prompt, path)
-    except ValueError:
-        print(f"{tag}: retrying, the answer was not a JSON array", file=sys.stderr, flush=True)
-        return ask_for_findings(config, system, prompt + RETRY_NOTE, path)
-
-
-def review_source(config, meta, comments, source, index, total):
+def review_source(config, reporter, meta, comments, source, index, total):
     started_at = time.perf_counter()
     prompt, truncated = build_prompt(config, meta, comments, source)
-    tag = f"[{index}/{total}] {source.path}"
-    print(f"{tag}: reviewing, {len(prompt)} chars", file=sys.stderr, flush=True)
+    reporter.emit("file_start", index=index, total=total, path=source.path, chars=len(prompt))
     try:
-        found = review_prompt_answer(config, system_prompt_for(source), prompt, source.path, tag)
+        found = review_prompt_answer(config, reporter, system_prompt_for(source), prompt, source.path, index)
     except ValueError:
         found = None
     seconds = time.perf_counter() - started_at
     outcome = f"{len(found)} findings" if found is not None else "unparsable answer"
-    print(f"{tag}: {outcome} in {seconds:.1f}s", file=sys.stderr, flush=True)
+    reporter.emit("file_done", index=index, total=total, path=source.path, outcome=outcome, seconds=round(seconds, 1))
     return found, truncated
 
 
-def review_sources(config, meta, comments, sources):
+def review_sources(config, reporter, meta, comments, sources):
     findings, notes = [], []
     for index, source in enumerate(sources, start=1):
-        found, truncated = review_source(config, meta, comments, source, index, len(sources))
+        found, truncated = review_source(config, reporter, meta, comments, source, index, len(sources))
         if truncated:
             notes.append(Note(source.path, TRUNCATED_NOTE))
         if found is None:
@@ -835,7 +984,7 @@ def finding_brief(finding):
     return f"{finding.label}, {where}: {finding.summary}"
 
 
-def summary_sentence(config, meta, verdict, findings):
+def summary_sentence(config, reporter, meta, verdict, findings):
     brief = "\n".join(finding_brief(finding) for finding in findings) or "(none)"
     prompt = (
         f"{review_name(meta)}: {meta['title']}\n\n"
@@ -843,46 +992,48 @@ def summary_sentence(config, meta, verdict, findings):
         f"Verdict: {verdict}\n\nFindings:\n{brief}"
     )
     try:
-        reply = request_text(config, SUMMARY_SYSTEM_PROMPT, prompt, SUMMARY_MAX_TOKENS)
+        reply = request_text(config, reporter, SUMMARY_SYSTEM_PROMPT, prompt, SUMMARY_MAX_TOKENS, ignore_text)
     except ReviewError as error:
-        progress(f"summary failed: {error}")
+        reporter.stage(f"summary failed: {error}")
         return f"Summary unavailable: {error}."
     lines = reply.strip().splitlines()
-    return lines[0] if lines else "Summary unavailable: the reply was empty."
+    summary = lines[0] if lines else "Summary unavailable: the reply was empty."
+    reporter.emit("summary", text=summary)
+    return summary
 
 
 def fallow_failure_finding():
     return Finding("issue", True, "fallow", None, "Fallow audit failed", "see the Fallow section", "high")
 
 
-def review_comments(root, meta):
+def review_comments(root, meta, reporter):
     if meta["number"] is None:
         return ""
-    progress("reading review comments already on the PR")
+    reporter.stage("reading review comments already on the PR")
     return existing_comments(root, meta["number"])
 
 
-def ci_checks(root, config, meta):
+def ci_checks(root, config, meta, reporter):
     if meta["number"] is None:
         return NOT_CHECKED_LOCAL_RANGE
-    progress("reading CI checks")
+    reporter.stage("reading CI checks")
     return check_summary(root, config.target)
 
 
-def build_review(config, root, meta, ref, merge_base):
+def build_review(config, reporter, root, meta, ref, merge_base):
     paths = changed_paths(root, merge_base, ref)
     sources, notes = gather_sources(root, merge_base, ref, paths, config.full_file_lines)
-    progress(f"{len(sources)} files to review, {len(notes)} skipped")
-    comments = review_comments(root, meta)
-    findings, review_notes = review_sources(config, meta, comments, sources)
-    fallow = fallow_result(root, merge_base, ref, paths)
-    progress(f"Fallow {fallow.status}")
+    reporter.stage(f"{len(sources)} files to review, {len(notes)} skipped")
+    comments = review_comments(root, meta, reporter)
+    findings, review_notes = review_sources(config, reporter, meta, comments, sources)
+    fallow = fallow_result(root, merge_base, ref, paths, reporter)
+    reporter.stage(f"Fallow {fallow.status}")
     if fallow.failed:
         findings.append(fallow_failure_finding())
     verdict = verdict_for(findings)
-    progress("writing the summary")
-    summary = summary_sentence(config, meta, verdict, findings)
-    checks = ci_checks(root, config, meta)
+    reporter.stage("writing the summary")
+    summary = summary_sentence(config, reporter, meta, verdict, findings)
+    checks = ci_checks(root, config, meta, reporter)
     return Review(
         meta=meta,
         verdict=verdict,
@@ -894,15 +1045,16 @@ def build_review(config, root, meta, ref, merge_base):
     )
 
 
-def review_pull_request(config):
+def review_pull_request(config, reporter):
     root = repo_root()
-    progress(f"looking up PR {config.target}")
+    reporter.stage(f"looking up PR {config.target}")
     meta = pr_metadata(root, config.target)
+    reporter.begin(review_name(meta), meta["title"], config.model, config.base_url)
     ref = REVIEW_REF.format(number=meta["number"])
     try:
-        progress(f"fetching PR #{meta['number']} and {meta['baseRefName']}")
+        reporter.stage(f"fetching PR #{meta['number']} and {meta['baseRefName']}")
         merge_base = fetch_head(root, meta, ref)
-        return build_review(config, root, meta, ref, merge_base)
+        return build_review(config, reporter, root, meta, ref, merge_base)
     finally:
         capture(["git", "update-ref", "-d", ref], root)
 
@@ -914,10 +1066,10 @@ def split_range(commit_range):
     return parts
 
 
-def review_range(config):
+def review_range(config, reporter):
     root = repo_root()
     base, head = split_range(config.commit_range)
-    progress(f"reviewing {base}..{head}")
+    reporter.stage(f"reviewing {base}..{head}")
     base_rev = run(["git", "rev-parse", "--verify", f"{base}^{{commit}}"], root).strip()
     head_rev = run(["git", "rev-parse", "--verify", f"{head}^{{commit}}"], root).strip()
     merge_base = run(["git", "merge-base", base_rev, head_rev], root).strip()
@@ -928,8 +1080,9 @@ def review_range(config):
         "body": run(["git", "log", "-1", "--format=%b", head_rev], root).strip(),
         "baseRefName": base,
     }
-    progress("local range: no review comments or CI to read")
-    return build_review(config, root, meta, head_rev, merge_base)
+    reporter.begin(review_name(meta), meta["title"], config.model, config.base_url)
+    reporter.stage("local range: no review comments or CI to read")
+    return build_review(config, reporter, root, meta, head_rev, merge_base)
 
 
 def label_text(finding):
@@ -1027,17 +1180,18 @@ def post_review(target, report):
 
 def main(argv):
     config = parse_args(argv)
+    reporter = Reporter(TerminalRenderer(sys.stderr))
     started_at = time.perf_counter()
     try:
-        review = review_range(config) if config.commit_range is not None else review_pull_request(config)
+        review = review_range(config, reporter) if config.commit_range is not None else review_pull_request(config, reporter)
         report = render_report(config, review)
         if config.post:
-            progress(f"posting the review to {config.target}")
+            reporter.stage(f"posting the review to {config.target}")
             post_review(config.target, report)
     except ReviewError as error:
-        print(f"pr-review-local: {error}", file=sys.stderr)
+        reporter.emit("error", message=str(error))
         return 1
-    progress(f"{review.verdict} after {time.perf_counter() - started_at:.1f}s")
+    reporter.emit("verdict", verdict=review.verdict, seconds=round(time.perf_counter() - started_at, 1))
     if config.as_json:
         print(json.dumps(review_as_dict(review), indent=2))
     else:
