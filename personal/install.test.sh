@@ -243,6 +243,7 @@ check_that "claude-ollama link" test "$(readlink "$HOME/.local/bin/claude-ollama
 check_eq "claude-custom link" "$repo/bin/claude-custom" "$(readlink "$HOME/.local/bin/claude-custom")"
 check_eq "claude-tools link" "$repo/bin/claude-tools" "$(readlink "$HOME/.local/bin/claude-tools")"
 check_eq "ollama-agent link" "$repo/bin/ollama-agent" "$(readlink "$HOME/.local/bin/ollama-agent")"
+check_eq "pr-review agent link" "$repo/shared/agents/pr-review.md" "$(readlink "$HOME/.claude/agents/pr-review.md")"
 check_not "install creates no hook links" test -e "$HOME/.claude/hooks"
 for settings in "$repo"/personal/settings.tokens.json "$repo"/ollama/settings.*.json; do
   for hook_name in $(jq -r '.hooks[][].hooks[].command' "$settings" | sed -n 's#.*/shared/hooks/##p' | sort -u); do
@@ -362,6 +363,7 @@ check_not "round trip removes ollama link" test -L "$HOME/.local/bin/claude-olla
 check_not "round trip removes claude-custom link" test -L "$HOME/.local/bin/claude-custom"
 check_not "round trip removes claude-tools link" test -L "$HOME/.local/bin/claude-tools"
 check_not "round trip removes ollama-agent link" test -L "$HOME/.local/bin/ollama-agent"
+check_not "round trip removes pr-review agent link" test -L "$HOME/.claude/agents/pr-review.md"
 
 new_sandbox
 mkdir -p "$HOME/.local/bin" "$HOME/.claude/hooks"
@@ -370,6 +372,8 @@ printf 'mine\n' > "$HOME/.local/bin/claude-custom"
 printf 'old build\n' > "$HOME/.local/bin/claude-tools"
 ln -s "$sandbox/elsewhere-hook" "$HOME/.claude/hooks/bash-output-guard.py"
 ln -s "$repo/shared/hooks/edit-check.py" "$HOME/.claude/hooks/edit-check.py"
+mkdir -p "$HOME/.claude/agents"
+ln -s "$sandbox/elsewhere-agent" "$HOME/.claude/agents/pr-review.md"
 run_capture "$installer" install
 check_not "install removes a stale repo hook link" test -L "$HOME/.claude/hooks/edit-check.py"
 run_capture "$installer" uninstall
@@ -378,6 +382,8 @@ check_eq "regular file survives uninstall" "mine" "$(cat "$HOME/.local/bin/claud
 check_eq "old claude-tools binary survives install and uninstall" "old build" "$(cat "$HOME/.local/bin/claude-tools")"
 check_eq "foreign hook link survives uninstall" "$sandbox/elsewhere-hook" \
   "$(readlink "$HOME/.claude/hooks/bash-output-guard.py")"
+check_eq "foreign agent link survives install and uninstall" "$sandbox/elsewhere-agent" \
+  "$(readlink "$HOME/.claude/agents/pr-review.md")"
 
 new_sandbox
 copy_repo "$HOME/src/.claude-custom"
