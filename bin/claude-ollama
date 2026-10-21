@@ -375,6 +375,7 @@ case "${1:-}" in
     echo "doctor [size]: check models, context sizes, hooks, Ollama and the server env"
     echo "--print-config [size]: print the resolved settings and the claude command"
     echo "logs [-n LINES]: follow the Ollama server log (LaunchAgent, Homebrew service or app)"
+    echo "review [size] PR [--post]: review a pull request with the size's model, one file per request"
     exit 0 ;;
 esac
 
@@ -383,6 +384,7 @@ case "${1:-}" in
   doctor) mode=doctor; shift ;;
   --print-config) mode=print-config; shift ;;
   logs) mode=logs; shift ;;
+  review) mode=review; shift ;;
 esac
 
 [ "$mode" != logs ] || follow_logs "$@"
@@ -391,6 +393,24 @@ if ! command -v jq >/dev/null 2>&1; then
   echo "claude-ollama: jq is required (brew install jq)" >&2
   exit 1
 fi
+
+review_target=""
+if [ "$mode" = review ]; then
+  if [ $# -eq 0 ]; then
+    echo "claude-ollama review: a pull request number, URL or branch is required" >&2
+    exit 2
+  fi
+  review_target="${!#}"
+  set -- "${@:1:$#-1}"
+fi
+
+run_review() {
+  local target="$1"
+  shift
+  ensure_model
+  warm_model
+  exec "${CLAUDE_OLLAMA_REVIEWER:-$repo_dir/bin/pr-review-local}" --model "$model" --base-url "$ollama_url" "$@" "$target"
+}
 
 while [ "${1:-}" = --require-side-model ]; do
   require_side_model=1
@@ -419,6 +439,7 @@ settings_file="$profile_dir/settings.$size.json"
 case "$mode" in
   print-config) print_config; exit 0 ;;
   doctor) doctor ;;
+  review) run_review "$review_target" "$@" ;;
 esac
 
 apply_server_env
