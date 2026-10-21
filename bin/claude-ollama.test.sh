@@ -377,6 +377,35 @@ printf '<plist><dict>\n  <key>Label</key><string>local.ollama</string>\n  <key>S
 rm -f "$sandbox/tail.log"
 HOMEBREW_PREFIX="$sandbox/brew" run_capture "$repo/bin/claude-ollama" logs
 check_that "logs prefers the LaunchAgent log" grep -qxF -- "-n 50 -F $sandbox/agent-ollama.log" "$sandbox/tail.log"
+new_sandbox
+cat > "$sandbox/stubbin/pr-review-local" <<EOF
+#!/bin/sh
+echo "REVIEW: \$*"
+EOF
+chmod +x "$sandbox/stubbin/pr-review-local"
+export CLAUDE_OLLAMA_REVIEWER="$sandbox/stubbin/pr-review-local"
+run_capture "$repo/bin/claude-ollama" review
+check_eq "review without a target exits 2" 2 "$?"
+check_that "review without a target says so" grep -q 'pull request number, URL or branch is required' "$sandbox/err"
+run_capture "$repo/bin/claude-ollama" review 27b 123 </dev/null
+check_eq "review exit status" 0 "$?"
+check_that "review runs the reviewer with the size's model and server" \
+  grep -qxF "REVIEW: --model qwen3.8-27b-cc --base-url http://localhost:11434 123" "$sandbox/out"
+warm_up_logged() {
+  for _ in $(seq 50); do
+    grep -q 'api/generate' "$sandbox/curl.log" 2>/dev/null && return 0
+    sleep 0.1
+  done
+  return 1
+}
+check_that "review warms the model" warm_up_logged
+check_not "review does not launch claude" grep -q '^ARGS:' "$sandbox/out"
+run_capture "$repo/bin/claude-ollama" review 27b --post 45 </dev/null
+check_that "review passes its own flags before the target" \
+  grep -qxF "REVIEW: --model qwen3.8-27b-cc --base-url http://localhost:11434 --post 45" "$sandbox/out"
+run_capture "$repo/bin/claude-ollama" review 9 </dev/null
+check_that "review without a size uses the default" grep -q 'REVIEW: --model qwen3.8-27b-cc ' "$sandbox/out"
+unset CLAUDE_OLLAMA_REVIEWER
 run_capture "$repo/bin/claude-ollama" --help
 check_that "claude-ollama help lists logs" grep -q '^logs \[-n LINES\]' "$sandbox/out"
 
