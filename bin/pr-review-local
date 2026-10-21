@@ -83,8 +83,10 @@ FILE_SYSTEM_PROMPT = (
     "the new file or null>, \"summary\": \"<one sentence>\", \"why\": \"<the "
     "input or state that makes it go wrong, one or two sentences>\", "
     "\"confidence\": \"high\"|\"medium\"|\"low\"}. \"blocking\" is true only for "
-    "an \"issue\" that must change before merge. An empty array [] is a valid "
-    "answer."
+    "an \"issue\" where a normal, expected input gives a wrong result, a crash, "
+    "lost data or a security hole. Missing validation of malformed input, style, "
+    "and unlikely misuse are not blocking: report those as non-blocking "
+    "suggestions. An empty array [] is a valid answer."
 )
 DOC_SUFFIXES = (".md", ".mdx", ".rst", ".txt", ".adoc")
 DOC_SYSTEM_NOTE = (
