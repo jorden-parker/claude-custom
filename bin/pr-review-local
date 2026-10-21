@@ -52,6 +52,7 @@ TYPESCRIPT_SUFFIXES = (".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".c
 FALLOW_LIB = "shared/hooks/fallow-lib.sh"
 FALLOW_USAGE_EXIT_CODE = 2
 NOT_RUN_NO_TYPESCRIPT = "not run: no TypeScript changed"
+NOT_CHECKED_LOCAL_RANGE = "CI not checked (local range)"
 TRUNCATED_MARK = "\n[diff truncated]"
 TRUNCATED_NOTE = "diff truncated to fit the prompt"
 RETRY_NOTE = "\n\nYour previous answer was not a JSON array. Answer with the JSON array only."
@@ -92,7 +93,8 @@ class ReviewError(Exception):
 
 @dataclasses.dataclass
 class ReviewConfig:
-    target: str
+    target: str | None
+    commit_range: str | None
     model: str
     base_url: str
     auth_token: str
@@ -166,9 +168,15 @@ def positive_float(text):
 
 def parse_args(argv):
     parser = argparse.ArgumentParser(
-        description="Review a GitHub pull request with a local /v1/messages model, one file per request."
+        description="Review a GitHub pull request, or local commits with --range BASE..HEAD, with a local /v1/messages model, one file per request."
     )
-    parser.add_argument("target", help="pull request number, URL or branch, as gh accepts it")
+    parser.add_argument(
+        "target",
+        nargs="?",
+        default=None,
+        help="pull request number, URL or branch, as gh accepts it",
+    )
+    parser.add_argument("--range", dest="commit_range", help="review local commits BASE..HEAD instead")
     parser.add_argument("--model", required=True)
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
     parser.add_argument("--auth-token", default=DEFAULT_AUTH_TOKEN)
@@ -178,7 +186,12 @@ def parse_args(argv):
     parser.add_argument("--heartbeat-seconds", type=positive_float, default=DEFAULT_HEARTBEAT_SECONDS)
     parser.add_argument("--post", action="store_true")
     parser.add_argument("--json", dest="as_json", action="store_true")
-    return ReviewConfig(**vars(parser.parse_args(argv)))
+    options = parser.parse_args(argv)
+    if (options.target is None) == (options.commit_range is None):
+        parser.error("give a pull request or --range BASE..HEAD")
+    if options.commit_range is not None and options.post:
+        parser.error("--post needs a pull request")
+    return ReviewConfig(**vars(options))
 
 
 def capture(args, cwd=None, stdin=None):
@@ -377,9 +390,15 @@ def fallow_result(root, merge_base, ref, paths):
     return audit_at_head(root, package_dir, merge_base, ref)
 
 
+def review_name(meta):
+    if meta["number"] is not None:
+        return f"PR #{meta['number']}"
+    return meta["name"]
+
+
 def prompt_head(meta, path, comments):
     return (
-        f"PR #{meta['number']}: {meta['title']}\n\n"
+        f"{review_name(meta)}: {meta['title']}\n\n"
         f"Description:\n{meta.get('body') or '(none)'}\n\n"
         f"Already raised by reviewers:\n{comments or '(none)'}\n\n"
         f"File: {path}\n\n"
@@ -672,7 +691,7 @@ def finding_brief(finding):
 def summary_sentence(config, meta, verdict, findings):
     brief = "\n".join(finding_brief(finding) for finding in findings) or "(none)"
     prompt = (
-        f"PR #{meta['number']}: {meta['title']}\n\n"
+        f"{review_name(meta)}: {meta['title']}\n\n"
         f"Description:\n{meta.get('body') or '(none)'}\n\n"
         f"Verdict: {verdict}\n\nFindings:\n{brief}"
     )
@@ -689,12 +708,25 @@ def fallow_failure_finding():
     return Finding("issue", True, "fallow", None, "Fallow audit failed", "see the Fallow section", "high")
 
 
+def review_comments(root, meta):
+    if meta["number"] is None:
+        return ""
+    progress("reading review comments already on the PR")
+    return existing_comments(root, meta["number"])
+
+
+def ci_checks(root, config, meta):
+    if meta["number"] is None:
+        return NOT_CHECKED_LOCAL_RANGE
+    progress("reading CI checks")
+    return check_summary(root, config.target)
+
+
 def build_review(config, root, meta, ref, merge_base):
     paths = changed_paths(root, merge_base, ref)
     sources, notes = gather_sources(root, merge_base, ref, paths, config.full_file_lines)
     progress(f"{len(sources)} files to review, {len(notes)} skipped")
-    progress("reading review comments already on the PR")
-    comments = existing_comments(root, meta["number"])
+    comments = review_comments(root, meta)
     findings, review_notes = review_sources(config, meta, comments, sources)
     fallow = fallow_result(root, merge_base, ref, paths)
     progress(f"Fallow {fallow.status}")
@@ -703,8 +735,7 @@ def build_review(config, root, meta, ref, merge_base):
     verdict = verdict_for(findings)
     progress("writing the summary")
     summary = summary_sentence(config, meta, verdict, findings)
-    progress("reading CI checks")
-    checks = check_summary(root, config.target)
+    checks = ci_checks(root, config, meta)
     return Review(
         meta=meta,
         verdict=verdict,
@@ -727,6 +758,31 @@ def review_pull_request(config):
         return build_review(config, root, meta, ref, merge_base)
     finally:
         capture(["git", "update-ref", "-d", ref], root)
+
+
+def split_range(commit_range):
+    parts = commit_range.split("..")
+    if len(parts) != 2 or not all(parts):
+        raise ReviewError("--range must be BASE..HEAD")
+    return parts
+
+
+def review_range(config):
+    root = repo_root()
+    base, head = split_range(config.commit_range)
+    progress(f"reviewing {base}..{head}")
+    base_rev = run(["git", "rev-parse", "--verify", f"{base}^{{commit}}"], root).strip()
+    head_rev = run(["git", "rev-parse", "--verify", f"{head}^{{commit}}"], root).strip()
+    merge_base = run(["git", "merge-base", base_rev, head_rev], root).strip()
+    meta = {
+        "number": None,
+        "name": f"{base}..{head}",
+        "title": run(["git", "log", "-1", "--format=%s", head_rev], root).strip(),
+        "body": run(["git", "log", "-1", "--format=%b", head_rev], root).strip(),
+        "baseRefName": base,
+    }
+    progress("local range: no review comments or CI to read")
+    return build_review(config, root, meta, head_rev, merge_base)
 
 
 def label_text(finding):
@@ -784,7 +840,7 @@ def render_report(config, review):
     meta = review.meta
     findings = review.findings
     lines = [
-        f"## PR #{meta['number']}: {meta['title']}",
+        f"## {review_name(meta)}: {meta['title']}",
         "",
         f"**Verdict:** {review.verdict}. {review.summary}",
         f"**Checks:** {review.checks}; Fallow {review.fallow.status}.",
@@ -826,7 +882,7 @@ def main(argv):
     config = parse_args(argv)
     started_at = time.perf_counter()
     try:
-        review = review_pull_request(config)
+        review = review_range(config) if config.commit_range is not None else review_pull_request(config)
         report = render_report(config, review)
         if config.post:
             progress(f"posting the review to {config.target}")

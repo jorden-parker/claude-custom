@@ -387,6 +387,27 @@ check_eq "fallow is not invoked for a README-only PR" "$fallow_lines_before" "$(
 check_that "fallow not-run status on stderr" grep -qF 'pr-review-local: Fallow not run: no TypeScript changed' "$tmp/err8"
 check_not "no Fallow run line without TypeScript" grep -qF 'running Fallow' "$tmp/err8"
 
+gh_calls_before=$(grep -c '' "$tmp/gh.log")
+review_in_work --range main..widget > "$tmp/range.md" 2> "$tmp/range.err"
+check_eq "range run exit status" 0 "$?"
+check_that "range report names the range" grep -qxF '## main..widget: widget' "$tmp/range.md"
+check_that "range report finds the blocking bug" grep -qF -- '- **issue (blocking):** Null deref on empty list' "$tmp/range.md"
+check_that "range report says CI was not checked" grep -qF 'CI not checked (local range)' "$tmp/range.md"
+check_eq "range run never calls gh" "$gh_calls_before" "$(grep -c '' "$tmp/gh.log")"
+check_that "range prompts name the range" inspect request-user-has "$tmp/requests.log" 'File: src/bad.ts' 'main..widget: widget'
+review_in_work --range main..widget --json > "$tmp/range.json" 2>/dev/null
+check_eq "range json lists three findings" 3 "$(jq '.findings | length' "$tmp/range.json")"
+check_eq "range json has no PR number" null "$(jq '.number' "$tmp/range.json")"
+review_in_work 7 --range main..widget > /dev/null 2> "$tmp/both.err"
+check_eq "PR and range together is a usage error" 2 "$?"
+review_in_work --range main..widget --post > /dev/null 2> "$tmp/rangepost.err"
+check_eq "range with --post is a usage error" 2 "$?"
+review_in_work --range main > /dev/null 2> "$tmp/badrange.err"
+check_eq "range without .. exits 1" 1 "$?"
+check_that "bad range is explained" grep -qF 'pr-review-local: --range must be BASE..HEAD' "$tmp/badrange.err"
+review_in_work > /dev/null 2> "$tmp/none.err"
+check_eq "no PR and no range is a usage error" 2 "$?"
+
 stop_stub
 start_stub 0.6
 review_in_work 8 --heartbeat-seconds 0.2 > "$tmp/slow.out" 2> "$tmp/slow.err"
