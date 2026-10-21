@@ -176,7 +176,10 @@ and vendored paths, runs Fallow on changed TypeScript
 of the PR head that it removes afterwards, and sends one `/v1/messages` request
 per changed file: the PR description, the file's diff with 20 lines of context,
 the whole file when it is under 400 lines, comments reviewers already left, and
-a checklist. The model answers with a JSON array of findings; a reply that is
+a checklist. The prompts number every diff and file line, so findings name the
+line in the new file. Documentation files (`.md`, `.mdx`, `.rst`, `.txt`,
+`.adoc`) are reviewed from the diff only, with a docs note, and their findings
+never block. The model answers with a JSON array of findings; a reply that is
 not JSON is retried once and then the file is listed as skipped. The verdict is
 a fixed rule (any blocking finding → REQUEST CHANGES; any other finding →
 APPROVE WITH COMMENTS; else APPROVE); the model only writes the one-sentence
