@@ -67,7 +67,7 @@ expect_stderr_has() {
 
 mkdir -p "$sandbox/go" && printf "module m\n" > "$sandbox/go/go.mod"
 expect allow 'clean go'            run_write "$sandbox/go/main.go" $'package main\n\nfunc main() {}\n'
-expect deny  'unformatted go'      run_write "$sandbox/go/main.go" $'package main\n\nfunc main() {} // UNFORMATTED\n'
+expect deny  'unformatted go'      run_write "$sandbox/go/main.go" $'package main\n\nvar UNFORMATTED = 1\n'
 expect_stderr_has 'unformatted go' 'gofmt'
 expect_stderr_has 'unformatted go names the tool' 'gofmt: '
 expect deny  'go vet failure'      run_write "$sandbox/go/main.go" $'package main\n\nvar VETFAIL = 1\n'
@@ -110,6 +110,20 @@ expect allow 'extensionless unknown'        run_write "$sandbox/bin/data" $'#!/u
 expect allow 'markdown headings'   run_write "$sandbox/doc/README.md" $'# Title\n\n## Section\n'
 expect allow 'yaml is not checked' run_write "$sandbox/doc/a.yml" $'# comment\nkey: 1\n'
 
+expect deny  'trailing python noqa'      run_write "$sandbox/py/a.py" $'import os  # noqa: F401\n'
+expect deny  'trailing go nolint'        run_write "$sandbox/go/main.go" $'package main\n\nfunc main() {} //nolint:all\n'
+expect deny  'trailing ts eslint'        run_write "$js_project/src/a.ts" $'export const a = 1; // eslint-disable-line\n'
+expect deny  'trailing shell comment'    run_write "$sandbox/sh/a.sh" $'#!/bin/sh\nrm -rf x  # careful\n'
+expect allow 'hash inside python string' run_write "$sandbox/py/a.py" $'CSS = """\n  color: #fff;\n"""\nURL = "http://x/#y"\n'
+expect allow 'slashes inside go string'  run_write "$sandbox/go/main.go" $'package main\n\nvar u = "https://example.com"\n'
+expect allow 'shell parameter hashes'    run_write "$sandbox/sh/a.sh" $'#!/bin/sh\necho "$#" ${#x} ${f#"$r"/}\n'
+expect allow 'python floor division'     run_write "$sandbox/py/a.py" $'x = 7 // 2\n'
+printf 'x = 2  # kept\n' > "$sandbox/py/b.py"
+expect allow 'edit keeps trailing comment' run_edit "$sandbox/py/b.py" 'x = 1' 'x = 2'
+printf 'x = 2  # added\n' > "$sandbox/py/c.py"
+expect deny  'edit adds trailing comment' run_edit "$sandbox/py/c.py" 'x = 1' 'x = 2  # added'
+expect_stderr_has 'edit adds trailing comment' '# added'
+
 rm -rf "$sandbox/cache"
 rm -f "$sandbox/go/main.go"
 expect allow 'first clean write runs gofmt' run_write "$sandbox/go/main.go" $'package main\n\nfunc main() {}\n'
@@ -120,7 +134,7 @@ check_eq_lines() { [ "$(wc -l < "$1" | tr -d ' ')" = "$2" ] || { echo "FAIL: $3"
 check_eq_lines "$sandbox/gofmt.log" 0 'unchanged content skips gofmt'
 expect allow 'changed content runs gofmt' run_write "$sandbox/go/main.go" $'package main\n\nfunc main() { run() }\n'
 check_eq_lines "$sandbox/gofmt.log" 1 'changed content runs gofmt once'
-expect deny  'failure is never cached' run_write "$sandbox/go/main.go" $'package main\n\nfunc main() {} // UNFORMATTED\n'
-expect deny  'failure is re-run next time' run_write "$sandbox/go/main.go" $'package main\n\nfunc main() {} // UNFORMATTED\n'
+expect deny  'failure is never cached' run_write "$sandbox/go/main.go" $'package main\n\nvar UNFORMATTED = 1\n'
+expect deny  'failure is re-run next time' run_write "$sandbox/go/main.go" $'package main\n\nvar UNFORMATTED = 1\n'
 
 [ "$failures" -eq 0 ] && echo "all passed" || { echo "$failures failed"; exit 1; }

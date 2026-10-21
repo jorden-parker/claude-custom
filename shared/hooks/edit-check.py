@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 import hashlib
+import io
 import json
 import os
 import shutil
 import subprocess
 import sys
 import time
+import tokenize
+from collections import Counter
 from pathlib import Path
 
 OUTPUT_LINE_LIMIT = 40
@@ -22,6 +25,7 @@ SHELL_SHEBANGS = ("#!/bin/sh", "#!/bin/bash", "#!/usr/bin/env bash", "#!/usr/bin
 PYTHON_SHEBANGS = ("#!/usr/bin/env python", "#!/usr/bin/python")
 COMMENT_MARKERS = {"go": ("//", "/*"), "js": ("//", "/*"), "python": ("#",), "shell": ("#",)}
 ALLOWED_DIRECTIVES = ("#!", "//go:", "/// <reference")
+QUOTES = "'\"`"
 ESLINT_CONFIGS = ("eslint.config.js", "eslint.config.mjs", "eslint.config.cjs", "eslint.config.ts",
                   ".eslintrc", ".eslintrc.js", ".eslintrc.cjs", ".eslintrc.json", ".eslintrc.yml")
 
@@ -142,25 +146,93 @@ def committed_text(path):
     return result.stdout if result.returncode == 0 else ""
 
 
-def written_pairs(path, tool_input):
+def starts_comment(line, index, markers):
+    at_word_start = index == 0 or line[index - 1].isspace()
+    return at_word_start and line.startswith(markers, index)
+
+
+def line_comment(line, markers):
+    quote = None
+    index = 0
+    while index < len(line):
+        char = line[index]
+        if char == "\\":
+            index += 2
+            continue
+        if quote:
+            quote = None if char == quote else quote
+        elif char in QUOTES:
+            quote = char
+        elif starts_comment(line, index, markers):
+            return line[index:].strip()
+        index += 1
+    return None
+
+
+def scanned_comments(text, markers):
+    comments = (line_comment(line, markers) for line in text.splitlines())
+    return [comment for comment in comments if comment]
+
+
+def python_comments(text):
+    try:
+        tokens = list(tokenize.generate_tokens(io.StringIO(text).readline))
+    except (tokenize.TokenError, SyntaxError):
+        return scanned_comments(text, COMMENT_MARKERS["python"])
+    return [token.string.strip() for token in tokens if token.type == tokenize.COMMENT]
+
+
+def comments_in(text, language):
+    if language == "python":
+        found = python_comments(text)
+    else:
+        found = scanned_comments(text, COMMENT_MARKERS[language])
+    return [comment for comment in found if not comment.startswith(ALLOWED_DIRECTIVES)]
+
+
+def new_comments(before, after, language):
+    return list((Counter(comments_in(after, language)) - Counter(comments_in(before, language))).elements())
+
+
+def edits_of(tool_input):
     if "edits" in tool_input:
-        return [(edit.get("old_string", ""), edit.get("new_string", "")) for edit in tool_input["edits"]]
+        return tool_input["edits"]
     if "new_string" in tool_input:
-        return [(tool_input.get("old_string", ""), tool_input["new_string"])]
-    return [(committed_text(path), tool_input.get("content", ""))]
+        return [tool_input]
+    return None
 
 
-def is_comment(line, markers):
-    return line.startswith(markers) and not line.startswith(ALLOWED_DIRECTIVES)
+def reverted(text, edit):
+    new = edit.get("new_string", "")
+    if not new:
+        return text
+    return text.replace(new, edit.get("old_string", ""), -1 if edit.get("replace_all") else 1)
+
+
+def text_before(after, edits):
+    for edit in reversed(edits):
+        after = reverted(after, edit)
+    return after
+
+
+def is_applied(after, edits):
+    return all(edit.get("new_string", "") in after for edit in edits)
+
+
+def written_pairs(path, tool_input):
+    edits = edits_of(tool_input)
+    if edits is None:
+        return [(committed_text(path), tool_input.get("content", ""))]
+    after = path.read_text(errors="ignore") if path.is_file() else ""
+    if after and is_applied(after, edits):
+        return [(text_before(after, edits), after)]
+    return [(edit.get("old_string", ""), edit.get("new_string", "")) for edit in edits]
 
 
 def added_comments(path, tool_input, language):
-    markers = COMMENT_MARKERS[language]
     comments = []
-    for old, new in written_pairs(path, tool_input):
-        existing = {line.strip() for line in old.splitlines()}
-        comments += [line.strip() for line in new.splitlines()
-                     if is_comment(line.strip(), markers) and line.strip() not in existing]
+    for before, after in written_pairs(path, tool_input):
+        comments += new_comments(before, after, language)
     return comments
 
 
