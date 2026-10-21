@@ -95,6 +95,47 @@ DOC_SYSTEM_NOTE = (
     "blocking."
 )
 DOC_OMITTED_NOTE = "Whole file omitted: documentation is reviewed from the diff."
+LANGUAGE_NOTES = {
+    "python": (
+        "Python pitfalls: slice and range bounds (off by one); // floors where / "
+        "was meant; mutable default arguments; hand-parsed sys.argv where an "
+        "option can be taken for a positional argument; a bare except that hides "
+        "errors; subprocess with shell=True or a command string built from input."
+    ),
+    "shell": (
+        "Shell pitfalls: unquoted variables (word splitting, globbing, an empty "
+        "value); ${VAR-default} keeps an empty VAR, only ${VAR:-default} replaces "
+        "it; rm -rf on a path built from a variable that may be empty; set -e does "
+        "not stop failures inside pipelines, conditions or command substitutions."
+    ),
+    "typescript": (
+        "TypeScript/JavaScript pitfalls: a promise that is not awaited, so work "
+        "finishes after the function returns; .then callbacks that push into a "
+        "result that is returned too early; loop bounds that skip the first or "
+        "last item; == where === was meant; an unhandled rejection."
+    ),
+    "go": (
+        "Go pitfalls: an ignored error return, including from Write and Close; "
+        "defer inside a loop holds every resource until the function returns; a "
+        "write to a nil map; a goroutine that captures loop state; slices that "
+        "share a backing array."
+    ),
+    "test": (
+        "Test pitfalls: an assertion that cannot fail (is not None, the truthiness "
+        "of a value that is always set); a test that does not exercise the changed "
+        "behaviour; a test that only checks that no exception was raised."
+    ),
+}
+TEST_NAME_MARKS = ("_test.", ".test.", ".spec.")
+TEST_DIR_PARTS = ("tests", "__tests__")
+SUFFIX_LANGUAGES = {
+    ".py": "python",
+    ".sh": "shell",
+    ".bash": "shell",
+    ".go": "go",
+    **{suffix: "typescript" for suffix in TYPESCRIPT_SUFFIXES},
+}
+SHEBANG_LANGUAGES = (("python", "python"), ("bash", "shell"), ("/sh", "shell"), ("zsh", "shell"), ("node", "typescript"))
 SUMMARY_SYSTEM_PROMPT = (
     "You summarise a code review. Answer with one sentence of at most 40 words "
     "that says what the pull request does and the main reason for the verdict. "
@@ -144,6 +185,7 @@ class Source:
     diff: str
     line_count: int
     text: str | None
+    languages: tuple
 
 
 @dataclasses.dataclass
@@ -311,6 +353,37 @@ def is_doc(path):
     return path.endswith(DOC_SUFFIXES)
 
 
+def is_test_path(path):
+    name = Path(path).name
+    directories = Path(path).parts[:-1]
+    return (
+        name.startswith("test_")
+        or any(mark in name for mark in TEST_NAME_MARKS)
+        or any(part in TEST_DIR_PARTS for part in directories)
+    )
+
+
+def language_by_shebang(first_line):
+    if not first_line.startswith("#!"):
+        return None
+    for marker, language in SHEBANG_LANGUAGES:
+        if marker in first_line:
+            return language
+    return None
+
+
+def language_of(path, first_line):
+    return SUFFIX_LANGUAGES.get(Path(path).suffix) or language_by_shebang(first_line)
+
+
+def languages_for(path, first_line):
+    languages = ["test"] if is_test_path(path) else []
+    language = language_of(path, first_line)
+    if language is not None:
+        languages.append(language)
+    return tuple(languages)
+
+
 def whole_text_for(path, text, line_count, limit):
     if is_doc(path) or line_count > limit:
         return None
@@ -321,7 +394,8 @@ def source_for(root, merge_base, ref, path, blob, limit):
     text = blob.decode("utf-8", errors="replace")
     line_count = len(text.splitlines())
     diff = run(["git", "diff", f"-U{DIFF_CONTEXT_LINES}", merge_base, ref, "--", path], root)
-    return Source(path, numbered_diff(diff), line_count, whole_text_for(path, text, line_count, limit))
+    languages = languages_for(path, text.partition("\n")[0])
+    return Source(path, numbered_diff(diff), line_count, whole_text_for(path, text, line_count, limit), languages)
 
 
 def gather_sources(root, merge_base, ref, paths, limit):
@@ -688,23 +762,26 @@ def parse_findings(reply, path):
     return [finding_from(item, path) for item in items[:MAX_FINDINGS_PER_FILE]]
 
 
-def system_prompt_for(path):
-    if is_doc(path):
+def system_prompt_for(source):
+    if is_doc(source.path):
         return f"{FILE_SYSTEM_PROMPT}\n\n{DOC_SYSTEM_NOTE}"
-    return FILE_SYSTEM_PROMPT
+    notes = [LANGUAGE_NOTES[name] for name in source.languages if name in LANGUAGE_NOTES]
+    if not notes:
+        return FILE_SYSTEM_PROMPT
+    return f"{FILE_SYSTEM_PROMPT}\n\n" + "\n".join(notes)
 
 
-def ask_for_findings(config, prompt, path):
-    reply = request_text(config, system_prompt_for(path), prompt, config.max_tokens)
+def ask_for_findings(config, system, prompt, path):
+    reply = request_text(config, system, prompt, config.max_tokens)
     return parse_findings(reply, path)
 
 
-def review_prompt_answer(config, prompt, path, tag):
+def review_prompt_answer(config, system, prompt, path, tag):
     try:
-        return ask_for_findings(config, prompt, path)
+        return ask_for_findings(config, system, prompt, path)
     except ValueError:
         print(f"{tag}: retrying, the answer was not a JSON array", file=sys.stderr, flush=True)
-        return ask_for_findings(config, prompt + RETRY_NOTE, path)
+        return ask_for_findings(config, system, prompt + RETRY_NOTE, path)
 
 
 def review_source(config, meta, comments, source, index, total):
@@ -713,7 +790,7 @@ def review_source(config, meta, comments, source, index, total):
     tag = f"[{index}/{total}] {source.path}"
     print(f"{tag}: reviewing, {len(prompt)} chars", file=sys.stderr, flush=True)
     try:
-        found = review_prompt_answer(config, prompt, source.path, tag)
+        found = review_prompt_answer(config, system_prompt_for(source), prompt, source.path, tag)
     except ValueError:
         found = None
     seconds = time.perf_counter() - started_at

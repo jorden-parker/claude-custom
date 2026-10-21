@@ -236,6 +236,11 @@ printf 'More usage.\n' >> "$tmp/work/README.md"
 printf 'const appended = 1;\n' >> "$tmp/work/big.ts"
 printf 'more\n' >> "$tmp/work/pnpm-lock.yaml"
 printf 'PNG\0data\n' > "$tmp/work/img.png"
+mkdir -p "$tmp/work/bin"
+cat > "$tmp/work/bin/run" <<'SH'
+#!/bin/bash
+echo "$1"
+SH
 git -C "$tmp/work" add -A
 git -C "$tmp/work" commit -q -m "widget"
 git -C "$tmp/work" push -q origin HEAD:refs/pull/7/head
@@ -348,6 +353,10 @@ ok_line=$(git -C "$tmp/work" show widget:src/ok.ts | grep -n 'export const added
 check_that "diff lines carry new-file numbers" inspect request-user-has "$tmp/requests.log" 'File: src/ok.ts' '| +export const added = 2;'
 check_that "whole file lines carry numbers" inspect request-user-has "$tmp/requests.log" 'File: src/ok.ts' '| export const added = 2;'
 check_that "prompt says to use the numbers" inspect request-system-has "$tmp/requests.log" 'File: src/ok.ts' 'starts with its line number in the new file'
+check_that "ts prompt has the TypeScript notes" inspect request-system-has "$tmp/requests.log" 'File: src/ok.ts' 'TypeScript/JavaScript pitfalls'
+check_that "ts prompt has no Python notes" inspect request-system-lacks "$tmp/requests.log" 'File: src/ok.ts' 'Python pitfalls'
+check_that "docs prompt has no language notes" inspect request-system-lacks "$tmp/requests.log" 'File: README.md' 'pitfalls'
+check_that "shebang script gets the shell notes" inspect request-system-has "$tmp/requests.log" 'File: bin/run' 'Shell pitfalls'
 check_that "added line carries its exact new-file number" inspect request-user-has "$tmp/requests.log" 'File: src/ok.ts' "$(printf '%5d | +export const added = 2;' "$ok_line")"
 check_that "requests name the model and version" inspect every-request-ok "$tmp/requests.log" stub-model
 check_that "summary request is last" inspect last-system-starts "$tmp/requests.log" 'You summarise'
