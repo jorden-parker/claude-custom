@@ -17,7 +17,54 @@ const runningFileEvents = [
   { kind: "retry", index: 1, path: "src/a.ts", reply: hostile },
 ];
 
+function eventsWithFinding(summary: string, why: string) {
+  return [
+    { kind: "start", name: "PR #7", title: "t", model: "qwen", base_url: "" },
+    { kind: "file_start", index: 1, total: 1, path: "src/a.ts", chars: 10 },
+    {
+      kind: "finding",
+      index: 1,
+      path: "src/a.ts",
+      finding: { label: "issue", blocking: true, path: "src/a.ts", line: 3, summary, why, confidence: "high" },
+    },
+  ];
+}
+
 describe("ReviewBody", () => {
+  it("renders inline markdown in a finding summary", () => {
+    const state = reduceEvents(eventsWithFinding("Use `shell=False` and **quote** it", ""));
+    const markup = renderToStaticMarkup(<ReviewBody state={state} elapsedSeconds={5} />);
+
+    expect(markup).toContain("<code>shell=False</code>");
+    expect(markup).toContain("<strong>quote</strong>");
+  });
+
+  it("never renders raw HTML from finding text", () => {
+    const state = reduceEvents(eventsWithFinding(hostile, hostile));
+    const markup = renderToStaticMarkup(<ReviewBody state={state} elapsedSeconds={5} />);
+
+    expect(markup).not.toContain("<img");
+  });
+
+  it("drops a javascript link target from finding text", () => {
+    const state = reduceEvents(eventsWithFinding("[x](javascript:alert(1))", ""));
+    const markup = renderToStaticMarkup(<ReviewBody state={state} elapsedSeconds={5} />);
+
+    expect(markup).not.toContain("javascript:");
+  });
+
+  it("shows a retry reply as literal text", () => {
+    const state = reduceEvents([
+      { kind: "start", name: "PR #7", title: "t", model: "qwen", base_url: "" },
+      { kind: "file_start", index: 1, total: 1, path: "src/a.ts", chars: 10 },
+      { kind: "retry", index: 1, path: "src/a.ts", reply: "**not bold**" },
+    ]);
+    const markup = renderToStaticMarkup(<ReviewBody state={state} elapsedSeconds={5} />);
+
+    expect(markup).toContain("**not bold**");
+    expect(markup).not.toContain("<strong>");
+  });
+
   it("renders model text as text, never as HTML", () => {
     const state = reduceEvents([...runningFileEvents, { kind: "summary", text: hostile }]);
     const markup = renderToStaticMarkup(<ReviewBody state={state} elapsedSeconds={5} />);

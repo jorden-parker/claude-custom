@@ -29,7 +29,7 @@ import {
 } from "@/lib/review-state";
 import { headerStatusLabel, statusTextClass } from "@/lib/status-style";
 import { verdictClass } from "@/lib/verdict-style";
-import { MarkdownText } from "./markdown-text";
+import { InlineMarkdown, MarkdownText } from "./markdown-text";
 
 type ReviewBodyProps = {
   state: ReviewState;
@@ -151,9 +151,12 @@ function FileTask({ file }: { file: FileView }) {
           <FindingMessage key={index} finding={finding} />
         ))}
         {file.retries.map((reply, index) => (
-          <p key={index} className="break-words text-xs text-muted-foreground">
-            retry: {reply}
-          </p>
+          <pre
+            key={index}
+            className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-muted p-2 font-mono text-xs text-muted-foreground"
+          >
+            {reply}
+          </pre>
         ))}
       </TaskContent>
     </Task>
@@ -207,8 +210,14 @@ function FindingMessage({ finding }: { finding: FindingView }) {
           <code className="break-all rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{locationOf(finding)}</code>
           <span className="text-xs text-muted-foreground">confidence: {finding.confidence}</span>
         </div>
-        <p className="mt-2 break-words text-sm font-medium">{finding.summary}</p>
-        {finding.why ? <p className="break-words text-sm text-muted-foreground">{finding.why}</p> : null}
+        <div className="mt-2 break-words text-sm font-medium">
+          <InlineMarkdown>{finding.summary}</InlineMarkdown>
+        </div>
+        {finding.why ? (
+          <div className="break-words text-sm text-muted-foreground">
+            <InlineMarkdown>{finding.why}</InlineMarkdown>
+          </div>
+        ) : null}
       </MessageContent>
     </Message>
   );
