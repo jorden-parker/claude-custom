@@ -190,7 +190,7 @@ def words(text):
 
 def stem(word):
     for suffix in QUERY_SUFFIXES:
-        if word.endswith(suffix) and len(word) - len(suffix) >= 4 and not word.endswith("ss"):
+        if word.endswith(suffix) and len(word) - len(suffix) >= 3 and not word.endswith("ss"):
             word = word[: -len(suffix)]
             break
     if len(word) >= 4 and word[-1] == word[-2] and word[-1] not in "aeiou":

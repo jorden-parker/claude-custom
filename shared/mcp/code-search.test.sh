@@ -170,6 +170,7 @@ mkdir -p "$repo/src"
 git -C "$repo" init -q
 printf 'def check_password(user, password):\n    return verify_hash(user.password_hash, password)\n' > "$repo/src/auth.py"
 printf '#!/usr/bin/env python3\ndef draw_chart(points):\n    return render_svg_axis(points)\n' > "$repo/src/chart.py"
+printf 'def save_index(path):\n    return write_atomic(path)\n' > "$repo/src/store.py"
 printf '{"lockfileVersion": 3, "password": "password password"}\n' > "$repo/package-lock.json"
 git -C "$repo" add -A
 
@@ -182,7 +183,7 @@ check "initialize echoes the protocol version" contains "$listing" '"protocolVer
 
 model_loaded
 index_with_stub
-check "index mode embeds every chunk once while the model is loaded" [ "$(embedded_inputs_last_call)" = "2" ]
+check "index mode embeds every chunk once while the model is loaded" [ "$(embedded_inputs_last_call)" = "3" ]
 check "index entries carry words and counts" grep -q '"terms": {' "$repo/.git/code-search/index.json"
 check "index entries carry a version key" grep -q '"version": 2' "$repo/.git/code-search/index.json"
 
@@ -200,6 +201,7 @@ svg="$(search "svg axis" | reply_text)"
 check "camelCase and snake_case identifiers are split into words" first_line_starts_with "$svg" "src/chart.py:1-3"
 check "previews skip shebang lines" contains "$svg" "def draw_chart(points)"
 check "plural and inflected query words match the code's form" first_line_starts_with "$(search "checking passwords" | reply_text)" "src/auth.py:1-2"
+check "a past-tense query word matches the code's base form" first_line_starts_with "$(search "saved index" | reply_text)" "src/store.py:1-2"
 check "english function words do not count" first_line_starts_with "$(search "where is the password" | reply_text)" "src/auth.py:1-2"
 
 printf 'def draw_chart(points, password):\n    return render_svg_axis(points)\n' > "$repo/src/chart.py"
