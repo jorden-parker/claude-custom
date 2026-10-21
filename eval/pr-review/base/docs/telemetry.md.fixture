@@ -1,0 +1,5 @@
+# Tool telemetry
+
+`telemetry-report LOG` summarises a telemetry log: one row per tool with its
+call count, total, median and largest output in bytes, then the five largest
+calls.

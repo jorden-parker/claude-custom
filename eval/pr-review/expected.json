@@ -1,0 +1,25 @@
+{
+  "title": "feat: telemetry report --top, cache-clean covers edited-files",
+  "body": "Adds --top N to the telemetry report to list the N largest calls (default 5) and documents it. cache-clean takes CLAUDE_CUSTOM_CACHE and also clears edited-files. sizes.py: total_bytes uses sum().",
+  "bugs": [
+    {
+      "id": "top-slice-off-by-one",
+      "path": "bin/telemetry-report",
+      "anchors": ["largest_first[: top - 1]"],
+      "what": "lists top - 1 calls instead of top"
+    },
+    {
+      "id": "top-read-as-log-path",
+      "path": "bin/telemetry-report",
+      "anchors": ["return arguments[0]", "def top_from"],
+      "what": "telemetry-report --top 3 LOG treats --top as the log path"
+    },
+    {
+      "id": "cache-dir-empty-or-unquoted",
+      "path": "bin/cache-clean",
+      "anchors": ["rm -rf $cache_dir/$name", "CLAUDE_CUSTOM_CACHE-"],
+      "what": "an empty CLAUDE_CUSTOM_CACHE makes it rm -rf /edit-check; the path is unquoted"
+    }
+  ],
+  "clean": ["docs/telemetry.md", "lib/sizes.py"]
+}

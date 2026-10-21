@@ -1,0 +1,6 @@
+#!/bin/bash
+set -eu
+cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/claude-custom"
+if [ -d "$cache_dir" ]; then
+  rm -rf "$cache_dir/edit-check"
+fi

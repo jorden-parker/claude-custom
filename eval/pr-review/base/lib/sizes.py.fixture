@@ -1,0 +1,13 @@
+def total_bytes(calls):
+    total = 0
+    for call in calls:
+        total += call["bytes"]
+    return total
+
+
+def tools_over(calls, limit):
+    names = []
+    for call in calls:
+        if call["bytes"] > limit and call["tool"] not in names:
+            names.append(call["tool"])
+    return names

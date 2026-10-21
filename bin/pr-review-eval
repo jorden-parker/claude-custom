@@ -1,0 +1,253 @@
+#!/usr/bin/env python3
+import argparse
+import dataclasses
+import json
+import shutil
+import stat
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = SCRIPT_DIR.parent
+DEFAULT_REVIEWER = SCRIPT_DIR / "pr-review-local"
+DEFAULT_FIXTURE = REPO_ROOT / "eval" / "pr-review"
+DEFAULT_BASE_URL = "http://localhost:11434"
+TEMP_PREFIX = "pr-review-eval-"
+LINE_WINDOW = 3
+PRAISE = "praise"
+SHEBANG = b"#!"
+EXEC_BITS = stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
+GIT_IDENTITY = ("-c", "user.name=pr-review-eval", "-c", "user.email=pr-review-eval@example.invalid")
+CAUGHT_BLOCKING = "caught blocking"
+CAUGHT = "caught"
+MISSED = "missed"
+
+
+@dataclasses.dataclass
+class Scorecard:
+    outcomes: list
+    false_blockers: list
+    clean_findings: list
+    unparsable: int
+    seconds: float
+
+    @property
+    def bug_count(self):
+        return len(self.outcomes)
+
+    @property
+    def caught(self):
+        return sum(1 for _, outcome in self.outcomes if outcome != MISSED)
+
+    @property
+    def caught_blocking(self):
+        return sum(1 for _, outcome in self.outcomes if outcome == CAUGHT_BLOCKING)
+
+    @property
+    def missed(self):
+        return [bug_id for bug_id, outcome in self.outcomes if outcome == MISSED]
+
+
+def split_reviewer_args(argv):
+    if "--" not in argv:
+        return argv, []
+    index = argv.index("--")
+    return argv[:index], argv[index + 1 :]
+
+
+def parse_args(argv):
+    parser = argparse.ArgumentParser(
+        description="Run pr-review-local on the eval fixture and print a scorecard. Arguments after -- go to the reviewer."
+    )
+    parser.add_argument("--model", required=True)
+    parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
+    parser.add_argument("--reviewer", type=Path, default=DEFAULT_REVIEWER)
+    parser.add_argument("--fixture", type=Path, default=DEFAULT_FIXTURE)
+    parser.add_argument("--keep", action="store_true")
+    parser.add_argument("--json", dest="as_json", action="store_true")
+    return parser.parse_args(argv)
+
+
+def git(repo, *args):
+    subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True, text=True)
+
+
+def git_commit(repo, *message_args):
+    git(repo, *GIT_IDENTITY, "commit", "-q", *message_args)
+
+
+def copy_side(side_root, repo):
+    for source in sorted(path for path in side_root.rglob("*") if path.is_file()):
+        content = source.read_bytes()
+        target = repo / source.relative_to(side_root).with_suffix("")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(content)
+        if content.startswith(SHEBANG):
+            target.chmod(target.stat().st_mode | EXEC_BITS)
+
+
+def load_expected(fixture):
+    return json.loads((fixture / "expected.json").read_text(encoding="utf-8"))
+
+
+def build_repo(fixture, repo, expected):
+    git(repo, "init", "-q", "-b", "main")
+    copy_side(fixture / "base", repo)
+    git(repo, "add", "-A")
+    git_commit(repo, "-m", "base")
+    copy_side(fixture / "head", repo)
+    git(repo, "add", "-A")
+    git_commit(repo, "-m", expected["title"], "-m", expected["body"])
+
+
+def reviewer_command(args, reviewer_args):
+    return [
+        str(args.reviewer),
+        "--model",
+        args.model,
+        "--base-url",
+        args.base_url,
+        "--range",
+        "main..HEAD",
+        "--json",
+        *reviewer_args,
+    ]
+
+
+def run_reviewer(args, repo, reviewer_args):
+    return subprocess.run(
+        reviewer_command(args, reviewer_args),
+        cwd=repo,
+        stdout=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+
+
+def parse_review(text):
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        raise SystemExit("pr-review-eval: reviewer did not print JSON")
+
+
+def anchor_lines(repo, bug):
+    lines = (repo / bug["path"]).read_text(encoding="utf-8").splitlines()
+    return [
+        number
+        for number, text in enumerate(lines, start=1)
+        if any(anchor in text for anchor in bug["anchors"])
+    ]
+
+
+def hits(finding, bug, lines):
+    if finding.get("label") == PRAISE or finding.get("path") != bug["path"]:
+        return False
+    line = finding.get("line")
+    if not isinstance(line, int) or isinstance(line, bool):
+        return False
+    return any(abs(line - bug_line) <= LINE_WINDOW for bug_line in lines)
+
+
+def outcome_for(findings, bug, lines):
+    matches = [finding for finding in findings if hits(finding, bug, lines)]
+    if any(finding.get("blocking") is True for finding in matches):
+        return CAUGHT_BLOCKING
+    if matches:
+        return CAUGHT
+    return MISSED
+
+
+def score(expected, review, repo, seconds):
+    findings = review.get("findings", [])
+    scoped_bugs = [(bug, anchor_lines(repo, bug)) for bug in expected["bugs"]]
+    outcomes = [(bug["id"], outcome_for(findings, bug, lines)) for bug, lines in scoped_bugs]
+    false_blockers = [
+        finding
+        for finding in findings
+        if finding.get("blocking") is True
+        and not any(hits(finding, bug, lines) for bug, lines in scoped_bugs)
+    ]
+    clean_findings = [
+        finding
+        for finding in findings
+        if finding.get("label") != PRAISE and finding.get("path") in expected["clean"]
+    ]
+    unparsable = sum(
+        1 for note in review.get("skipped", []) if "unparsable" in note.get("note", "")
+    )
+    return Scorecard(outcomes, false_blockers, clean_findings, unparsable, seconds)
+
+
+def finding_line(kind, finding):
+    return f"{kind:<15} {finding.get('path')}:{finding.get('line')}  {finding.get('summary')}"
+
+
+def score_line(card):
+    return (
+        f"score: caught {card.caught}/{card.bug_count} (blocking {card.caught_blocking}/{card.bug_count}), "
+        f"false blockers {len(card.false_blockers)}, clean-file findings {len(card.clean_findings)}, "
+        f"unparsable {card.unparsable}, {card.seconds:.1f}s"
+    )
+
+
+def text_report(card):
+    lines = [f"{outcome:<15} {bug_id}" for bug_id, outcome in card.outcomes]
+    lines += [finding_line("false blocker", finding) for finding in card.false_blockers]
+    lines += [finding_line("clean file", finding) for finding in card.clean_findings]
+    lines.append(score_line(card))
+    return "\n".join(lines)
+
+
+def json_report(card):
+    return json.dumps(
+        {
+            "caught": card.caught,
+            "caught_blocking": card.caught_blocking,
+            "bugs": card.bug_count,
+            "false_blockers": len(card.false_blockers),
+            "clean_findings": len(card.clean_findings),
+            "unparsable": card.unparsable,
+            "seconds": round(card.seconds, 1),
+            "missed": card.missed,
+        },
+        indent=2,
+    )
+
+
+def run_eval(args, reviewer_args, repo):
+    expected = load_expected(args.fixture)
+    build_repo(args.fixture, repo, expected)
+    started = time.perf_counter()
+    completed = run_reviewer(args, repo, reviewer_args)
+    seconds = time.perf_counter() - started
+    if completed.returncode != 0:
+        print(f"pr-review-eval: reviewer exited {completed.returncode}", file=sys.stderr)
+        return completed.returncode
+    card = score(expected, parse_review(completed.stdout), repo, seconds)
+    print(json_report(card) if args.as_json else text_report(card))
+    return 0
+
+
+def finish_repo(repo, keep):
+    if keep:
+        print(f"pr-review-eval: kept {repo}", file=sys.stderr)
+    else:
+        shutil.rmtree(repo, ignore_errors=True)
+
+
+def main(argv):
+    own_argv, reviewer_args = split_reviewer_args(argv)
+    args = parse_args(own_argv)
+    repo = Path(tempfile.mkdtemp(prefix=TEMP_PREFIX))
+    try:
+        return run_eval(args, reviewer_args, repo)
+    finally:
+        finish_repo(repo, args.keep)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
