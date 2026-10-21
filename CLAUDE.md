@@ -229,8 +229,11 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   stdout); without one it uses 27b. A first arg that is neither a size nor a
   flag is dropped so it doesn't reach `claude` as a prompt.
 - `shared/mcp/code-search.py` is the `semantic_search` MCP server (JSON-RPC over
-  stdio, stdlib only). It embeds chunks through Ollama `/api/embed`, keeps its
-  index in `.git/code-search/index.json` and re-embeds only changed files.
+  stdio, stdlib only). It ranks 40-line chunks by their words (BM25) on every
+  search, adds a vector ranking through Ollama `/api/embed` only while
+  `GET /api/ps` shows the embedding model loaded, keeps its index in memory and
+  reloads `.git/code-search/index.json` when `--index` (the only writer)
+  produced a newer one.
   `claude-ollama` starts `code-search.py --index` in the background on launch
   (`CLAUDE_OLLAMA_NO_INDEX=1` skips it). `bin/claude-ollama` pulls its model
   (`CODE_SEARCH_MODEL`, default `qwen3-embedding:0.6b`); the model picker's "Set

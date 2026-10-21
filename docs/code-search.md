@@ -10,12 +10,22 @@ until the tool has been called; exact names go through `git grep -n` after that.
 
 - Files: `git ls-files` plus untracked, non-ignored files. Lockfiles, minified
   files, images, binaries and files over 200 KB are skipped.
-- Chunks: 40-line windows every 30 lines, vectors cut to 256 dimensions.
-- Index: `.git/code-search/index.json`. Each search re-embeds only files whose
-  content changed, so the first search in a repo is slow (about a minute for
-  this one) and later ones take well under a second. `claude-ollama` starts
-  `code-search.py --index` in the background on launch (set
-  `CLAUDE_OLLAMA_NO_INDEX=1` to skip), so the first search is usually fast.
+- Chunks: 40-line windows every 30 lines. Each chunk stores its words
+  (identifiers split on case and underscores, lowercased) and, once
+  `--index` has run with the embedding model loaded, a vector cut to 256
+  dimensions.
+- Ranking: BM25 over the words, always, with no model call. When
+  `GET /api/ps` shows the embedding model loaded, the query is embedded too
+  and the two rankings are merged by reciprocal rank fusion; otherwise the
+  reply ends with a "words only" line. The server never loads the model, so
+  a search can never evict the main or side model.
+- Index: `.git/code-search/index.json`, written only by
+  `code-search.py --index`, which `claude-ollama` runs in the background on
+  launch (set `CLAUDE_OLLAMA_NO_INDEX=1` to skip). The server keeps the index
+  in memory, re-tokenizes changed files on each search (milliseconds) and
+  reloads the file when a later `--index` run wrote a newer one. Vectors are
+  added only by `--index`, only while the model is loaded; a file changed
+  during a session is searched by words until the next launch.
 - `CODE_SEARCH_OLLAMA_URL` and `CODE_SEARCH_MODEL` override the server and
   model. `claude-ollama` and the model picker follow `CODE_SEARCH_MODEL` too.
 - If the pull on launch fails, run `claude-ollama` and pick "Set up embedding

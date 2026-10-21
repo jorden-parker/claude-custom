@@ -59,7 +59,9 @@ TOOL = {
     "name": "semantic_search",
     "description": (
         "Always call this first to find code in the current git repo, before any Read. "
-        "Returns file:start-end line ranges with a score and a one-line preview; then "
+        "Use the words the code itself would use (identifiers are split into words; "
+        "English synonyms match only when the embedding model is loaded). Returns "
+        "file:start-end line ranges with a relative score and a one-line preview; then "
         "Read only those ranges with offset/limit. For exact identifiers use "
         "`git grep -n` in Bash."
     ),
