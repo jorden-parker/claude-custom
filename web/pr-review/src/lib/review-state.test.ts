@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { initialReviewState, isFileOpenByDefault, reduceEvents } from "./review-state";
+import { applyEvent, initialReviewState, isFileOpenByDefault, reduceEvents } from "./review-state";
 import type { ReviewEvent } from "./review-event";
 
 const events: ReviewEvent[] = [
@@ -108,5 +108,20 @@ describe("reduceEvents", () => {
     expect(isFileOpenByDefault(running.files[0])).toBe(true);
     expect(isFileOpenByDefault(doneClean.files[0])).toBe(false);
     expect(isFileOpenByDefault(doneWithFinding.files[0])).toBe(true);
+  });
+
+  it("applies an event with a repeated id once", () => {
+    const stage: ReviewEvent = { kind: "stage", t: 1, message: "fetching diff" };
+    const once = applyEvent(initialReviewState, stage, 1);
+    const replayed = applyEvent(once, stage, 1);
+
+    expect(replayed.stages).toHaveLength(1);
+  });
+
+  it("applies events with no id on every call", () => {
+    const stage: ReviewEvent = { kind: "stage", t: 1, message: "fetching diff" };
+    const twice = applyEvent(applyEvent(initialReviewState, stage), stage);
+
+    expect(twice.stages).toHaveLength(2);
   });
 });

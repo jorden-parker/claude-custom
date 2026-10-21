@@ -6,11 +6,16 @@ const KEEP_ALIVE_INTERVAL_MS = 15_000;
 const KEEP_ALIVE_FRAME = ": keep-alive\n\n";
 const encoder = new TextEncoder();
 
+export function parseLastEventId(value: string | null): number {
+  return /^[1-9]\d*$/.test(value ?? "") ? Number(value) : 0;
+}
+
 export function streamReviewEvents(
   file: string,
   signal: AbortSignal,
+  skipLines = 0,
 ): ReadableStream<Uint8Array> {
-  let sentCharacters = 0;
+  let sentLines = skipLines;
   let closed = false;
   let pollTimer: ReturnType<typeof setTimeout> | undefined;
   let keepAliveTimer: ReturnType<typeof setInterval> | undefined;
@@ -37,19 +42,20 @@ export function streamReviewEvents(
 
       const pumpNewLines = async () => {
         const text = await fs.readFile(file, "utf8").catch(() => "");
-        const complete = text.slice(0, text.lastIndexOf("\n") + 1);
-        const fresh = complete.slice(sentCharacters);
-        sentCharacters = complete.length;
-        for (const line of fresh.split("\n")) {
+        const completeLines = text.split("\n").slice(0, -1);
+        let lineNumber = sentLines;
+        for (const line of completeLines.slice(sentLines)) {
+          lineNumber += 1;
           if (line.trim() === "") {
             continue;
           }
-          send(`data: ${line}\n\n`);
+          send(`id: ${lineNumber}\ndata: ${line}\n\n`);
           if (isEndLine(line)) {
             close();
             return;
           }
         }
+        sentLines = Math.max(sentLines, completeLines.length);
       };
 
       const poll = async () => {

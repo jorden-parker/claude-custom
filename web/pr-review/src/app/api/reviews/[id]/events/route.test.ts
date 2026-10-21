@@ -13,6 +13,10 @@ function contextFor(id: string): Context {
   return { params: Promise.resolve({ id }) };
 }
 
+function stageLine(message: string): string {
+  return JSON.stringify({ t: 2, kind: "stage", message });
+}
+
 function withTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
@@ -94,6 +98,55 @@ describe("GET /api/reviews/[id]/events", () => {
     expect(rest).toContain('"end"');
     const closed = await withTimeout(reader.read(), "stream close");
     expect(closed.done).toBe(true);
+  });
+
+  it("numbers every line from 1 when there is no Last-Event-ID", async () => {
+    fs.appendFileSync(logFile, `${stageLine("c")}\n${stageLine("d")}\n`);
+    const controller = new AbortController();
+    const response = await GET(
+      new Request("http://127.0.0.1/x", { signal: controller.signal }),
+      contextFor(REVIEW_ID),
+    );
+    const reader = response.body!.getReader();
+    const text = await readUntil(reader, new TextDecoder(), (received) => received.includes('"d"'));
+    controller.abort();
+
+    expect(text).toContain("id: 1\ndata: ");
+    expect(text).toContain(`id: 3\ndata: ${stageLine("c")}\n\n`);
+    expect(text).toContain(`id: 4\ndata: ${stageLine("d")}\n\n`);
+  });
+
+  it("resumes after Last-Event-ID without replaying earlier lines", async () => {
+    fs.appendFileSync(logFile, `${stageLine("c")}\n${stageLine("d")}\n`);
+    const controller = new AbortController();
+    const response = await GET(
+      new Request("http://127.0.0.1/x", {
+        headers: { "Last-Event-ID": "2" },
+        signal: controller.signal,
+      }),
+      contextFor(REVIEW_ID),
+    );
+    const reader = response.body!.getReader();
+    const text = await readUntil(reader, new TextDecoder(), (received) => received.includes('"d"'));
+    controller.abort();
+
+    expect(text).toBe(`id: 3\ndata: ${stageLine("c")}\n\nid: 4\ndata: ${stageLine("d")}\n\n`);
+  });
+
+  it("treats a Last-Event-ID that is not a positive integer as zero", async () => {
+    const controller = new AbortController();
+    const response = await GET(
+      new Request("http://127.0.0.1/x", {
+        headers: { "Last-Event-ID": "abc" },
+        signal: controller.signal,
+      }),
+      contextFor(REVIEW_ID),
+    );
+    const reader = response.body!.getReader();
+    const text = await readUntil(reader, new TextDecoder(), (received) => received.includes('"stage"'));
+    controller.abort();
+
+    expect(text).toContain("id: 1\ndata: ");
   });
 
   it("closes when the request is aborted", async () => {

@@ -18,7 +18,8 @@ export function ReviewView({ id }: { id: string }) {
       if (!event) {
         return;
       }
-      setState((previous) => applyEvent(previous, event));
+      const eventId = message.lastEventId ? Number(message.lastEventId) : undefined;
+      setState((previous) => applyEvent(previous, event, eventId));
       if (event.kind === "end") {
         source.close();
       }

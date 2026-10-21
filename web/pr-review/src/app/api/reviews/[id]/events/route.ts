@@ -1,5 +1,5 @@
 import { resolveReviewFile } from "@/lib/reviews";
-import { streamReviewEvents } from "@/lib/review-stream";
+import { parseLastEventId, streamReviewEvents } from "@/lib/review-stream";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -9,7 +9,8 @@ export async function GET(request: Request, context: RouteContext) {
   if (!file) {
     return new Response("Review not found", { status: 404 });
   }
-  return new Response(streamReviewEvents(file, request.signal), {
+  const skipLines = parseLastEventId(request.headers.get("Last-Event-ID"));
+  return new Response(streamReviewEvents(file, request.signal, skipLines), {
     headers: {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache, no-transform",
