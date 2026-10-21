@@ -33,10 +33,21 @@ PRAISE_REPLY = json.dumps([
      "summary": "Clear usage section", "why": "", "confidence": "medium"},
 ])
 SUMMARY_REPLY = "Adds a widget; one blocking bug."
+ERROR_BODY = json.dumps({"type": "error", "error": {"type": "api_error", "message": "model requires 22.0 GiB but only 11.3 GiB are available"}}).encode("utf-8")
 
 
-def reply_for(body):
-    if body.get("system", "").startswith("You summarise"):
+def is_summary(body):
+    return body.get("system", "").startswith("You summarise")
+
+
+def is_server_error(body):
+    if body["model"] == "oom-model":
+        return True
+    return body["model"] == "summary-fails-model" and is_summary(body)
+
+
+def plain_reply_for(body):
+    if is_summary(body):
         return SUMMARY_REPLY
     user = body["messages"][0]["content"]
     if "File: src/bad.ts" in user:
@@ -46,6 +57,13 @@ def reply_for(body):
     if "File: src/weird.ts" in user:
         return "I think it is fine."
     return "[]"
+
+
+def reply_for(body):
+    reply = plain_reply_for(body)
+    if body["model"] == "fenced-model" and reply.startswith("["):
+        return "Findings for items[0] and the rest:\n```json\n" + reply + "\n```"
+    return reply
 
 
 def sse(kind, **fields):
@@ -73,6 +91,12 @@ class Handler(BaseHTTPRequestHandler):
         record = {"anthropic-version": self.headers.get("anthropic-version"), "body": body}
         with open(LOG_PATH, "a") as log:
             log.write(json.dumps(record) + "\n")
+        if is_server_error(body):
+            self.send_response(500)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(ERROR_BODY)
+            return
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.end_headers()
@@ -337,6 +361,19 @@ check_eq "json lists three findings" 3 "$(jq '.findings | length' "$tmp/json.out
 check_eq "unreachable server exits 1" 1 "$?"
 check_that "unreachable server is named in the error" grep -q '^pr-review-local: request to http://127.0.0.1:1/v1/messages failed' "$tmp/down.err"
 check_not "no heartbeat after a failed request" grep -qF 'waiting for the first token' "$tmp/down.err"
+
+review_in_work 7 --model oom-model > "$tmp/oom.out" 2> "$tmp/oom.err"
+check_eq "server error exits 1" 1 "$?"
+check_that "server error message is shown" grep -qF 'answered HTTP 500: model requires 22.0 GiB but only 11.3 GiB are available' "$tmp/oom.err"
+
+review_in_work 7 --model summary-fails-model > "$tmp/sumfail.out" 2> "$tmp/sumfail.err"
+check_eq "summary failure still exits 0" 0 "$?"
+check_that "summary failure is on stderr" grep -qE '^pr-review-local: summary failed: .*model requires 22\.0 GiB' "$tmp/sumfail.err"
+check_that "summary failure is in the report" grep -qF 'Summary unavailable:' "$tmp/sumfail.out"
+
+review_in_work 7 --model fenced-model --json > "$tmp/fenced.json" 2> "$tmp/fenced.err"
+check_eq "fenced replies parse to the same findings" 3 "$(jq '.findings | length' "$tmp/fenced.json")"
+check_not "fenced replies are not skipped" grep -qF 'src/bad.ts: unparsable answer' "$tmp/fenced.err"
 
 (cd "$tmp" && "$reviewer" --model stub-model 7 > "$tmp/norepo.out" 2> "$tmp/norepo.err")
 check_eq "outside a repository exits 1" 1 "$?"
