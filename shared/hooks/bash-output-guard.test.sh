@@ -39,12 +39,31 @@ expect deny  'ls -la -R'
 expect deny  'ls --recursive src'
 expect allow 'ls -la --color'
 expect allow 'echo "ls -R is slow"'
-expect deny  'git log | head'
+expect allow 'git log | head'
 expect allow 'git log -n 5 --stat'
 expect allow 'echo "cat package-lock.json"'
 expect deny  'less go.sum'
 expect allow 'ls -l -a'
 expect deny  'find . | ls -R'
+expect allow 'git log --oneline | head -20'
+expect allow 'git log | wc -l'
+expect allow 'git log | sed -n 1,20p'
+expect allow 'cd r && git log --stat | tail -5'
+expect allow 'ls -R src | head -50'
+expect allow 'cat go.sum | grep foo'
+expect deny  'git log | less'
+expect deny  'git log | cat'
+expect deny  'git log || true'
+expect deny  'git log | sed s/a/b/'
+expect deny  'git log | headless'
+expect deny  'ls -R | sort'
+expect allow "grep -n 'bash-output-guard\\|git log' CLAUDE.md"
+expect allow 'grep -nE "x|git log" f'
+expect allow "echo 'a; git log'"
+expect deny  "echo \"\`git log\`\""
+expect deny  'cat "go.sum"'
+expect deny  "less 'pnpm-lock.yaml'"
+expect deny  $'ls # it\'s fine\ngit log'
 
 if [ "$failures" -eq 0 ]; then
   echo "all passed"

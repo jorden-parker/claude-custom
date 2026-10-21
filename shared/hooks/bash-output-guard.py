@@ -5,7 +5,11 @@ import sys
 
 COMMAND_START = r"(?:^|[;&|(\n`]\s*)"
 SEGMENT_BODY = r"[^;&|)\n`]*"
+PIPED_TO_BOUNDED_FILTER = r"\|\s*(?:head|tail|wc|grep|sed\s+-n)\b"
+NOT_PIPED_TO_BOUNDED_FILTER = "(?!" + SEGMENT_BODY + PIPED_TO_BOUNDED_FILTER + ")"
 GIT_GLOBAL_OPTIONS = r"(?:(?:--no-pager|--paginate|-p|-P|-c\s+\S+|-C\s+\S+|--git-dir=\S+|--work-tree=\S+)\s+)*"
+QUOTED_TEXT = re.compile(r"'[^']*'|\"(?:[^\"\\$`]|\\.)*\"")
+QUOTED_SEPARATOR = re.compile(r"[;&|()\n`]")
 
 LOCKFILES = (
     "package-lock.json",
@@ -21,20 +25,26 @@ LOCKFILES = (
 
 def needs_bounding_flag(command, bounding_flags, advice):
     bounded = "|".join(bounding_flags)
-    pattern = re.compile(COMMAND_START + command + r"\b(?!" + SEGMENT_BODY + "(?:" + bounded + "))")
+    pattern = re.compile(
+        COMMAND_START + command + r"\b(?!" + SEGMENT_BODY + "(?:" + bounded + "|" + PIPED_TO_BOUNDED_FILTER + "))"
+    )
     return pattern, advice
 
 
 def must_not_open(commands, files, advice):
     names = "|".join(re.escape(name) for name in files)
     verbs = "|".join(commands)
-    pattern = re.compile(COMMAND_START + "(?:" + verbs + r")\s" + SEGMENT_BODY + r"\b(?:" + names + r")\b")
+    pattern = re.compile(
+        COMMAND_START + "(?:" + verbs + r")\s" + SEGMENT_BODY + r"\b(?:" + names + r")\b" + NOT_PIPED_TO_BOUNDED_FILTER
+    )
     return pattern, advice
 
 
 def must_not_use_flag(command, flags, advice):
     alternatives = "|".join(flags)
-    pattern = re.compile(COMMAND_START + command + r"\b" + SEGMENT_BODY + "(?:" + alternatives + r")\b")
+    pattern = re.compile(
+        COMMAND_START + command + r"\b" + SEGMENT_BODY + "(?:" + alternatives + r")\b" + NOT_PIPED_TO_BOUNDED_FILTER
+    )
     return pattern, advice
 
 
@@ -57,6 +67,14 @@ UNBOUNDED_COMMANDS = [
 ]
 
 
+def blank_if_it_hides_a_separator(match):
+    return "''" if QUOTED_SEPARATOR.search(match.group(0)) else match.group(0)
+
+
+def without_quoted_text(command):
+    return QUOTED_TEXT.sub(blank_if_it_hides_a_separator, command)
+
+
 def deny(reason):
     return {
         "hookSpecificOutput": {
@@ -70,7 +88,7 @@ def deny(reason):
 def main():
     command = json.load(sys.stdin).get("tool_input", {}).get("command", "")
     for pattern, reason in UNBOUNDED_COMMANDS:
-        if pattern.search(command):
+        if pattern.search(without_quoted_text(command)):
             print(json.dumps(deny(reason)))
             return
 
