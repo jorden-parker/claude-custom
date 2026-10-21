@@ -184,4 +184,8 @@ summary. The report has the same sections as the `pr-review` agent (see
 [install](install.md)): Blocking, Non-blocking, Nits, Praise, Fallow and Not
 checked, which always says that files were reviewed one at a time. Nothing is
 posted unless `--post` is given, and then only as a comment review. Expect a 27b
-to take tens of seconds per file.
+to take tens of seconds per file. While it runs, stderr names each stage
+(fetch, files to review, each file before its request, retries, Fallow, summary,
+CI, post), echoes the model's reply as it streams, and prints
+`waiting for the first token, Ns` every 10 seconds (`--heartbeat-seconds`) until
+the first token arrives. stdout holds only the report.
