@@ -126,6 +126,10 @@ def user_text(request):
     return request["body"]["messages"][0]["content"]
 
 
+def system_text(request):
+    return request["body"].get("system", "")
+
+
 def matching(path, pattern):
     return [request for request in requests(path) if pattern in user_text(request)]
 
@@ -151,6 +155,10 @@ def main(argv):
         return 0 if args[1] in user_text(matching(path, args[0])[-1]) else 1
     if command == "request-user-lacks":
         return 0 if args[1] not in user_text(matching(path, args[0])[-1]) else 1
+    if command == "request-system-has":
+        return 0 if args[1] in system_text(matching(path, args[0])[-1]) else 1
+    if command == "request-system-lacks":
+        return 0 if args[1] not in system_text(matching(path, args[0])[-1]) else 1
     if command == "every-request-ok":
         return 0 if every_request_ok(path, args[0]) else 1
     if command == "last-system-starts":
@@ -324,6 +332,11 @@ check_eq "lockfile and binary are not sent to the model" 0 "$(( $(inspect count-
 check_that "lockfile skip is reported" report_has '- pnpm-lock.yaml: skipped (generated or vendored path)'
 check_that "binary skip is reported" report_has '- img.png: skipped (binary)'
 check_that "already-raised comments reach the prompt" test "$(inspect count-user "$tmp/requests.log" 'Please add a test')" -ge 1
+ok_line=$(git -C "$tmp/work" show widget:src/ok.ts | grep -n 'export const added = 2;' | cut -d: -f1)
+check_that "diff lines carry new-file numbers" inspect request-user-has "$tmp/requests.log" 'File: src/ok.ts' '| +export const added = 2;'
+check_that "whole file lines carry numbers" inspect request-user-has "$tmp/requests.log" 'File: src/ok.ts' '| export const added = 2;'
+check_that "prompt says to use the numbers" inspect request-system-has "$tmp/requests.log" 'File: src/ok.ts' 'starts with its line number in the new file'
+check_that "added line carries its exact new-file number" inspect request-user-has "$tmp/requests.log" 'File: src/ok.ts' "$(printf '%5d | +export const added = 2;' "$ok_line")"
 check_that "requests name the model and version" inspect every-request-ok "$tmp/requests.log" stub-model
 check_that "summary request is last" inspect last-system-starts "$tmp/requests.log" 'You summarise'
 check_not "no post without --post" grep -q '^pr review' "$tmp/gh.log"

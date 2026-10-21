@@ -4,6 +4,7 @@ import dataclasses
 import http.client
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -21,6 +22,8 @@ DEFAULT_FULL_FILE_LINES = 400
 DEFAULT_PROMPT_CHARS = 48000
 DEFAULT_HEARTBEAT_SECONDS = 10.0
 DIFF_CONTEXT_LINES = 20
+NUMBER_WIDTH = 5
+HUNK_HEADER = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 MAX_FINDINGS_PER_FILE = 5
 SUMMARY_MAX_TOKENS = 120
 TEMPERATURE = 0
@@ -61,7 +64,9 @@ CONFIDENCE_ORDER = ("high", "medium", "low")
 FILE_SYSTEM_PROMPT = (
     "You are reviewing one file from a pull request. You see the PR title and "
     "description, the file's diff against the base branch, and the whole file "
-    "when it is short. Report only problems you can argue concretely from what "
+    "when it is short. Each line of the diff and of the whole file starts with "
+    "its line number in the new file and a | separator; a removed line has no "
+    "number. Report that number as \"line\". Report only problems you can argue concretely from what "
     "you see: wrong behaviour, a missed edge case (empty, null, boundary, error "
     "path, concurrency), a resource not released, a security hole (untrusted "
     "input reaching a shell, SQL, HTML, a path or a URL; missing authorization; "
@@ -259,11 +264,45 @@ def skip_reason(path, blob):
     return None
 
 
+def numbered_line(number, text):
+    return f"{number:>{NUMBER_WIDTH}} | {text}"
+
+
+def blank_numbered_line(text):
+    return f"{'':>{NUMBER_WIDTH}} | {text}"
+
+
+def numbered_file(text):
+    return "\n".join(
+        numbered_line(number, line) for number, line in enumerate(text.splitlines(), start=1)
+    )
+
+
+def numbered_diff(diff):
+    numbered, next_number = [], None
+    for line in diff.split("\n"):
+        hunk = HUNK_HEADER.match(line)
+        if hunk:
+            next_number = int(hunk.group(1))
+            numbered.append(line)
+        elif next_number is None or line.startswith("\\"):
+            numbered.append(line)
+        elif line.startswith("-"):
+            numbered.append(blank_numbered_line(line))
+        elif line.startswith((" ", "+")):
+            numbered.append(numbered_line(next_number, line))
+            next_number += 1
+        else:
+            numbered.append(line)
+    return "\n".join(numbered)
+
+
 def source_for(root, merge_base, ref, path, blob, limit):
     text = blob.decode("utf-8", errors="replace")
     line_count = len(text.splitlines())
     diff = run(["git", "diff", f"-U{DIFF_CONTEXT_LINES}", merge_base, ref, "--", path], root)
-    return Source(path, diff, line_count, text if line_count <= limit else None)
+    whole = numbered_file(text) if line_count <= limit else None
+    return Source(path, numbered_diff(diff), line_count, whole)
 
 
 def gather_sources(root, merge_base, ref, paths, limit):
