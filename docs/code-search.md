@@ -19,6 +19,9 @@ until the tool has been called; exact names go through `git grep -n` after that.
   and the two rankings are merged by reciprocal rank fusion; otherwise the
   reply ends with a "words only" line. The server never loads the model, so
   a search can never evict the main or side model.
+- `claude-ollama` warms the embedding model before the indexer only when the
+  running server's `OLLAMA_MAX_LOADED_MODELS` is 3 or more; see
+  [docs/ollama.md](ollama.md) for the memory trade-off.
 - Index: `.git/code-search/index.json`, written only by
   `code-search.py --index`, which `claude-ollama` runs in the background on
   launch (set `CLAUDE_OLLAMA_NO_INDEX=1` to skip). The server keeps the index
