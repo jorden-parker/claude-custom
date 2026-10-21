@@ -349,7 +349,7 @@ run_capture "$repo/bin/claude-ollama" --print-config </dev/null
 check_that "print-config without a size uses the default" grep -qxF "size: 27b" "$sandbox/out"
 
 new_sandbox
-STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2" run_capture "$repo/bin/claude-ollama" doctor 27b
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=3" run_capture "$repo/bin/claude-ollama" doctor 27b
 check_eq "doctor healthy exit status" 0 "$?"
 check_that "doctor reports jq" grep -qxF "ok   jq on PATH" "$sandbox/out"
 check_that "doctor reports the main model" grep -qxF "ok   model qwen3.8-27b-cc" "$sandbox/out"
@@ -372,7 +372,7 @@ check_that "doctor fails the embedding model" grep -qxF "fail embedding model qw
 check_that "doctor fails server env" grep -qxF "fail server env OLLAMA_FLASH_ATTENTION=1 not set on the running server" "$sandbox/out"
 
 new_sandbox
-STUB_OLLAMA_MISSING=qwen3-4b-cc STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2" run_capture "$repo/bin/claude-ollama" doctor 27b
+STUB_OLLAMA_MISSING=qwen3-4b-cc STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=3" run_capture "$repo/bin/claude-ollama" doctor 27b
 check_eq "doctor with only the side model missing exits 0" 0 "$?"
 check_that "doctor warns only about the side model" grep -qxF "warn side model qwen3-4b-cc missing (pick 'Set up side model' in claude-ollama)" "$sandbox/out"
 
@@ -380,26 +380,26 @@ new_sandbox
 copy_repo "$sandbox/repo"
 sed 's/num_ctx 65536/num_ctx 32768/' "$sandbox/repo/ollama/Modelfile.27b" > "$sandbox/Modelfile.27b"
 mv "$sandbox/Modelfile.27b" "$sandbox/repo/ollama/Modelfile.27b"
-STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2" run_capture "$sandbox/repo/bin/claude-ollama" doctor 27b
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=3" run_capture "$sandbox/repo/bin/claude-ollama" doctor 27b
 check_eq "doctor with mismatched context sizes exit status" 1 "$?"
 check_that "doctor fails mismatched context sizes" grep -qxF "fail num_ctx 32768 differs from CLAUDE_CODE_MAX_CONTEXT_TOKENS 65536" "$sandbox/out"
 
 new_sandbox
 copy_repo "$sandbox/repo"
 rm "$sandbox/repo/shared/hooks/edit-check.py"
-STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2" run_capture "$sandbox/repo/bin/claude-ollama" doctor 27b
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=3" run_capture "$sandbox/repo/bin/claude-ollama" doctor 27b
 check_eq "doctor with a missing hook exit status" 1 "$?"
 check_that "doctor fails a missing hook" grep -qxF "fail hook edit-check.py missing or not executable in shared/hooks" "$sandbox/out"
 
 new_sandbox
 echo '{"availableModels":["qwen3.8-27b-cc","opus"]}' > "$CLAUDE_OLLAMA_MANAGED_SETTINGS"
-STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2" run_capture "$repo/bin/claude-ollama" doctor 27b
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=3" run_capture "$repo/bin/claude-ollama" doctor 27b
 check_eq "doctor with the model in the managed allowlist exit status" 0 "$?"
 check_that "doctor reports the managed allowlist allows the model" grep -qxF "ok   managed availableModels allows qwen3.8-27b-cc" "$sandbox/out"
 
 new_sandbox
 echo '{"availableModels":["opus"]}' > "$CLAUDE_OLLAMA_MANAGED_SETTINGS"
-STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2" run_capture "$repo/bin/claude-ollama" doctor 27b
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=3" run_capture "$repo/bin/claude-ollama" doctor 27b
 check_eq "doctor with the model missing from the managed allowlist exits 0" 0 "$?"
 check_that "doctor warns the managed allowlist lacks the model" grep -qxF "warn managed availableModels lacks qwen3.8-27b-cc (ask your admin to add it; Claude Code substitutes a [1m] variant)" "$sandbox/out"
 
@@ -420,7 +420,7 @@ check_eq "doctor without jq exit status" 1 "$?"
 check_that "doctor without jq says jq is required" grep -qxF "claude-ollama: jq is required (brew install jq)" "$sandbox/err"
 check_not "doctor without jq does not launch claude" grep -q '^ARGS:' "$sandbox/out"
 
-full_server_env="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2"
+full_server_env="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=3"
 new_sandbox
 STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$full_server_env" run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_not "a server with every server.env value is left alone" test -e "$sandbox/agent.log"

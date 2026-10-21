@@ -98,11 +98,12 @@ LaunchAgent, stops `brew services ollama` if it is loaded, reloads the agent and
 waits for the server. It refuses while the Ollama menu-bar app runs; quit it
 first. On a failure the launch goes on with a warning. The launcher also sends a warm-up request with
 `keep_alive` 30m (`CLAUDE_OLLAMA_KEEP_ALIVE` overrides) so the first prompt
-doesn't wait for the model to load. `OLLAMA_MAX_LOADED_MODELS` decides whether
-`semantic_search` can use embeddings: at 2 the main and side models fill both
-slots and the embedding model is evicted, so searches rank by words only; at 3
-the launcher also warms `qwen3-embedding:0.6b` (about 2.2 GB) before starting
-the indexer and keeps it loaded. The Homebrew service (`brew services start ollama`)
+doesn't wait for the model to load. `OLLAMA_MAX_LOADED_MODELS=3` (the shipped
+value) keeps the main, side and embedding models loaded: the launcher warms
+`qwen3-embedding:0.6b` (about 2.2 GB) before starting the indexer, so
+`semantic_search` can use embeddings. At 2 the main and side models fill both
+slots, the embedding model is evicted and searches rank by words only. The
+Homebrew service (`brew services start ollama`)
 uses these paths; add any `server.env` value it lacks with `claude-custom agent`:
 
 | What        | Homebrew value                                      |
