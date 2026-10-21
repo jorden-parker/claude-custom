@@ -1,0 +1,8 @@
+import subprocess
+
+
+def archive(directory, name, exclude=None):
+    command = f"tar -czf {name}.tar.gz {directory}"
+    if exclude:
+        command += f" --exclude={exclude}"
+    subprocess.run(command, shell=True, check=True)

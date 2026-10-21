@@ -1,0 +1,15 @@
+package store
+
+import "os"
+
+func Save(paths []string, data []byte) error {
+	for _, path := range paths {
+		file, err := os.Create(path)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+		file.Write(data)
+	}
+	return nil
+}

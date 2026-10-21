@@ -1,0 +1,7 @@
+export async function loadUsers(fetchPage: (page: number) => Promise<string[]>): Promise<string[]> {
+  const users: string[] = [];
+  for (let page = 0; page < 3; page++) {
+    users.push(...(await fetchPage(page)));
+  }
+  return users;
+}

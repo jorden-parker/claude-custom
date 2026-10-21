@@ -1,0 +1,3 @@
+def discount(price, percent):
+    percent = min(max(percent, 0), 100)
+    return price * (100 - percent) // 100

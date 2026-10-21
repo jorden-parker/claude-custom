@@ -1,0 +1,7 @@
+{
+  "title": "refactor: split clean_word out of slugify; quote greet's name",
+  "body": "slugify behaves the same; clean_word is its own function. greet quotes its argument and uses printf. The docs say what slugify drops.",
+  "bugs": [],
+  "clean": ["lib/slug.py", "bin/greet", "docs/slug.md"],
+  "verdicts": ["APPROVE", "APPROVE WITH COMMENTS"]
+}

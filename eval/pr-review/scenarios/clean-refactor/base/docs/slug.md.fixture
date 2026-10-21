@@ -1,0 +1,3 @@
+# Slugs
+
+`slugify` lowercases a title and joins its words with hyphens.

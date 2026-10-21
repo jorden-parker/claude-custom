@@ -1,0 +1,6 @@
+from lib.price import discount
+
+
+def test_discount_clamps_percent():
+    assert discount(100, 150) is not None
+    assert discount(100, -5) is not None

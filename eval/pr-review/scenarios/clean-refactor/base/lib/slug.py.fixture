@@ -1,0 +1,7 @@
+def slugify(title):
+    words = []
+    for word in title.lower().split():
+        cleaned = "".join(ch for ch in word if ch.isalnum())
+        if cleaned:
+            words.append(cleaned)
+    return "-".join(words)

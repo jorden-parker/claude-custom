@@ -1,0 +1,14 @@
+{
+  "title": "feat: archive() can exclude a pattern",
+  "body": "archive() takes an optional exclude pattern passed to tar. archive_name uses an f-string.",
+  "bugs": [
+    {
+      "id": "shell-injection",
+      "path": "tools/archive.py",
+      "anchors": ["shell=True", "command = f\"tar"],
+      "what": "directory, name and exclude reach a shell; spaces break it and ; runs commands"
+    }
+  ],
+  "clean": ["tools/names.py"],
+  "verdicts": ["REQUEST CHANGES"]
+}

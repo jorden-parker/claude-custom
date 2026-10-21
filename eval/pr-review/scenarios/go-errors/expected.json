@@ -1,0 +1,14 @@
+{
+  "title": "refactor: Save writes through an open file",
+  "body": "Save opens each file and writes the data to it.",
+  "bugs": [
+    {
+      "id": "write-error-ignored-and-close-deferred-in-loop",
+      "path": "store/save.go",
+      "anchors": ["file.Write(data)", "defer file.Close()"],
+      "what": "the Write error is dropped and every file stays open until Save returns"
+    }
+  ],
+  "clean": [],
+  "verdicts": ["REQUEST CHANGES"]
+}

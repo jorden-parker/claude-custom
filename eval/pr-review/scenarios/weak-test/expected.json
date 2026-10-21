@@ -1,0 +1,20 @@
+{
+  "title": "fix: discount clamps the percent to 0-100",
+  "body": "Percent outside 0-100 is clamped. Adds a test.",
+  "bugs": [
+    {
+      "id": "floor-division",
+      "path": "lib/price.py",
+      "anchors": ["// 100"],
+      "what": "// floors the result: discount(9.99, 10) gives 8.0, not 8.991"
+    },
+    {
+      "id": "assertions-cannot-fail",
+      "path": "tests/test_price.py",
+      "anchors": ["is not None"],
+      "what": "the asserts pass for any return value, so the clamp is untested"
+    }
+  ],
+  "clean": [],
+  "verdicts": ["REQUEST CHANGES"]
+}
