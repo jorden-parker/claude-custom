@@ -1,0 +1,12 @@
+{
+  "ignoreFindings": [
+    "web/pr-review/src/components/ui/**",
+    "web/pr-review/src/components/ai-elements/**"
+  ],
+  "health": {
+    "ignore": [
+      "web/pr-review/src/components/ui/**",
+      "web/pr-review/src/components/ai-elements/**"
+    ]
+  }
+}
