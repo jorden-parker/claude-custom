@@ -96,16 +96,16 @@ server; when a value is missing (or no server runs) it calls
 `claude-custom agent -apply`, which writes the values into the `local.ollama`
 LaunchAgent, stops `brew services ollama` if it is loaded, reloads the agent and
 waits for the server. It refuses while the Ollama menu-bar app runs; quit it
-first. On a failure the launch goes on with a warning. The launcher also sends a warm-up request with
-`keep_alive` 30m (`CLAUDE_OLLAMA_KEEP_ALIVE` overrides) so the first prompt
-doesn't wait for the model to load. `OLLAMA_MAX_LOADED_MODELS=3` (the shipped
-value) keeps the main, side and embedding models loaded: the launcher exports
-`CODE_SEARCH_EMBED=1` so `semantic_search` loads and uses
-`qwen3-embedding:0.6b` (about 2.2 GB), and warms it before starting the
-indexer. At 2 the main and side models fill both
+first. On a failure the launch goes on with a warning. The launcher also sends a
+warm-up request with `keep_alive` 30m (`CLAUDE_OLLAMA_KEEP_ALIVE` overrides) so
+the first prompt doesn't wait for the model to load.
+`OLLAMA_MAX_LOADED_MODELS=3` (the shipped value) keeps the main, side and
+embedding models loaded: the launcher exports `CODE_SEARCH_EMBED=1` so
+`semantic_search` loads and uses `qwen3-embedding:0.6b` (about 2.2 GB), and
+warms it before starting the indexer. At 2 the main and side models fill both
 slots, the embedding model is evicted and searches rank by words only. The
-Homebrew service (`brew services start ollama`)
-uses these paths; add any `server.env` value it lacks with `claude-custom agent`:
+Homebrew service (`brew services start ollama`) uses these paths; add any
+`server.env` value it lacks with `claude-custom agent`:
 
 | What        | Homebrew value                                      |
 | ----------- | --------------------------------------------------- |
@@ -144,8 +144,8 @@ read with `pgrep`/`ps` (or `/proc` on Linux).
 model, side model, embedding model, context sizes, settings path, tools) and the
 exact `claude` command, without launching.
 
-`claude-ollama logs [-n LINES]` follows the Ollama server log with `tail -F`
-(50 lines of history by default). It reads the log path from the `local.ollama`
+`claude-ollama logs [-n LINES]` follows the Ollama server log with `tail -F` (50
+lines of history by default). It reads the log path from the `local.ollama`
 LaunchAgent plist when one exists, else uses the Homebrew service log
 (`$HOMEBREW_PREFIX/var/log/ollama.log`), else the Ollama app's
 `~/.ollama/logs/server.log`, and exits 1 when none exists. A server started by
@@ -165,3 +165,23 @@ ok   server env OLLAMA_FLASH_ATTENTION=1
 ```
 
 To compare Ollama with other servers, see [backend-bench](backend-bench.md).
+
+### Reviewing a pull request locally
+
+`claude-ollama review [size] PR [--post] [--json]` reviews a GitHub pull request
+with the size's model, without Claude Code. `bin/pr-review-local` fetches the PR
+with `gh` and `git` (no checkout in the user's tree), skips binaries, lockfiles
+and vendored paths, runs Fallow on changed TypeScript
+(`audit --base <merge-base>`, introduced findings only) in a temporary worktree
+of the PR head that it removes afterwards, and sends one `/v1/messages` request
+per changed file: the PR description, the file's diff with 20 lines of context,
+the whole file when it is under 400 lines, comments reviewers already left, and
+a checklist. The model answers with a JSON array of findings; a reply that is
+not JSON is retried once and then the file is listed as skipped. The verdict is
+a fixed rule (any blocking finding → REQUEST CHANGES; any other finding →
+APPROVE WITH COMMENTS; else APPROVE); the model only writes the one-sentence
+summary. The report has the same sections as the `pr-review` agent (see
+[install](install.md)): Blocking, Non-blocking, Nits, Praise, Fallow and Not
+checked, which always says that files were reviewed one at a time. Nothing is
+posted unless `--post` is given, and then only as a comment review. Expect a 27b
+to take tens of seconds per file.
