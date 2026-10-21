@@ -179,6 +179,17 @@ rm -f "$sandbox/python.log"
 run_capture env CLAUDE_OLLAMA_NO_INDEX=1 "$repo/bin/claude-ollama" 35b -p hi
 check_not "CLAUDE_OLLAMA_NO_INDEX skips the indexer" test -e "$sandbox/python.log"
 new_sandbox
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=3" run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_that "claude-ollama warms the embedding model when the server keeps three models" grep -q 'localhost:11434/api/embed' "$sandbox/curl.log"
+check_that "the embedding warm-up names the model and keeps it alive" grep -q '"model":"qwen3-embedding:0.6b","input":"warm up","keep_alive":"30m"' "$sandbox/curl.log"
+check_that "the embedding warm-up runs before the indexer" test "$(grep -n 'api/embed' "$sandbox/curl.log" | head -n 1 | cut -d: -f1)" -ge 1
+rm -f "$sandbox/curl.log"
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2" run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_not "claude-ollama skips the embedding warm-up when the server keeps two models" grep -q 'api/embed' "$sandbox/curl.log"
+rm -f "$sandbox/curl.log"
+run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_not "claude-ollama skips the embedding warm-up when no server is running" grep -q 'api/embed' "$sandbox/curl.log"
+new_sandbox
 rm -f "$sandbox/stubbin/curl"
 OLLAMA_HOST=http://127.0.0.1:9 run_capture "$repo/bin/claude-ollama" 35b -p hi
 check_that "claude-ollama launches without curl" grep -q '^ARGS:' "$sandbox/out"
