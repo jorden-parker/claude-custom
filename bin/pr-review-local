@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -18,6 +19,7 @@ DEFAULT_AUTH_TOKEN = "local"
 DEFAULT_MAX_TOKENS = 1500
 DEFAULT_FULL_FILE_LINES = 400
 DEFAULT_PROMPT_CHARS = 48000
+DEFAULT_HEARTBEAT_SECONDS = 10.0
 DIFF_CONTEXT_LINES = 20
 MAX_FINDINGS_PER_FILE = 5
 SUMMARY_MAX_TOKENS = 120
@@ -97,6 +99,7 @@ class ReviewConfig:
     full_file_lines: int
     prompt_chars: int
     max_tokens: int
+    heartbeat_seconds: float
     post: bool
     as_json: bool
 
@@ -154,6 +157,13 @@ def positive_int(text):
     return value
 
 
+def positive_float(text):
+    value = float(text)
+    if value <= 0:
+        raise argparse.ArgumentTypeError("must be above 0")
+    return value
+
+
 def parse_args(argv):
     parser = argparse.ArgumentParser(
         description="Review a GitHub pull request with a local /v1/messages model, one file per request."
@@ -165,6 +175,7 @@ def parse_args(argv):
     parser.add_argument("--full-file-lines", type=positive_int, default=DEFAULT_FULL_FILE_LINES)
     parser.add_argument("--prompt-chars", type=positive_int, default=DEFAULT_PROMPT_CHARS)
     parser.add_argument("--max-tokens", type=positive_int, default=DEFAULT_MAX_TOKENS)
+    parser.add_argument("--heartbeat-seconds", type=positive_float, default=DEFAULT_HEARTBEAT_SECONDS)
     parser.add_argument("--post", action="store_true")
     parser.add_argument("--json", dest="as_json", action="store_true")
     return ReviewConfig(**vars(parser.parse_args(argv)))
@@ -191,6 +202,10 @@ def load_json(text, source):
         return json.loads(text)
     except ValueError as error:
         raise ReviewError(f"{source} returned no JSON") from error
+
+
+def progress(message):
+    print(f"pr-review-local: {message}", file=sys.stderr, flush=True)
 
 
 def repo_root():
@@ -358,6 +373,7 @@ def fallow_result(root, merge_base, ref, paths):
     package_dir = nearest_package_dir(root, typescript[0])
     if package_dir is None:
         return FallowResult("did not run: no package.json above the changed TypeScript", [])
+    progress(f"running Fallow in {package_dir.relative_to(root)} at the PR head")
     return audit_at_head(root, package_dir, merge_base, ref)
 
 
@@ -439,14 +455,57 @@ def is_text_delta(event):
     return event.get("type") == "content_block_delta" and event.get("delta", {}).get("type") == "text_delta"
 
 
-def collect_text(events):
+def collect_text(events, on_text):
     pieces = []
     for event in events:
         if event.get("type") == "error":
             raise ReviewError(f"server sent an error event: {event.get('error')}")
         if is_text_delta(event):
-            pieces.append(event["delta"].get("text", ""))
+            text = event["delta"].get("text", "")
+            on_text(text)
+            pieces.append(text)
     return "".join(pieces)
+
+
+class Heartbeat:
+    def __init__(self, interval):
+        self.interval = interval
+        self.started_at = time.perf_counter()
+        self.stopped = threading.Event()
+        self.thread = threading.Thread(target=self.beat, daemon=True)
+
+    def beat(self):
+        while not self.stopped.wait(self.interval):
+            progress(f"waiting for the first token, {time.perf_counter() - self.started_at:.1f}s")
+
+    def stop(self):
+        self.stopped.set()
+        if self.thread.is_alive():
+            self.thread.join()
+
+    def __enter__(self):
+        self.thread.start()
+        return self
+
+    def __exit__(self, *exc_info):
+        self.stop()
+
+
+class TokenEcho:
+    def __init__(self, heartbeat):
+        self.heartbeat = heartbeat
+        self.wrote = False
+
+    def __call__(self, text):
+        self.heartbeat.stop()
+        sys.stderr.write(text)
+        sys.stderr.flush()
+        self.wrote = True
+
+    def end_line(self):
+        if self.wrote:
+            sys.stderr.write("\n")
+            sys.stderr.flush()
 
 
 def request_text(config, system, user, max_tokens):
@@ -466,13 +525,17 @@ def request_text(config, system, user, max_tokens):
         headers=request_headers(config.auth_token),
         method="POST",
     )
-    try:
-        with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
-            return collect_text(iter_events(response))
-    except urllib.error.HTTPError as error:
-        raise ReviewError(f"{url} answered HTTP {error.code}") from error
-    except (OSError, http.client.HTTPException) as error:
-        raise ReviewError(f"request to {url} failed: {error}") from error
+    with Heartbeat(config.heartbeat_seconds) as heartbeat:
+        echo = TokenEcho(heartbeat)
+        try:
+            with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
+                return collect_text(iter_events(response), echo)
+        except urllib.error.HTTPError as error:
+            raise ReviewError(f"{url} answered HTTP {error.code}") from error
+        except (OSError, http.client.HTTPException) as error:
+            raise ReviewError(f"request to {url} failed: {error}") from error
+        finally:
+            echo.end_line()
 
 
 def finding_from(item, path):
@@ -511,23 +574,26 @@ def ask_for_findings(config, prompt, path):
     return parse_findings(request_text(config, FILE_SYSTEM_PROMPT, prompt, config.max_tokens), path)
 
 
-def review_prompt_answer(config, prompt, path):
+def review_prompt_answer(config, prompt, path, tag):
     try:
         return ask_for_findings(config, prompt, path)
     except ValueError:
+        print(f"{tag}: retrying, the answer was not a JSON array", file=sys.stderr, flush=True)
         return ask_for_findings(config, prompt + RETRY_NOTE, path)
 
 
 def review_source(config, meta, comments, source, index, total):
     started_at = time.perf_counter()
     prompt, truncated = build_prompt(config, meta, comments, source)
+    tag = f"[{index}/{total}] {source.path}"
+    print(f"{tag}: reviewing, {len(prompt)} chars", file=sys.stderr, flush=True)
     try:
-        found = review_prompt_answer(config, prompt, source.path)
+        found = review_prompt_answer(config, prompt, source.path, tag)
     except ValueError:
         found = None
     seconds = time.perf_counter() - started_at
     outcome = f"{len(found)} findings" if found is not None else "unparsable answer"
-    print(f"[{index}/{total}] {source.path}: {outcome} in {seconds:.1f}s", file=sys.stderr, flush=True)
+    print(f"{tag}: {outcome} in {seconds:.1f}s", file=sys.stderr, flush=True)
     return found, truncated
 
 
@@ -587,19 +653,25 @@ def fallow_failure_finding():
 def build_review(config, root, meta, ref, merge_base):
     paths = changed_paths(root, merge_base, ref)
     sources, notes = gather_sources(root, merge_base, ref, paths, config.full_file_lines)
+    progress(f"{len(sources)} files to review, {len(notes)} skipped")
+    progress("reading review comments already on the PR")
     comments = existing_comments(root, meta["number"])
     findings, review_notes = review_sources(config, meta, comments, sources)
     fallow = fallow_result(root, merge_base, ref, paths)
+    progress(f"Fallow {fallow.status}")
     if fallow.failed:
         findings.append(fallow_failure_finding())
     verdict = verdict_for(findings)
+    progress("writing the summary")
     summary = summary_sentence(config, meta, verdict, findings)
+    progress("reading CI checks")
+    checks = check_summary(root, config.target)
     return Review(
         meta=meta,
         verdict=verdict,
         summary=summary,
         findings=findings,
-        checks=check_summary(root, config.target),
+        checks=checks,
         fallow=fallow,
         notes=notes + review_notes,
     )
@@ -607,9 +679,11 @@ def build_review(config, root, meta, ref, merge_base):
 
 def review_pull_request(config):
     root = repo_root()
+    progress(f"looking up PR {config.target}")
     meta = pr_metadata(root, config.target)
     ref = REVIEW_REF.format(number=meta["number"])
     try:
+        progress(f"fetching PR #{meta['number']} and {meta['baseRefName']}")
         merge_base = fetch_head(root, meta, ref)
         return build_review(config, root, meta, ref, merge_base)
     finally:
@@ -711,14 +785,17 @@ def post_review(target, report):
 
 def main(argv):
     config = parse_args(argv)
+    started_at = time.perf_counter()
     try:
         review = review_pull_request(config)
         report = render_report(config, review)
         if config.post:
+            progress(f"posting the review to {config.target}")
             post_review(config.target, report)
     except ReviewError as error:
         print(f"pr-review-local: {error}", file=sys.stderr)
         return 1
+    progress(f"{review.verdict} after {time.perf_counter() - started_at:.1f}s")
     if config.as_json:
         print(json.dumps(review_as_dict(review), indent=2))
     else:
