@@ -163,6 +163,23 @@ warm_model() {
     -d "{\"model\":\"$model\",\"keep_alive\":\"$keep_alive\"}" >/dev/null 2>&1 &
 }
 
+server_max_loaded_models() {
+  running_server_env 2>/dev/null | sed -n 's/^OLLAMA_MAX_LOADED_MODELS=//p' | head -n 1
+}
+
+embedding_model_fits() {
+  local cap
+  cap="$(server_max_loaded_models)"
+  [ -n "$cap" ] && [ "$cap" -ge 3 ] 2>/dev/null
+}
+
+warm_embedding_model() {
+  embedding_model_fits || return 0
+  command -v curl >/dev/null 2>&1 || return 0
+  curl -s -o /dev/null -m 30 -X POST "$ollama_url/api/embed" \
+    -d "{\"model\":\"$embedding_model\",\"input\":\"warm up\",\"keep_alive\":\"$keep_alive\"}" >/dev/null 2>&1
+}
+
 warm_search_index() {
   [ -z "${CLAUDE_OLLAMA_NO_INDEX:-}" ] || return 0
   git rev-parse --show-toplevel >/dev/null 2>&1 || return 0
@@ -368,6 +385,7 @@ esac
 apply_server_env
 ensure_model
 ensure_embedding_model
+warm_embedding_model
 warm_search_index
 ensure_side_model || settings_file="$(fallback_settings_file)"
 warm_model
