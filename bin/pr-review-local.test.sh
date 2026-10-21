@@ -395,6 +395,10 @@ check_that "finding rendered as a line" grep -qE '^\[[0-9]+/[0-9]+\] src/bad\.ts
 check_not "raw JSON is not echoed" grep -qF '"confidence"' "$tmp/err"
 check_that "unparsable reply is shown on retry" grep -qE '^\[[0-9]+/[0-9]+\] src/weird\.ts:   reply was: I think it is fine\.$' "$tmp/err"
 check_not "plain mode has no escape codes" grep -q "$(printf '\033')" "$tmp/err"
+review_in_work 7 --color always > "$tmp/color.md" 2> "$tmp/color.err"
+check_that "color mode styles the blocking label red" grep -qF "$(printf '\033[31missue (blocking)')" "$tmp/color.err"
+check_that "color mode rewrites the status line in place" grep -qF "$(printf '\r\033[K')" "$tmp/color.err"
+check_not "stdout stays plain markdown when not a TTY" grep -q "$(printf '\033')" "$tmp/color.md"
 
 review_in_work 7 --post > "$tmp/report.md" 2> "$tmp/err"
 check_eq "post run exit status" 0 "$?"

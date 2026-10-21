@@ -23,6 +23,26 @@ DEFAULT_PROMPT_CHARS = 48000
 DEFAULT_HEARTBEAT_SECONDS = 10.0
 WRITING_INTERVAL_SECONDS = 0.2
 RETRY_REPLY_CHARS = 300
+SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+CLEAR_STATUS = "\r\033[K"
+BOLD = "1"
+DIM = "2"
+RED = "31"
+GREEN = "32"
+YELLOW = "33"
+CYAN = "36"
+LABEL_COLORS = {
+    "issue (blocking)": RED,
+    "issue (non-blocking)": YELLOW,
+    "suggestion (non-blocking)": YELLOW,
+    "question": CYAN,
+    "nitpick (if-minor)": DIM,
+    "praise": GREEN,
+}
+VERDICT_COLORS = {"REQUEST CHANGES": RED, "APPROVE WITH COMMENTS": YELLOW, "APPROVE": GREEN}
+HEADING_LINE = re.compile(r"^#{2,3} (.*)$")
+VERDICT_WORD = re.compile(r"^(\*\*Verdict:\*\* )(REQUEST CHANGES|APPROVE WITH COMMENTS|APPROVE)")
+LABEL_PREFIX = re.compile(r"\*\*([^*]+?):\*\*")
 DIFF_CONTEXT_LINES = 20
 NUMBER_WIDTH = 5
 HUNK_HEADER = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
@@ -164,6 +184,7 @@ class ReviewConfig:
     heartbeat_seconds: float
     post: bool
     as_json: bool
+    color: str
 
 
 @dataclasses.dataclass
@@ -247,6 +268,7 @@ def parse_args(argv):
     parser.add_argument("--heartbeat-seconds", type=positive_float, default=DEFAULT_HEARTBEAT_SECONDS)
     parser.add_argument("--post", action="store_true")
     parser.add_argument("--json", dest="as_json", action="store_true")
+    parser.add_argument("--color", choices=("auto", "always", "never"), default="auto")
     options = parser.parse_args(argv)
     if (options.target is None) == (options.commit_range is None):
         parser.error("give a pull request or --range BASE..HEAD")
@@ -297,12 +319,17 @@ class Reporter:
 
 
 class TerminalRenderer:
-    def __init__(self, stream):
+    def __init__(self, stream, color):
         self.stream = stream
+        self.color = color
         self.tag = None
+        self.findings = 0
+        self.spinner = 0
+        self.status_shown = False
         self.handlers = {
             "stage": self.show_stage,
             "waiting": self.show_waiting,
+            "writing": self.show_writing,
             "file_start": self.show_file_start,
             "finding": self.show_finding,
             "retry": self.show_retry,
@@ -317,40 +344,100 @@ class TerminalRenderer:
         if handler is not None:
             handler(event)
 
+    def paint(self, text, code):
+        return ansi(text, code) if self.color else text
+
+    def prefix(self):
+        return self.paint("pr-review-local:", DIM)
+
+    def shown_tag(self):
+        return self.paint(self.tag, BOLD)
+
+    def with_tag(self, text):
+        return f"{self.shown_tag()}: {text}" if self.tag else text
+
     def line(self, text):
+        if self.status_shown:
+            self.stream.write(CLEAR_STATUS)
+            self.status_shown = False
         print(text, file=self.stream, flush=True)
 
+    def status(self, text):
+        self.spinner = (self.spinner + 1) % len(SPINNER_FRAMES)
+        self.stream.write(f"{CLEAR_STATUS}  {SPINNER_FRAMES[self.spinner]} {text}")
+        self.stream.flush()
+        self.status_shown = True
+
     def show_stage(self, event):
-        self.line(f"pr-review-local: {event['message']}")
+        self.line(f"{self.prefix()} {self.paint(event['message'], BOLD)}")
 
     def show_waiting(self, event):
-        self.line(f"pr-review-local: waiting for the first token, {event['seconds']:.1f}s")
+        text = f"waiting for the first token, {event['seconds']:.1f}s"
+        if self.color:
+            self.status(self.with_tag(text))
+        else:
+            self.line(f"{self.prefix()} {text}")
+
+    def show_writing(self, event):
+        if self.color:
+            found = f"{self.findings} {'finding' if self.findings == 1 else 'findings'}"
+            self.status(f"{self.shown_tag()}: writing, {event['chars']} chars, {found} so far")
 
     def show_file_start(self, event):
         self.tag = f"[{event['index']}/{event['total']}] {event['path']}"
-        self.line(f"{self.tag}: reviewing, {event['chars']} chars")
+        self.findings = 0
+        self.line(f"{self.shown_tag()}: reviewing, {event['chars']} chars")
 
     def show_finding(self, event):
         finding = Finding(**event["finding"])
+        self.findings += 1
         where = f"{finding.path}:{finding.line}" if finding.line is not None else finding.path
-        self.line(f"{self.tag}:   {label_text(finding)}  {where}  {finding.summary}")
+        text = label_text(finding)
+        label = self.paint(text, LABEL_COLORS.get(text, BOLD))
+        self.line(f"{self.shown_tag()}:   {label}  {where}  {finding.summary}")
 
     def show_retry(self, event):
-        self.line(f"{self.tag}: retrying, the answer was not a JSON array")
-        self.line(f"{self.tag}:   reply was: {event['reply'].replace("\n", " ")}")
+        self.line(f"{self.shown_tag()}: retrying, the answer was not a JSON array")
+        reply = event["reply"].replace("\n", " ")
+        self.line(f"{self.shown_tag()}:   reply was: {reply}")
 
     def show_file_done(self, event):
-        self.line(f"{self.tag}: {event['outcome']} in {event['seconds']:.1f}s")
+        self.line(f"{self.shown_tag()}: {event['outcome']} in {event['seconds']:.1f}s")
         self.tag = None
 
     def show_summary(self, event):
         self.line(event["text"])
 
     def show_verdict(self, event):
-        self.line(f"pr-review-local: {event['verdict']} after {event['seconds']:.1f}s")
+        verdict = self.paint(event["verdict"], VERDICT_COLORS.get(event["verdict"], BOLD))
+        self.line(f"{self.prefix()} {verdict} after {event['seconds']:.1f}s")
 
     def show_error(self, event):
-        self.line(f"pr-review-local: {event['message']}")
+        self.line(f"{self.prefix()} {event['message']}")
+
+
+def ansi(text, code):
+    return f"\033[{code}m{text}\033[0m"
+
+
+def styled_report_line(line):
+    heading = HEADING_LINE.match(line)
+    if heading:
+        return ansi(heading.group(1), BOLD)
+    line = VERDICT_WORD.sub(lambda match: match.group(1) + ansi(match.group(2), VERDICT_COLORS[match.group(2)]), line)
+    return LABEL_PREFIX.sub(lambda match: ansi(match.group(1) + ":", LABEL_COLORS.get(match.group(1), BOLD)), line)
+
+
+def styled_report(report):
+    return "\n".join(styled_report_line(line) for line in report.splitlines())
+
+
+def wants_color(mode, stream):
+    if mode == "always":
+        return True
+    if mode == "never":
+        return False
+    return stream.isatty() and "NO_COLOR" not in os.environ and os.environ.get("TERM") != "dumb"
 
 
 class ArrayObjectScanner:
@@ -1180,7 +1267,7 @@ def post_review(target, report):
 
 def main(argv):
     config = parse_args(argv)
-    reporter = Reporter(TerminalRenderer(sys.stderr))
+    reporter = Reporter(TerminalRenderer(sys.stderr, wants_color(config.color, sys.stderr)))
     started_at = time.perf_counter()
     try:
         review = review_range(config, reporter) if config.commit_range is not None else review_pull_request(config, reporter)
@@ -1194,6 +1281,8 @@ def main(argv):
     reporter.emit("verdict", verdict=review.verdict, seconds=round(time.perf_counter() - started_at, 1))
     if config.as_json:
         print(json.dumps(review_as_dict(review), indent=2))
+    elif sys.stdout.isatty() and wants_color(config.color, sys.stdout):
+        print(styled_report(report))
     else:
         print(report)
     return 0
