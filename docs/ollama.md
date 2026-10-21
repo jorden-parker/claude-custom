@@ -198,9 +198,14 @@ and a failed summary is reported on stderr as well as in the report.
 `--range BASE..HEAD` reviews local commits instead of a PR, with the same
 reviewer and report. It runs no `gh`, so there are no PR comments and no CI
 (the report says `CI not checked (local range)`), and `--post` is refused.
-`bin/pr-review-eval --model qwen3.8-9b-distill-cc` runs the fixture in
-`eval/pr-review/` through `--range` and prints one line per planted bug
-(`caught blocking`, `caught` or `missed`), then a score line: bugs caught and
-caught as blocking, false blockers (blocking findings on no planted bug),
-findings on the two clean files, unparsable replies and seconds. Run it twice
-before trusting a one-point change.
+`bin/pr-review-eval --model qwen3.8-9b-distill-cc` runs every scenario in
+`eval/pr-review/scenarios/` (`telemetry`, `shell-injection`, `async-ts`,
+`go-errors`, `weak-test` and `clean-refactor`, the last with no bugs) through
+`--range`, or only the ones named with `--scenario`. Each scenario prints a
+`== NAME ==` header, one line per planted bug (`caught blocking`, `caught` or
+`missed`), a `verdict` line that checks the reviewer's verdict against the
+scenario's accepted verdicts, and a score line: bugs caught and caught as
+blocking, false blockers (blocking findings on no planted bug), findings on
+the clean files, unparsable replies and seconds. The run ends with a `total:`
+line that sums them and counts right verdicts. Run it twice before trusting a
+one-point change.

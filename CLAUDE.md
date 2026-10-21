@@ -183,7 +183,7 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   warms it and execs the script (`CLAUDE_OLLAMA_REVIEWER` overrides the path;
   tests stub it). Tests: `bin/pr-review-local.test.sh` (stub `/v1/messages`,
   stub `gh`, stub `fallow`, two temp git repos).
-- Review eval: `bin/pr-review-eval --model M [--base-url URL] [-- reviewer args]` reviews the fixture in `eval/pr-review/` (three planted bugs, two clean files) with `pr-review-local --range` and prints a scorecard; tests: `bin/pr-review-eval.test.sh` (stub reviewer)
+- Review eval: `bin/pr-review-eval --model M [--base-url URL] [-- reviewer args]` reviews every scenario in `eval/pr-review/scenarios/` (six: `telemetry`, `shell-injection`, `async-ts`, `go-errors`, `weak-test`, `clean-refactor`; `--scenario NAME` picks some) with `pr-review-local --range`, checks each verdict, and prints a scorecard ending in a `total:` line; tests: `bin/pr-review-eval.test.sh` (stub reviewer)
 - `shared/hooks/tool-nudge.py` is wired only in the Ollama profiles
   (UserPromptSubmit resets its per-session state under
   `~/.claude/cache/tool-nudge/`). As PreToolUse on Bash and
