@@ -348,6 +348,35 @@ check_that "print-config shows the command" grep -q '^command: claude --settings
 run_capture "$repo/bin/claude-ollama" --print-config </dev/null
 check_that "print-config without a size uses the default" grep -qxF "size: 27b" "$sandbox/out"
 
+cat > "$sandbox/stubbin/tail" <<EOF
+#!/bin/sh
+echo "\$*" >> "$sandbox/tail.log"
+EOF
+chmod +x "$sandbox/stubbin/tail"
+HOMEBREW_PREFIX="$sandbox/brew" run_capture "$repo/bin/claude-ollama" logs
+check_eq "logs without a log file exits 1" 1 "$?"
+check_that "logs without a log file says so" grep -q 'no Ollama log found' "$sandbox/err"
+mkdir -p "$HOME/.ollama/logs"
+: > "$HOME/.ollama/logs/server.log"
+HOMEBREW_PREFIX="$sandbox/brew" run_capture "$repo/bin/claude-ollama" logs
+check_eq "logs exit status" 0 "$?"
+check_that "logs follows the app log when nothing else exists" grep -qxF -- "-n 50 -F $HOME/.ollama/logs/server.log" "$sandbox/tail.log"
+check_that "logs names the file it follows" grep -qxF "claude-ollama: following $HOME/.ollama/logs/server.log" "$sandbox/err"
+check_not "logs does not launch claude" grep -q '^ARGS:' "$sandbox/out"
+mkdir -p "$sandbox/brew/var/log"
+: > "$sandbox/brew/var/log/ollama.log"
+rm -f "$sandbox/tail.log"
+HOMEBREW_PREFIX="$sandbox/brew" run_capture "$repo/bin/claude-ollama" logs -n 200
+check_that "logs prefers the Homebrew service log and passes the line count" grep -qxF -- "-n 200 -F $sandbox/brew/var/log/ollama.log" "$sandbox/tail.log"
+mkdir -p "$HOME/Library/LaunchAgents"
+printf '<plist><dict>\n  <key>Label</key><string>local.ollama</string>\n  <key>StandardOutPath</key><string>%s</string>\n  <key>StandardErrorPath</key><string>%s</string>\n</dict></plist>\n' "$sandbox/agent-ollama.log" "$sandbox/agent-ollama.log" > "$HOME/Library/LaunchAgents/local.ollama.plist"
+: > "$sandbox/agent-ollama.log"
+rm -f "$sandbox/tail.log"
+HOMEBREW_PREFIX="$sandbox/brew" run_capture "$repo/bin/claude-ollama" logs
+check_that "logs prefers the LaunchAgent log" grep -qxF -- "-n 50 -F $sandbox/agent-ollama.log" "$sandbox/tail.log"
+run_capture "$repo/bin/claude-ollama" --help
+check_that "claude-ollama help lists logs" grep -q '^logs \[-n LINES\]' "$sandbox/out"
+
 new_sandbox
 STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=3" run_capture "$repo/bin/claude-ollama" doctor 27b
 check_eq "doctor healthy exit status" 0 "$?"

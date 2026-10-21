@@ -75,7 +75,9 @@ before changing how any file gets applied.
   the default size; `--help` lists sizes)
 - Check the work harness: `claude-ollama doctor [size]` (exit 1 on a missing
   model, hook, context mismatch or server env var; needs `jq`) and
-  `claude-ollama --print-config [size]` (resolved values, no launch)
+  `claude-ollama --print-config [size]` (resolved values, no launch). Follow
+  the server log: `claude-ollama logs [-n LINES]` (LaunchAgent plist path, else
+  the Homebrew log, else the app log)
 - Launch the tools TUI: `claude-tools [user|project|local|FILE]`. Launch the
   agent TUI: `ollama-agent [-file PLIST] [-ollama BIN]`. All three are also
   `claude-custom ollama|tools|agent [...]`.

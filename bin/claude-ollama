@@ -331,6 +331,36 @@ doctor() {
   exit "$status"
 }
 
+agent_log_path() {
+  local plist="$HOME/Library/LaunchAgents/local.ollama.plist"
+  [ -f "$plist" ] || return 0
+  sed -n 's|.*<key>StandardOutPath</key><string>\(.*\)</string>.*|\1|p' "$plist" | head -n 1
+}
+
+server_log_path() {
+  local candidate
+  for candidate in "$(agent_log_path)" "${HOMEBREW_PREFIX:-/opt/homebrew}/var/log/ollama.log" "$HOME/.ollama/logs/server.log"; do
+    if [ -n "$candidate" ] && [ -f "$candidate" ]; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+follow_logs() {
+  local lines=50 path
+  if [ "${1:-}" = -n ] && [ -n "${2:-}" ]; then
+    lines="$2"
+  fi
+  if ! path="$(server_log_path)"; then
+    echo "claude-ollama: no Ollama log found (LaunchAgent, Homebrew service or app); a server started with 'ollama serve' logs to its own terminal" >&2
+    exit 1
+  fi
+  echo "claude-ollama: following $path" >&2
+  exec tail -n "$lines" -F "$path"
+}
+
 case "${1:-}" in
   -h|--help)
     echo "usage: claude-ollama [size] [claude args...]"
@@ -339,6 +369,7 @@ case "${1:-}" in
     echo "--require-side-model: exit 1 instead of using the main model for subagents"
     echo "doctor [size]: check models, context sizes, hooks, Ollama and the server env"
     echo "--print-config [size]: print the resolved settings and the claude command"
+    echo "logs [-n LINES]: follow the Ollama server log (LaunchAgent, Homebrew service or app)"
     exit 0 ;;
 esac
 
@@ -346,7 +377,10 @@ mode=launch
 case "${1:-}" in
   doctor) mode=doctor; shift ;;
   --print-config) mode=print-config; shift ;;
+  logs) mode=logs; shift ;;
 esac
+
+[ "$mode" != logs ] || follow_logs "$@"
 
 if ! command -v jq >/dev/null 2>&1; then
   echo "claude-ollama: jq is required (brew install jq)" >&2

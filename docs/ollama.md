@@ -143,6 +143,13 @@ read with `pgrep`/`ps` (or `/proc` on Linux).
 model, side model, embedding model, context sizes, settings path, tools) and the
 exact `claude` command, without launching.
 
+`claude-ollama logs [-n LINES]` follows the Ollama server log with `tail -F`
+(50 lines of history by default). It reads the log path from the `local.ollama`
+LaunchAgent plist when one exists, else uses the Homebrew service log
+(`$HOMEBREW_PREFIX/var/log/ollama.log`), else the Ollama app's
+`~/.ollama/logs/server.log`, and exits 1 when none exists. A server started by
+hand with `ollama serve` prints to its own terminal and has no file to follow.
+
 Sample `doctor` output (all healthy):
 
 ```
