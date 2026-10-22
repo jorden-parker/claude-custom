@@ -581,19 +581,63 @@ class ArrayObjectScanner:
         return object_text
 
 
-class AnswerStream:
-    def __init__(self, reporter, index, path):
+class ReplyStream:
+    def __init__(self, reporter, fields):
         self.reporter = reporter
+        self.fields = fields
+        self.pending = []
+        self.last_progress_at = None
+
+    def begin(self, system, user):
+        self.reporter.emit("prompt", system=system, user=user, **self.prompt_fields())
+
+    def prompt_fields(self):
+        return self.fields
+
+    def __call__(self, text):
+        self.pending.append(text)
+        now = time.perf_counter()
+        if self.last_progress_at is None or now - self.last_progress_at >= WRITING_INTERVAL_SECONDS:
+            self.last_progress_at = now
+            self.report_progress()
+
+    def report_progress(self):
+        self.flush_text()
+
+    def flush_text(self):
+        if not self.pending:
+            return
+        text = "".join(self.pending)
+        self.pending = []
+        self.reporter.emit("reply_text", text=text, **self.fields)
+
+    def finish(self):
+        self.flush_text()
+
+
+class AnswerStream(ReplyStream):
+    def __init__(self, reporter, index, path, attempt):
+        super().__init__(reporter, {"scope": "file", "index": index, "attempt": attempt})
         self.index = index
         self.path = path
         self.scanner = ArrayObjectScanner()
         self.chars = 0
-        self.last_writing_at = None
+
+    def prompt_fields(self):
+        return {**self.fields, "path": self.path}
 
     def __call__(self, text):
         self.chars += len(text)
         for object_text in self.scanner.feed(text):
             self.report_finding(object_text)
+        super().__call__(text)
+
+    def report_progress(self):
+        super().report_progress()
+        self.report_writing()
+
+    def finish(self):
+        super().finish()
         self.report_writing()
 
     def report_finding(self, object_text):
@@ -607,15 +651,7 @@ class AnswerStream:
         self.reporter.emit("finding", index=self.index, path=self.path, finding=dataclasses.asdict(finding))
 
     def report_writing(self):
-        now = time.perf_counter()
-        if self.last_writing_at is not None and now - self.last_writing_at < WRITING_INTERVAL_SECONDS:
-            return
-        self.last_writing_at = now
         self.reporter.emit("writing", index=self.index, path=self.path, chars=self.chars)
-
-
-def ignore_text(text):
-    return None
 
 
 def repo_root():
@@ -1106,18 +1142,26 @@ def system_prompt_for(source):
     return f"{FILE_SYSTEM_PROMPT}\n\n" + "\n".join(notes)
 
 
-def ask_model(config, reporter, system, prompt, index, path):
-    stream = AnswerStream(reporter, index, path)
-    return request_text(config, reporter, system, prompt, config.max_tokens, stream)
+def ask_with_stream(config, reporter, system, prompt, max_tokens, stream):
+    stream.begin(system, prompt)
+    try:
+        return request_text(config, reporter, system, prompt, max_tokens, stream)
+    finally:
+        stream.finish()
+
+
+def ask_model(config, reporter, system, prompt, index, path, attempt):
+    stream = AnswerStream(reporter, index, path, attempt)
+    return ask_with_stream(config, reporter, system, prompt, config.max_tokens, stream)
 
 
 def review_prompt_answer(config, reporter, system, prompt, path, index):
-    reply = ask_model(config, reporter, system, prompt, index, path)
+    reply = ask_model(config, reporter, system, prompt, index, path, 1)
     try:
         return parse_findings(reply, path)
     except ValueError:
         reporter.emit("retry", index=index, path=path, reply=reply[:RETRY_REPLY_CHARS])
-    reply = ask_model(config, reporter, system, prompt + RETRY_NOTE, index, path)
+    reply = ask_model(config, reporter, system, prompt + RETRY_NOTE, index, path, 2)
     return parse_findings(reply, path)
 
 
@@ -1177,7 +1221,8 @@ def summary_sentence(config, reporter, meta, verdict, findings):
         f"Verdict: {verdict}\n\nFindings:\n{brief}"
     )
     try:
-        reply = request_text(config, reporter, SUMMARY_SYSTEM_PROMPT, prompt, SUMMARY_MAX_TOKENS, ignore_text)
+        stream = ReplyStream(reporter, {"scope": "summary", "attempt": 1})
+        reply = ask_with_stream(config, reporter, SUMMARY_SYSTEM_PROMPT, prompt, SUMMARY_MAX_TOKENS, stream)
     except ReviewError as error:
         reporter.stage(f"summary failed: {error}")
         return f"Summary unavailable: {error}."

@@ -101,7 +101,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         time.sleep(DELAY_SECONDS)
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-        record = {"anthropic-version": self.headers.get("anthropic-version"), "body": body}
+        record = {"anthropic-version": self.headers.get("anthropic-version"), "body": body, "reply": reply_for(body)}
         with open(LOG_PATH, "a") as log:
             log.write(json.dumps(record) + "\n")
         if is_server_error(body):
@@ -159,8 +159,62 @@ def every_request_ok(path, model):
     return True
 
 
+def events(log_path):
+    return [json.loads(line) for line in Path(log_path).read_text().splitlines() if line]
+
+
+def find_prompt(log_path, scope, path, attempt):
+    for event in events(log_path):
+        if event["kind"] == "prompt" and event["scope"] == scope and event.get("path") == path and event["attempt"] == attempt:
+            return event
+    return None
+
+
+def joined_reply(log_path, scope, index, attempt):
+    return "".join(
+        event["text"]
+        for event in events(log_path)
+        if event["kind"] == "reply_text" and event["scope"] == scope and event.get("index") == index and event["attempt"] == attempt
+    )
+
+
+def file_request(requests_path, path, attempt):
+    return matching(requests_path, f"File: {path}")[attempt - 1]
+
+
+def prompt_matches_request(requests_path, log_path, path, attempt):
+    prompt = find_prompt(log_path, "file", path, attempt)
+    request = file_request(requests_path, path, attempt)
+    return prompt is not None and prompt["user"] == user_text(request) and prompt["system"] == system_text(request)
+
+
+def reply_matches_request(requests_path, log_path, path, attempt):
+    prompt = find_prompt(log_path, "file", path, attempt)
+    if prompt is None:
+        return False
+    return joined_reply(log_path, "file", prompt["index"], attempt) == file_request(requests_path, path, attempt)["reply"]
+
+
+def summary_matches_request(requests_path, log_path):
+    prompt = find_prompt(log_path, "summary", None, 1)
+    request = [item for item in requests(requests_path) if system_text(item).startswith("You summarise")][0]
+    if prompt is None:
+        return False
+    return (
+        prompt["system"] == system_text(request)
+        and prompt["user"] == user_text(request)
+        and joined_reply(log_path, "summary", None, 1) == request["reply"]
+    )
+
+
 def main(argv):
     command, path, *args = argv
+    if command == "prompt-matches-request":
+        return 0 if prompt_matches_request(path, args[0], args[1], int(args[2])) else 1
+    if command == "reply-matches-request":
+        return 0 if reply_matches_request(path, args[0], args[1], int(args[2])) else 1
+    if command == "summary-matches-request":
+        return 0 if summary_matches_request(path, args[0]) else 1
     if command == "count-user":
         print(len(matching(path, args[0])))
         return 0
@@ -431,6 +485,17 @@ check_eq "log ends with end ok" "end ok" "$(tail -1 "$log" | jq -r '"\(.kind) \(
 check_that "log has the live finding" jq_quiet -e 'select(.kind == "finding" and .finding.summary == "Null deref on empty list")' "$log"
 check_that "log has the report" jq_quiet -e 'select(.kind == "report") | .markdown | contains("## PR #7")' "$log"
 check_not "log has no log path stage" jq_quiet -e 'select(.kind == "stage" and (.message | startswith("log ")))' "$log"
+check_that "bad.ts prompt is the request sent" inspect prompt-matches-request "$tmp/requests.log" "$log" src/bad.ts 1
+check_that "bad.ts reply_text joins to the reply" inspect reply-matches-request "$tmp/requests.log" "$log" src/bad.ts 1
+check_that "weird.ts attempt 1 prompt is the request sent" inspect prompt-matches-request "$tmp/requests.log" "$log" src/weird.ts 1
+check_that "weird.ts attempt 2 prompt is the retry request" inspect prompt-matches-request "$tmp/requests.log" "$log" src/weird.ts 2
+check_that "weird.ts attempt 2 reply_text joins to the reply" inspect reply-matches-request "$tmp/requests.log" "$log" src/weird.ts 2
+check_that "weird.ts attempt 2 prompt ends with the retry note" jq_quiet -e 'select(.kind == "prompt" and .path == "src/weird.ts" and .attempt == 2) | .user | endswith("Answer with the JSON array only.")' "$log"
+check_eq "bad.ts events are file_start, prompt, file_done" "$(printf 'file_start\nprompt\nfile_done')" "$(jq -r 'select(.path == "src/bad.ts" and (.kind == "file_start" or .kind == "prompt" or .kind == "file_done")) | .kind' "$log")"
+check_eq "weird.ts retry sits between its two prompts" "$(printf 'file_start\nprompt\nretry\nprompt\nfile_done')" "$(jq -r 'select(.path == "src/weird.ts" and (.kind == "file_start" or .kind == "prompt" or .kind == "retry" or .kind == "file_done")) | .kind' "$log")"
+check_that "summary prompt is the request sent" inspect summary-matches-request "$tmp/requests.log" "$log"
+check_that "summary prompt system starts with You summarise" jq_quiet -e 'select(.kind == "prompt" and .scope == "summary") | .system | startswith("You summarise")' "$log"
+check_not "prompt text stays off stderr" grep -qF 'File: src/bad.ts' "$tmp/err"
 mkdir "$tmp/live-logs"
 printf 'http://127.0.0.1:9/\n' > "$tmp/live-logs/.web-url"
 review_in_work 7 --log-dir "$tmp/live-logs" > /dev/null 2> "$tmp/live.err"
