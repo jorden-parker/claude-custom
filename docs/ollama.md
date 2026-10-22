@@ -158,11 +158,34 @@ ok   jq on PATH
 ok   model qwen3.8-27b-cc
 ok   side model qwen3-4b-cc
 ok   embedding model qwen3-embedding:0.6b
+ok   digest qwen3.8:27b-mlx matches its pin
 ok   num_ctx 65536 matches CLAUDE_CODE_MAX_CONTEXT_TOKENS
 ok   hook bash-output-guard.py present
 ok   ollama reachable at http://localhost:11434
 ok   server env OLLAMA_FLASH_ATTENTION=1
 ```
+
+### Trusted models
+
+Every model the harness pulls comes from the Ollama library and is pinned by the
+sha256 of its registry manifest in `ollama/model-digests.json`. After pulling a
+base, and before each launch, `claude-ollama` compares the digest Ollama reports
+in `/api/tags` with the pin and exits 1 on a mismatch; `doctor` prints
+`ok   digest NAME matches its pin` or a `fail` line. The profiles also run Bash
+in Claude Code's sandbox with no unsandboxed retry, and ask before every Bash
+command. Sandboxed commands can write only to the working directory and the temp
+directory; add other paths with `sandbox.filesystem.allowWrite`.
+
+`bin/ollama-models` manages the installed models:
+
+- `list` marks each one `pinned`, `mismatch` (pinned, different digest),
+  `profile` (a `-cc` model a profile uses), `orphan` (a `-cc` model no profile
+  uses), `third-party` (not from the Ollama library) or `other`.
+- `prune` lists the `third-party` and `orphan` models, asks, then runs
+  `ollama rm` on them (`--yes` skips the question).
+- `pin NAME[:TAG]` fetches the manifest from `registry.ollama.ai`, writes its
+  sha256 to `ollama/model-digests.json` and prints it. Run it when adding a size
+  or after an upstream tag update, then review the diff.
 
 To compare Ollama with other servers, see [backend-bench](backend-bench.md).
 
@@ -223,7 +246,7 @@ has a Transcript tab that shows each prompt and the streamed reply, and a
 `--range BASE..HEAD` reviews local commits instead of a PR, with the same
 reviewer and report. It runs no `gh`, so there are no PR comments and no CI (the
 report says `CI not checked (local range)`), and `--post` is refused.
-`bin/pr-review-eval --model qwen3.8-9b-distill-cc` runs every scenario in
+`bin/pr-review-eval --model qwen3.8-27b-cc` runs every scenario in
 `eval/pr-review/scenarios/` (`telemetry`, `shell-injection`, `async-ts`,
 `go-errors`, `weak-test` and `clean-refactor`, the last with no bugs) through
 `--range`, or only the ones named with `--scenario`. Each scenario prints a

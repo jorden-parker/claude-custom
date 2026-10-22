@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_dir="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+profile_dir="${OLLAMA_PROFILE_DIR:-$repo_dir/ollama}"
+digests_file="$profile_dir/model-digests.json"
+registry="${OLLAMA_REGISTRY:-https://registry.ollama.ai}"
+ollama_url="${OLLAMA_HOST:-http://localhost:11434}"
+case "$ollama_url" in http://*|https://*) ;; *) ollama_url="http://$ollama_url" ;; esac
+
+usage() {
+  cat >&2 <<'EOF'
+usage: ollama-models list | prune [--yes] | pin NAME[:TAG]
+  list   show each installed model as pinned, mismatch, profile, orphan, third-party or other
+  prune  remove third-party models and -cc models no profile uses (asks unless --yes)
+  pin    record NAME's registry manifest sha256 in ollama/model-digests.json
+EOF
+  exit 2
+}
+
+profile_models() {
+  jq -r '.model, .env.ANTHROPIC_DEFAULT_HAIKU_MODEL' "$profile_dir"/settings.*.json | sort -u
+}
+
+installed_models() {
+  curl -sf -m 5 "$ollama_url/api/tags"
+}
+
+classified_models() {
+  installed_models | jq -r --slurpfile pins "$digests_file" --arg profiles "$(profile_models)" '
+    ($profiles | split("\n")) as $profile
+    | .models[]
+    | .name as $name
+    | ($name | sub(":latest$"; "")) as $short
+    | ($pins[0][$name] // $pins[0][$short]) as $pin
+    | (if ($name | contains("/")) then "third-party"
+       elif $pin != null then (if .digest == $pin then "pinned" else "mismatch" end)
+       elif ($profile | index($short)) != null then "profile"
+       elif ($short | endswith("-cc")) then "orphan"
+       else "other" end) as $class
+    | "\($class) \($name)"'
+}
+
+list_models() {
+  classified_models | while read -r class name; do
+    printf '%-12s %s\n' "$class" "$name"
+  done
+}
+
+prunable_models() {
+  classified_models | awk '$1 == "third-party" || $1 == "orphan" { print $2 }'
+}
+
+confirmed() {
+  local answer=""
+  printf 'Remove these models? [y/N] ' >&2
+  read -r answer || true
+  [ "$answer" = y ] || [ "$answer" = yes ]
+}
+
+prune_models() {
+  local models
+  models="$(prunable_models)"
+  if [ -z "$models" ]; then
+    echo "nothing to prune"
+    return 0
+  fi
+  printf '%s\n' "$models"
+  if [ "${1:-}" != --yes ] && ! confirmed; then
+    echo "ollama-models: nothing removed" >&2
+    return 1
+  fi
+  echo "$models" | xargs ollama rm
+}
+
+sha256_of_stdin() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum | cut -c1-64
+  else
+    shasum -a 256 | cut -c1-64
+  fi
+}
+
+manifest_digest() {
+  local name="${1%%:*}" tag="latest" manifest
+  case "$1" in *:*) tag="${1#*:}" ;; esac
+  manifest="$(curl -sf -m 30 -H 'Accept: application/vnd.docker.distribution.manifest.v2+json' \
+    "$registry/v2/library/$name/manifests/$tag")" || return 1
+  printf '%s' "$manifest" | sha256_of_stdin
+}
+
+pin_model() {
+  local digest updated
+  case "$1" in
+    */*) echo "ollama-models: $1 is not an Ollama library model" >&2; return 1 ;;
+  esac
+  digest="$(manifest_digest "$1")" || { echo "ollama-models: $registry has no manifest for $1" >&2; return 1; }
+  updated="$(jq --arg name "$1" --arg digest "$digest" '.[$name] = $digest' "$digests_file")"
+  printf '%s\n' "$updated" > "$digests_file"
+  echo "$1 $digest"
+}
+
+case "${1:-}" in
+  list) list_models ;;
+  prune) prune_models "${2:-}" ;;
+  pin) [ -n "${2:-}" ] || usage; pin_model "$2" ;;
+  *) usage ;;
+esac

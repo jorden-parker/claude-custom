@@ -43,6 +43,11 @@ before changing how any file gets applied.
 - Installer tests: `personal/install.test.sh` (prints `all passed`)
 - Launcher tests: `bin/claude-ollama.test.sh` (prints `all passed`; covers
   `bin/claude-ollama` and the `claude-custom ollama|tools` subcommands)
+- Model manager: `bin/ollama-models list|prune [--yes]|pin NAME[:TAG]` marks
+  installed models (pinned, mismatch, profile, orphan, third-party, other),
+  removes third-party and orphan `-cc` models after asking, and writes a
+  registry manifest sha256 to `ollama/model-digests.json`; tests:
+  `bin/ollama-models.test.sh` (stub `ollama`, stub `curl`)
 - Config check: `bin/check-config` (prints `all passed`; static checks that the
   `ollama/` and `personal/` config files agree with each other)
 - Profile generator: `bin/ollama-profiles` renders `ollama/settings.<size>.json`
@@ -90,10 +95,13 @@ before changing how any file gets applied.
   derives Ollama model names from `ollama/settings.<size>.json` and
   `ollama/Modelfile.<size>`, both rendered from `ollama/sizes.json`. Adding a
   size means one `sizes.json` entry, then `bin/ollama-profiles`; never hand-edit
-  the rendered files. A `base` of `./weights/<owner>/<repo>` is a Hugging Face
-  MLX repo: `bin/claude-ollama` downloads it with `hf download` into
-  `ollama/weights/` (gitignored), runs `ollama create` from `ollama/`, then
-  deletes the download.
+  the rendered files. Every `base` (plus `side.Modelfile`'s `FROM` and the
+  default embedding model) must be an Ollama library model (no `/` in the name)
+  with a manifest sha256 in `ollama/model-digests.json`; `bin/check-config`
+  checks both. `bin/claude-ollama` checks `/api/tags` against the pin after
+  pulling a base and before each launch, exits 1 on a mismatch, and `doctor`
+  reports it. A pin is the sha256 of the registry manifest
+  (`https://registry.ollama.ai/v2/library/NAME/manifests/TAG`).
 - Go module `go/` (all three apps; `go/cmd/model-picker/`,
   `go/cmd/claude-tools/`, `go/cmd/ollama-agent/`): `cd go && go test ./...`. One
   test: `cd go && go test ./internal/tools/ui -run TestSwitching`. Run the
@@ -226,10 +234,15 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   bare name, so their schemas never reach the local model's context. `--tools`
   in `bin/claude-ollama` is the primary allowlist and that deny list is the
   backstop. `bin/check-config` fails when the Ollama deny lists differ. The
-  personal overlay also denies unused tools by bare name (`Artifact`,
-  `Workflow`, `ScheduleWakeup`, `SendFeedback` and the deferred ones), since a
-  bare deny removes the tool's schema from the request; `bin/check-config` fails
-  when an Ollama profile lacks one of those bare denies.
+  Ollama profiles also sandbox Bash (`sandbox.enabled`,
+  `allowUnsandboxedCommands: false`, `failIfUnavailable: true`) and prompt for
+  every Bash command (`autoAllowBashIfSandboxed: false`, `permissions.ask`
+  `Bash`), since a local model's weights are not trusted; `bin/check-config`
+  checks both. The personal overlay also denies unused tools by bare name
+  (`Artifact`, `Workflow`, `ScheduleWakeup`, `SendFeedback` and the deferred
+  ones), since a bare deny removes the tool's schema from the request;
+  `bin/check-config` fails when an Ollama profile lacks one of those bare
+  denies.
 - `bin/claude-ollama` resolves its own symlink to find `ollama/`. It unsets
   `ANTHROPIC_API_KEY`, passes `--settings ollama/settings.<size>.json`,
   `--system-prompt-file ollama/system-prompt.md` (replacing Claude Code's
