@@ -1,5 +1,4 @@
 [
-  "Read(**/node_modules/**)",
   "Read(**/dist/**)",
   "Read(**/.next/**)",
   "Read(**/coverage/**)",

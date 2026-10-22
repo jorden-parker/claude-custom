@@ -61,10 +61,10 @@ check_that "render writes the personal overlay" test -f "$sandbox/personal/setti
 check_that "render writes the personal overlay unchanged" cmp -s "$repo/personal/settings.tokens.json" "$sandbox/personal/settings.tokens.json"
 check_eq "personal overlay hooks come from the shared fragment" "$(jq -S . "$repo/shared/settings/hooks.json")" "$(jq -S .hooks "$sandbox/personal/settings.tokens.json")"
 check_eq "personal overlay has no Ollama-only hook" 0 "$(jq '[.. | strings | select(contains("tool-nudge"))] | length' "$sandbox/personal/settings.tokens.json")"
-check_eq "personal overlay keeps the six Read globs" 6 "$(jq '[.permissions.deny[] | select(startswith("Read("))] | length' "$sandbox/personal/settings.tokens.json")"
+check_eq "personal overlay keeps the five Read globs" 5 "$(jq '[.permissions.deny[] | select(startswith("Read("))] | length' "$sandbox/personal/settings.tokens.json")"
 check_eq "personal overlay keeps its bare tool denies" 12 "$(jq '[.permissions.deny[] | select(startswith("Read(") | not)] | length' "$sandbox/personal/settings.tokens.json")"
-check_eq "Read globs expand in place" "Read(**/node_modules/**)" "$(jq -r '.permissions.deny[0]' "$sandbox/ollama/settings.27b.json")"
-check_eq "bare tool denies follow the globs" "Artifact" "$(jq -r '.permissions.deny[6]' "$sandbox/ollama/settings.27b.json")"
+check_eq "Read globs expand in place" "Read(**/dist/**)" "$(jq -r '.permissions.deny[0]' "$sandbox/ollama/settings.27b.json")"
+check_eq "bare tool denies follow the globs" "Artifact" "$(jq -r '.permissions.deny[5]' "$sandbox/ollama/settings.27b.json")"
 check_eq "profile hooks add the tool-nudge entries" 3 "$(jq '[.. | strings | select(contains("tool-nudge"))] | length' "$sandbox/ollama/settings.27b.json")"
 check_that "no placeholder survives" sh -c "! grep -q '{{' '$sandbox/ollama/settings.27b.json' '$sandbox/personal/settings.tokens.json'"
 
