@@ -184,9 +184,12 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   returns a JSON findings array (one retry), the verdict is a fixed rule, and
   the report matches the `pr-review` agent's shape.
   `claude-ollama review [size] PR` resolves the size's model, warms it and execs
-  the script (`CLAUDE_OLLAMA_REVIEWER` overrides the path; tests stub it).
-  Tests: `bin/pr-review-local.test.sh` (stub `/v1/messages`, stub `gh`, stub
-  `fallow`, two temp git repos).
+  the script (`CLAUDE_OLLAMA_REVIEWER` overrides the path; tests stub it). The
+  event log (`--log-dir`, `0700` dir and `0600` files) also holds `prompt`
+  (exact `system` and `user`, per file attempt and for `summary`) and
+  `reply_text` (streamed reply text, flushed at the end), beside `file_start`,
+  `writing`, `retry` and `file_done`. Tests: `bin/pr-review-local.test.sh` (stub
+  `/v1/messages`, stub `gh`, stub `fallow`, two temp git repos).
 - Review eval:
   `bin/pr-review-eval --model M [--base-url URL] [-- reviewer args]` reviews
   every scenario in `eval/pr-review/scenarios/` (six: `telemetry`,

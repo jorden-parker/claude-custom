@@ -206,15 +206,17 @@ Each review also writes an event log, one JSON object per line with `t`, `kind`
 and the event's fields, flushed as it goes and ending with an `end` line whose
 `status` is `ok` or `error`. The file is `YYYYmmdd-HHMMSS-<slug>.jsonl` in UTC
 under `--log-dir DIR`, else `PR_REVIEW_LOG_DIR`, else
-`~/.local/share/claude-custom/reviews`; `--no-log` turns it off. The log opens
-at the `start` event, once the PR is known, so stage lines and errors before it
-show on the terminal only, and a failure before `start` writes no file. A log
-that cannot be written is reported once and the review goes on. While
-`claude-ollama reviews` serves the page, the review also prints a terminal-only
-`live at` link to that review's page, read from `.web-url` in the log directory.
-A failed request names the server's error message (for example a model that does
-not fit in memory), and a failed summary is reported on stderr as well as in the
-report.
+`~/.local/share/claude-custom/reviews`; `--no-log` turns it off. The log holds
+each request's full prompt (`prompt`, with `system` and `user`) and the streamed
+reply (`reply_text`), so a log can reach several MB; the directory is `0700` and
+the files `0600`, and they stay local. The log opens at the `start` event, once
+the PR is known, so stage lines and errors before it show on the terminal only,
+and a failure before `start` writes no file. A log that cannot be written is
+reported once and the review goes on. While `claude-ollama reviews` serves the
+page, the review also prints a terminal-only `live at` link to that review's
+page, read from `.web-url` in the log directory. A failed request names the
+server's error message (for example a model that does not fit in memory), and a
+failed summary is reported on stderr as well as in the report.
 
 `--range BASE..HEAD` reviews local commits instead of a PR, with the same
 reviewer and report. It runs no `gh`, so there are no PR comments and no CI (the
