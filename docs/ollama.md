@@ -174,7 +174,12 @@ in `/api/tags` with the pin and exits 1 on a mismatch; `doctor` prints
 `ok   digest NAME matches its pin` or a `fail` line. The profiles also run Bash
 in Claude Code's sandbox with no unsandboxed retry, and ask before every Bash
 command. Sandboxed commands can write only to the working directory and the temp
-directory; add other paths with `sandbox.filesystem.allowWrite`.
+directory; add other paths with `sandbox.filesystem.allowWrite`. `git` stays
+sandboxed, hooks included, and `sandbox.network.allowedDomains` lets it reach
+`github.com` only, so push and fetch work over HTTPS (SSH remotes fail in the
+macOS sandbox). It still asks before every command. Git is never put in
+`sandbox.excludedCommands`: an approved commit would then run hooks (`.husky/`,
+`lint-staged`) the model could rewrite inside the sandbox.
 
 `bin/ollama-models` manages the installed models:
 

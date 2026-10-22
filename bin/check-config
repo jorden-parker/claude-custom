@@ -59,6 +59,8 @@ for settings in "$repo"/ollama/settings.*.json; do
     "$(jq -r '.sandbox | [.enabled, .allowUnsandboxedCommands, .failIfUnavailable] | join(" ")' "$settings")"
   check_eq "${settings##*/} asks before every Bash command" "false true" \
     "$(jq -r '[.sandbox.autoAllowBashIfSandboxed, (.permissions.ask | index("Bash") != null)] | join(" ")' "$settings")"
+  check_eq "${settings##*/} keeps git sandboxed and lets it reach only github.com" 'null ["github.com"]' \
+    "$(jq -c '.sandbox.excludedCommands, .sandbox.network.allowedDomains' "$settings" | paste -sd' ' -)"
 done
 
 digests="$repo/ollama/model-digests.json"

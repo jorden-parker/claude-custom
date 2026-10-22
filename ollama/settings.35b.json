@@ -67,7 +67,10 @@
     "enabled": true,
     "autoAllowBashIfSandboxed": false,
     "allowUnsandboxedCommands": false,
-    "failIfUnavailable": true
+    "failIfUnavailable": true,
+    "network": {
+      "allowedDomains": ["github.com"]
+    }
   },
   "hooks": {
     "PreToolUse": [

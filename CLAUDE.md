@@ -237,12 +237,14 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   Ollama profiles also sandbox Bash (`sandbox.enabled`,
   `allowUnsandboxedCommands: false`, `failIfUnavailable: true`) and prompt for
   every Bash command (`autoAllowBashIfSandboxed: false`, `permissions.ask`
-  `Bash`), since a local model's weights are not trusted; `bin/check-config`
-  checks both. The personal overlay also denies unused tools by bare name
-  (`Artifact`, `Workflow`, `ScheduleWakeup`, `SendFeedback` and the deferred
-  ones), since a bare deny removes the tool's schema from the request;
-  `bin/check-config` fails when an Ollama profile lacks one of those bare
-  denies.
+  `Bash`), since a local model's weights are not trusted. `git` stays in the
+  sandbox (never `excludedCommands`: hooks the model can edit would run
+  unsandboxed) with `sandbox.network.allowedDomains` `github.com` only, and is
+  still asked for; `bin/check-config` checks all three. The personal overlay
+  also denies unused tools by bare name (`Artifact`, `Workflow`,
+  `ScheduleWakeup`, `SendFeedback` and the deferred ones), since a bare deny
+  removes the tool's schema from the request; `bin/check-config` fails when an
+  Ollama profile lacks one of those bare denies.
 - `bin/claude-ollama` resolves its own symlink to find `ollama/`. It unsets
   `ANTHROPIC_API_KEY`, passes `--settings ollama/settings.<size>.json`,
   `--system-prompt-file ollama/system-prompt.md` (replacing Claude Code's
