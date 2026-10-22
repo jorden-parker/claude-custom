@@ -111,6 +111,20 @@ function startedFromId(id: string): string {
   ).toISOString();
 }
 
+type CachedLog = { mtimeMs: number; size: number; events: ReviewEvent[] };
+
+const logCache = new Map<string, CachedLog>();
+
+function readEvents(file: string, stats: fs.Stats): ReviewEvent[] {
+  const cached = logCache.get(file);
+  if (cached && cached.mtimeMs === stats.mtimeMs && cached.size === stats.size) {
+    return cached.events;
+  }
+  const events = parseEvents(fs.readFileSync(file, "utf8"));
+  logCache.set(file, { mtimeMs: stats.mtimeMs, size: stats.size, events });
+  return events;
+}
+
 export function listReviews(): ReviewSummary[] {
   const directory = logDir();
   if (!fs.existsSync(directory)) {
@@ -125,8 +139,7 @@ export function listReviews(): ReviewSummary[] {
     .map((name) => {
       const id = name.slice(0, -".jsonl".length);
       const file = path.join(directory, name);
-      const text = fs.readFileSync(file, "utf8");
-      const mtimeMs = fs.statSync(file).mtimeMs;
-      return summarize(id, parseEvents(text), mtimeMs, now);
+      const stats = fs.statSync(file);
+      return summarize(id, readEvents(file, stats), stats.mtimeMs, now);
     });
 }

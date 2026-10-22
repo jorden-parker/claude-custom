@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   listReviews,
   logDir,
@@ -112,6 +112,25 @@ describe("review log reading", () => {
 
     process.env.PR_REVIEW_LOG_DIR = path.join(dir, "missing");
     expect(listReviews()).toEqual([]);
+  });
+
+  it("rereads a log only when its size or mtime changes", () => {
+    const logFile = path.join(dir, `${COMPLETE_ID}.jsonl`);
+    const countReadsOfLog = (spy: { mock: { calls: unknown[][] } }) =>
+      spy.mock.calls.filter(([file]) => file === logFile).length;
+    listReviews();
+
+    const readSpy = vi.spyOn(fs, "readFileSync");
+    listReviews();
+    const readsWhenUnchanged = countReadsOfLog(readSpy);
+
+    fs.appendFileSync(logFile, `${JSON.stringify({ kind: "stage", message: "more" })}\n`);
+    listReviews();
+    const readsWhenChanged = countReadsOfLog(readSpy);
+    vi.restoreAllMocks();
+
+    expect(readsWhenUnchanged).toBe(0);
+    expect(readsWhenChanged).toBe(1);
   });
 
   it("rejects traversal, unknown and suffixed ids", () => {
