@@ -421,6 +421,11 @@ check_not "stdout stays plain markdown when not a TTY" grep -q "$(printf '\033')
 logs=("$tmp/logs"/*-pr-7.jsonl)
 log="${logs[0]}"
 check_that "log file named after the PR" test -f "$log"
+mode_of() {
+  python3 -c 'import os,sys; print(oct(os.stat(sys.argv[1]).st_mode & 0o777)[2:])' "$1"
+}
+check_eq "log directory is private" 700 "$(mode_of "$tmp/logs")"
+check_eq "log file is private" 600 "$(mode_of "$log")"
 check_eq "log starts with start" start "$(head -1 "$log" | jq -r .kind)"
 check_eq "log ends with end ok" "end ok" "$(tail -1 "$log" | jq -r '"\(.kind) \(.status)"')"
 check_that "log has the live finding" jq_quiet -e 'select(.kind == "finding" and .finding.summary == "Null deref on empty list")' "$log"
