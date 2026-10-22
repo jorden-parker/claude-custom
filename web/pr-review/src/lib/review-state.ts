@@ -1,4 +1,5 @@
 import type { ReviewEvent } from "./review-event";
+import { applyTranscriptEvent, type TranscriptEntry } from "./review-transcript";
 
 export type FileState = "waiting" | "writing" | "done";
 
@@ -50,6 +51,7 @@ export type ReviewState = {
   ended: boolean;
   lastSeconds: number;
   lastEventId: number;
+  transcript: TranscriptEntry[];
 };
 
 export const initialReviewState: ReviewState = {
@@ -63,6 +65,7 @@ export const initialReviewState: ReviewState = {
   ended: false,
   lastSeconds: 0,
   lastEventId: 0,
+  transcript: [],
 };
 
 export function isFileOpenByDefault(file: FileView): boolean {
@@ -151,6 +154,7 @@ export function applyEvent(state: ReviewState, event: ReviewEvent, eventId?: num
   const next = handler ? handler(state, event) : state;
   return {
     ...next,
+    transcript: applyTranscriptEvent(next.transcript, event),
     lastEventId: eventId ?? next.lastEventId,
     lastSeconds: Math.max(next.lastSeconds, numberOf(event, "t") ?? 0),
   };
