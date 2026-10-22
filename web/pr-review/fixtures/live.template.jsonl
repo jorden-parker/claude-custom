@@ -1,8 +1,15 @@
 {"t":0,"kind":"start","name":"PR #44","title":"Cache the diff between runs","model":"qwen3.6-35b-cc","base_url":"http://localhost:11434"}
 {"t":1,"kind":"stage","message":"fetching PR #44 with gh"}
 {"t":2,"kind":"file_start","index":1,"total":2,"path":"src/cache/diff-cache.ts","chars":1800}
+{"t":2,"kind":"prompt","scope":"file","index":1,"path":"src/cache/diff-cache.ts","attempt":1,"system":"You review one changed file in a pull request. Report only real problems in the lines this change touches. Reply with only a JSON array of findings. Each finding has label (issue, suggestion, question, nitpick or praise), blocking, path, line, summary, why and confidence. Reply [] when there is nothing to report.","user":"Review the changed file src/cache/diff-cache.ts from pull request #44 \"Cache the diff between runs\". Report only problems in lines this change touches.\n\nFile: src/cache/diff-cache.ts\n   1 @@ -1,6 +1,14 @@\n   2 +export function cacheKey(repo: string, base: string): string {\n   3 +  return `${repo}:${base}`;\n   4 +}\n   5 +export function readCache(key: string): string | undefined {\n   6 +  return store.get(key);\n   7 +}"}
+{"t":3,"kind":"reply_text","scope":"file","index":1,"attempt":1,"text":"[{\"label\": \"suggestion\", \"blocking\": false"}
 {"t":4,"kind":"waiting","seconds":2}
+{"t":4,"kind":"reply_text","scope":"file","index":1,"attempt":1,"text":", \"path\": \"src/cache/diff-cache.ts\", \"line"}
+{"t":5,"kind":"reply_text","scope":"file","index":1,"attempt":1,"text":"\": 24, \"summary\": \"Key the cache on the he"}
 {"t":6,"kind":"writing","index":1,"path":"src/cache/diff-cache.ts","chars":300}
+{"t":6,"kind":"reply_text","scope":"file","index":1,"attempt":1,"text":"ad SHA as well\", \"why\": \"A force-push keep"}
+{"t":7,"kind":"reply_text","scope":"file","index":1,"attempt":1,"text":"s the same PR number, so the old diff woul"}
+{"t":8,"kind":"reply_text","scope":"file","index":1,"attempt":1,"text":"d be served.\", \"confidence\": \"high\"}]"}
 {"t":9,"kind":"finding","index":1,"path":"src/cache/diff-cache.ts","finding":{"label":"suggestion","blocking":false,"path":"src/cache/diff-cache.ts","line":24,"summary":"Key the cache on the head SHA as well","why":"A force-push keeps the same PR number, so the old diff would be served.","confidence":"high"}}
 {"t":10,"kind":"file_done","index":1,"total":2,"path":"src/cache/diff-cache.ts","outcome":"1 finding","seconds":8}
 {"t":11,"kind":"file_start","index":2,"total":2,"path":"src/cache/index.ts","chars":200}
