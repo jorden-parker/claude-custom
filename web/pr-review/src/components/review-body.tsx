@@ -8,12 +8,13 @@ import {
   Loader2Icon,
   PauseCircleIcon,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { useSyncExternalStore, type ReactNode } from "react";
 import { Task, TaskContent, TaskItem, TaskTrigger } from "@/components/ai-elements/task";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Message, MessageContent } from "@/components/ui/message";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   displayFileState,
   durationSeconds,
@@ -29,8 +30,10 @@ import {
   type VerdictView,
 } from "@/lib/review-state";
 import { headerStatusLabel, statusTextClass } from "@/lib/status-style";
+import { tabFromHash, tabFromValue, type ReviewTab } from "@/lib/review-tab";
 import { verdictClass } from "@/lib/verdict-style";
 import { InlineMarkdown, MarkdownText } from "./markdown-text";
+import { ReviewTranscript } from "./review-transcript";
 
 type ReviewBodyProps = {
   state: ReviewState;
@@ -47,16 +50,53 @@ export function ReviewBody({ state, elapsedSeconds }: ReviewBodyProps) {
       ) : null}
       {state.error ? <ErrorBanner message={state.error} /> : null}
       <ChangedFiles files={state.files} status={state.header.status} />
-      <ProgressTask stages={state.stages} />
-      <div className="flex min-w-0 flex-col gap-3">
-        {state.files.map((file) => (
-          <FileTask key={file.index} file={file} status={state.header.status} />
-        ))}
-      </div>
-      {state.verdict ? <VerdictBanner verdict={state.verdict} summary={state.summary} /> : null}
-      {state.report ? <ReportSection report={state.report} /> : null}
+      <ReviewTabs state={state} />
     </div>
   );
+}
+
+function ReviewTabs({ state }: { state: ReviewState }) {
+  const tab = useSyncExternalStore(subscribeToHash, readTabFromHash, serverTab);
+
+  function selectTab(value: string) {
+    window.history.replaceState(null, "", `#${tabFromValue(value)}`);
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+  }
+
+  return (
+    <Tabs value={tab} onValueChange={selectTab} className="min-w-0 gap-4">
+      <TabsList>
+        <TabsTrigger value="findings">Findings</TabsTrigger>
+        <TabsTrigger value="transcript">Transcript</TabsTrigger>
+      </TabsList>
+      <TabsContent value="findings" className="flex min-w-0 flex-col gap-6">
+        <ProgressTask stages={state.stages} />
+        <div className="flex min-w-0 flex-col gap-3">
+          {state.files.map((file) => (
+            <FileTask key={file.index} file={file} status={state.header.status} />
+          ))}
+        </div>
+        {state.verdict ? <VerdictBanner verdict={state.verdict} summary={state.summary} /> : null}
+        {state.report ? <ReportSection report={state.report} /> : null}
+      </TabsContent>
+      <TabsContent value="transcript">
+        <ReviewTranscript entries={state.transcript} />
+      </TabsContent>
+    </Tabs>
+  );
+}
+
+function subscribeToHash(onChange: () => void): () => void {
+  window.addEventListener("hashchange", onChange);
+  return () => window.removeEventListener("hashchange", onChange);
+}
+
+function readTabFromHash(): ReviewTab {
+  return tabFromHash(window.location.hash);
+}
+
+function serverTab(): ReviewTab {
+  return "findings";
 }
 
 function ReviewHeader({ state, seconds }: { state: ReviewState; seconds: number }) {
