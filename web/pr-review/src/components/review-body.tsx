@@ -80,7 +80,7 @@ function ReviewTabs({ state }: { state: ReviewState }) {
         {state.report ? <ReportSection report={state.report} /> : null}
       </TabsContent>
       <TabsContent value="transcript">
-        <ReviewTranscript entries={state.transcript} />
+        <ReviewTranscript state={state} />
       </TabsContent>
     </Tabs>
   );

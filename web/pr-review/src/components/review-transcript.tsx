@@ -2,7 +2,7 @@ import { ChevronDownIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Message, MessageContent } from "@/components/ui/message";
+import type { FileView, ReviewState } from "@/lib/review-state";
 import type { TranscriptAttempt, TranscriptEntry } from "@/lib/review-transcript";
 
 const EMPTY_MESSAGE =
@@ -10,24 +10,23 @@ const EMPTY_MESSAGE =
 const PLAIN_TEXT_CLASSES =
   "max-h-96 overflow-auto whitespace-pre-wrap font-mono text-xs [overflow-wrap:anywhere]";
 
-export function ReviewTranscript({ entries }: { entries: TranscriptEntry[] }) {
-  if (entries.length === 0) {
+export function ReviewTranscript({ state }: { state: ReviewState }) {
+  if (state.transcript.length === 0) {
     return <p className="text-sm text-muted-foreground">{EMPTY_MESSAGE}</p>;
   }
-  const fileTotal = entries.filter((entry) => entry.scope === "file").length;
   return (
     <div className="flex min-w-0 flex-col gap-6">
-      {entries.map((entry) => (
-        <TranscriptSection key={`${entry.scope}:${entry.index ?? "summary"}`} entry={entry} fileTotal={fileTotal} />
+      {state.transcript.map((entry) => (
+        <TranscriptSection key={`${entry.scope}:${entry.index ?? "summary"}`} entry={entry} files={state.files} />
       ))}
     </div>
   );
 }
 
-function TranscriptSection({ entry, fileTotal }: { entry: TranscriptEntry; fileTotal: number }) {
+function TranscriptSection({ entry, files }: { entry: TranscriptEntry; files: FileView[] }) {
   return (
     <section className="flex min-w-0 flex-col gap-3">
-      <h3 className="break-all text-sm font-medium">{headingOf(entry, fileTotal)}</h3>
+      <h3 className="break-all text-sm font-medium">{headingOf(entry, files)}</h3>
       {entry.attempts.map((attempt) => (
         <AttemptView key={attempt.attempt} attempt={attempt} />
       ))}
@@ -38,28 +37,31 @@ function TranscriptSection({ entry, fileTotal }: { entry: TranscriptEntry; fileT
 function AttemptView({ attempt }: { attempt: TranscriptAttempt }) {
   const isRetry = attempt.attempt > 1;
   return (
-    <div className="flex min-w-0 flex-col gap-2">
+    <div className="flex min-w-0 flex-col gap-3">
       {isRetry ? <Badge variant="outline" className="w-fit">retry</Badge> : null}
-      <Message align="end">
-        <MessageContent className="min-w-0">
-          <PromptCollapsible label="System prompt">
-            <pre className={PLAIN_TEXT_CLASSES}>{attempt.system}</pre>
-          </PromptCollapsible>
-          <PromptCollapsible label={`Prompt · ${formatCount(attempt.user.length)} chars`}>
-            <pre className={PLAIN_TEXT_CLASSES}>{attempt.user}</pre>
-          </PromptCollapsible>
-        </MessageContent>
-      </Message>
-      <Message>
-        <MessageContent className="min-w-0">
+      <TranscriptBlock label="Sent to model">
+        <PromptCollapsible label="System prompt" text={attempt.system} />
+        <PromptCollapsible label={`Prompt · ${formatCount(attempt.user.length)} chars`} text={attempt.user} />
+      </TranscriptBlock>
+      <TranscriptBlock label="Model reply">
+        <div className="rounded-md border bg-muted/30 p-3">
           <ReplyText attempt={attempt} />
-        </MessageContent>
-      </Message>
+        </div>
+      </TranscriptBlock>
     </div>
   );
 }
 
-function PromptCollapsible({ label, children }: { label: string; children: ReactNode }) {
+function TranscriptBlock({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex min-w-0 flex-col gap-2">
+      <p className="text-xs font-medium text-muted-foreground">{label}</p>
+      {children}
+    </div>
+  );
+}
+
+function PromptCollapsible({ label, text }: { label: string; text: string }) {
   return (
     <Collapsible>
       <CollapsibleTrigger className="group flex items-center gap-2 text-xs font-medium">
@@ -67,20 +69,26 @@ function PromptCollapsible({ label, children }: { label: string; children: React
         {label}
       </CollapsibleTrigger>
       <CollapsibleContent className="pt-2" keepMounted>
-        {children}
+        <pre className={PLAIN_TEXT_CLASSES}>{text}</pre>
       </CollapsibleContent>
     </Collapsible>
   );
 }
 
 function ReplyText({ attempt }: { attempt: TranscriptAttempt }) {
-  const waiting = attempt.reply === "" && !attempt.done;
+  if (attempt.reply === "" && !attempt.done) {
+    return (
+      <p className="text-xs text-muted-foreground">
+        waiting for the first token
+        <Caret />
+      </p>
+    );
+  }
   return (
-    <>
-      <pre className={PLAIN_TEXT_CLASSES}>{attempt.reply}</pre>
-      {waiting ? <p className="text-xs text-muted-foreground">waiting for the first token</p> : null}
+    <pre className={PLAIN_TEXT_CLASSES}>
+      {attempt.reply}
       {attempt.done ? null : <Caret />}
-    </>
+    </pre>
   );
 }
 
@@ -89,16 +97,17 @@ function Caret() {
     <span
       data-slot="transcript-caret"
       aria-hidden="true"
-      className="inline-block h-4 w-2 animate-pulse bg-foreground motion-reduce:animate-none"
+      className="ml-0.5 inline-block h-3 w-1.5 animate-pulse bg-foreground align-middle motion-reduce:animate-none"
     />
   );
 }
 
-function headingOf(entry: TranscriptEntry, fileTotal: number): string {
+function headingOf(entry: TranscriptEntry, files: FileView[]): string {
   if (entry.scope === "summary") {
     return "Summary";
   }
-  return `[${entry.index}/${fileTotal}] ${entry.path}`;
+  const file = files.find((candidate) => candidate.index === entry.index);
+  return `[${entry.index}/${file?.total ?? 0}] ${entry.path}`;
 }
 
 function formatCount(count: number): string {
