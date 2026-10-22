@@ -1,0 +1,7 @@
+{
+  "qwen3.8:27b-mlx": "5642e97495e1a088883805981563dcdc4a040c2f53388b7a41d1f24d3622cf7e",
+  "qwen3.6:35b-mlx": "e92a3e94bbca90a85491dc34e9257bfee2318cedaa16360828c4d8edf14295b9",
+  "qwen3.6:35b-a3b-coding-nvfp4": "1e1fbe5dddba5a97e05998040861fdef36cfe7543f2eb2301902daf5c2d1f278",
+  "qwen3:4b": "359d7dd4bcdab3d86b87d73ac27966f4dbb9f5efdfcc75d34a8764a09474fae7",
+  "qwen3-embedding:0.6b": "ac6da0dfba84a81fdbfbaf330198c33cd77c4cdfc53e8bc50eb581914a15621d"
+}

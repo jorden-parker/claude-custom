@@ -1,2 +1,0 @@
-FROM ./weights/peculiar-ragdoll/Tiel-Coder-35B-A3B-MLX-oQ4e-MTP
-PARAMETER num_ctx 98304

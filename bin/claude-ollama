@@ -84,36 +84,52 @@ profile_context_tokens() {
   jq -r .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS "$profile_dir/settings.$size.json"
 }
 
-hugging_face_repo() {
-  case "$1" in
-    ./weights/*) printf '%s\n' "${1#./weights/}" ;;
-  esac
+pinned_digest() {
+  jq -r --arg name "$1" '.[$name] // empty' "$profile_dir/model-digests.json"
 }
 
-download_hugging_face_weights() {
-  if ! command -v hf >/dev/null 2>&1; then
-    echo "claude-ollama: $1 needs the hf CLI: curl -LsSf https://hf.co/cli/install.sh | bash -s" >&2
-    return 1
-  fi
-  hf download "$1" --local-dir "$2"
+installed_digest() {
+  curl -sf -m 5 "$ollama_url/api/tags" |
+    jq -r --arg name "$1" '.models[]? | select(.name == $name or .name == ($name + ":latest")) | .digest'
+}
+
+check_pin() {
+  local name="$1" actual="$2" pin
+  pin="$(pinned_digest "$name")"
+  [ -z "$pin" ] || [ "$actual" = "$pin" ] && return 0
+  echo "claude-ollama: $name has digest ${actual:-none}, but ollama/model-digests.json pins $pin; remove it with 'ollama rm $name' and relaunch, or update the pin" >&2
+  return 1
+}
+
+verify_pulled() {
+  check_pin "$1" "$(installed_digest "$1")"
+}
+
+verify_installed() {
+  local actual
+  actual="$(installed_digest "$1")"
+  [ -z "$actual" ] || check_pin "$1" "$actual"
+}
+
+side_base_model() {
+  sed -n 's/^FROM //p' "$profile_dir/side.Modelfile"
+}
+
+verify_installed_models() {
+  local name
+  for name in "$(base_model)" "$(side_base_model)" "$embedding_model"; do
+    verify_installed "$name" || exit 1
+  done
 }
 
 ensure_model() {
-  local modelfile="$profile_dir/Modelfile.$size" base repo
   if ollama show "$model" >/dev/null 2>&1; then
     refresh_num_ctx "$model" "$(modelfile_num_ctx)"
     return
   fi
-  base="$(base_model)"
-  repo="$(hugging_face_repo "$base")"
-  if [ -z "$repo" ]; then
-    ollama pull "$base"
-    ollama create "$model" -f "$modelfile"
-    return
-  fi
-  download_hugging_face_weights "$repo" "$profile_dir/$base"
-  (cd "$profile_dir" && ollama create "$model" -f "$modelfile")
-  rm -rf "${profile_dir:?}/$base"
+  ollama pull "$(base_model)"
+  verify_pulled "$(base_model)" || exit 1
+  ollama create "$model" -f "$profile_dir/Modelfile.$size"
 }
 
 ensure_embedding_model() {
@@ -223,6 +239,26 @@ check_model_present() {
   fi
 }
 
+check_digest() {
+  local name="$1" actual pin
+  actual="$(installed_digest "$name")"
+  pin="$(pinned_digest "$name")"
+  [ -n "$actual" ] && [ -n "$pin" ] || return 0
+  if [ "$actual" = "$pin" ]; then
+    report ok "digest $name matches its pin"
+  else
+    report fail "digest $name is $actual, not the pinned $pin (ollama rm $name, then relaunch)"
+  fi
+}
+
+check_digests() {
+  local name status=0
+  for name in "$(base_model)" "$(side_base_model)" "$embedding_model"; do
+    check_digest "$name" || status=1
+  done
+  return "$status"
+}
+
 check_context_sizes() {
   local ctx tokens
   ctx="$(modelfile_num_ctx)"
@@ -328,6 +364,7 @@ doctor() {
   check_model_present model "$model" "run claude-ollama $size to pull and create it" || status=1
   check_model_present "side model" "$(side_model_name)" "pick 'Set up side model' in claude-ollama" warn || status=1
   check_model_present "embedding model" "$embedding_model" "pick 'Set up embedding model' in claude-ollama" || status=1
+  check_digests || status=1
   check_context_sizes || status=1
   check_hooks_present || status=1
   check_reachable || status=1
@@ -500,6 +537,7 @@ esac
 apply_server_env
 ensure_model
 ensure_embedding_model
+verify_installed_models
 allow_search_embeddings
 warm_embedding_model
 warm_search_index

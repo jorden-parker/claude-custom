@@ -1,2 +1,0 @@
-FROM ./weights/ornith-ai/Ornith-1.5-35B-A3B-MLX-4bit
-PARAMETER num_ctx 98304

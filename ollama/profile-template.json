@@ -56,7 +56,14 @@
       "Glob",
       "Grep"
     ],
+    "ask": ["Bash"],
     "allow": ["mcp__code-search__semantic_search"]
+  },
+  "sandbox": {
+    "enabled": true,
+    "autoAllowBashIfSandboxed": false,
+    "allowUnsandboxedCommands": false,
+    "failIfUnavailable": true
   },
   "hooks": "{{HOOKS}}",
   "modelOverrides": {

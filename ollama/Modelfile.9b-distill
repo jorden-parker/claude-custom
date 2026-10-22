@@ -1,4 +1,0 @@
-FROM hf.co/empero-ai/Qwen3.8-9B-Distill-GGUF:Q4_K_M
-PARAMETER num_ctx 98304
-RENDERER qwen3.5
-PARSER qwen3.5

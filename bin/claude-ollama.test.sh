@@ -50,6 +50,10 @@ record_installed_num_ctx() {
     > "$sandbox/num-ctx/$(jq -r .env.CLAUDE_CODE_SUBAGENT_MODEL "$repo/ollama/settings.27b.json")"
 }
 
+pinned_tags() {
+  jq '{models: [to_entries[] | {name: .key, digest: .value}]}' "$repo/ollama/model-digests.json"
+}
+
 new_sandbox() {
   sandbox="$(cd "$(mktemp -d)" && pwd -P)"
   sandboxes="$sandboxes $sandbox"
@@ -82,8 +86,10 @@ EOF
   cat > "$sandbox/stubbin/curl" <<EOF
 #!/bin/sh
 echo "\$*" >> "$sandbox/curl.log"
+case "\$*" in *api/tags*) cat "$sandbox/tags.json" ;; esac
 exit "\${STUB_CURL_EXIT:-0}"
 EOF
+  pinned_tags > "$sandbox/tags.json"
   cat > "$sandbox/stubbin/python3" <<EOF
 #!/bin/sh
 echo "\$*" >> "$sandbox/python.log"
@@ -250,32 +256,31 @@ check_that "claude-ollama says it recreates the model" grep -qF "recreating qwen
 check_that "claude-ollama launches after recreating" grep -qF -- "--model qwen3.8-27b-cc --tools" "$sandbox/out"
 
 new_sandbox
-copy_repo "$sandbox/repo"
-mlx_weights="$sandbox/repo/ollama/weights/acme/coder-MLX-4bit"
-cp "$sandbox/repo/ollama/settings.35b.json" "$sandbox/repo/ollama/settings.mlxtest.json"
-printf 'FROM ./weights/acme/coder-MLX-4bit\nPARAMETER num_ctx 65536\n' > "$sandbox/repo/ollama/Modelfile.mlxtest"
-cat > "$sandbox/stubbin/hf" <<EOF
-#!/bin/sh
-echo "\$*" >> "$sandbox/hf.log"
-mkdir -p "\$4"
-EOF
-chmod +x "$sandbox/stubbin/hf"
-STUB_OLLAMA_SHOW_EXIT=1 run_capture "$sandbox/repo/bin/claude-ollama" mlxtest -p hi
-check_that "claude-ollama downloads Hugging Face MLX weights" grep -qxF "download acme/coder-MLX-4bit --local-dir $sandbox/repo/ollama/./weights/acme/coder-MLX-4bit" "$sandbox/hf.log"
-check_not "claude-ollama does not ollama-pull a local weights dir" grep -q '^pull ./weights' "$sandbox/ollama.log"
-check_that "claude-ollama creates the model from the downloaded weights" grep -qxF "create qwen3.6-35b-cc -f $sandbox/repo/ollama/Modelfile.mlxtest" "$sandbox/ollama.log"
-check_not "claude-ollama removes the downloaded weights after create" test -e "$mlx_weights"
-check_that "claude-ollama launches after importing MLX weights" grep -q '^ARGS:' "$sandbox/out"
-rm -f "$sandbox/stubbin/hf" "$sandbox/ollama.log"
-STUB_OLLAMA_SHOW_EXIT=1 run_capture "$sandbox/repo/bin/claude-ollama" mlxtest -p hi
-check_eq "claude-ollama without hf exit status" 1 "$?"
-check_that "claude-ollama without hf says how to install it" grep -qF 'hf.co/cli/install.sh' "$sandbox/err"
-check_not "claude-ollama without hf does not create" grep -sq '^create ' "$sandbox/ollama.log"
+jq '.models[0].digest = "0000"' "$sandbox/tags.json" > "$sandbox/tags.new" && mv "$sandbox/tags.new" "$sandbox/tags.json"
+STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_eq "claude-ollama exits when a pulled base misses its pin" 1 "$?"
+check_that "claude-ollama names the base that misses its pin" grep -qF "qwen3.8:27b-mlx has digest 0000" "$sandbox/err"
+check_not "claude-ollama does not create from a base that misses its pin" grep -sq '^create ' "$sandbox/ollama.log"
+check_not "claude-ollama does not launch with a base that misses its pin" grep -q '^ARGS:' "$sandbox/out"
+run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_eq "claude-ollama exits when an installed base misses its pin" 1 "$?"
+check_not "claude-ollama does not launch with an installed base that misses its pin" grep -q '^ARGS:' "$sandbox/out"
+new_sandbox
+jq '.models |= map(select(.name != "qwen3:4b") | if .name == "qwen3-embedding:0.6b" then .digest = "0000" else . end)' "$sandbox/tags.json" > "$sandbox/tags.new" && mv "$sandbox/tags.new" "$sandbox/tags.json"
+run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_eq "claude-ollama exits when the embedding model misses its pin" 1 "$?"
+check_that "claude-ollama names the embedding model that misses its pin" grep -qF "qwen3-embedding:0.6b has digest 0000" "$sandbox/err"
+new_sandbox
+jq '.models |= map(select(.name != "qwen3:4b"))' "$sandbox/tags.json" > "$sandbox/tags.new" && mv "$sandbox/tags.new" "$sandbox/tags.json"
+run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_that "claude-ollama launches when a pinned model is not installed" grep -q '^ARGS:' "$sandbox/out"
+STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_that "claude-ollama creates from a base that matches its pin" grep -qxF "create qwen3.8-27b-cc -f $repo/ollama/Modelfile.27b" "$sandbox/ollama.log"
 
 new_sandbox
 run_capture "$repo/bin/claude-ollama" --help
 check_eq "claude-ollama help exit status" 0 "$?"
-check_that "claude-ollama help lists sizes" grep -qxF "sizes: 27b-dirk 27b 35b-coding 35b-distill 35b-ornith 35b-tiel-mlx 35b-tiel 35b 9b-distill gemma-12b-agentic" "$sandbox/out"
+check_that "claude-ollama help lists sizes" grep -qxF "sizes: 27b 35b-coding 35b" "$sandbox/out"
 check_not "claude-ollama help does not launch claude" grep -q '^ARGS:' "$sandbox/out"
 run_capture "$repo/bin/claude-ollama" 28b -p hi </dev/null
 check_that "claude-ollama unknown size without a tty falls back to 27b" grep -qF -- "$ollama_settings" "$sandbox/out"
@@ -292,7 +297,7 @@ run_capture "$sandbox/repo/bin/claude-ollama" 9b -p hi
 check_that "claude-ollama accepts a newly configured size" grep -qF -- "--settings $sandbox/repo/ollama/settings.9b.json" "$sandbox/out"
 check_not "claude-ollama does not pass a configured size to claude" grep -qF -- "Write 9b" "$sandbox/out"
 run_capture "$sandbox/repo/bin/claude-ollama" --help
-check_that "claude-ollama help lists sizes from config" grep -qxF "sizes: 27b-dirk 27b 35b-coding 35b-distill 35b-ornith 35b-tiel-mlx 35b-tiel 35b 9b-distill 9b gemma-12b-agentic" "$sandbox/out"
+check_that "claude-ollama help lists sizes from config" grep -qxF "sizes: 27b 35b-coding 35b 9b" "$sandbox/out"
 
 cat > "$sandbox/stubbin/go" <<'STUB'
 #!/bin/sh
@@ -422,6 +427,12 @@ check_that "doctor reports reachability" grep -qxF "ok   ollama reachable at htt
 check_that "doctor reports server env" grep -qxF "ok   server env OLLAMA_KV_CACHE_TYPE=q8_0" "$sandbox/out"
 check_that "doctor reports no managed model allowlist" grep -qxF "ok   no managed availableModels restricts qwen3.8-27b-cc" "$sandbox/out"
 check_not "doctor does not launch claude" grep -q '^ARGS:' "$sandbox/out"
+check_that "doctor reports a base that matches its pin" grep -qxF "ok   digest qwen3.8:27b-mlx matches its pin" "$sandbox/out"
+jq '.models[0].digest = "0000"' "$sandbox/tags.json" > "$sandbox/tags.new" && mv "$sandbox/tags.new" "$sandbox/tags.json"
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=3" run_capture "$repo/bin/claude-ollama" doctor 27b
+check_eq "doctor with a base that misses its pin exit status" 1 "$?"
+check_that "doctor fails a base that misses its pin" grep -qF "fail digest qwen3.8:27b-mlx is 0000, not the pinned" "$sandbox/out"
+pinned_tags > "$sandbox/tags.json"
 check_not "doctor does not pull or create" grep -sqE '^(pull|create) ' "$sandbox/ollama.log"
 
 new_sandbox
