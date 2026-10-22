@@ -216,7 +216,9 @@ reported once and the review goes on. While `claude-ollama reviews` serves the
 page, the review also prints a terminal-only `live at` link to that review's
 page, read from `.web-url` in the log directory. A failed request names the
 server's error message (for example a model that does not fit in memory), and a
-failed summary is reported on stderr as well as in the report.
+failed summary is reported on stderr as well as in the report. The reviews page
+has a Transcript tab that shows each prompt and the streamed reply, and a
+`#transcript` link opens it directly.
 
 `--range BASE..HEAD` reviews local commits instead of a PR, with the same
 reviewer and report. It runs no `gh`, so there are no PR comments and no CI (the
