@@ -325,10 +325,11 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   through the proxy, which also opens every other local port. `allowMachLookup`
   lets the session reach the `com.apple.pasteboard.1` Mach service, which Claude
   Code's osascript image paste needs; it also lets the session read and write
-  the clipboard. Launched inside cmux, the policy's `network.allowUnixSockets`
-  holds `$CMUX_SOCKET_PATH` (for `/cmux-browser`), which also lets any command
-  the session runs type into cmux terminals outside the sandbox; the Bash
-  prompts are the gate.
+  the clipboard. Only with `CLAUDE_OLLAMA_CMUX=1` does the policy's
+  `network.allowUnixSockets` hold `$CMUX_SOCKET_PATH` (for `/cmux-browser`; an
+  absolute path to a socket, else nothing). It also lets any command the session
+  runs, including the Stop hook's tests, type into cmux terminals outside the
+  sandbox.
 - There is no side model: each Ollama profile sets
   `ANTHROPIC_DEFAULT_HAIKU_MODEL` to its own main model, has no `modelOverrides`
   and no subagent model, and denies `Agent` (it is not in `--tools` either),

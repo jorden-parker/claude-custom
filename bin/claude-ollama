@@ -223,10 +223,18 @@ require_plain_project_root() {
   esac
 }
 
+allowed_cmux_socket() {
+  [ "${CLAUDE_OLLAMA_CMUX:-}" = 1 ] || return 0
+  case "${CMUX_SOCKET_PATH:-}" in
+    /*) [ -S "$CMUX_SOCKET_PATH" ] && echo "$CMUX_SOCKET_PATH" ;;
+  esac
+  return 0
+}
+
 write_sandbox_policy() {
   local protected_policy_path="$sandbox_policy"
   jq --arg repo "$repo_dir" --arg config "$session_config_dir" --arg policy "$protected_policy_path" --arg git "$(git_common_dir)" \
-    --arg items "$(item_replacement_dir)" --arg root "$(project_root)" --arg cmux_socket "${CMUX_SOCKET_PATH:-}" \
+    --arg items "$(item_replacement_dir)" --arg root "$(project_root)" --arg cmux_socket "$(allowed_cmux_socket)" \
     --argjson config_sources '["CLAUDE.md", "skills", "settings.json", "settings.local.json", "commands", "agents", "plugins", "rules", "output-styles", "keybindings.json", ".config.json"]' '
     ($git | if . == "" then [] else [.] end) as $git_dirs
     | ($items | if . == "" then [] else [.] end) as $item_dirs

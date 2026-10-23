@@ -58,7 +58,7 @@ new_sandbox() {
   export HOME="$sandbox/home"
   mkdir -p "$HOME" "$sandbox/stubbin"
   unset ZDOTDIR XDG_CONFIG_HOME CLAUDE_CONFIG_DIR STUB_OLLAMA_SHOW_EXIT STUB_OLLAMA_PULL_EXIT
-  unset STUB_OLLAMA_PID STUB_OLLAMA_ENV STUB_CURL_EXIT STUB_OLLAMA_NUM_CTX STUB_AGENT_EXIT CMUX_SOCKET_PATH
+  unset STUB_OLLAMA_PID STUB_OLLAMA_ENV STUB_CURL_EXIT STUB_OLLAMA_NUM_CTX STUB_AGENT_EXIT CMUX_SOCKET_PATH CLAUDE_OLLAMA_CMUX
   export SHELL=/bin/zsh
   record_installed_num_ctx
   export CLAUDE_OLLAMA_MANAGED_SETTINGS="$sandbox/managed-settings.json"
@@ -610,8 +610,16 @@ for variable in XDG_CACHE_HOME XDG_STATE_HOME XDG_DATA_HOME npm_config_cache GOC
 done
 check_eq "the session never auto-updates the shared Claude Code install" 1 "$(session_env DISABLE_AUTOUPDATER)"
 check_eq "outside cmux the sandbox allows no Unix sockets" null "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
-run_capture env CMUX_SOCKET_PATH="$sandbox/cmux.sock" "$repo/bin/claude-ollama" 27b -p hi
-check_eq "inside cmux the sandbox allows only the cmux socket" "[\"$sandbox/cmux.sock\"]" "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
+cmux_socket="$sandbox/cmux.sock"
+/usr/bin/python3 -c 'import socket, sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])' "$cmux_socket"
+run_capture env CMUX_SOCKET_PATH="$cmux_socket" "$repo/bin/claude-ollama" 27b -p hi
+check_eq "inside cmux the sandbox allows no Unix sockets unless asked" null "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
+run_capture env CLAUDE_OLLAMA_CMUX=1 CMUX_SOCKET_PATH="$cmux_socket" "$repo/bin/claude-ollama" 27b -p hi
+check_eq "CLAUDE_OLLAMA_CMUX=1 allows only the cmux socket" "[\"$cmux_socket\"]" "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
+run_capture env CLAUDE_OLLAMA_CMUX=1 CMUX_SOCKET_PATH="$sandbox/not-a-socket" "$repo/bin/claude-ollama" 27b -p hi
+check_eq "CLAUDE_OLLAMA_CMUX=1 ignores a path that is not a socket" null "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
+run_capture env CLAUDE_OLLAMA_CMUX=1 CMUX_SOCKET_PATH="cmux.sock" "$repo/bin/claude-ollama" 27b -p hi
+check_eq "CLAUDE_OLLAMA_CMUX=1 ignores a relative socket path" null "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
 check_eq "without a GitHub token git gets no auth header" "unset unset unset" "$(cat "$sandbox/git-config-env")"
 check_not "without a terminal claude-ollama leaves the terminal mode alone" test -e "$sandbox/stty.log"
 if [ "$(uname)" = Darwin ]; then
