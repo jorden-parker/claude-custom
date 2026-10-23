@@ -16,6 +16,8 @@ sandbox_runtime="$HOME/.local/share/claude-custom/sandbox-runtime/node_modules/.
 session_config_dir="$HOME/.claude-ollama"
 sandbox_policy="$session_config_dir/sandbox-policy.json"
 github_keychain_item=claude-ollama-github
+raw_terminal_mode=(-brkint -icrnl -inpck -istrip -ixon cs8 -echo -icanon -iexten -isig min 1 time 0)
+saved_terminal_mode=""
 
 configured_sizes() {
   local settings size
@@ -180,6 +182,20 @@ require_sandbox_runtime() {
   [ -x "$sandbox_runtime" ] && return 0
   echo "claude-ollama: sandbox-runtime is missing; run claude-custom install" >&2
   exit 1
+}
+
+restore_terminal() {
+  stty "$saved_terminal_mode"
+}
+
+run_in_raw_terminal() {
+  [ -t 0 ] || exec "$@"
+  saved_terminal_mode="$(stty -g)"
+  trap restore_terminal EXIT
+  trap 'exit 129' HUP
+  trap 'exit 143' TERM
+  stty "${raw_terminal_mode[@]}"
+  "$@"
 }
 
 git_common_dir() {
@@ -574,7 +590,7 @@ export CLAUDE_CONFIG_DIR="$session_config_dir"
 export CLAUDE_CODE_TMPDIR="$session_config_dir/tmp"
 GH_BASIC="$(github_basic_auth)"
 export GH_BASIC
-exec "$sandbox_runtime" -s "$sandbox_policy" -- "$profile_dir/sandbox-entry" claude \
+run_in_raw_terminal "$sandbox_runtime" -s "$sandbox_policy" -- "$profile_dir/sandbox-entry" claude \
   --settings "$settings_file" \
   --system-prompt-file "$profile_dir/system-prompt.md" \
   --append-system-prompt-file "$profile_dir/CLAUDE.local.md" \

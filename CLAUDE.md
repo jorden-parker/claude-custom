@@ -267,9 +267,15 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   `~/.local/share/claude-custom/sandbox-runtime` (installed by
   `claude-custom install` from `ollama/sandbox-runtime.package*.json`, named so
   Fallow does not read them as a package) is missing, and `doctor` reports it.
-  It execs
-  `srt -s ~/.claude-ollama/sandbox-policy.json -- ollama/sandbox-entry claude ...`.
-  The policy is `ollama/sandbox.json` (writes only the project;
+  It runs
+  `srt -s ~/.claude-ollama/sandbox-policy.json -- ollama/sandbox-entry claude ...`
+  (`exec` without a terminal). On a terminal it first sets the raw mode Claude
+  Code's runtime would set, and restores the saved mode on exit: the sandbox
+  refuses terminal ioctls on `/dev/ttys*`, so without this the terminal stays in
+  cooked mode and the terminal's replies to Claude Code's startup queries show
+  up as text in the prompt. Don't fix it with `allowPty` (it lets the session
+  open every other terminal) or by reopening stdin on `/dev/tty` (Bun's kqueue
+  rejects it). The policy is `ollama/sandbox.json` (writes only the project;
   `bin/check-config` keeps it that way) plus, per launch, the session config
   dir, the repo's git common dir and macOS's item-replacement folder
   (`$(getconf DARWIN_USER_TEMP_DIR)TemporaryItems`, which Claude Code stalls

@@ -610,6 +610,21 @@ for variable in XDG_CACHE_HOME XDG_STATE_HOME XDG_DATA_HOME npm_config_cache GOC
 done
 check_eq "the session never auto-updates the shared Claude Code install" 1 "$(session_env DISABLE_AUTOUPDATER)"
 check_eq "without a GitHub token git gets no auth header" "unset unset unset" "$(cat "$sandbox/git-config-env")"
+check_not "without a terminal claude-ollama leaves the terminal mode alone" test -e "$sandbox/stty.log"
+if [ "$(uname)" = Darwin ]; then
+  cat > "$sandbox/stubbin/stty" <<EOF
+#!/bin/sh
+echo "\$*" >> "$sandbox/stty.log"
+[ "\$1" = -g ] && echo saved-mode
+exit 0
+EOF
+  chmod +x "$sandbox/stubbin/stty"
+  /bin/sleep 3 | /usr/bin/script -q /dev/null "$repo/bin/claude-ollama" 27b -p hi >/dev/null 2>&1
+  check_eq "on a terminal claude-ollama sets raw mode for the sandbox, which cannot, and restores it after" \
+    "-g|-brkint -icrnl -inpck -istrip -ixon cs8 -echo -icanon -iexten -isig min 1 time 0|saved-mode" \
+    "$(paste -sd'|' "$sandbox/stty.log")"
+  rm -f "$sandbox/stubbin/stty"
+fi
 
 mkdir -p "$HOME/.claude"
 echo "@preferences" > "$HOME/.claude/CLAUDE.md"

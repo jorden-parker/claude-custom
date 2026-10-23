@@ -53,6 +53,8 @@ for settings in "$repo"/ollama/settings.*.json; do
     "$(jq -r '[.env.CLAUDE_CODE_ATTRIBUTION_HEADER, .env.CLAUDE_CODE_TOTAL_TOKENS_REMINDER] | join(" ")' "$settings")"
   check_eq "${settings##*/} leaves Bash to the session sandbox, which a second sandbox cannot nest in" false \
     "$(jq -r .sandbox.enabled "$settings")"
+  check_eq "${settings##*/} starts in default mode with auto mode off, since its classifier would call Ollama for a Claude model" "default disable" \
+    "$(jq -r '[.permissions.defaultMode, .permissions.disableAutoMode] | join(" ")' "$settings")"
   check_eq "${settings##*/} asks before every Bash command, commit and push" '["Bash","Bash(git commit *)","Bash(git push *)"]' \
     "$(jq -c .permissions.ask "$settings")"
 done
