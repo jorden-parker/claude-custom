@@ -325,11 +325,20 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   through the proxy, which also opens every other local port. `allowMachLookup`
   lets the session reach the `com.apple.pasteboard.1` Mach service, which Claude
   Code's osascript image paste needs; it also lets the session read and write
-  the clipboard. Only with `CLAUDE_OLLAMA_CMUX=1` does the policy's
-  `network.allowUnixSockets` hold `$CMUX_SOCKET_PATH` (for `/cmux-browser`; an
-  absolute path to a socket, else nothing). It also lets any command the session
-  runs, including the Stop hook's tests, type into cmux terminals outside the
-  sandbox.
+  the clipboard. The session never reaches the cmux socket, which would let it
+  type into terminals outside the sandbox. With `CLAUDE_OLLAMA_CMUX=1` (and
+  `$CMUX_SOCKET_PATH` an absolute path to a socket) the launcher starts
+  `ollama/cmux/broker.py` outside the sandbox on
+  `<session config>/cmux-broker.sock`, the policy's only `allowUnixSockets`
+  entry (also in `denyWrite`), and `ollama/sandbox-entry` puts
+  `ollama/cmux/bin/cmux` (the client) first on PATH. The broker runs only
+  `cmux browser` commands: `open` on a loopback URL in the `claude-ollama`
+  profile, then an allowlist of verbs on surfaces the session opened, with no
+  host-file verbs or retargeting flags; `screenshot --out` lands in the broker's
+  temp dir and the client writes the file inside the sandbox. It exits when the
+  launcher's process does. The browser's own network is not limited by the
+  policy, so page JavaScript (`eval`) can still reach any host. Tests:
+  `ollama/cmux/broker.test.sh` (stub `cmux`).
 - There is no side model: each Ollama profile sets
   `ANTHROPIC_DEFAULT_HAIKU_MODEL` to its own main model, has no `modelOverrides`
   and no subagent model, and denies `Agent` (it is not in `--tools` either),

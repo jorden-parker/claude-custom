@@ -610,12 +610,21 @@ for variable in XDG_CACHE_HOME XDG_STATE_HOME XDG_DATA_HOME npm_config_cache GOC
 done
 check_eq "the session never auto-updates the shared Claude Code install" 1 "$(session_env DISABLE_AUTOUPDATER)"
 check_eq "outside cmux the sandbox allows no Unix sockets" null "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
+check_eq "outside cmux the session gets no cmux broker" "" "$(session_env CLAUDE_OLLAMA_CMUX_BROKER)"
+run_capture env CLAUDE_OLLAMA_CMUX_BROKER=/tmp/stale.sock "$repo/bin/claude-ollama" 27b -p hi
+check_eq "an inherited cmux broker address never reaches the session" "" "$(session_env CLAUDE_OLLAMA_CMUX_BROKER)"
 cmux_socket="$sandbox/cmux.sock"
 /usr/bin/python3 -c 'import socket, sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])' "$cmux_socket"
 run_capture env CMUX_SOCKET_PATH="$cmux_socket" "$repo/bin/claude-ollama" 27b -p hi
 check_eq "inside cmux the sandbox allows no Unix sockets unless asked" null "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
+printf '#!/bin/sh\n' > "$sandbox/stubbin/cmux"
+chmod +x "$sandbox/stubbin/cmux"
 run_capture env CLAUDE_OLLAMA_CMUX=1 CMUX_SOCKET_PATH="$cmux_socket" "$repo/bin/claude-ollama" 27b -p hi
-check_eq "CLAUDE_OLLAMA_CMUX=1 allows only the cmux socket" "[\"$cmux_socket\"]" "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
+broker_socket="$session_config/cmux-broker.sock"
+check_eq "CLAUDE_OLLAMA_CMUX=1 allows only the cmux broker's socket" "[\"$broker_socket\"]" "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
+check_eq "the session finds the cmux broker" "$broker_socket" "$(session_env CLAUDE_OLLAMA_CMUX_BROKER)"
+check_that "the session cannot replace the cmux broker's socket" policy_lists denyWrite "$broker_socket"
+check_that "the session's cmux is the broker client" test "$(session_env PATH | cut -d: -f1)" = "$repo/ollama/cmux/bin"
 run_capture env CLAUDE_OLLAMA_CMUX=1 CMUX_SOCKET_PATH="$sandbox/not-a-socket" "$repo/bin/claude-ollama" 27b -p hi
 check_eq "CLAUDE_OLLAMA_CMUX=1 ignores a path that is not a socket" null "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
 run_capture env CLAUDE_OLLAMA_CMUX=1 CMUX_SOCKET_PATH="cmux.sock" "$repo/bin/claude-ollama" 27b -p hi
