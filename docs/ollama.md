@@ -171,15 +171,39 @@ Every model the harness pulls comes from the Ollama library and is pinned by the
 sha256 of its registry manifest in `ollama/model-digests.json`. After pulling a
 base, and before each launch, `claude-ollama` compares the digest Ollama reports
 in `/api/tags` with the pin and exits 1 on a mismatch; `doctor` prints
-`ok   digest NAME matches its pin` or a `fail` line. The profiles also run Bash
-in Claude Code's sandbox with no unsandboxed retry, and ask before every Bash
-command. Sandboxed commands can write only to the working directory and the temp
-directory; add other paths with `sandbox.filesystem.allowWrite`. `git` stays
-sandboxed, hooks included, and `sandbox.network.allowedDomains` lets it reach
-`github.com` only, so push and fetch work over HTTPS (SSH remotes fail in the
-macOS sandbox). It still asks before every command. Git is never put in
-`sandbox.excludedCommands`: an approved commit would then run hooks (`.husky/`,
-`lint-staged`) the model could rewrite inside the sandbox.
+`ok   digest NAME matches its pin` or a `fail` line.
+
+### The session sandbox
+
+`claude-ollama` runs the whole session, Bash, hooks, Fallow and the code-search
+server included, inside Anthropic's `sandbox-runtime`, and refuses to start
+without it (`claude-custom install` installs it). The policy is
+`ollama/sandbox.json`:
+
+- Writes: the project, its git directory (except `hooks` and `config`), the
+  session's own config in `~/.claude-ollama`, and caches. Never `~/.claude`,
+  your shell files, `/private/tmp` or this repo.
+- Reads: everything except credentials (`~/.ssh`, `~/.aws`, `~/.config/gh`,
+  `~/.npmrc`, keychains) and your normal `~/.claude`.
+- Network: `github.com`, `registry.npmjs.org` (for `npx fallow` and installs)
+  and localhost. Localhost is open on every port, because Ollama is reached
+  directly rather than through the proxy.
+
+Every Bash command still asks first, and so do `git commit` and `git push`.
+`git-push-guard.py` refuses force pushes, remote deletes, `--mirror`, `--prune`
+and pushes to `main` or `master`.
+
+To push from a session, store a fine-grained GitHub token (Contents: write and
+Pull requests: write, on the repos you choose) in the keychain:
+
+```sh
+security add-generic-password -s claude-ollama-github -a "$USER" -w
+```
+
+The session never sees the token: it gets a placeholder, which the sandbox's
+proxy swaps for the real value only on requests to `github.com`. Without the
+item, `doctor` warns and pushes fail; commits still work. Remotes must use
+HTTPS.
 
 `bin/ollama-models` manages the installed models:
 

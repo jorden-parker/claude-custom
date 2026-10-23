@@ -4,7 +4,7 @@ fallow_is_js_file() {
 }
 
 fallow_marker_dir() {
-  printf '%s/.claude/cache/fallow-fix-preview' "$HOME"
+  printf '%s/cache/fallow-fix-preview' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 }
 
 fallow_project_root() {

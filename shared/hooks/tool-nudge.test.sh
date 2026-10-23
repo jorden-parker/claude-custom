@@ -88,5 +88,11 @@ expect_eq "searches and reads count together for the Agent nudge" yes "$(mention
 
 expect_eq "prompt submit prints nothing" "" "$(event UserPromptSubmit)"
 
+export CLAUDE_CONFIG_DIR="$sandbox/session-config"
+pre Bash 'grep a' >/dev/null
+expect_eq "state follows CLAUDE_CONFIG_DIR" yes \
+  "$([ -f "$CLAUDE_CONFIG_DIR/cache/tool-nudge/s1.json" ] && echo yes || echo no)"
+unset CLAUDE_CONFIG_DIR
+
 [ "$failures" -eq 0 ] && echo "all passed" && exit 0
 exit 1

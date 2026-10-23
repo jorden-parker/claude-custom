@@ -70,7 +70,17 @@ echo "ARGS: \$*"
 echo "\${ANTHROPIC_MODEL-unset}" > "$sandbox/model-env"
 echo "\${CLAUDE_CUSTOM_HOME-unset}" > "$sandbox/custom-home-env"
 echo "\${CODE_SEARCH_EMBED-unset}" > "$sandbox/embed-env"
+echo "\${CLAUDE_CONFIG_DIR-unset}" > "$sandbox/config-dir-env"
+echo "\${CLAUDE_CODE_TMPDIR-unset}" > "$sandbox/tmpdir-env"
+echo "\${GIT_CONFIG_COUNT-unset} \${GIT_CONFIG_KEY_0-unset} \${GIT_CONFIG_VALUE_0-unset}" > "$sandbox/git-config-env"
 EOF
+  install_sandbox_runtime_stub
+  cat > "$sandbox/stubbin/security" <<'EOF'
+#!/bin/sh
+[ -n "${STUB_GITHUB_TOKEN:-}" ] || exit 44
+printf '%s\n' "$STUB_GITHUB_TOKEN"
+EOF
+  chmod +x "$sandbox/stubbin/security"
   cat > "$sandbox/stubbin/ollama" <<EOF
 #!/bin/sh
 echo "\$*" >> "$sandbox/ollama.log"
@@ -111,6 +121,25 @@ EOF
   chmod +x "$sandbox/stubbin/claude" "$sandbox/stubbin/ollama" "$sandbox/stubbin/ollama-agent" "$sandbox/stubbin/curl" "$sandbox/stubbin/python3" "$sandbox/stubbin/pgrep" "$sandbox/stubbin/ps"
   link_system_tools
   export PATH="$sandbox/stubbin:$sandbox/sysbin"
+}
+
+sandbox_runtime_path() {
+  echo "$HOME/.local/share/claude-custom/sandbox-runtime/node_modules/.bin/srt"
+}
+
+install_sandbox_runtime_stub() {
+  local runtime
+  runtime="$(sandbox_runtime_path)"
+  mkdir -p "$(dirname "$runtime")"
+  cat > "$runtime" <<EOF
+#!/bin/sh
+echo "\$*" >> "$sandbox/srt.log"
+[ "\$1" = -s ] && cp "\$2" "$sandbox/policy.json"
+shift 2
+[ "\$1" = -- ] && shift
+exec "\$@"
+EOF
+  chmod +x "$runtime"
 }
 
 link_system_tools() {
@@ -352,7 +381,8 @@ check_that "print-config shows num_ctx" grep -qxF "num_ctx: 98304" "$sandbox/out
 check_that "print-config shows context tokens" grep -qxF "max context tokens: 98304" "$sandbox/out"
 check_that "print-config shows the settings path" grep -qxF "settings: $repo/ollama/settings.35b.json" "$sandbox/out"
 check_that "print-config shows the tools" grep -qxF "tools: Bash,Read,Edit,Write,Agent" "$sandbox/out"
-check_that "print-config shows the command" grep -q '^command: claude --settings ' "$sandbox/out"
+check_that "print-config shows the sandboxed command" \
+  grep -qF "command: $HOME/.local/share/claude-custom/sandbox-runtime/node_modules/.bin/srt -s $HOME/.claude-ollama/sandbox-policy.json -- $repo/ollama/sandbox-entry claude --settings " "$sandbox/out"
 run_capture "$repo/bin/claude-ollama" --print-config </dev/null
 check_that "print-config without a size uses the default" grep -qxF "size: 27b" "$sandbox/out"
 
@@ -557,6 +587,64 @@ check_that "reviews without pnpm says how to install it" grep -qxF "claude-ollam
 unset CLAUDE_OLLAMA_WEB_DIR PR_REVIEW_LOG_DIR PNPM_LOG
 run_capture "$repo/bin/claude-ollama" --help
 check_that "claude-ollama help lists reviews" grep -qF -- "reviews [--port N]: serve live and past reviews at http://127.0.0.1:8765/" "$sandbox/out"
+
+policy_lists() {
+  jq -e --arg entry "$2" ".filesystem.$1 | index(\$entry) != null" "$sandbox/policy.json" >/dev/null
+}
+
+new_sandbox
+session_config="$HOME/.claude-ollama"
+run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_that "claude-ollama runs claude inside sandbox-runtime" \
+  grep -qF -- "-s $session_config/sandbox-policy.json -- $repo/ollama/sandbox-entry claude --settings" "$sandbox/srt.log"
+check_that "claude-ollama still passes claude args through the sandbox" grep -qF -- "--tools Bash,Read,Edit,Write,Agent -p hi" "$sandbox/out"
+check_that "the sandbox lets the session write the project" policy_lists allowWrite .
+check_that "the sandbox never writes claude-custom" policy_lists denyWrite "$repo"
+check_that "the sandbox never rewrites its own policy" policy_lists denyWrite "$session_config/sandbox-policy.json"
+home_in_policy='~'
+check_that "the sandbox hides SSH keys" policy_lists denyRead "$home_in_policy/.ssh"
+check_that "the sandbox hides the normal Claude config" policy_lists denyRead "$home_in_policy/.claude"
+check_eq "claude-ollama gives the session its own Claude config" "$session_config" "$(cat "$sandbox/config-dir-env")"
+check_eq "a new session config skips first-run setup" true "$(jq -r .hasCompletedOnboarding "$session_config/.claude.json")"
+check_eq "the session keeps its temp files in its own config" "$session_config/tmp" "$(cat "$sandbox/tmpdir-env")"
+check_that "the session temp folder exists" test -d "$session_config/tmp"
+check_not "the sandbox never writes the shared /private/tmp" policy_lists allowWrite /private/tmp
+check_eq "without a GitHub token git gets no auth header" "unset unset unset" "$(cat "$sandbox/git-config-env")"
+
+mkdir -p "$HOME/.claude"
+echo "@preferences" > "$HOME/.claude/CLAUDE.md"
+echo '{"hasCompletedOnboarding":true,"theme":"light"}' > "$session_config/.claude.json"
+run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_eq "the session reads a copy of your CLAUDE.md" "@preferences" "$(cat "$session_config/CLAUDE.md")"
+check_that "the sandbox never rewrites that copy" policy_lists denyWrite "$session_config/CLAUDE.md"
+check_eq "an existing session config is kept" light "$(jq -r .theme "$session_config/.claude.json")"
+
+STUB_GITHUB_TOKEN=secret run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_eq "a keychain GitHub token reaches git as a ready-encoded header" \
+  "1 http.https://github.com/.extraHeader Authorization: Basic $(printf 'x-access-token:secret' | base64)" \
+  "$(cat "$sandbox/git-config-env")"
+
+project="$sandbox/project"
+git init -q "$project"
+(cd "$project" && run_capture "$repo/bin/claude-ollama" 27b -p hi)
+check_that "the sandbox lets the session commit to the project's git directory" policy_lists allowWrite "$project/.git"
+check_that "the sandbox never writes git hooks" policy_lists denyWrite "$project/.git/hooks"
+check_that "the sandbox never writes the repo's git config" policy_lists denyWrite "$project/.git/config"
+
+rm "$(sandbox_runtime_path)"
+run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_eq "claude-ollama without sandbox-runtime exits 1" 1 "$?"
+check_that "claude-ollama without sandbox-runtime says how to install it" \
+  grep -qxF "claude-ollama: sandbox-runtime is missing; run claude-custom install" "$sandbox/err"
+check_not "claude-ollama never runs claude unsandboxed" grep -q "^ARGS:" "$sandbox/out"
+run_capture "$repo/bin/claude-ollama" doctor 27b
+check_that "doctor reports a missing sandbox-runtime" grep -qxF "fail sandbox-runtime missing (run claude-custom install)" "$sandbox/out"
+check_that "doctor warns when no GitHub token is stored" \
+  grep -qxF "warn no GitHub token in the keychain item claude-ollama-github (git push from the session will fail; see docs/ollama.md)" "$sandbox/out"
+install_sandbox_runtime_stub
+STUB_GITHUB_TOKEN=secret run_capture "$repo/bin/claude-ollama" doctor 27b
+check_that "doctor reports sandbox-runtime" grep -qxF "ok   sandbox-runtime installed" "$sandbox/out"
+check_that "doctor reports a stored GitHub token" grep -qxF "ok   GitHub token in the keychain item claude-ollama-github" "$sandbox/out"
 
 if [ "$failures" -eq 0 ]; then
   echo "all passed"

@@ -444,6 +444,23 @@ check_that "no upstream message" grep -q 'update: git pull failed' "$sandbox/err
 
 new_sandbox
 copy_repo "$sandbox/repo"
+runtime_dir="$HOME/.local/share/claude-custom/sandbox-runtime"
+run_capture "$sandbox/repo/bin/claude-custom" install
+check_that "install without npm says local-model sessions need sandbox-runtime" \
+  grep -qxF "skip: npm not installed; local-model sessions need sandbox-runtime (install Node, then rerun claude-custom install)" "$sandbox/err"
+cat > "$sandbox/stubbin/npm" <<STUB
+#!/bin/sh
+echo "\$*" >> "$sandbox/npm.log"
+STUB
+chmod +x "$sandbox/stubbin/npm"
+run_capture "$sandbox/repo/bin/claude-custom" install
+check_that "install installs the pinned sandbox-runtime from its lockfile" \
+  grep -qxF "ci --prefix $runtime_dir --ignore-scripts --no-audit --no-fund" "$sandbox/npm.log"
+check_that "install copies the sandbox-runtime lockfile" cmp -s "$sandbox/repo/ollama/sandbox-runtime.package-lock.json" "$runtime_dir/package-lock.json"
+rm "$sandbox/stubbin/npm"
+
+new_sandbox
+copy_repo "$sandbox/repo"
 cat > "$sandbox/stubbin/go" <<'STUB'
 #!/bin/sh
 echo "$*" >> "$(dirname "$3")/../../go.log"

@@ -56,17 +56,11 @@
       "Glob",
       "Grep"
     ],
-    "ask": ["Bash"],
+    "ask": ["Bash", "Bash(git commit *)", "Bash(git push *)"],
     "allow": ["mcp__code-search__semantic_search"]
   },
   "sandbox": {
-    "enabled": true,
-    "autoAllowBashIfSandboxed": false,
-    "allowUnsandboxedCommands": false,
-    "failIfUnavailable": true,
-    "network": {
-      "allowedDomains": ["github.com"]
-    }
+    "enabled": false
   },
   "hooks": "{{HOOKS}}",
   "modelOverrides": {

@@ -55,13 +55,21 @@ for settings in "$repo"/ollama/settings.*.json; do
     "$(jq -r '[.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS, .env.API_TIMEOUT_MS] | join(" ")' "$settings")"
   check_eq "${settings##*/} keeps the prompt prefix stable so Ollama reuses its cache" "0 off" \
     "$(jq -r '[.env.CLAUDE_CODE_ATTRIBUTION_HEADER, .env.CLAUDE_CODE_TOTAL_TOKENS_REMINDER] | join(" ")' "$settings")"
-  check_eq "${settings##*/} sandboxes Bash with no unsandboxed escape" "true false true" \
-    "$(jq -r '.sandbox | [.enabled, .allowUnsandboxedCommands, .failIfUnavailable] | join(" ")' "$settings")"
-  check_eq "${settings##*/} asks before every Bash command" "false true" \
-    "$(jq -r '[.sandbox.autoAllowBashIfSandboxed, (.permissions.ask | index("Bash") != null)] | join(" ")' "$settings")"
-  check_eq "${settings##*/} keeps git sandboxed and lets it reach only github.com" 'null ["github.com"]' \
-    "$(jq -c '.sandbox.excludedCommands, .sandbox.network.allowedDomains' "$settings" | paste -sd' ' -)"
+  check_eq "${settings##*/} leaves Bash to the session sandbox, which a second sandbox cannot nest in" false \
+    "$(jq -r .sandbox.enabled "$settings")"
+  check_eq "${settings##*/} asks before every Bash command, commit and push" '["Bash","Bash(git commit *)","Bash(git push *)"]' \
+    "$(jq -c .permissions.ask "$settings")"
 done
+
+sandbox_policy="$repo/ollama/sandbox.json"
+check_eq "the session sandbox reaches only github.com and the npm registry" '["github.com","registry.npmjs.org"]' \
+  "$(jq -c .network.allowedDomains "$sandbox_policy")"
+check_eq "the session sandbox sends the GitHub token, masked, only to github.com" '[{"name":"GH_BASIC","mode":"mask","injectHosts":["github.com"]}]' \
+  "$(jq -c .credentials.envVars "$sandbox_policy")"
+check_eq "the session sandbox hides credentials and the normal Claude config" true \
+  "$(jq '.filesystem.denyRead | (["~/.ssh", "~/.aws", "~/.config/gh", "~/.npmrc", "~/Library/Keychains", "~/.claude"] - .) == []' "$sandbox_policy")"
+check_eq "the session sandbox never writes the home directory, ~/.claude, /private/tmp or its own install" "" \
+  "$(jq -r '.filesystem.allowWrite[] | select(. == "~" or . == "~/.claude" or . == "~/.claude.json" or . == "/private/tmp" or startswith("~/.local/share/claude-custom"))' "$sandbox_policy")"
 
 digests="$repo/ollama/model-digests.json"
 pulled_models() {

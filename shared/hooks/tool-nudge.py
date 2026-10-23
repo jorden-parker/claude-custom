@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import json
+import os
 import re
 import shlex
 import sys
@@ -20,8 +21,12 @@ LOOKUP_NUDGE = (
 EMPTY_STATE = {"semantic_searched": False, "denies": 0, "lookups": 0, "lookup_nudged": False}
 
 
+def claude_config_dir():
+    return Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
+
+
 def state_path(session_id):
-    return Path.home() / ".claude" / "cache" / "tool-nudge" / f"{session_id}.json"
+    return claude_config_dir() / "cache" / "tool-nudge" / f"{session_id}.json"
 
 
 def load_state(path):

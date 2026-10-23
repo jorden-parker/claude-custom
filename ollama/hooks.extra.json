@@ -1,6 +1,15 @@
 {
   "PreToolUse": [
     {
+      "matcher": "Bash",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/git-push-guard.py"
+        }
+      ]
+    },
+    {
       "matcher": "Bash|mcp__code-search__semantic_search",
       "hooks": [
         {

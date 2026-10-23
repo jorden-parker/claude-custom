@@ -1,0 +1,44 @@
+{
+  "filesystem": {
+    "denyRead": [
+      "~/.ssh",
+      "~/.aws",
+      "~/.config/gh",
+      "~/.npmrc",
+      "~/.netrc",
+      "~/.docker",
+      "~/.kube",
+      "~/.gnupg",
+      "~/Library/Keychains",
+      "~/.claude"
+    ],
+    "allowWrite": [
+      ".",
+      "/private/var/folders",
+      "~/Library/Caches",
+      "~/.cache",
+      "~/.npm",
+      "~/.local/state",
+      "~/.local/share/claude",
+      "~/.config/claude"
+    ],
+    "denyWrite": []
+  },
+  "network": {
+    "allowedDomains": ["github.com", "registry.npmjs.org"],
+    "deniedDomains": [],
+    "allowLocalBinding": true,
+    "tlsTerminate": {
+      "excludeDomains": ["registry.npmjs.org"]
+    }
+  },
+  "credentials": {
+    "envVars": [
+      {
+        "name": "GH_BASIC",
+        "mode": "mask",
+        "injectHosts": ["github.com"]
+      }
+    ]
+  }
+}

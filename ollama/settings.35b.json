@@ -60,17 +60,11 @@
       "Glob",
       "Grep"
     ],
-    "ask": ["Bash"],
+    "ask": ["Bash", "Bash(git commit *)", "Bash(git push *)"],
     "allow": ["mcp__code-search__semantic_search"]
   },
   "sandbox": {
-    "enabled": true,
-    "autoAllowBashIfSandboxed": false,
-    "allowUnsandboxedCommands": false,
-    "failIfUnavailable": true,
-    "network": {
-      "allowedDomains": ["github.com"]
-    }
+    "enabled": false
   },
   "hooks": {
     "PreToolUse": [
@@ -94,6 +88,15 @@
           {
             "type": "command",
             "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/read-range-guard.py"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/git-push-guard.py"
           }
         ]
       },

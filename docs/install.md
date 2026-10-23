@@ -9,7 +9,7 @@
 | `jq`                                        | `bin/claude-custom`, `bin/claude-ollama` (`doctor` needs it), `personal/settings-path`, the `fallow-*.sh` hooks | the fallow hooks exit silently and allow everything; `doctor` won't run |
 | `go` 1.26+                                  | `go/`: the model picker (`claude-ollama` with no size) and `claude-tools`                                       | `claude-ollama <size>` still works; the menu and `claude-tools` don't   |
 | `ollama`                                    | the work harness: `claude-ollama`, `bin/ollama-cache-probe`                                                     | the work harness can't run a model                                      |
-| `node` (`npx`) and `pnpm`                   | Prettier in `bin/ollama-profiles`; `pnpm install` enables the husky and lint-staged git hooks                   | `bin/ollama-profiles` fails; no git hooks                               |
+| `node` (`npx`) and `pnpm`                   | Prettier in `bin/ollama-profiles`; `pnpm install` enables the husky and lint-staged git hooks; `npm ci` installs the session sandbox | `bin/ollama-profiles` fails; no git hooks; `claude-ollama` won't start |
 | `make` and `shellcheck`                     | `make test`, which CI and the Stop hook run                                                                     | `make test` fails                                                       |
 | optional: `ruff`, `gofmt` (ships with `go`) | `edit-check.py`                                                                                                 | that check is skipped                                                   |
 | optional: `fallow`                          | the fallow hooks and `stop-verify.py`                                                                           | fetched with `npx --yes fallow` on first use                            |
@@ -34,8 +34,10 @@ This wires every shell it finds: zsh (`~/.zshrc`), bash (`~/.bashrc`,
 `~/.claude/hooks/` (the hooks, see [Enforced preferences](hooks.md), now run
 straight from `shared/hooks/`), adds an `@` import for
 `shared/preferences/PREFERENCES.md` to `~/.claude/CLAUDE.md` (and removes the
-retired `personal/CLAUDE.tokens.md` import), and rebuilds the Ollama models
-whose base model is pulled. Re-running it is safe. `~/.claude/settings.json` is
+retired `personal/CLAUDE.tokens.md` import), rebuilds the Ollama models whose
+base model is pulled, and installs the pinned `sandbox-runtime` that
+`claude-ollama` sessions run in under `~/.local/share/claude-custom/`. Re-running
+it is safe. `~/.claude/settings.json` is
 left as is: the overlay loads on top of it via `--settings` on every interactive
 `claude` launch. Scripts, IDE extensions, the desktop app and `claude-ollama`
 don't get it. Run `command claude` to skip it once.

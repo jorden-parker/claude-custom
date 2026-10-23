@@ -16,4 +16,9 @@ run_hook 'fallow audit --format json' audited
 expect_eq "audit leaves no marker" no "$(marker_exists audited)"
 run_hook 'fallow fix --dry-run --format json' previewed
 expect_eq "dry-run fix leaves a marker" yes "$(marker_exists previewed)"
+export CLAUDE_CONFIG_DIR="$HOME/session-config"
+marker_dir="$CLAUDE_CONFIG_DIR/cache/fallow-fix-preview"
+run_hook 'fallow fix --dry-run --format json' session
+expect_eq "the marker follows CLAUDE_CONFIG_DIR" yes "$(marker_exists session)"
+unset CLAUDE_CONFIG_DIR
 finish

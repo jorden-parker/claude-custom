@@ -13,6 +13,10 @@ ollama_url="${OLLAMA_HOST:-http://localhost:11434}"
 case "$ollama_url" in http://*|https://*) ;; *) ollama_url="http://$ollama_url" ;; esac
 keep_alive="${CLAUDE_OLLAMA_KEEP_ALIVE:-30m}"
 ollama_agent="${CLAUDE_OLLAMA_AGENT:-$repo_dir/bin/ollama-agent}"
+sandbox_runtime="$HOME/.local/share/claude-custom/sandbox-runtime/node_modules/.bin/srt"
+session_config_dir="$HOME/.claude-ollama"
+sandbox_policy="$session_config_dir/sandbox-policy.json"
+github_keychain_item=claude-ollama-github
 
 configured_sizes() {
   local settings size
@@ -207,7 +211,46 @@ warm_search_index() {
   nohup python3 "$repo_dir/shared/mcp/code-search.py" --index >/dev/null 2>&1 &
 }
 
+require_sandbox_runtime() {
+  [ -x "$sandbox_runtime" ] && return 0
+  echo "claude-ollama: sandbox-runtime is missing; run claude-custom install" >&2
+  exit 1
+}
+
+git_common_dir() {
+  git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true
+}
+
+write_sandbox_policy() {
+  local protected_policy_path="$sandbox_policy"
+  jq --arg repo "$repo_dir" --arg config "$session_config_dir" --arg policy "$protected_policy_path" --arg git "$(git_common_dir)" '
+    ($git | if . == "" then [] else [.] end) as $git_dirs
+    | .filesystem.allowWrite += [$config] + $git_dirs
+    | .filesystem.denyWrite += [$repo, $policy, "\($config)/CLAUDE.md"]
+        + [$git_dirs[] | "\(.)/hooks", "\(.)/config"]
+  ' "$profile_dir/sandbox.json" > "$sandbox_policy"
+}
+
+prepare_session_config() {
+  mkdir -p "$session_config_dir/tmp"
+  [ -f "$session_config_dir/.claude.json" ] || echo '{"hasCompletedOnboarding":true}' > "$session_config_dir/.claude.json"
+  if [ -f "$HOME/.claude/CLAUDE.md" ]; then
+    cp "$HOME/.claude/CLAUDE.md" "$session_config_dir/CLAUDE.md"
+  fi
+}
+
+github_token() {
+  security find-generic-password -s "$github_keychain_item" -w 2>/dev/null
+}
+
+github_basic_auth() {
+  local token
+  token="$(github_token)" || return 0
+  printf 'x-access-token:%s' "$token" | base64 | tr -d '\n'
+}
+
 claude_command() {
+  printf '%s -s %s -- %s ' "$sandbox_runtime" "$sandbox_policy" "$profile_dir/sandbox-entry"
   printf 'claude --settings %s --system-prompt-file %s --append-system-prompt-file %s --strict-mcp-config --mcp-config %s --model %s --tools %s' \
     "$settings_file" "$profile_dir/system-prompt.md" "$profile_dir/CLAUDE.local.md" "$(mcp_config)" "$model" "$tools"
 }
@@ -358,6 +401,22 @@ check_model_allowed() {
   fi
 }
 
+check_sandbox_runtime() {
+  if [ -x "$sandbox_runtime" ]; then
+    report ok "sandbox-runtime installed"
+  else
+    report fail "sandbox-runtime missing (run claude-custom install)"
+  fi
+}
+
+check_github_token() {
+  if github_token >/dev/null; then
+    report ok "GitHub token in the keychain item $github_keychain_item"
+  else
+    report warn "no GitHub token in the keychain item $github_keychain_item (git push from the session will fail; see docs/ollama.md)"
+  fi
+}
+
 doctor() {
   local status=0
   report ok "jq on PATH"
@@ -369,6 +428,8 @@ doctor() {
   check_hooks_present || status=1
   check_reachable || status=1
   check_server_env || status=1
+  check_sandbox_runtime || status=1
+  check_github_token
   check_model_allowed
   exit "$status"
 }
@@ -534,6 +595,7 @@ case "$mode" in
   review) run_review "$review_target" "$@" ;;
 esac
 
+require_sandbox_runtime
 apply_server_env
 ensure_model
 ensure_embedding_model
@@ -546,7 +608,13 @@ warm_model
 
 unset ANTHROPIC_API_KEY ANTHROPIC_MODEL
 export CLAUDE_CUSTOM_HOME="$repo_dir"
-exec claude \
+prepare_session_config
+write_sandbox_policy
+export CLAUDE_CONFIG_DIR="$session_config_dir"
+export CLAUDE_CODE_TMPDIR="$session_config_dir/tmp"
+GH_BASIC="$(github_basic_auth)"
+export GH_BASIC
+exec "$sandbox_runtime" -s "$sandbox_policy" -- "$profile_dir/sandbox-entry" claude \
   --settings "$settings_file" \
   --system-prompt-file "$profile_dir/system-prompt.md" \
   --append-system-prompt-file "$profile_dir/CLAUDE.local.md" \

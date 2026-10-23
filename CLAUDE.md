@@ -112,7 +112,8 @@ before changing how any file gets applied.
 
 There is no build step outside the Go module. `claude-custom install` builds
 `go/cmd/claude-tools/claude-tools`, `go/cmd/model-picker/model-picker` and
-`go/cmd/ollama-agent/ollama-agent` (all gitignored). Each launcher rebuilds its
+`go/cmd/ollama-agent/ollama-agent` (all gitignored), and installs the pinned
+`sandbox-runtime` with `npm ci` (skipped without npm). Each launcher rebuilds its
 binary only when a Go source, `go.mod` or `go.sum` is newer than it.
 `pnpm install` enables git hooks (husky): pre-commit checks staged files for
 conflict markers, files over 1 MB and secrets, then lint-staged runs Prettier on
@@ -207,7 +208,7 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   `bin/pr-review-eval.test.sh` (stub reviewer)
 - `shared/hooks/tool-nudge.py` is wired only in the Ollama profiles
   (UserPromptSubmit resets its per-session state under
-  `~/.claude/cache/tool-nudge/`). As PreToolUse on Bash and
+  `${CLAUDE_CONFIG_DIR:-~/.claude}/cache/tool-nudge/`). As PreToolUse on Bash and
   `mcp__code-search__semantic_search` it denies a Bash command that leads with a
   text search (`grep`, `rg`, `ag`, `ack`, `git grep`) until the MCP tool has
   been called in the turn, at most twice per turn so a dead server can't lock
@@ -233,14 +234,16 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   the personal overlay has. `ollama/settings.*.json` also deny unused tools by
   bare name, so their schemas never reach the local model's context. `--tools`
   in `bin/claude-ollama` is the primary allowlist and that deny list is the
-  backstop. `bin/check-config` fails when the Ollama deny lists differ. The
-  Ollama profiles also sandbox Bash (`sandbox.enabled`,
-  `allowUnsandboxedCommands: false`, `failIfUnavailable: true`) and prompt for
-  every Bash command (`autoAllowBashIfSandboxed: false`, `permissions.ask`
-  `Bash`), since a local model's weights are not trusted. `git` stays in the
-  sandbox (never `excludedCommands`: hooks the model can edit would run
-  unsandboxed) with `sandbox.network.allowedDomains` `github.com` only, and is
-  still asked for; `bin/check-config` checks all three. The personal overlay
+  backstop. `bin/check-config` fails when the Ollama deny lists differ. A local
+  model's weights are not trusted, so `bin/claude-ollama` runs the whole
+  session (Bash, hooks, Fallow, MCP servers) inside `sandbox-runtime` with
+  `ollama/sandbox.json` (see the launcher entry below), and the profiles turn
+  Claude Code's own Bash sandbox off (`sandbox.enabled: false`: macOS refuses a
+  second sandbox inside the first). They ask before every Bash command, commit
+  and push (`permissions.ask`); `bin/check-config` checks both and the policy's
+  network, masked token and read and write lists. `shared/hooks/git-push-guard.py`
+  (Ollama-only, PreToolUse on Bash) denies force pushes, remote deletes,
+  `--mirror`, `--prune`, `-c alias.*` and pushes to `main` or `master`. The personal overlay
   also denies unused tools by bare name (`Artifact`, `Workflow`,
   `ScheduleWakeup`, `SendFeedback` and the deferred ones), since a bare deny
   removes the tool's schema from the request; `bin/check-config` fails when an
@@ -261,6 +264,27 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   at the main model (`--require-side-model` exits 1 instead). `doctor` and
   `--print-config` are dispatched before any pull or launch; `doctor` reads hook
   names from the profile's settings file, not from `~/.claude/hooks`.
+- `bin/claude-ollama` never runs `claude` unsandboxed: it exits 1 when
+  `~/.local/share/claude-custom/sandbox-runtime` (installed by
+  `claude-custom install` from `ollama/sandbox-runtime.package*.json`, named so
+  Fallow does not read them as a package) is missing, and `doctor` reports it.
+  It execs `srt -s ~/.claude-ollama/sandbox-policy.json -- ollama/sandbox-entry
+  claude ...`. The policy is `ollama/sandbox.json` plus, per launch, the
+  session config dir and the repo's git common dir as writable, and this repo,
+  the policy itself, the session's `CLAUDE.md` copy and the git dir's `hooks`
+  and `config` as never writable. The session gets its own config
+  (`CLAUDE_CONFIG_DIR=~/.claude-ollama`, seeded with
+  `hasCompletedOnboarding`, plus a copy of `~/.claude/CLAUDE.md`) and temp dir
+  (`CLAUDE_CODE_TMPDIR=~/.claude-ollama/tmp`), so nothing it writes reaches
+  `~/.claude` or `/private/tmp`; Claude Code still reads `~/.claude.json` and
+  stalls without it. For `git push`, the launcher reads a token from the
+  keychain item `claude-ollama-github`, exports it base64-encoded as `GH_BASIC`
+  (masked by the policy: the session sees a placeholder that the proxy swaps
+  back only on requests to github.com), and `ollama/sandbox-entry` turns it into
+  an `http.https://github.com/.extraHeader` through `GIT_CONFIG_*`. Git's own
+  credential helpers can't be masked: they encode the token themselves.
+  `allowLocalBinding` is on because Ollama on localhost is reached directly, not
+  through the proxy, which also opens every other local port.
 - The **side model** (`ollama/side.Modelfile`, `qwen3:4b` created as
   `qwen3-4b-cc`) fills the Haiku slot: every Ollama profile sets
   `ANTHROPIC_DEFAULT_HAIKU_MODEL` to it. The file is not `Modelfile.side`
