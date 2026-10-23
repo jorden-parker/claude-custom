@@ -208,25 +208,61 @@ item_replacement_dir() {
   [ -n "$user_temp" ] && echo "${user_temp%/}/TemporaryItems"
 }
 
+project_root() {
+  git rev-parse --show-toplevel 2>/dev/null || pwd -P
+}
+
+require_plain_project_root() {
+  local root
+  root="$(project_root)"
+  case "$root" in
+    *'*'* | *'?'* | *'['*)
+      echo "claude-ollama: $root has glob characters (*?[]), which would break the sandbox's write rules" >&2
+      exit 1
+      ;;
+  esac
+}
+
 write_sandbox_policy() {
   local protected_policy_path="$sandbox_policy"
   jq --arg repo "$repo_dir" --arg config "$session_config_dir" --arg policy "$protected_policy_path" --arg git "$(git_common_dir)" \
-    --arg items "$(item_replacement_dir)" '
+    --arg items "$(item_replacement_dir)" --arg root "$(project_root)" \
+    --argjson config_sources '["CLAUDE.md", "skills", "settings.json", "settings.local.json", "commands", "agents", "plugins", "rules", "output-styles", "keybindings.json", ".config.json"]' '
     ($git | if . == "" then [] else [.] end) as $git_dirs
     | ($items | if . == "" then [] else [.] end) as $item_dirs
     | .filesystem.allowWrite += [$config] + $item_dirs + $git_dirs
-    | .filesystem.denyWrite += [$repo, $policy, "\($config)/CLAUDE.md", "\($config)/skills"]
+    | .filesystem.denyWrite += [$repo, $policy, {path: "\($root)/.claude", literal: true}, "\($root)/**/.claude", "\($root)/**/.claude/**"]
+        + [$config_sources[] as $source | "\($config)/\($source)"]
         + [$git_dirs[] | "\(.)/hooks", "\(.)/config"]
   ' "$profile_dir/sandbox.json" > "$sandbox_policy"
 }
 
 prepare_session_config() {
   mkdir -p "$session_config_dir/tmp"
-  [ -f "$session_config_dir/.claude.json" ] || echo '{"hasCompletedOnboarding":true}' > "$session_config_dir/.claude.json"
   if [ -f "$HOME/.claude/CLAUDE.md" ]; then
     cp "$HOME/.claude/CLAUDE.md" "$session_config_dir/CLAUDE.md"
   fi
+  rebuild_session_state
   copy_user_skills
+}
+
+cleaned_session_state() {
+  local taken="$1"
+  if [ ! -L "$taken" ] && [ -s "$taken" ] &&
+    jq -e --arg root "$(project_root)" -f "$profile_dir/session-state.jq" "$taken" 2>/dev/null; then
+    return 0
+  fi
+  echo '{"hasCompletedOnboarding":true}'
+}
+
+rebuild_session_state() {
+  local session_state="$session_config_dir/.claude.json" taken rebuilt
+  taken="$(mktemp "$session_state.XXXXXX")"
+  mv -f "$session_state" "$taken" 2>/dev/null || true
+  rebuilt="$(mktemp "$session_state.XXXXXX")"
+  cleaned_session_state "$taken" > "$rebuilt"
+  rm -f "$taken"
+  mv -f "$rebuilt" "$session_state"
 }
 
 copy_user_skills() {
@@ -580,6 +616,7 @@ case "$mode" in
 esac
 
 require_sandbox_runtime
+require_plain_project_root
 apply_server_env
 ensure_model
 ensure_embedding_model

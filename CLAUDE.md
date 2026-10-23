@@ -279,10 +279,26 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   `bin/check-config` keeps it that way) plus, per launch, the session config
   dir, the repo's git common dir and macOS's item-replacement folder
   (`$(getconf DARWIN_USER_TEMP_DIR)TemporaryItems`, which Claude Code stalls
-  without) as writable, and this repo, the policy itself, the session's
-  `CLAUDE.md` and skills copies and the git dir's `hooks` and `config` as never
-  writable. Never add a folder that unsandboxed programs also run from or cache
-  in (`~/.local/share/claude` holds the Claude Code binary; `~/.npm`,
+  without) as writable, and this repo, the policy itself, the git dir's `hooks`
+  and `config`, every `.claude` under the repo root (`ROOT/**/.claude` and
+  everything in it, plus `ROOT/.claude` as a literal entry; the resolved current
+  folder outside a repo, and the launcher refuses a root with `*`, `?` or `[` in
+  it, which would turn those patterns into other globs) and the session config's
+  `CLAUDE.md`, `skills`, `settings.json`, `settings.local.json`, `commands`,
+  `agents`, `plugins`, `rules`, `output-styles`, `keybindings.json` and
+  `.config.json` as never writable, so a session can't plant skills, commands,
+  hooks or allow rules for later. Ask and deny rules still override a skill's
+  `allowed-tools` and any allow rule (deny, then ask, then allow, whatever the
+  scope), so the Bash, commit and push prompts hold even if one gets through; a
+  directory staged outside the project and renamed in can still carry a nested
+  `.claude`. The session config's `.claude.json` must stay writable, so each
+  launch rebuilds it (`rebuild_session_state`): it renames the file away first,
+  so a symlink the session planted is never followed, and from a plain file of
+  valid JSON keeps only what `ollama/session-state.jq` allows (onboarding done,
+  `theme`, and trust for the folder being launched, so a session can't pre-trust
+  another repo), else starts from `{"hasCompletedOnboarding":true}`. Never add a
+  folder that unsandboxed programs also run from or cache in
+  (`~/.local/share/claude` holds the Claude Code binary; `~/.npm`,
   `~/Library/Caches`, `~/.cache`): a session could plant code there that runs
   outside the sandbox. The session gets its own config
   (`CLAUDE_CONFIG_DIR=~/.claude-ollama`, seeded with `hasCompletedOnboarding`,

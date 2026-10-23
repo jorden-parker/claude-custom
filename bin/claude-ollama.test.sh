@@ -647,6 +647,35 @@ check_eq "a symlinked skill is copied as files, since the sandbox cannot read ~/
 check_not "the copy is a plain folder, not a link" test -L "$session_config/skills/linked"
 check_not "a skill you removed is gone from the copy" test -e "$session_config/skills/retired"
 check_that "the sandbox never rewrites the skills copy" policy_lists denyWrite "$session_config/skills"
+for source in settings.json settings.local.json commands agents plugins rules output-styles keybindings.json .config.json; do
+  check_that "the session never writes its own $source, which could pre-approve tools" policy_lists denyWrite "$session_config/$source"
+done
+
+jq '.projects = {"/some/project": {"allowedTools": ["Bash"], "hasTrustDialogAccepted": true, "mcpServers": {"planted": {}}, "enabledMcpjsonServers": ["planted"]}}
+  | .mcpServers = {"planted": {}} | .bypassPermissionsModeAccepted = true | .customApiKeyResponses = {"approved": ["planted"]}' \
+  "$session_config/.claude.json" > "$sandbox/claude.json.new" && mv "$sandbox/claude.json.new" "$session_config/.claude.json"
+run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_eq "each launch rebuilds .claude.json from known-safe keys only, without trust for other folders" \
+  '{"hasCompletedOnboarding":true,"theme":"light"}' "$(jq -c . "$session_config/.claude.json")"
+launch_root="$(git rev-parse --show-toplevel)"
+jq --arg root "$launch_root" '.projects = {($root): {"hasTrustDialogAccepted": true, "allowedTools": ["Bash"]}, "/some/project": {"hasTrustDialogAccepted": true}}' \
+  "$session_config/.claude.json" > "$sandbox/claude.json.new" && mv "$sandbox/claude.json.new" "$session_config/.claude.json"
+run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_eq "trust survives only for the folder being launched, so a session cannot pre-trust another repo" \
+  "{\"$launch_root\":{\"hasTrustDialogAccepted\":true}}" "$(jq -c .projects "$session_config/.claude.json")"
+
+echo '{"keep": "me"}' > "$sandbox/outside-target.json"
+rm "$session_config/.claude.json"
+ln -s "$sandbox/outside-target.json" "$session_config/.claude.json"
+run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_eq "the launcher never writes through a .claude.json symlink the session planted" '{"keep": "me"}' "$(cat "$sandbox/outside-target.json")"
+check_not "and replaces the symlink with a plain file" test -L "$session_config/.claude.json"
+check_eq "a replaced .claude.json starts from first-run state" true "$(jq -r .hasCompletedOnboarding "$session_config/.claude.json")"
+
+echo 'not json {' > "$session_config/.claude.json"
+run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_eq "an unreadable .claude.json is reset, so nothing unchecked survives" '{"hasCompletedOnboarding":true}' \
+  "$(jq -c . "$session_config/.claude.json")"
 
 STUB_GITHUB_TOKEN=secret run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_eq "a keychain GitHub token reaches git as a ready-encoded header" \
@@ -659,6 +688,23 @@ git init -q "$project"
 check_that "the sandbox lets the session commit to the project's git directory" policy_lists allowWrite "$project/.git"
 check_that "the sandbox never writes git hooks" policy_lists denyWrite "$project/.git/hooks"
 check_that "the sandbox never writes the repo's git config" policy_lists denyWrite "$project/.git/config"
+mkdir -p "$project/src/deep"
+ln -s "$project" "$sandbox/project-link"
+(cd "$sandbox/project-link/src/deep" && run_capture "$repo/bin/claude-ollama" 27b -p hi)
+check_that "from a subfolder the session still never writes the repo root's .claude" policy_lists denyWrite "$project/**/.claude"
+check_that "nor anything inside any .claude in the repo" policy_lists denyWrite "$project/**/.claude/**"
+outside="$sandbox/outside"
+mkdir -p "$outside"
+(cd "$outside" && run_capture "$repo/bin/claude-ollama" 27b -p hi)
+check_that "outside a repo the current folder's .claude is protected" policy_lists denyWrite "$outside/**/.claude"
+check_eq "the root's own .claude is also denied as a literal path, whatever glob matching does" true \
+  "$(jq --arg path "$outside/.claude" '.filesystem.denyWrite | any(. == {path: $path, literal: true})' "$sandbox/policy.json")"
+globbed="$sandbox/odd[ab]dir"
+mkdir -p "$globbed"
+(cd "$globbed" && run_capture "$repo/bin/claude-ollama" 27b -p hi)
+check_eq "claude-ollama refuses a project path with glob characters" 1 "$?"
+check_that "and says why" grep -qF "claude-ollama: $globbed has glob characters (*?[]), which would break the sandbox's write rules" "$sandbox/err"
+check_not "and never runs claude there" grep -q '^ARGS:' "$sandbox/out"
 
 rm "$(sandbox_runtime_path)"
 run_capture "$repo/bin/claude-ollama" 27b -p hi
