@@ -19,17 +19,6 @@
       ]
     }
   ],
-  "PostToolUse": [
-    {
-      "matcher": "Bash|Read|Agent",
-      "hooks": [
-        {
-          "type": "command",
-          "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/tool-nudge.py"
-        }
-      ]
-    }
-  ],
   "UserPromptSubmit": [
     {
       "hooks": [

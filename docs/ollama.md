@@ -51,21 +51,13 @@ either size: when the `-cc` model is missing, it pulls the base model and
 creates the `-cc` model before starting `claude`. A failed pull stops the
 launch.
 
-The Haiku slot and all subagents run on a small side model, `qwen3:4b` from
-`ollama/side.Modelfile`, created as `qwen3-4b-cc`. Set it up once from the
-picker's "Set up side model" row. When it is missing, `claude-ollama` says so
-and sends subagents and the Haiku slot to the main model for that session; pass
-`--require-side-model` to exit instead. The profiles name it by ID in
-`CLAUDE_CODE_SUBAGENT_MODEL` and map the full Claude Haiku IDs to it in
-`modelOverrides`. They map no Claude ID to the main model: Claude Code names the
-model after the ID that maps to it, so the banner would say Sonnet. Forcing
-every subagent onto it needs Claude Code v2.1.257 or later.
-
-The side model's context is 32k (`num_ctx` in `ollama/side.Modelfile`), smaller
-than any size's. A subagent loads it next to the main model, and two 96k KV
-caches plus the 27b's weights froze a 48 GB Mac. A subagent prompt over 32k is
-cut by Ollama, since Claude Code still assumes the main model's context.
-`bin/check-config` fails if the side model's context is larger than a size's.
+There is no side model. Claude Code's Haiku slot uses the main model, and the
+profiles deny `Agent`: a subagent would only rerun the main model on a fresh
+context. Use `semantic_search` for wide searches instead; `tool-nudge.py`
+refuses text searches (`grep`, `rg`, `ag`, `ack`, `git grep`, `find -name`)
+until it has been called in the turn, and allows them once it has, even if it
+errored. The profiles map no Claude ID to the main model: Claude Code names the
+model after the ID that maps to it, so the banner would say Haiku or Sonnet.
 
 Plain `claude` stays on the personal setup. The profile only exists for that
 launch.
@@ -75,8 +67,8 @@ launch.
 `go/cmd/model-picker/` is the terminal menu `claude-ollama` opens to choose a
 size. Each `settings.<size>.json` in `ollama/` with a matching
 `Modelfile.<size>` is one entry, showing the size, its `-cc` model and its base
-model. When `ollama/side.Modelfile` exists, a last row "Set up side model" runs
-`ollama pull` and `ollama create` for it and stays in the menu.
+model. A last row "Set up embedding model" pulls the `semantic_search` model and
+stays in the menu.
 
 ```sh
 claude-custom ollama                       # opens the picker, then launches the chosen size
@@ -99,13 +91,13 @@ waits for the server. It refuses while the Ollama menu-bar app runs; quit it
 first. On a failure the launch goes on with a warning. The launcher also sends a
 warm-up request with `keep_alive` 30m (`CLAUDE_OLLAMA_KEEP_ALIVE` overrides) so
 the first prompt doesn't wait for the model to load.
-`OLLAMA_MAX_LOADED_MODELS=3` (the shipped value) keeps the main, side and
-embedding models loaded: the launcher exports `CODE_SEARCH_EMBED=1` so
-`semantic_search` loads and uses `qwen3-embedding:0.6b` (about 2.2 GB), and
-warms it before starting the indexer. At 2 the main and side models fill both
-slots, the embedding model is evicted and searches rank by words only. The
-Homebrew service (`brew services start ollama`) uses these paths; add any
-`server.env` value it lacks with `claude-custom agent`:
+`OLLAMA_MAX_LOADED_MODELS=2` (the shipped value) keeps the main and embedding
+models loaded: the launcher exports `CODE_SEARCH_EMBED=1` so `semantic_search`
+loads and uses `qwen3-embedding:0.6b` (about 2.2 GB), and warms it before
+starting the indexer. At 1 the embedding model would evict the main model, so
+searches rank by words only. The Homebrew service (`brew services start ollama`)
+uses these paths; add any `server.env` value it lacks with
+`claude-custom agent`:
 
 | What        | Homebrew value                                      |
 | ----------- | --------------------------------------------------- |
@@ -131,18 +123,17 @@ service itself.
 
 `claude-ollama doctor [size]` checks the environment without pulling or
 launching anything. It needs `jq` on PATH (`brew install jq`); without it the
-launcher exits with an error. It reports each model (main, side, embedding),
-whether `num_ctx` in the Modelfile matches `CLAUDE_CODE_MAX_CONTEXT_TOKENS`,
-whether each hook named in `ollama/settings.<size>.json` exists and is
-executable under `shared/hooks/`, whether Ollama answers at `OLLAMA_HOST`, and
-whether the running server has every variable from `ollama/server.env`. A
-missing side model is a warning; anything else missing exits 1. The server-env
-check is how to confirm `server.env` is applied. The server's environment is
-read with `pgrep`/`ps` (or `/proc` on Linux).
+launcher exits with an error. It reports each model (main, embedding), whether
+`num_ctx` in the Modelfile matches `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, whether
+each hook named in `ollama/settings.<size>.json` exists and is executable under
+`shared/hooks/`, whether Ollama answers at `OLLAMA_HOST`, and whether the
+running server has every variable from `ollama/server.env`. Anything missing
+exits 1. The server-env check is how to confirm `server.env` is applied. The
+server's environment is read with `pgrep`/`ps` (or `/proc` on Linux).
 
 `claude-ollama --print-config [size]` prints the resolved values (model, base
-model, side model, embedding model, context sizes, settings path, tools) and the
-exact `claude` command, without launching.
+model, embedding model, context sizes, settings path, tools) and the exact
+`claude` command, without launching.
 
 `claude-ollama logs [-n LINES]` follows the Ollama server log with `tail -F` (50
 lines of history by default). It reads the log path from the `local.ollama`
@@ -156,7 +147,6 @@ Sample `doctor` output (all healthy):
 ```
 ok   jq on PATH
 ok   model qwen3.8-27b-cc
-ok   side model qwen3-4b-cc
 ok   embedding model qwen3-embedding:0.6b
 ok   digest qwen3.8:27b-mlx matches its pin
 ok   num_ctx 65536 matches CLAUDE_CODE_MAX_CONTEXT_TOKENS

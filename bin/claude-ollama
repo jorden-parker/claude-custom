@@ -6,9 +6,8 @@ profile_dir="$repo_dir/ollama"
 go_dir="$repo_dir/go"
 picker_binary="$go_dir/cmd/model-picker/model-picker"
 default_size=27b
-tools="Bash,Read,Edit,Write,Agent"
+tools="Bash,Read,Edit,Write"
 embedding_model="${CODE_SEARCH_MODEL:-qwen3-embedding:0.6b}"
-require_side_model=0
 ollama_url="${OLLAMA_HOST:-http://localhost:11434}"
 case "$ollama_url" in http://*|https://*) ;; *) ollama_url="http://$ollama_url" ;; esac
 keep_alive="${CLAUDE_OLLAMA_KEEP_ALIVE:-30m}"
@@ -115,13 +114,9 @@ verify_installed() {
   [ -z "$actual" ] || check_pin "$1" "$actual"
 }
 
-side_base_model() {
-  sed -n 's/^FROM //p' "$profile_dir/side.Modelfile"
-}
-
 verify_installed_models() {
   local name
-  for name in "$(base_model)" "$(side_base_model)" "$embedding_model"; do
+  for name in "$(base_model)" "$embedding_model"; do
     verify_installed "$name" || exit 1
   done
 }
@@ -142,36 +137,6 @@ ensure_embedding_model() {
     echo "claude-ollama: could not pull $embedding_model; semantic_search will fail until you run claude-ollama and pick 'Set up embedding model'" >&2
 }
 
-side_model_name() {
-  jq -r .env.ANTHROPIC_DEFAULT_HAIKU_MODEL "$profile_dir/settings.$size.json"
-}
-
-fallback_settings_file() {
-  local derived
-  derived="$(mktemp -t claude-ollama-settings.XXXXXX)"
-  jq --arg main "$model" '
-    .env.CLAUDE_CODE_SUBAGENT_MODEL = $main
-    | .env.ANTHROPIC_DEFAULT_HAIKU_MODEL = $main
-    | .modelOverrides |= with_entries(.value = $main)
-  ' "$profile_dir/settings.$size.json" > "$derived"
-  printf '%s\n' "$derived"
-}
-
-ensure_side_model() {
-  local name
-  name="$(side_model_name)"
-  if ollama show "$name" >/dev/null 2>&1; then
-    refresh_num_ctx "$name" "$(modelfile_num_ctx "$profile_dir/side.Modelfile")"
-    return 0
-  fi
-  if [ "$require_side_model" = 1 ]; then
-    echo "claude-ollama: side model $name missing; run claude-ollama and pick 'Set up side model'" >&2
-    exit 1
-  fi
-  echo "claude-ollama: side model $name missing; subagents use $model this session (pick 'Set up side model' in claude-ollama to fix)" >&2
-  return 1
-}
-
 mcp_config() {
   printf '{"mcpServers":{"code-search":{"command":"python3","args":["%s"]}}}' \
     "$repo_dir/shared/mcp/code-search.py"
@@ -190,7 +155,7 @@ server_max_loaded_models() {
 embedding_model_fits() {
   local cap
   cap="$(server_max_loaded_models)"
-  [ -n "$cap" ] && [ "$cap" -ge 3 ] 2>/dev/null
+  [ -n "$cap" ] && [ "$cap" -ge 2 ] 2>/dev/null
 }
 
 allow_search_embeddings() {
@@ -267,7 +232,6 @@ print_config() {
   echo "size: $size"
   echo "model: $model"
   echo "base: $(base_model)"
-  echo "side model: $(side_model_name)"
   echo "embedding model: $embedding_model"
   echo "num_ctx: $(modelfile_num_ctx)"
   echo "max context tokens: $(profile_context_tokens)"
@@ -304,7 +268,7 @@ check_digest() {
 
 check_digests() {
   local name status=0
-  for name in "$(base_model)" "$(side_base_model)" "$embedding_model"; do
+  for name in "$(base_model)" "$embedding_model"; do
     check_digest "$name" || status=1
   done
   return "$status"
@@ -429,7 +393,6 @@ doctor() {
   local status=0
   report ok "jq on PATH"
   check_model_present model "$model" "run claude-ollama $size to pull and create it" || status=1
-  check_model_present "side model" "$(side_model_name)" "pick 'Set up side model' in claude-ollama" warn || status=1
   check_model_present "embedding model" "$embedding_model" "pick 'Set up embedding model' in claude-ollama" || status=1
   check_digests || status=1
   check_context_sizes || status=1
@@ -530,7 +493,6 @@ case "${1:-}" in
     echo "usage: claude-ollama [size] [claude args...]"
     echo "sizes: $(configured_sizes | tr '\n' ' ' | sed 's/ $//')"
     echo "no size: pick one in a menu (or $default_size without a terminal)"
-    echo "--require-side-model: exit 1 instead of using the main model for subagents"
     echo "doctor [size]: check models, context sizes, hooks, Ollama and the server env"
     echo "--print-config [size]: print the resolved settings and the claude command"
     echo "logs [-n LINES]: follow the Ollama server log (LaunchAgent, Homebrew service or app)"
@@ -574,11 +536,6 @@ run_review() {
   exec "${CLAUDE_OLLAMA_REVIEWER:-$repo_dir/bin/pr-review-local}" --model "$model" --base-url "$ollama_url" "$@" "$target"
 }
 
-while [ "${1:-}" = --require-side-model ]; do
-  require_side_model=1
-  shift
-done
-
 if [ $# -gt 0 ] && is_configured_size "$1"; then
   size="$1"
   shift
@@ -589,11 +546,6 @@ else
   esac
   size="$(choose_size)"
 fi
-
-while [ "${1:-}" = --require-side-model ]; do
-  require_side_model=1
-  shift
-done
 
 model="$(jq -r .model "$profile_dir/settings.$size.json")"
 settings_file="$profile_dir/settings.$size.json"
@@ -612,7 +564,6 @@ verify_installed_models
 allow_search_embeddings
 warm_embedding_model
 warm_search_index
-ensure_side_model || settings_file="$(fallback_settings_file)"
 warm_model
 
 unset ANTHROPIC_API_KEY ANTHROPIC_MODEL

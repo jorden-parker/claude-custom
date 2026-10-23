@@ -95,12 +95,12 @@ before changing how any file gets applied.
   derives Ollama model names from `ollama/settings.<size>.json` and
   `ollama/Modelfile.<size>`, both rendered from `ollama/sizes.json`. Adding a
   size means one `sizes.json` entry, then `bin/ollama-profiles`; never hand-edit
-  the rendered files. Every `base` (plus `side.Modelfile`'s `FROM` and the
-  default embedding model) must be an Ollama library model (no `/` in the name)
-  with a manifest sha256 in `ollama/model-digests.json`; `bin/check-config`
-  checks both. `bin/claude-ollama` checks `/api/tags` against the pin after
-  pulling a base and before each launch, exits 1 on a mismatch, and `doctor`
-  reports it. A pin is the sha256 of the registry manifest
+  the rendered files. Every `base` (plus the default embedding model) must be an
+  Ollama library model (no `/` in the name) with a manifest sha256 in
+  `ollama/model-digests.json`; `bin/check-config` checks both.
+  `bin/claude-ollama` checks `/api/tags` against the pin after pulling a base
+  and before each launch, exits 1 on a mismatch, and `doctor` reports it. A pin
+  is the sha256 of the registry manifest
   (`https://registry.ollama.ai/v2/library/NAME/manifests/TAG`).
 - Go module `go/` (all three apps; `go/cmd/model-picker/`,
   `go/cmd/claude-tools/`, `go/cmd/ollama-agent/`): `cd go && go test ./...`. One
@@ -113,8 +113,8 @@ before changing how any file gets applied.
 There is no build step outside the Go module. `claude-custom install` builds
 `go/cmd/claude-tools/claude-tools`, `go/cmd/model-picker/model-picker` and
 `go/cmd/ollama-agent/ollama-agent` (all gitignored), and installs the pinned
-`sandbox-runtime` with `npm ci` (skipped without npm). Each launcher rebuilds its
-binary only when a Go source, `go.mod` or `go.sum` is newer than it.
+`sandbox-runtime` with `npm ci` (skipped without npm). Each launcher rebuilds
+its binary only when a Go source, `go.mod` or `go.sum` is newer than it.
 `pnpm install` enables git hooks (husky): pre-commit checks staged files for
 conflict markers, files over 1 MB and secrets, then lint-staged runs Prettier on
 staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
@@ -208,13 +208,13 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   `bin/pr-review-eval.test.sh` (stub reviewer)
 - `shared/hooks/tool-nudge.py` is wired only in the Ollama profiles
   (UserPromptSubmit resets its per-session state under
-  `${CLAUDE_CONFIG_DIR:-~/.claude}/cache/tool-nudge/`). As PreToolUse on Bash and
-  `mcp__code-search__semantic_search` it denies a Bash command that leads with a
-  text search (`grep`, `rg`, `ag`, `ack`, `git grep`) until the MCP tool has
-  been called in the turn, at most twice per turn so a dead server can't lock
-  the model out. As PostToolUse on Bash, Read and Agent it adds
-  `additionalContext` once per turn after the 6th read-or-search (delegate to
-  `Agent`).
+  `${CLAUDE_CONFIG_DIR:-~/.claude}/cache/tool-nudge/`). As PreToolUse on Bash
+  and `mcp__code-search__semantic_search` it denies every Bash command that runs
+  a text search (`grep`, `rg`, `ag`, `ack`, `git grep`, or `find` with a name or
+  path filter) at the head of any command in it, until the MCP tool has been
+  called in the turn. A search after a pipe is a filter and passes. Calling the
+  tool unlocks text search for the turn even when it errors, so a dead server
+  can't lock the model out.
 - All settings files (`personal/settings.tokens.json`, `ollama/settings.*.json`)
   run hooks as `"$CLAUDE_CUSTOM_HOME"/shared/hooks/<name>`. Hook commands go
   through a shell, so the variable expands. `personal/claude.sh` and
@@ -235,19 +235,20 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   bare name, so their schemas never reach the local model's context. `--tools`
   in `bin/claude-ollama` is the primary allowlist and that deny list is the
   backstop. `bin/check-config` fails when the Ollama deny lists differ. A local
-  model's weights are not trusted, so `bin/claude-ollama` runs the whole
-  session (Bash, hooks, Fallow, MCP servers) inside `sandbox-runtime` with
+  model's weights are not trusted, so `bin/claude-ollama` runs the whole session
+  (Bash, hooks, Fallow, MCP servers) inside `sandbox-runtime` with
   `ollama/sandbox.json` (see the launcher entry below), and the profiles turn
   Claude Code's own Bash sandbox off (`sandbox.enabled: false`: macOS refuses a
   second sandbox inside the first). They ask before every Bash command, commit
   and push (`permissions.ask`); `bin/check-config` checks both and the policy's
-  network, masked token and read and write lists. `shared/hooks/git-push-guard.py`
-  (Ollama-only, PreToolUse on Bash) denies force pushes, remote deletes,
-  `--mirror`, `--prune`, `-c alias.*` and pushes to `main` or `master`. The personal overlay
-  also denies unused tools by bare name (`Artifact`, `Workflow`,
-  `ScheduleWakeup`, `SendFeedback` and the deferred ones), since a bare deny
-  removes the tool's schema from the request; `bin/check-config` fails when an
-  Ollama profile lacks one of those bare denies.
+  network, masked token and read and write lists.
+  `shared/hooks/git-push-guard.py` (Ollama-only, PreToolUse on Bash) denies
+  force pushes, remote deletes, `--mirror`, `--prune`, `-c alias.*` and pushes
+  to `main` or `master`. The personal overlay also denies unused tools by bare
+  name (`Artifact`, `Workflow`, `ScheduleWakeup`, `SendFeedback` and the
+  deferred ones), since a bare deny removes the tool's schema from the request;
+  `bin/check-config` fails when an Ollama profile lacks one of those bare
+  denies.
 - `bin/claude-ollama` resolves its own symlink to find `ollama/`. It unsets
   `ANTHROPIC_API_KEY`, passes `--settings ollama/settings.<size>.json`,
   `--system-prompt-file ollama/system-prompt.md` (replacing Claude Code's
@@ -257,19 +258,18 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   `ANTHROPIC_MODEL`, which would otherwise win over the settings file), and
   restricts tools with `--tools` (built-in tools only; MCP tools still load).
   Before launching, it pulls the base model and creates the `-cc` model when
-  `ollama show` can't find the `-cc` model. When an installed main or side
-  model's `num_ctx` differs from its Modelfile, it recreates that model `FROM`
-  itself with the new `num_ctx` (no pull). When the side model is missing it
-  launches with a temporary copy of the profile whose side-model entries point
-  at the main model (`--require-side-model` exits 1 instead). `doctor` and
-  `--print-config` are dispatched before any pull or launch; `doctor` reads hook
-  names from the profile's settings file, not from `~/.claude/hooks`.
+  `ollama show` can't find the `-cc` model. When the installed model's `num_ctx`
+  differs from its Modelfile, it recreates that model `FROM` itself with the new
+  `num_ctx` (no pull). `doctor` and `--print-config` are dispatched before any
+  pull or launch; `doctor` reads hook names from the profile's settings file,
+  not from `~/.claude/hooks`.
 - `bin/claude-ollama` never runs `claude` unsandboxed: it exits 1 when
   `~/.local/share/claude-custom/sandbox-runtime` (installed by
   `claude-custom install` from `ollama/sandbox-runtime.package*.json`, named so
   Fallow does not read them as a package) is missing, and `doctor` reports it.
-  It execs `srt -s ~/.claude-ollama/sandbox-policy.json -- ollama/sandbox-entry
-  claude ...`. The policy is `ollama/sandbox.json` (writes only the project;
+  It execs
+  `srt -s ~/.claude-ollama/sandbox-policy.json -- ollama/sandbox-entry claude ...`.
+  The policy is `ollama/sandbox.json` (writes only the project;
   `bin/check-config` keeps it that way) plus, per launch, the session config
   dir, the repo's git common dir and macOS's item-replacement folder
   (`$(getconf DARWIN_USER_TEMP_DIR)TemporaryItems`, which Claude Code stalls
@@ -279,32 +279,29 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   (`~/.local/share/claude` holds the Claude Code binary; `~/.npm`,
   `~/Library/Caches`, `~/.cache`): a session could plant code there that runs
   outside the sandbox. The session gets its own config
-  (`CLAUDE_CONFIG_DIR=~/.claude-ollama`, seeded with
-  `hasCompletedOnboarding`, plus a copy of `~/.claude/CLAUDE.md`), and
-  `ollama/sandbox-entry` points `TMPDIR`, the XDG cache, state and data dirs,
-  the npm and Go caches and the edit-check and stop-verify state under it and
-  sets `DISABLE_AUTOUPDATER=1`. `TMPDIR` is set inside the sandbox only: srt
-  puts its own socket there, and a long path breaks it. Claude Code still reads
-  `~/.claude.json` and stalls without it. For `git push`, the launcher reads a token from the
-  keychain item `claude-ollama-github`, exports it base64-encoded as `GH_BASIC`
-  (masked by the policy: the session sees a placeholder that the proxy swaps
-  back only on requests to github.com), and `ollama/sandbox-entry` turns it into
-  an `http.https://github.com/.extraHeader` through `GIT_CONFIG_*`. Git's own
+  (`CLAUDE_CONFIG_DIR=~/.claude-ollama`, seeded with `hasCompletedOnboarding`,
+  plus a copy of `~/.claude/CLAUDE.md`), and `ollama/sandbox-entry` points
+  `TMPDIR`, the XDG cache, state and data dirs, the npm and Go caches and the
+  edit-check and stop-verify state under it and sets `DISABLE_AUTOUPDATER=1`.
+  `TMPDIR` is set inside the sandbox only: srt puts its own socket there, and a
+  long path breaks it. Claude Code still reads `~/.claude.json` and stalls
+  without it. For `git push`, the launcher reads a token from the keychain item
+  `claude-ollama-github`, exports it base64-encoded as `GH_BASIC` (masked by the
+  policy: the session sees a placeholder that the proxy swaps back only on
+  requests to github.com), and `ollama/sandbox-entry` turns it into an
+  `http.https://github.com/.extraHeader` through `GIT_CONFIG_*`. Git's own
   credential helpers can't be masked: they encode the token themselves.
   `allowLocalBinding` is on because Ollama on localhost is reached directly, not
   through the proxy, which also opens every other local port.
-- The **side model** (`ollama/side.Modelfile`, `qwen3:4b` created as
-  `qwen3-4b-cc`) fills the Haiku slot: every Ollama profile sets
-  `ANTHROPIC_DEFAULT_HAIKU_MODEL` to it. The file is not `Modelfile.side`
-  because `Modelfile.*` must pair with a `settings.<size>.json`. The model
-  picker's "Set up side model" row pulls and creates it. The Ollama profiles set
-  `CLAUDE_CODE_SUBAGENT_MODEL` to the side model's ID, not `haiku`, and map the
-  full Haiku IDs to it in `modelOverrides`, because `ANTHROPIC_DEFAULT_*_MODEL`
-  only remaps aliases. Never map a Claude ID to the main model there: Claude
-  Code then names it after that ID, so the banner says Sonnet.
-  `personal/settings.tokens.json` uses `CLAUDE_CODE_SUBAGENT_MODEL=haiku`. All
-  of them set `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1` (Claude Code v2.1.257 or
-  later), so `Agent` is allowed in `--tools` and not in the deny list.
+- There is no side model: each Ollama profile sets
+  `ANTHROPIC_DEFAULT_HAIKU_MODEL` to its own main model, has no `modelOverrides`
+  and no subagent model, and denies `Agent` (it is not in `--tools` either),
+  since a subagent would only rerun the main model. Wide searches go through
+  `semantic_search` instead (`tool-nudge.py`). Never map a Claude ID to the main
+  model in `modelOverrides`: Claude Code then names it after that ID, so the
+  banner says Haiku or Sonnet. `bin/check-config` checks all of this.
+  `personal/settings.tokens.json` keeps `CLAUDE_CODE_SUBAGENT_MODEL=haiku` with
+  `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1` (Claude Code v2.1.257 or later).
 - `bin/claude-ollama` reads the configured sizes from `ollama/` (a
   `settings.<size>.json` plus a `Modelfile.<size>`), never a hardcoded list. A
   first arg that matches launches that size. Otherwise, on a terminal it runs
@@ -326,17 +323,18 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   `permissions.allow`.
 - `ollama/server.env` documents the Ollama server env the profiles expect,
   including `OLLAMA_MAX_LOADED_MODELS`, which `bin/claude-ollama` reads from the
-  running server: at 3 or more it exports `CODE_SEARCH_EMBED=1` (the search
-  server then loads and uses the embedding model) and warms the model before the
-  indexer; otherwise `semantic_search` ranks by words only. `bin/ollama-agent`
-  passes it as `-server-env`, so a new LaunchAgent starts from its values.
-  Before each launch `bin/claude-ollama` runs `ollama-agent -apply`
-  (`CLAUDE_OLLAMA_AGENT` overrides the command; tests stub it) when the running
-  server lacks a value: it merges `server.env` into the `local.ollama` plist,
-  stops `brew services ollama` if loaded, reloads, and waits for `/api/version`.
-  It refuses while the Ollama app runs (`go/internal/agent/apply`).
-  `bin/claude-ollama` sends a background warm-up `keep_alive` request to
-  `OLLAMA_HOST` (default `localhost:11434`) before `exec claude`.
+  running server: at 2 or more (the main and embedding models) it exports
+  `CODE_SEARCH_EMBED=1` (the search server then loads and uses the embedding
+  model) and warms the model before the indexer; otherwise `semantic_search`
+  ranks by words only. `bin/ollama-agent` passes it as `-server-env`, so a new
+  LaunchAgent starts from its values. Before each launch `bin/claude-ollama`
+  runs `ollama-agent -apply` (`CLAUDE_OLLAMA_AGENT` overrides the command; tests
+  stub it) when the running server lacks a value: it merges `server.env` into
+  the `local.ollama` plist, stops `brew services ollama` if loaded, reloads, and
+  waits for `/api/version`. It refuses while the Ollama app runs
+  (`go/internal/agent/apply`). `bin/claude-ollama` sends a background warm-up
+  `keep_alive` request to `OLLAMA_HOST` (default `localhost:11434`) before
+  `exec claude`.
 - `go/internal/agent/` has four packages (`apply` is the `-apply` mode):
   `launchd` (renders and reads the plist, saves atomically, builds the
   `launchctl bootout`/`bootstrap` reload command), `variables` (the known
@@ -346,16 +344,16 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   lost.
 - `ollama/CLAUDE.local.md` is the appended system prompt for every size, for
   small local models, not memory files. Keep it terse: the 27b has a 64k
-  context, the other sizes 96k and the side model 32k. `ollama/sizes.json` is
-  the single source for each size's `context`: `bin/ollama-profiles` writes it
-  to `Modelfile.<size>` (`num_ctx`), `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, and the
-  `ollama create` names that `model` and the `ANTHROPIC_DEFAULT_*_MODEL` vars
-  refer to. A managed `availableModels` that lacks the model makes Claude Code
-  substitute a `[1m]` ID, which assumes a 1M window; `claude-ollama doctor`
-  warns when that happens. Each profile's own `availableModels` lists its main
-  and side model; `bin/check-config` checks it. `ollama/system-prompt.md`
-  replaces Claude Code's default system prompt for both sizes; keep it short and
-  don't put size-specific rules in it.
+  context, the other sizes 96k. `ollama/sizes.json` is the single source for
+  each size's `context`: `bin/ollama-profiles` writes it to `Modelfile.<size>`
+  (`num_ctx`), `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, and the `ollama create` names
+  that `model` and the `ANTHROPIC_DEFAULT_*_MODEL` vars refer to. A managed
+  `availableModels` that lacks the model makes Claude Code substitute a `[1m]`
+  ID, which assumes a 1M window; `claude-ollama doctor` warns when that happens.
+  Each profile's own `availableModels` lists only its main model;
+  `bin/check-config` checks it. `ollama/system-prompt.md` replaces Claude Code's
+  default system prompt for both sizes; keep it short and don't put
+  size-specific rules in it.
 - The personal overlay is loaded with `--settings` by the `claude` shell
   function (`personal/claude.sh` for bash/zsh/ksh, `personal/claude.fish` for
   fish), wired into rc files by `bin/claude-custom install`, never merged into

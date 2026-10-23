@@ -1,6 +1,6 @@
 {
   "model": "qwen3.8-27b-cc",
-  "availableModels": ["qwen3.8-27b-cc", "qwen3-4b-cc"],
+  "availableModels": ["qwen3.8-27b-cc"],
   "apiKeyHelper": "",
   "disableClaudeAiConnectors": true,
   "disableBundledSkills": true,
@@ -14,9 +14,7 @@
     "ANTHROPIC_DEFAULT_OPUS_MODEL": "qwen3.8-27b-cc",
     "ANTHROPIC_DEFAULT_SONNET_MODEL": "qwen3.8-27b-cc",
     "ANTHROPIC_DEFAULT_FABLE_MODEL": "qwen3.8-27b-cc",
-    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "qwen3-4b-cc",
-    "CLAUDE_CODE_SUBAGENT_MODEL": "qwen3-4b-cc",
-    "CLAUDE_CODE_SUBAGENT_MODEL_FORCE": "1",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "qwen3.8-27b-cc",
     "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "65536",
     "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "88",
     "CLAUDE_CODE_MAX_OUTPUT_TOKENS": "8192",
@@ -36,6 +34,7 @@
       "Read(**/coverage/**)",
       "Read(**/*.min.js)",
       "Read(**/*.map)",
+      "Agent",
       "Artifact",
       "CronCreate",
       "CronDelete",
@@ -151,15 +150,6 @@
             "command": "[ -z \"$CLAUDE_TOOL_TELEMETRY\" ] || \"$CLAUDE_CUSTOM_HOME\"/shared/hooks/tool-telemetry.py"
           }
         ]
-      },
-      {
-        "matcher": "Bash|Read|Agent",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/tool-nudge.py"
-          }
-        ]
       }
     ],
     "Stop": [
@@ -183,9 +173,5 @@
         ]
       }
     ]
-  },
-  "modelOverrides": {
-    "claude-haiku-5-5": "qwen3-4b-cc",
-    "claude-haiku-4-5": "qwen3-4b-cc"
   }
 }

@@ -8,12 +8,9 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-
-	"github.com/jordenparker/claude-custom/go/internal/picker/profiles"
 )
 
 const (
-	sideSetupScript      = `ollama pull "$1" && ollama create "$2" -f "$3"`
 	embeddingSetupScript = `ollama pull "$1"`
 	ollamaErrorPrefix    = "Error: "
 )
@@ -30,10 +27,6 @@ type setupDoneMsg struct {
 	label       string
 	err         error
 	ollamaError string
-}
-
-func sideSetup(side profiles.SideModel) setupTask {
-	return setupTask{label: "side model", script: sideSetupScript, args: []string{side.Base, side.Name, side.Modelfile}}
 }
 
 func embeddingSetup(name string) setupTask {

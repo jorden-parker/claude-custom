@@ -39,11 +39,7 @@ func pick(profileDir string) (string, error) {
 	if len(configured) == 0 {
 		return "", fmt.Errorf("no profiles in %s (need settings.<size>.json and Modelfile.<size>)", profileDir)
 	}
-	side, err := profiles.LoadSide(profileDir)
-	if err != nil {
-		return "", err
-	}
-	final, err := tea.NewProgram(ui.New(configured, side, profiles.EmbeddingModel()), tea.WithOutput(os.Stderr)).Run()
+	final, err := tea.NewProgram(ui.New(configured, profiles.EmbeddingModel()), tea.WithOutput(os.Stderr)).Run()
 	if err != nil {
 		return "", err
 	}

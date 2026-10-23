@@ -64,8 +64,8 @@ check_eq "personal overlay has no Ollama-only hook" 0 "$(jq '[.. | strings | sel
 check_eq "personal overlay keeps the five Read globs" 5 "$(jq '[.permissions.deny[] | select(startswith("Read("))] | length' "$sandbox/personal/settings.tokens.json")"
 check_eq "personal overlay keeps its bare tool denies" 12 "$(jq '[.permissions.deny[] | select(startswith("Read(") | not)] | length' "$sandbox/personal/settings.tokens.json")"
 check_eq "Read globs expand in place" "Read(**/dist/**)" "$(jq -r '.permissions.deny[0]' "$sandbox/ollama/settings.27b.json")"
-check_eq "bare tool denies follow the globs" "Artifact" "$(jq -r '.permissions.deny[5]' "$sandbox/ollama/settings.27b.json")"
-check_eq "profile hooks add the tool-nudge entries" 3 "$(jq '[.. | strings | select(contains("tool-nudge"))] | length' "$sandbox/ollama/settings.27b.json")"
+check_eq "bare tool denies follow the globs" "Agent" "$(jq -r '.permissions.deny[5]' "$sandbox/ollama/settings.27b.json")"
+check_eq "profile hooks add the tool-nudge entries" 2 "$(jq '[.. | strings | select(contains("tool-nudge"))] | length' "$sandbox/ollama/settings.27b.json")"
 check_that "no placeholder survives" sh -c "! grep -q '{{' '$sandbox/ollama/settings.27b.json' '$sandbox/personal/settings.tokens.json'"
 
 sed 's/"timeout": 600/"timeout": 5/' "$sandbox/personal/settings.tokens.json" > "$sandbox/stale.json" && mv "$sandbox/stale.json" "$sandbox/personal/settings.tokens.json"

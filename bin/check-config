@@ -37,20 +37,16 @@ done
 for settings in "$repo"/ollama/settings.*.json; do
   check_that "${settings##*/} denies Workflow" \
     test "$(jq -r '.permissions.deny | index("Workflow") != null' "$settings")" = true
-  check_that "${settings##*/} allows Agent" \
-    test "$(jq -r '.permissions.deny | index("Agent") == null' "$settings")" = true
-  check_eq "${settings##*/} sends Haiku to the side model" \
-    "$(jq -r .env.ANTHROPIC_DEFAULT_HAIKU_MODEL "$repo/ollama/settings.27b.json")" \
-    "$(jq -r .env.ANTHROPIC_DEFAULT_HAIKU_MODEL "$settings")"
-  check_eq "${settings##*/} sends subagents to the side model by ID" \
-    "$(jq -r .env.ANTHROPIC_DEFAULT_HAIKU_MODEL "$settings")" "$(jq -r .env.CLAUDE_CODE_SUBAGENT_MODEL "$settings")"
-  check_eq "${settings##*/} overrides Claude Haiku IDs with the side model" \
-    "$(jq -r '[.env.ANTHROPIC_DEFAULT_HAIKU_MODEL, .env.ANTHROPIC_DEFAULT_HAIKU_MODEL] | join(" ")' "$settings")" \
-    "$(jq -r '[.modelOverrides["claude-haiku-5-5"], .modelOverrides["claude-haiku-4-5"]] | join(" ")' "$settings")"
-  check_eq "${settings##*/} maps no Claude ID to the main model, so the banner names it" "" \
-    "$(jq -r '.model as $main | .modelOverrides | to_entries[] | select(.value == $main) | .key' "$settings")"
-  check_eq "${settings##*/} lists its main and side models in availableModels" \
-    "$(jq -c '[.model, .env.ANTHROPIC_DEFAULT_HAIKU_MODEL]' "$settings")" "$(jq -c '.availableModels' "$settings")"
+  check_that "${settings##*/} denies Agent, since a subagent would run on the main model" \
+    test "$(jq -r '.permissions.deny | index("Agent") != null' "$settings")" = true
+  check_eq "${settings##*/} sends the Haiku slot to the main model" \
+    "$(jq -r .model "$settings")" "$(jq -r .env.ANTHROPIC_DEFAULT_HAIKU_MODEL "$settings")"
+  check_eq "${settings##*/} sets no subagent model" "null null" \
+    "$(jq -r '[.env.CLAUDE_CODE_SUBAGENT_MODEL, .env.CLAUDE_CODE_SUBAGENT_MODEL_FORCE] | map(tostring) | join(" ")' "$settings")"
+  check_eq "${settings##*/} maps no Claude ID to a local model, so the banner names the main model" null \
+    "$(jq -c .modelOverrides "$settings")"
+  check_eq "${settings##*/} lists only its main model in availableModels" \
+    "$(jq -c '[.model]' "$settings")" "$(jq -c '.availableModels' "$settings")"
   check_eq "${settings##*/} waits the full 30 minutes for a silent Ollama stream" "1800000 1800000" \
     "$(jq -r '[.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS, .env.API_TIMEOUT_MS] | join(" ")' "$settings")"
   check_eq "${settings##*/} keeps the prompt prefix stable so Ollama reuses its cache" "0 off" \
@@ -73,7 +69,7 @@ check_eq "the session sandbox writes only the project, so no folder an unsandbox
 
 digests="$repo/ollama/model-digests.json"
 pulled_models() {
-  sed -n 's/^FROM //p' "$repo"/ollama/Modelfile.* "$repo/ollama/side.Modelfile"
+  sed -n 's/^FROM //p' "$repo"/ollama/Modelfile.*
   sed -n 's/^embedding_model=.*CODE_SEARCH_MODEL:-\([^}]*\)}.*/\1/p' "$repo/bin/claude-ollama"
 }
 is_sha256() {
@@ -87,21 +83,12 @@ done
 
 check_eq "rendered profiles are current" 0 "$("$repo/bin/ollama-profiles" --check >/dev/null 2>&1; echo $?)"
 
-side_context_fits_every_size() {
-  local side smallest
-  side="$(sed -n 's/^PARAMETER num_ctx //p' "$repo/ollama/side.Modelfile")"
-  smallest="$(jq '[.[].context] | min' "$repo/ollama/sizes.json")"
-  [ -n "$side" ] && [ "$side" -le "$smallest" ]
-}
-
-check_that "side model context is no larger than any size's context" side_context_fits_every_size
+check_not "the side model is gone" test -e "$repo/ollama/side.Modelfile"
 
 check_eq "settings.tokens.json sets subagents to Haiku" haiku \
   "$(jq -r .env.CLAUDE_CODE_SUBAGENT_MODEL "$repo/personal/settings.tokens.json")"
-
-for settings in "$repo/personal/settings.tokens.json" "$repo"/ollama/settings.*.json; do
-  check_eq "${settings##*/} forces the subagent model" 1 "$(jq -r .env.CLAUDE_CODE_SUBAGENT_MODEL_FORCE "$settings")"
-done
+check_eq "settings.tokens.json forces the subagent model" 1 \
+  "$(jq -r .env.CLAUDE_CODE_SUBAGENT_MODEL_FORCE "$repo/personal/settings.tokens.json")"
 
 denies_tool() {
   jq -e --arg tool "$2" '.permissions.deny | index($tool) != null' "$1" >/dev/null

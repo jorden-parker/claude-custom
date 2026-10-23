@@ -10,7 +10,6 @@ import (
 
 type Model struct {
 	profiles  []profiles.Profile
-	side      profiles.SideModel
 	embedding string
 	cursor    int
 	chosen    bool
@@ -20,8 +19,8 @@ type Model struct {
 	help      help.Model
 }
 
-func New(configured []profiles.Profile, side profiles.SideModel, embedding string) Model {
-	return Model{profiles: configured, side: side, embedding: embedding, keys: newKeyMap(), help: help.New()}
+func New(configured []profiles.Profile, embedding string) Model {
+	return Model{profiles: configured, embedding: embedding, keys: newKeyMap(), help: help.New()}
 }
 
 func (m Model) Chosen() (profiles.Profile, bool) {
@@ -63,10 +62,6 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) selectRow() (tea.Model, tea.Cmd) {
-	if m.onSideRow() {
-		m.status = "setting up " + m.side.Name + "…"
-		return m, runSetup(sideSetup(m.side))
-	}
 	if m.onEmbeddingRow() {
 		m.status = "pulling " + m.embedding + "…"
 		return m, runSetup(embeddingSetup(m.embedding))
@@ -80,14 +75,7 @@ func (m Model) rowCount() int {
 }
 
 func (m Model) embeddingRowIndex() int {
-	if m.side.Configured() {
-		return len(m.profiles) + 1
-	}
 	return len(m.profiles)
-}
-
-func (m Model) onSideRow() bool {
-	return m.side.Configured() && m.cursor == len(m.profiles)
 }
 
 func (m Model) onEmbeddingRow() bool {

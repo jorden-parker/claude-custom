@@ -1,6 +1,6 @@
 {
   "model": "{{MODEL}}",
-  "availableModels": ["{{MODEL}}", "qwen3-4b-cc"],
+  "availableModels": ["{{MODEL}}"],
   "apiKeyHelper": "",
   "disableClaudeAiConnectors": true,
   "disableBundledSkills": true,
@@ -14,9 +14,7 @@
     "ANTHROPIC_DEFAULT_OPUS_MODEL": "{{MODEL}}",
     "ANTHROPIC_DEFAULT_SONNET_MODEL": "{{MODEL}}",
     "ANTHROPIC_DEFAULT_FABLE_MODEL": "{{MODEL}}",
-    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "qwen3-4b-cc",
-    "CLAUDE_CODE_SUBAGENT_MODEL": "qwen3-4b-cc",
-    "CLAUDE_CODE_SUBAGENT_MODEL_FORCE": "1",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "{{MODEL}}",
     "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "{{CONTEXT}}",
     "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "88",
     "CLAUDE_CODE_MAX_OUTPUT_TOKENS": "8192",
@@ -32,6 +30,7 @@
   "permissions": {
     "deny": [
       "{{READ_DENY}}",
+      "Agent",
       "Artifact",
       "CronCreate",
       "CronDelete",
@@ -62,9 +61,5 @@
   "sandbox": {
     "enabled": false
   },
-  "hooks": "{{HOOKS}}",
-  "modelOverrides": {
-    "claude-haiku-5-5": "qwen3-4b-cc",
-    "claude-haiku-4-5": "qwen3-4b-cc"
-  }
+  "hooks": "{{HOOKS}}"
 }

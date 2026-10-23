@@ -10,10 +10,7 @@ import (
 	"github.com/jordenparker/claude-custom/go/internal/picker/profiles"
 )
 
-const (
-	sideLabel      = "Set up side model"
-	embeddingLabel = "Set up embedding model"
-)
+const embeddingLabel = "Set up embedding model"
 
 var (
 	titleStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("212"))
@@ -26,9 +23,6 @@ func (m Model) View() tea.View {
 	b.WriteString(titleStyle.Render("Pick an Ollama model") + "\n\n")
 	for i, profile := range m.profiles {
 		b.WriteString(m.row(profile, i == m.cursor) + "\n")
-	}
-	if m.side.Configured() {
-		b.WriteString(m.sideRow() + "\n")
 	}
 	b.WriteString(m.embeddingRow() + "\n")
 	if m.status != "" {
@@ -55,10 +49,6 @@ func (m Model) row(profile profiles.Profile, selected bool) string {
 	return m.line(profile.Size, profile.Model+"  from "+profile.Base, selected)
 }
 
-func (m Model) sideRow() string {
-	return m.line(sideLabel, m.side.Base+" → "+m.side.Name, m.onSideRow())
-}
-
 func (m Model) embeddingRow() string {
 	return m.line(embeddingLabel, m.embedding, m.onEmbeddingRow())
 }
@@ -73,9 +63,6 @@ func (m Model) line(label, details string, selected bool) string {
 
 func (m Model) labelWidth() int {
 	width := lipgloss.Width(embeddingLabel)
-	if m.side.Configured() {
-		width = max(width, lipgloss.Width(sideLabel))
-	}
 	for _, profile := range m.profiles {
 		width = max(width, lipgloss.Width(profile.Size))
 	}

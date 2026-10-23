@@ -42,7 +42,7 @@ pin_of() {
 cat >"$sandbox/tags.json" <<EOF
 {"models": [
   {"name": "qwen3.8:27b-mlx", "digest": "$(pin_of qwen3.8:27b-mlx)"},
-  {"name": "qwen3:4b", "digest": "0000"},
+  {"name": "qwen3-embedding:0.6b", "digest": "0000"},
   {"name": "qwen3.8-27b-cc:latest", "digest": "1111"},
   {"name": "qwen3-4b-cc:latest", "digest": "2222"},
   {"name": "qwen3.8-9b-distill-cc:latest", "digest": "3333"},
@@ -53,9 +53,9 @@ EOF
 
 listing="$("$script" list)"
 check "list marks a base that matches its pin" grep -Eq '^pinned +qwen3.8:27b-mlx$' <<<"$listing"
-check "list marks a base that misses its pin" grep -Eq '^mismatch +qwen3:4b$' <<<"$listing"
+check "list marks a base that misses its pin" grep -Eq '^mismatch +qwen3-embedding:0.6b$' <<<"$listing"
 check "list marks a profile model" grep -Eq '^profile +qwen3.8-27b-cc:latest$' <<<"$listing"
-check "list marks the side model as a profile model" grep -Eq '^profile +qwen3-4b-cc:latest$' <<<"$listing"
+check "list marks the retired side model as an orphan" grep -Eq '^orphan +qwen3-4b-cc:latest$' <<<"$listing"
 check "list marks a -cc model no profile uses" grep -Eq '^orphan +qwen3.8-9b-distill-cc:latest$' <<<"$listing"
 check "list marks a model from outside the Ollama library" grep -Eq '^third-party +hf.co/empero-ai/Qwen3.8-9B-Distill-GGUF:Q4_K_M$' <<<"$listing"
 check "list marks other library models" grep -Eq '^other +qwen3-vl:8b-instruct-q4_K_M$' <<<"$listing"
@@ -70,11 +70,11 @@ check "prune declined removes nothing" test ! -e "$sandbox/ollama.log"
 "$script" prune --yes >"$sandbox/out" 2>&1
 check "prune exits 0" test "$?" = 0
 check "prune removes third-party and orphan models" test "$(cat "$sandbox/ollama.log")" = \
-  "rm qwen3.8-9b-distill-cc:latest hf.co/empero-ai/Qwen3.8-9B-Distill-GGUF:Q4_K_M"
+  "rm qwen3-4b-cc:latest qwen3.8-9b-distill-cc:latest hf.co/empero-ai/Qwen3.8-9B-Distill-GGUF:Q4_K_M"
 rm -f "$sandbox/ollama.log"
 
 printf 'y\n' | "$script" prune >"$sandbox/out" 2>&1
-check "prune confirmed removes the same models" grep -q '^rm qwen3.8-9b-distill-cc:latest ' "$sandbox/ollama.log"
+check "prune confirmed removes the same models" grep -q '^rm qwen3-4b-cc:latest qwen3.8-9b-distill-cc:latest ' "$sandbox/ollama.log"
 check "prune lists what it will remove" grep -q 'hf.co/empero-ai/Qwen3.8-9B-Distill-GGUF:Q4_K_M' "$sandbox/out"
 rm -f "$sandbox/ollama.log"
 
@@ -86,7 +86,7 @@ check "prune with nothing to remove runs no ollama rm" test ! -e "$sandbox/ollam
 "$script" pin qwen3:8b >/dev/null
 check "pin records the registry manifest sha256" test "$(pin_of qwen3:8b)" = \
   "$(printf 'manifest-body' | shasum -a 256 | cut -c1-64)"
-check "pin keeps the other pins" test "$(pin_of qwen3:4b)" = "$(jq -r '.["qwen3:4b"]' "$repo/ollama/model-digests.json")"
+check "pin keeps the other pins" test "$(pin_of qwen3.8:27b-mlx)" = "$(jq -r '.["qwen3.8:27b-mlx"]' "$repo/ollama/model-digests.json")"
 check "pin refuses a model outside the Ollama library" test "$("$script" pin hf.co/a/b:c 2>/dev/null; echo $?)" = 1
 check "pin fails when the registry has no such tag" test "$("$script" pin qwen3:nope 2>/dev/null; echo $?)" = 1
 check "a failed pin writes nothing" test "$(pin_of qwen3:nope)" = null
