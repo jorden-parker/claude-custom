@@ -68,8 +68,8 @@ check_eq "the session sandbox sends the GitHub token, masked, only to github.com
   "$(jq -c .credentials.envVars "$sandbox_policy")"
 check_eq "the session sandbox hides credentials and the normal Claude config" true \
   "$(jq '.filesystem.denyRead | (["~/.ssh", "~/.aws", "~/.config/gh", "~/.npmrc", "~/Library/Keychains", "~/.claude"] - .) == []' "$sandbox_policy")"
-check_eq "the session sandbox never writes the home directory, ~/.claude, /private/tmp or its own install" "" \
-  "$(jq -r '.filesystem.allowWrite[] | select(. == "~" or . == "~/.claude" or . == "~/.claude.json" or . == "/private/tmp" or startswith("~/.local/share/claude-custom"))' "$sandbox_policy")"
+check_eq "the session sandbox writes only the project, so no folder an unsandboxed program runs from" '["."]' \
+  "$(jq -c .filesystem.allowWrite "$sandbox_policy")"
 
 digests="$repo/ollama/model-digests.json"
 pulled_models() {
@@ -164,7 +164,7 @@ check_eq "pr-review agent lists the review tools" "Bash, Read, Grep, Glob" "$(ag
 check_not "pr-review agent pins no model, so --agent keeps the session model" grep -q '^model:' <<<"$(agent_frontmatter)"
 check_that "pr-review agent runs fallow audit with --format json" grep -qF 'audit --base MERGE_BASE --format json' "$agent"
 check_not "pr-review agent never runs npx, which can resolve PR-owned code" grep -qF 'npx' "$agent"
-check_that "pr-review agent runs fallow from the work dir against the PR head" grep -qF 'cd "$work" && "$fallow_bin" --root "$work/head/$pkg" audit' "$agent"
+check_that "pr-review agent runs fallow from the work dir against the PR head" grep -qF "cd \"\$work\" && \"\$fallow_bin\" --root \"\$work/head/\$pkg\" audit" "$agent"
 check_not "pr-review agent never splices a PR path into a command" grep -qF '/PKG' "$agent"
 check_that "pr-review agent refuses a package path outside the allowlist" grep -qF "grep -qE '^[A-Za-z0-9._/-]+\$'" "$agent"
 check_that "pr-review agent names the 250-line Read window" grep -q '250' "$agent"

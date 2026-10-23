@@ -12,16 +12,7 @@
       "~/Library/Keychains",
       "~/.claude"
     ],
-    "allowWrite": [
-      ".",
-      "/private/var/folders",
-      "~/Library/Caches",
-      "~/.cache",
-      "~/.npm",
-      "~/.local/state",
-      "~/.local/share/claude",
-      "~/.config/claude"
-    ],
+    "allowWrite": ["."],
     "denyWrite": []
   },
   "network": {

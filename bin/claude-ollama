@@ -221,11 +221,19 @@ git_common_dir() {
   git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true
 }
 
+item_replacement_dir() {
+  local user_temp
+  user_temp="$(getconf DARWIN_USER_TEMP_DIR 2>/dev/null || true)"
+  [ -n "$user_temp" ] && echo "${user_temp%/}/TemporaryItems"
+}
+
 write_sandbox_policy() {
   local protected_policy_path="$sandbox_policy"
-  jq --arg repo "$repo_dir" --arg config "$session_config_dir" --arg policy "$protected_policy_path" --arg git "$(git_common_dir)" '
+  jq --arg repo "$repo_dir" --arg config "$session_config_dir" --arg policy "$protected_policy_path" --arg git "$(git_common_dir)" \
+    --arg items "$(item_replacement_dir)" '
     ($git | if . == "" then [] else [.] end) as $git_dirs
-    | .filesystem.allowWrite += [$config] + $git_dirs
+    | ($items | if . == "" then [] else [.] end) as $item_dirs
+    | .filesystem.allowWrite += [$config] + $item_dirs + $git_dirs
     | .filesystem.denyWrite += [$repo, $policy, "\($config)/CLAUDE.md"]
         + [$git_dirs[] | "\(.)/hooks", "\(.)/config"]
   ' "$profile_dir/sandbox.json" > "$sandbox_policy"

@@ -73,8 +73,14 @@ echo "\${CODE_SEARCH_EMBED-unset}" > "$sandbox/embed-env"
 echo "\${CLAUDE_CONFIG_DIR-unset}" > "$sandbox/config-dir-env"
 echo "\${CLAUDE_CODE_TMPDIR-unset}" > "$sandbox/tmpdir-env"
 echo "\${GIT_CONFIG_COUNT-unset} \${GIT_CONFIG_KEY_0-unset} \${GIT_CONFIG_VALUE_0-unset}" > "$sandbox/git-config-env"
+env > "$sandbox/claude-env"
 EOF
   install_sandbox_runtime_stub
+  cat > "$sandbox/stubbin/getconf" <<EOF
+#!/bin/sh
+[ "\$1" = DARWIN_USER_TEMP_DIR ] && echo "$sandbox/darwin-temp/"
+EOF
+  chmod +x "$sandbox/stubbin/getconf"
   cat > "$sandbox/stubbin/security" <<'EOF'
 #!/bin/sh
 [ -n "${STUB_GITHUB_TOKEN:-}" ] || exit 44
@@ -619,6 +625,16 @@ check_eq "a new session config skips first-run setup" true "$(jq -r .hasComplete
 check_eq "the session keeps its temp files in its own config" "$session_config/tmp" "$(cat "$sandbox/tmpdir-env")"
 check_that "the session temp folder exists" test -d "$session_config/tmp"
 check_not "the sandbox never writes the shared /private/tmp" policy_lists allowWrite /private/tmp
+check_eq "the sandbox writes only the project, the session config and the macOS item-replacement folder" \
+  "[\".\",\"$session_config\",\"$sandbox/darwin-temp/TemporaryItems\"]" "$(jq -c '[.filesystem.allowWrite[] | select(endswith("/.git") | not)]' "$sandbox/policy.json")"
+session_env() {
+  grep -x "$1=.*" "$sandbox/claude-env" | cut -d= -f2-
+}
+check_eq "the session's temp dir is its own" "$session_config/tmp" "$(session_env TMPDIR)"
+for variable in XDG_CACHE_HOME XDG_STATE_HOME XDG_DATA_HOME npm_config_cache GOCACHE GOMODCACHE EDIT_CHECK_CACHE_DIR STOP_VERIFY_STATE_DIR; do
+  check_that "the session keeps $variable inside its own config" test "$(session_env "$variable" | cut -c1-${#session_config})" = "$session_config"
+done
+check_eq "the session never auto-updates the shared Claude Code install" 1 "$(session_env DISABLE_AUTOUPDATER)"
 check_eq "without a GitHub token git gets no auth header" "unset unset unset" "$(cat "$sandbox/git-config-env")"
 
 mkdir -p "$HOME/.claude"

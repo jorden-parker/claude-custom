@@ -181,8 +181,11 @@ without it (`claude-custom install` installs it). The policy is
 `ollama/sandbox.json`:
 
 - Writes: the project, its git directory (except `hooks` and `config`), the
-  session's own config in `~/.claude-ollama`, and caches. Never `~/.claude`,
-  your shell files, `/private/tmp` or this repo.
+  session's own folder `~/.claude-ollama` (its config, temp files and its own
+  npm, Go and tool caches) and macOS's `TemporaryItems` folder. Nothing that
+  programs outside the sandbox run from or cache in: not the Claude Code
+  install, `~/.npm`, `~/.cache`, `~/Library/Caches`, `~/.claude`, your shell
+  files, `/private/tmp` or this repo. Auto-update is off inside the session.
 - Reads: everything except credentials (`~/.ssh`, `~/.aws`, `~/.config/gh`,
   `~/.npmrc`, keychains) and your normal `~/.claude`.
 - Network: `github.com`, `registry.npmjs.org` (for `npx fallow` and installs)

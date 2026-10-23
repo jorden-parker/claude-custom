@@ -269,15 +269,23 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   `claude-custom install` from `ollama/sandbox-runtime.package*.json`, named so
   Fallow does not read them as a package) is missing, and `doctor` reports it.
   It execs `srt -s ~/.claude-ollama/sandbox-policy.json -- ollama/sandbox-entry
-  claude ...`. The policy is `ollama/sandbox.json` plus, per launch, the
-  session config dir and the repo's git common dir as writable, and this repo,
-  the policy itself, the session's `CLAUDE.md` copy and the git dir's `hooks`
-  and `config` as never writable. The session gets its own config
+  claude ...`. The policy is `ollama/sandbox.json` (writes only the project;
+  `bin/check-config` keeps it that way) plus, per launch, the session config
+  dir, the repo's git common dir and macOS's item-replacement folder
+  (`$(getconf DARWIN_USER_TEMP_DIR)TemporaryItems`, which Claude Code stalls
+  without) as writable, and this repo, the policy itself, the session's
+  `CLAUDE.md` copy and the git dir's `hooks` and `config` as never writable.
+  Never add a folder that unsandboxed programs also run from or cache in
+  (`~/.local/share/claude` holds the Claude Code binary; `~/.npm`,
+  `~/Library/Caches`, `~/.cache`): a session could plant code there that runs
+  outside the sandbox. The session gets its own config
   (`CLAUDE_CONFIG_DIR=~/.claude-ollama`, seeded with
-  `hasCompletedOnboarding`, plus a copy of `~/.claude/CLAUDE.md`) and temp dir
-  (`CLAUDE_CODE_TMPDIR=~/.claude-ollama/tmp`), so nothing it writes reaches
-  `~/.claude` or `/private/tmp`; Claude Code still reads `~/.claude.json` and
-  stalls without it. For `git push`, the launcher reads a token from the
+  `hasCompletedOnboarding`, plus a copy of `~/.claude/CLAUDE.md`), and
+  `ollama/sandbox-entry` points `TMPDIR`, the XDG cache, state and data dirs,
+  the npm and Go caches and the edit-check and stop-verify state under it and
+  sets `DISABLE_AUTOUPDATER=1`. `TMPDIR` is set inside the sandbox only: srt
+  puts its own socket there, and a long path breaks it. Claude Code still reads
+  `~/.claude.json` and stalls without it. For `git push`, the launcher reads a token from the
   keychain item `claude-ollama-github`, exports it base64-encoded as `GH_BASIC`
   (masked by the policy: the session sees a placeholder that the proxy swaps
   back only on requests to github.com), and `ollama/sandbox-entry` turns it into
