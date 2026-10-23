@@ -633,6 +633,20 @@ run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_eq "the session reads a copy of your CLAUDE.md" "@preferences" "$(cat "$session_config/CLAUDE.md")"
 check_that "the sandbox never rewrites that copy" policy_lists denyWrite "$session_config/CLAUDE.md"
 check_eq "an existing session config is kept" light "$(jq -r .theme "$session_config/.claude.json")"
+check_not "without your skills the session gets none" test -e "$session_config/skills"
+
+mkdir -p "$HOME/.claude/skills/tidy" "$sandbox/linked-skill"
+echo "tidy skill" > "$HOME/.claude/skills/tidy/SKILL.md"
+echo "linked skill" > "$sandbox/linked-skill/SKILL.md"
+ln -s "$sandbox/linked-skill" "$HOME/.claude/skills/linked"
+mkdir -p "$session_config/skills/retired"
+run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_eq "the session gets a copy of your skills" "tidy skill" "$(cat "$session_config/skills/tidy/SKILL.md")"
+check_eq "a symlinked skill is copied as files, since the sandbox cannot read ~/.claude" "linked skill" \
+  "$(cat "$session_config/skills/linked/SKILL.md")"
+check_not "the copy is a plain folder, not a link" test -L "$session_config/skills/linked"
+check_not "a skill you removed is gone from the copy" test -e "$session_config/skills/retired"
+check_that "the sandbox never rewrites the skills copy" policy_lists denyWrite "$session_config/skills"
 
 STUB_GITHUB_TOKEN=secret run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_eq "a keychain GitHub token reaches git as a ready-encoded header" \

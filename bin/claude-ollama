@@ -215,7 +215,7 @@ write_sandbox_policy() {
     ($git | if . == "" then [] else [.] end) as $git_dirs
     | ($items | if . == "" then [] else [.] end) as $item_dirs
     | .filesystem.allowWrite += [$config] + $item_dirs + $git_dirs
-    | .filesystem.denyWrite += [$repo, $policy, "\($config)/CLAUDE.md"]
+    | .filesystem.denyWrite += [$repo, $policy, "\($config)/CLAUDE.md", "\($config)/skills"]
         + [$git_dirs[] | "\(.)/hooks", "\(.)/config"]
   ' "$profile_dir/sandbox.json" > "$sandbox_policy"
 }
@@ -226,6 +226,13 @@ prepare_session_config() {
   if [ -f "$HOME/.claude/CLAUDE.md" ]; then
     cp "$HOME/.claude/CLAUDE.md" "$session_config_dir/CLAUDE.md"
   fi
+  copy_user_skills
+}
+
+copy_user_skills() {
+  rm -rf "$session_config_dir/skills"
+  [ -d "$HOME/.claude/skills" ] || return 0
+  cp -RL "$HOME/.claude/skills" "$session_config_dir/skills"
 }
 
 github_token() {

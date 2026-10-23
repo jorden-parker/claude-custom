@@ -280,13 +280,16 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   dir, the repo's git common dir and macOS's item-replacement folder
   (`$(getconf DARWIN_USER_TEMP_DIR)TemporaryItems`, which Claude Code stalls
   without) as writable, and this repo, the policy itself, the session's
-  `CLAUDE.md` copy and the git dir's `hooks` and `config` as never writable.
-  Never add a folder that unsandboxed programs also run from or cache in
-  (`~/.local/share/claude` holds the Claude Code binary; `~/.npm`,
+  `CLAUDE.md` and skills copies and the git dir's `hooks` and `config` as never
+  writable. Never add a folder that unsandboxed programs also run from or cache
+  in (`~/.local/share/claude` holds the Claude Code binary; `~/.npm`,
   `~/Library/Caches`, `~/.cache`): a session could plant code there that runs
   outside the sandbox. The session gets its own config
   (`CLAUDE_CONFIG_DIR=~/.claude-ollama`, seeded with `hasCompletedOnboarding`,
-  plus a copy of `~/.claude/CLAUDE.md`), and `ollama/sandbox-entry` points
+  plus a copy of `~/.claude/CLAUDE.md` and of `~/.claude/skills`, refreshed each
+  launch with symlinks followed, since the sandbox can't read `~/.claude`). The
+  profiles allow the `Skill` tool but keep `disableBundledSkills`, so only your
+  own skills load; `bin/check-config` checks both. `ollama/sandbox-entry` points
   `TMPDIR`, the XDG cache, state and data dirs, the npm and Go caches and the
   edit-check and stop-verify state under it and sets `DISABLE_AUTOUPDATER=1`.
   `TMPDIR` is set inside the sandbox only: srt puts its own socket there, and a

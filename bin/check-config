@@ -39,6 +39,8 @@ for settings in "$repo"/ollama/settings.*.json; do
     test "$(jq -r '.permissions.deny | index("Workflow") != null' "$settings")" = true
   check_that "${settings##*/} denies Agent, since a subagent would run on the main model" \
     test "$(jq -r '.permissions.deny | index("Agent") != null' "$settings")" = true
+  check_eq "${settings##*/} lets the model use your skills but not the bundled ones" "true true" \
+    "$(jq -r '[(.permissions.deny | index("Skill") == null), .disableBundledSkills] | map(tostring) | join(" ")' "$settings")"
   check_eq "${settings##*/} sends the Haiku slot to the main model" \
     "$(jq -r .model "$settings")" "$(jq -r .env.ANTHROPIC_DEFAULT_HAIKU_MODEL "$settings")"
   check_eq "${settings##*/} sets no subagent model" "null null" \
