@@ -54,7 +54,7 @@ cat > "$tmp/cmux" <<EOF
 echo "\$*" >> "$tmp/cmux.log"
 case "\$*" in
   "browser profiles list") cat "$tmp/profiles" ;;
-  "--json browser open"*) echo '{"surface_ref":"surface:7","surface_id":"AAAA-7"}' ;;
+  "--json --id-format both browser open"*) echo '{"surface_ref":"surface:7","surface_id":"AAAA-7"}' ;;
   *screenshot*)
     while [ "\$#" -gt 0 ]; do
       [ "\$1" = --out ] && printf 'PNGDATA' > "\$2" && echo "\$2" > "$tmp/screenshot-path"
@@ -103,25 +103,28 @@ check_that "the broker adds the claude-ollama browser profile when it is missing
 run_client browser open http://localhost:3000
 check_eq "open on a loopback URL succeeds" 0 "$?"
 check_that "open uses the claude-ollama profile without taking focus" \
-  logged "--json browser open http://localhost:3000 --profile claude-ollama --focus false"
+  logged "--json --id-format both browser open http://localhost:3000/ --profile claude-ollama --focus false"
 check_that "open prints the new surface" grep -qF '"surface_ref":"surface:7"' "$tmp/out"
 
 run_client browser --surface surface:7 get url
 check_eq "a surface the session opened answers" 0 "$?"
-check_that "the broker targets that surface" logged "browser --surface surface:7 get url"
+check_that "the broker targets that surface by its permanent id" logged "browser --surface AAAA-7 get url"
 check_that "the broker passes cmux's output back" grep -qxF "http://localhost:3000/" "$tmp/out"
 
 run_client browser AAAA-7 snapshot --interactive
 check_that "a surface can be named by its id and as the first argument" logged "browser --surface AAAA-7 snapshot --interactive"
 
 run_client --json browser surface:7 click e1
-check_that "the global --json flag passes through" logged "--json browser --surface surface:7 click e1"
+check_that "the global --json flag passes through" logged "--json browser --surface AAAA-7 click e1"
 
 run_client browser surface:7 goto http://127.0.0.1:8765/
-check_that "goto on a loopback URL passes" logged "browser --surface surface:7 goto http://127.0.0.1:8765/"
+check_that "goto on a loopback URL passes" logged "browser --surface AAAA-7 goto http://127.0.0.1:8765/"
+run_client browser surface:7 goto 'HTTP://LOCALHOST.:3000/a?b=1#c'
+check_that "goto passes cmux the URL as the broker parsed it" logged "browser --surface AAAA-7 goto http://localhost:3000/a?b=1#c"
 
 : > "$tmp/cmux.log"
 refused() {
+  : > "$tmp/cmux.log"
   run_client "$@"
   local status=$?
   [ "$status" = 1 ] && ran_only_setup && grep -q "cmux broker:" "$tmp/err"
@@ -129,6 +132,10 @@ refused() {
 check_that "open on a remote URL is refused" refused browser open https://example.com
 check_that "a URL that hides a remote host behind userinfo is refused" refused browser open http://localhost@example.com/
 check_that "open on a file URL is refused" refused browser open file:///etc/passwd
+check_that "a --focus value other than true or false is refused" refused browser open http://localhost:3000 --focus --workspace=workspace:2
+check_that "a backslash that browsers read as a path separator is refused" refused browser open 'http://example.com\@localhost/'
+check_that "a URL with a space is refused" refused browser open 'http://localhost /x'
+check_that "goto with a backslash URL is refused" refused browser surface:7 goto 'http://example.com\@127.0.0.1/'
 check_that "open into another workspace is refused" refused browser open http://localhost:3000 --workspace workspace:2
 check_that "a surface the session did not open is refused" refused browser --surface surface:1 get url
 check_that "goto on a remote URL is refused" refused browser surface:7 goto https://example.com

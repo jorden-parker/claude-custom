@@ -58,14 +58,37 @@ class Refused(Exception):
     pass
 
 
-def is_loopback_url(url):
-    parts = urlsplit(url)
-    return parts.scheme in ("http", "https") and parts.hostname in LOOPBACK_HOSTS
+def has_ambiguous_characters(url):
+    return any(char in "\\@" or char.isspace() or not char.isprintable() for char in url)
+
+
+def loopback_host(parts):
+    host = (parts.hostname or "").rstrip(".")
+    return host if host in LOOPBACK_HOSTS else None
+
+
+def canonical_url(parts, host, port):
+    netloc = f"[{host}]" if ":" in host else host
+    if port:
+        netloc += f":{port}"
+    query = f"?{parts.query}" if parts.query else ""
+    fragment = f"#{parts.fragment}" if parts.fragment else ""
+    return f"{parts.scheme.lower()}://{netloc}{parts.path or '/'}{query}{fragment}"
 
 
 def require_loopback_url(url):
-    if not is_loopback_url(url):
-        raise Refused(f"only http(s) URLs on localhost are allowed, not {url}")
+    refusal = Refused(f"only http(s) URLs on localhost are allowed, not {url}")
+    if has_ambiguous_characters(url):
+        raise refusal
+    try:
+        parts = urlsplit(url)
+        host = loopback_host(parts)
+        port = parts.port
+    except ValueError:
+        raise refusal from None
+    if parts.scheme.lower() not in ("http", "https") or host is None:
+        raise refusal
+    return canonical_url(parts, host, port)
 
 
 def require_no_targeting_flags(args):
@@ -86,8 +109,11 @@ def split_surface(args):
     return args[:1], args[1:]
 
 
-def first_positional(args):
-    return next((arg for arg in args if not arg.startswith("-")), None)
+def with_canonical_url(args):
+    for at, arg in enumerate(args):
+        if not arg.startswith("-"):
+            return [*args[:at], require_loopback_url(arg), *args[at + 1 :]]
+    raise Refused("navigation needs a URL")
 
 
 def parse_open_args(args):
@@ -96,7 +122,7 @@ def parse_open_args(args):
     remaining = list(args)
     while remaining:
         arg = remaining.pop(0)
-        if arg == "--focus" and remaining:
+        if arg == "--focus" and remaining[:1] in (["true"], ["false"]):
             focus = remaining.pop(0)
         elif arg.startswith("-"):
             raise Refused(f"{arg} is not allowed on open")
@@ -104,15 +130,13 @@ def parse_open_args(args):
             urls.append(arg)
     if len(urls) > 1:
         raise Refused("open takes at most one URL")
-    for url in urls:
-        require_loopback_url(url)
-    return urls, focus
+    return [require_loopback_url(url) for url in urls], focus
 
 
 class Broker:
     def __init__(self, cmux):
         self.cmux = cmux
-        self.surfaces = set()
+        self.surface_ids = {}
 
     def run_cmux(self, args):
         return subprocess.run(
@@ -137,7 +161,18 @@ class Broker:
     def open(self, verb, args):
         urls, focus = parse_open_args(args)
         completed = self.run_cmux(
-            ["--json", "browser", verb, *urls, "--profile", PROFILE, "--focus", focus]
+            [
+                "--json",
+                "--id-format",
+                "both",
+                "browser",
+                verb,
+                *urls,
+                "--profile",
+                PROFILE,
+                "--focus",
+                focus,
+            ]
         )
         self.remember_surface(completed.stdout)
         return reply_from(completed)
@@ -147,21 +182,25 @@ class Broker:
             opened = json.loads(stdout)
         except json.JSONDecodeError:
             return
-        for key in ("surface_ref", "surface_id"):
-            if opened.get(key):
-                self.surfaces.add(opened[key])
+        surface_id = opened.get("surface_id")
+        if not surface_id:
+            return
+        self.surface_ids[surface_id] = surface_id
+        if opened.get("surface_ref"):
+            self.surface_ids[opened["surface_ref"]] = surface_id
 
     def run_on_surface(self, global_flags, args, wants_file):
         surface, rest = split_surface(args)
-        if not surface or surface[0] not in self.surfaces:
+        surface_id = self.surface_ids.get(surface[0]) if surface else None
+        if not surface_id:
             raise Refused("only browser surfaces this session opened can be used")
         verb, verb_args = (rest[0], rest[1:]) if rest else (None, [])
         if verb not in SURFACE_VERBS:
             raise Refused(f"browser {verb} is not allowed from this session")
         require_no_targeting_flags(verb_args)
         if verb in NAVIGATE_VERBS:
-            require_loopback_url(first_positional(verb_args) or "")
-        command = [*global_flags, "browser", "--surface", surface[0], verb, *verb_args]
+            verb_args = with_canonical_url(verb_args)
+        command = [*global_flags, "browser", "--surface", surface_id, verb, *verb_args]
         if verb == "screenshot":
             return self.screenshot(command, wants_file)
         return reply_from(self.run_cmux(command))
