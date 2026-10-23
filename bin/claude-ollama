@@ -226,7 +226,7 @@ require_plain_project_root() {
 write_sandbox_policy() {
   local protected_policy_path="$sandbox_policy"
   jq --arg repo "$repo_dir" --arg config "$session_config_dir" --arg policy "$protected_policy_path" --arg git "$(git_common_dir)" \
-    --arg items "$(item_replacement_dir)" --arg root "$(project_root)" \
+    --arg items "$(item_replacement_dir)" --arg root "$(project_root)" --arg cmux_socket "${CMUX_SOCKET_PATH:-}" \
     --argjson config_sources '["CLAUDE.md", "skills", "settings.json", "settings.local.json", "commands", "agents", "plugins", "rules", "output-styles", "keybindings.json", ".config.json"]' '
     ($git | if . == "" then [] else [.] end) as $git_dirs
     | ($items | if . == "" then [] else [.] end) as $item_dirs
@@ -234,6 +234,7 @@ write_sandbox_policy() {
     | .filesystem.denyWrite += [$repo, $policy, {path: "\($root)/.claude", literal: true}, "\($root)/**/.claude", "\($root)/**/.claude/**"]
         + [$config_sources[] as $source | "\($config)/\($source)"]
         + [$git_dirs[] | "\(.)/hooks", "\(.)/config"]
+    | if $cmux_socket == "" then . else .network.allowUnixSockets = [$cmux_socket] end
   ' "$profile_dir/sandbox.json" > "$sandbox_policy"
 }
 

@@ -58,7 +58,7 @@ new_sandbox() {
   export HOME="$sandbox/home"
   mkdir -p "$HOME" "$sandbox/stubbin"
   unset ZDOTDIR XDG_CONFIG_HOME CLAUDE_CONFIG_DIR STUB_OLLAMA_SHOW_EXIT STUB_OLLAMA_PULL_EXIT
-  unset STUB_OLLAMA_PID STUB_OLLAMA_ENV STUB_CURL_EXIT STUB_OLLAMA_NUM_CTX STUB_AGENT_EXIT
+  unset STUB_OLLAMA_PID STUB_OLLAMA_ENV STUB_CURL_EXIT STUB_OLLAMA_NUM_CTX STUB_AGENT_EXIT CMUX_SOCKET_PATH
   export SHELL=/bin/zsh
   record_installed_num_ctx
   export CLAUDE_OLLAMA_MANAGED_SETTINGS="$sandbox/managed-settings.json"
@@ -609,6 +609,9 @@ for variable in XDG_CACHE_HOME XDG_STATE_HOME XDG_DATA_HOME npm_config_cache GOC
   check_that "the session keeps $variable inside its own config" test "$(session_env "$variable" | cut -c1-${#session_config})" = "$session_config"
 done
 check_eq "the session never auto-updates the shared Claude Code install" 1 "$(session_env DISABLE_AUTOUPDATER)"
+check_eq "outside cmux the sandbox allows no Unix sockets" null "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
+run_capture env CMUX_SOCKET_PATH="$sandbox/cmux.sock" "$repo/bin/claude-ollama" 27b -p hi
+check_eq "inside cmux the sandbox allows only the cmux socket" "[\"$sandbox/cmux.sock\"]" "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
 check_eq "without a GitHub token git gets no auth header" "unset unset unset" "$(cat "$sandbox/git-config-env")"
 check_not "without a terminal claude-ollama leaves the terminal mode alone" test -e "$sandbox/stty.log"
 if [ "$(uname)" = Darwin ]; then
