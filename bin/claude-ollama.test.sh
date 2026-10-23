@@ -186,9 +186,9 @@ new_sandbox
 ollama_settings="--settings $repo/ollama/settings.27b.json"
 run_capture "$repo/bin/claude-ollama" -p hi
 check_that "claude-ollama defaults to 27b" grep -qF -- "$ollama_settings" "$sandbox/out"
-check_that "claude-ollama passes claude args through" grep -qF -- "--tools Bash,Read,Edit,Write -p hi" "$sandbox/out"
+check_that "claude-ollama passes claude args through" grep -qF -- "--tools Bash,Read,Edit,Write,Skill -p hi" "$sandbox/out"
 run_capture "$repo/bin/claude-ollama" 27b -p hi
-check_that "claude-ollama keeps the explicit size form" grep -qF -- "--tools Bash,Read,Edit,Write -p hi" "$sandbox/out"
+check_that "claude-ollama keeps the explicit size form" grep -qF -- "--tools Bash,Read,Edit,Write,Skill -p hi" "$sandbox/out"
 check_that "claude-ollama 27b passes the 27b model" grep -qF -- "--model qwen3.8-27b-cc --tools" "$sandbox/out"
 ANTHROPIC_MODEL=claude-opus-5-5 run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "claude-ollama 27b ignores ANTHROPIC_MODEL" grep -qF -- "--model qwen3.8-27b-cc --tools" "$sandbox/out"
@@ -199,7 +199,7 @@ check_that "claude-ollama 35b uses the 35b settings" grep -qF -- "--settings $re
 check_that "claude-ollama 35b passes the 35b model" grep -qF -- "--model qwen3.6-35b-cc --tools" "$sandbox/out"
 check_that "claude-ollama 35b uses the shared prompt" grep -qF -- "--append-system-prompt-file $repo/ollama/CLAUDE.local.md" "$sandbox/out"
 check_that "claude-ollama replaces the default system prompt" grep -qF -- "--system-prompt-file $repo/ollama/system-prompt.md --append-system-prompt-file $repo/ollama/CLAUDE.local.md" "$sandbox/out"
-check_that "claude-ollama 35b passes claude args through" grep -qF -- "--tools Bash,Read,Edit,Write -p hi" "$sandbox/out"
+check_that "claude-ollama 35b passes claude args through" grep -qF -- "--tools Bash,Read,Edit,Write,Skill -p hi" "$sandbox/out"
 check_that "claude-ollama warms the main model" grep -q 'localhost:11434/api/generate' "$sandbox/curl.log"
 check_that "claude-ollama warm-up names the model" grep -q '"model":"qwen3.6-35b-cc"' "$sandbox/curl.log"
 check_that "claude-ollama warm-up sets keep_alive" grep -q '"keep_alive":"30m"' "$sandbox/curl.log"
@@ -300,7 +300,7 @@ check_not "claude-ollama help does not launch claude" grep -q '^ARGS:' "$sandbox
 run_capture "$repo/bin/claude-ollama" 28b -p hi </dev/null
 check_that "claude-ollama unknown size without a tty falls back to 27b" grep -qF -- "$ollama_settings" "$sandbox/out"
 check_not "claude-ollama drops an unknown size" grep -qF "28b" "$sandbox/out"
-check_that "claude-ollama unknown size keeps claude args" grep -qF -- "Write -p hi" "$sandbox/out"
+check_that "claude-ollama unknown size keeps claude args" grep -qF -- "Skill -p hi" "$sandbox/out"
 
 new_sandbox
 copy_repo "$sandbox/repo"
@@ -366,7 +366,7 @@ check_that "print-config shows the embedding model" grep -qxF "embedding model: 
 check_that "print-config shows num_ctx" grep -qxF "num_ctx: 98304" "$sandbox/out"
 check_that "print-config shows context tokens" grep -qxF "max context tokens: 98304" "$sandbox/out"
 check_that "print-config shows the settings path" grep -qxF "settings: $repo/ollama/settings.35b.json" "$sandbox/out"
-check_that "print-config shows the tools" grep -qxF "tools: Bash,Read,Edit,Write" "$sandbox/out"
+check_that "print-config shows the tools, Skill included so your skills load" grep -qxF "tools: Bash,Read,Edit,Write,Skill" "$sandbox/out"
 check_that "print-config shows the sandboxed command" \
   grep -qF "command: $HOME/.local/share/claude-custom/sandbox-runtime/node_modules/.bin/srt -s $HOME/.claude-ollama/sandbox-policy.json -- $repo/ollama/sandbox-entry claude --settings " "$sandbox/out"
 run_capture "$repo/bin/claude-ollama" --print-config </dev/null
@@ -587,7 +587,7 @@ session_config="$HOME/.claude-ollama"
 run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "claude-ollama runs claude inside sandbox-runtime" \
   grep -qF -- "-s $session_config/sandbox-policy.json -- $repo/ollama/sandbox-entry claude --settings" "$sandbox/srt.log"
-check_that "claude-ollama still passes claude args through the sandbox" grep -qF -- "--tools Bash,Read,Edit,Write -p hi" "$sandbox/out"
+check_that "claude-ollama still passes claude args through the sandbox" grep -qF -- "--tools Bash,Read,Edit,Write,Skill -p hi" "$sandbox/out"
 check_that "the sandbox lets the session write the project" policy_lists allowWrite .
 check_that "the sandbox never writes claude-custom" policy_lists denyWrite "$repo"
 check_that "the sandbox never rewrites its own policy" policy_lists denyWrite "$session_config/sandbox-policy.json"
