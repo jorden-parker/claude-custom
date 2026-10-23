@@ -322,7 +322,10 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   `http.https://github.com/.extraHeader` through `GIT_CONFIG_*`. Git's own
   credential helpers can't be masked: they encode the token themselves.
   `allowLocalBinding` is on because Ollama on localhost is reached directly, not
-  through the proxy, which also opens every other local port.
+  through the proxy, which also opens every other local port. `allowMachLookup`
+  lets the session reach the `com.apple.pasteboard.1` Mach service, which Claude
+  Code's osascript image paste needs; it also lets the session read and write
+  the clipboard.
 - There is no side model: each Ollama profile sets
   `ANTHROPIC_DEFAULT_HAIKU_MODEL` to its own main model, has no `modelOverrides`
   and no subagent model, and denies `Agent` (it is not in `--tools` either),

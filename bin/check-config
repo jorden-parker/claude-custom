@@ -64,6 +64,8 @@ done
 sandbox_policy="$repo/ollama/sandbox.json"
 check_eq "the session sandbox reaches only github.com and the npm registry" '["github.com","registry.npmjs.org"]' \
   "$(jq -c .network.allowedDomains "$sandbox_policy")"
+check_eq "the session sandbox reaches the clipboard, so copied images paste" '["com.apple.pasteboard.1"]' \
+  "$(jq -c .network.allowMachLookup "$sandbox_policy")"
 check_eq "the session sandbox sends the GitHub token, masked, only to github.com" '[{"name":"GH_BASIC","mode":"mask","injectHosts":["github.com"]}]' \
   "$(jq -c .credentials.envVars "$sandbox_policy")"
 check_eq "the session sandbox hides credentials and the normal Claude config" true \
