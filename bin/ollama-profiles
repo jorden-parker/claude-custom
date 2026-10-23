@@ -31,7 +31,9 @@ size_of_settings() {
 }
 
 format_json_files() {
-  (cd "$repo_dir" && npx --no prettier -- --config "$repo_dir/.prettierrc" --parser json --log-level warn --write "$@")
+  local prettier="$repo_dir/node_modules/.bin/prettier"
+  [ -x "$prettier" ] || { echo "ollama-profiles: run pnpm install first (prettier formats the rendered JSON)" >&2; return 1; }
+  "$prettier" --config "$repo_dir/.prettierrc" --parser json --log-level warn --write "$@"
 }
 
 splice_fragments() {
@@ -67,11 +69,17 @@ render_all() {
     render_modelfile "$size" > "$1/Modelfile.$size"
   done
   render_personal > "$1/settings.tokens.json"
-  format_json_files "$1"/*.json
+}
+
+same_content() {
+  case "$1" in
+    *.json) cmp -s <(jq -S . "$1") <(jq -S . "$2") ;;
+    *) cmp -s "$1" "$2" ;;
+  esac
 }
 
 rendered_matches() {
-  [ -f "$2" ] && cmp -s "$1" "$2" || { echo "stale: $2" >&2; return 1; }
+  [ -f "$2" ] && same_content "$1" "$2" || { echo "stale: $2" >&2; return 1; }
 }
 
 check_size() {
@@ -114,6 +122,7 @@ remove_unlisted() {
 
 write_profiles() {
   local size
+  format_json_files "$1"/*.json || return 1
   for size in $(sizes); do
     write_size "$1" "$size"
   done

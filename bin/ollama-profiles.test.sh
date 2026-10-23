@@ -86,6 +86,26 @@ PARSER qwen3.5" "$(cat "$profiles/Modelfile.9b-jinja")"
 check_not "render removes a size no longer listed" test -f "$profiles/settings.35b.json"
 check_eq "check passes after a size is added" 0 "$(exit_status_of --check)"
 
+bare_repo="$sandbox/bare-repo"
+mkdir -p "$bare_repo/bin"
+cp "$gen" "$bare_repo/bin/ollama-profiles"
+bare_generate() {
+  CLAUDE_CUSTOM_REPO="$sandbox" "$bare_repo/bin/ollama-profiles" "$@"
+}
+
+bare_generate >/dev/null 2>&1
+check_eq "check passes without prettier installed" 0 "$(bare_generate --check >/dev/null 2>&1; echo $?)"
+check_that "check ignores JSON formatting" sh -c "jq -c . '$profiles/settings.9b.json' > '$sandbox/compact.json' && mv '$sandbox/compact.json' '$profiles/settings.9b.json' && CLAUDE_CUSTOM_REPO='$sandbox' '$bare_repo/bin/ollama-profiles' --check"
+
+sed 's/2048/1024/' "$profiles/Modelfile.9b" > "$sandbox/stale.Modelfile" && mv "$sandbox/stale.Modelfile" "$profiles/Modelfile.9b"
+check_eq "check without prettier still fails on a stale Modelfile" 1 "$(bare_generate --check >/dev/null 2>&1; echo $?)"
+
+rm -f "$profiles/Modelfile.9b"
+check_eq "render without prettier fails" 1 "$(bare_generate >/dev/null 2>&1; echo $?)"
+check_that "render without prettier says how to fix it" sh -c "CLAUDE_CUSTOM_REPO='$sandbox' '$bare_repo/bin/ollama-profiles' 2>&1 | grep -q 'pnpm install'"
+check_not "render without prettier leaves files unwritten" test -f "$profiles/Modelfile.9b"
+generate >/dev/null
+
 if [ "$failures" -eq 0 ]; then
   echo "all passed"
 else

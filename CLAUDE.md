@@ -54,8 +54,9 @@ before changing how any file gets applied.
   and `ollama/Modelfile.<size>` from `ollama/sizes.json` and the two
   `profile-template` files, and `personal/settings.tokens.json` from
   `personal/settings.tokens.template.json`; `bin/ollama-profiles --check`
-  (`make check-profiles`) fails when they are stale; tests:
-  `bin/ollama-profiles.test.sh`
+  (`make check-profiles`) fails when they are stale (it compares JSON by
+  content, so it needs no Prettier; writing the files needs `pnpm install`);
+  tests: `bin/ollama-profiles.test.sh`
 - Cache probe: `bin/ollama-cache-probe [27b|35b|MODEL] [--prefix-tokens N]`
   measures prompt-cache reuse on a live Ollama; its tests are
   `bin/ollama-cache-probe.test.sh` (stub server, no real Ollama)
@@ -109,6 +110,10 @@ before changing how any file gets applied.
   `cd go && go run ./cmd/claude-tools`. `claude-ollama` builds and runs the
   picker when no size is given on a terminal. See
   `go/cmd/claude-tools/README.md` and `go/cmd/ollama-agent/README.md`.
+
+`claude-custom install` (and `update`, which runs it) restarts a running Ollama
+server through `ollama-agent -apply` when it lacks a value from
+`ollama/server.env` (macOS only; a failed restart only warns).
 
 There is no build step outside the Go module. `claude-custom install` builds
 `go/cmd/claude-tools/claude-tools`, `go/cmd/model-picker/model-picker` and

@@ -289,7 +289,7 @@ retire_plan_001_fish_link() {
 }
 
 check_ollama_profiles() {
-  command -v npx >/dev/null 2>&1 || { echo "skip: npx not installed; the generated profile check did not run" >&2; return 0; }
+  command -v jq >/dev/null 2>&1 || { echo "skip: jq not installed; the generated profile check did not run" >&2; return 0; }
   "$repo_dir/bin/ollama-profiles" --check || { echo "fail: ollama profiles are stale; run bin/ollama-profiles" >&2; status=1; }
 }
 
@@ -342,6 +342,34 @@ install_sandbox_runtime() {
   npm ci --prefix "$target" --ignore-scripts --no-audit --no-fund >/dev/null || { echo "fail: install sandbox-runtime" >&2; status=1; }
 }
 
+running_ollama_env() {
+  local pid
+  pid="$(pgrep -x ollama | head -n 1)" || true
+  [ -n "$pid" ] || return 1
+  if [ -r "/proc/$pid/environ" ]; then
+    tr '\0' '\n' < "/proc/$pid/environ"
+  else
+    ps -Eo command -p "$pid" | tr ' ' '\n'
+  fi
+}
+
+server_env_is_current() {
+  local wanted
+  while IFS= read -r wanted; do
+    [ -n "$wanted" ] || continue
+    printf '%s\n' "$1" | grep -qxF "$wanted" || return 1
+  done < "$repo_dir/ollama/server.env"
+}
+
+restart_stale_ollama_server() {
+  [ "$(uname)" = Darwin ] || return 0
+  local running
+  running="$(running_ollama_env)" || return 0
+  server_env_is_current "$running" && return 0
+  echo "install: the Ollama server lacks ollama/server.env values; restarting it" >&2
+  "${CLAUDE_OLLAMA_AGENT:-$repo_dir/bin/ollama-agent}" -apply >&2 || echo "skip: could not restart Ollama; run: claude-custom agent -apply" >&2
+}
+
 install_all() {
   guard_repo_path
   place_links
@@ -353,6 +381,7 @@ install_all() {
   check_ollama_profiles
   refresh_ollama_models
   build_go_apps
+  restart_stale_ollama_server
   install_sandbox_runtime
   print_activation
 }

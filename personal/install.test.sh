@@ -46,7 +46,7 @@ new_sandbox() {
   sandboxes="$sandboxes $sandbox"
   export HOME="$sandbox/home"
   mkdir -p "$HOME" "$sandbox/stubbin"
-  unset ZDOTDIR XDG_CONFIG_HOME CLAUDE_CONFIG_DIR STUB_OLLAMA_SHOW_EXIT STUB_OLLAMA_PULL_EXIT
+  unset ZDOTDIR XDG_CONFIG_HOME CLAUDE_CONFIG_DIR STUB_OLLAMA_SHOW_EXIT STUB_OLLAMA_PULL_EXIT STUB_OLLAMA_PID STUB_OLLAMA_ENV STUB_AGENT_EXIT
   export SHELL=/bin/zsh
   cat > "$sandbox/stubbin/claude" <<EOF
 #!/bin/sh
@@ -61,7 +61,22 @@ if [ "\$1" = show ]; then exit "\${STUB_OLLAMA_SHOW_EXIT:-0}"; fi
 if [ "\$1" = pull ]; then exit "\${STUB_OLLAMA_PULL_EXIT:-0}"; fi
 exit 0
 EOF
-  chmod +x "$sandbox/stubbin/claude" "$sandbox/stubbin/ollama"
+  cat > "$sandbox/stubbin/pgrep" <<'EOF'
+#!/bin/sh
+[ -n "${STUB_OLLAMA_PID:-}" ] || exit 1
+echo "$STUB_OLLAMA_PID"
+EOF
+  cat > "$sandbox/stubbin/ps" <<'EOF'
+#!/bin/sh
+echo "ollama serve ${STUB_OLLAMA_ENV:-}"
+EOF
+  printf '#!/bin/sh\necho Darwin\n' > "$sandbox/stubbin/uname"
+  cat > "$sandbox/stubbin/ollama-agent" <<EOF
+#!/bin/sh
+echo "\$*" >> "$sandbox/agent.log"
+exit "\${STUB_AGENT_EXIT:-0}"
+EOF
+  chmod +x "$sandbox/stubbin/claude" "$sandbox/stubbin/ollama" "$sandbox/stubbin/pgrep" "$sandbox/stubbin/ps" "$sandbox/stubbin/uname" "$sandbox/stubbin/ollama-agent"
   link_system_tools
   export PATH="$sandbox/stubbin:$sandbox/sysbin"
 }
@@ -334,6 +349,28 @@ STUB_OLLAMA_SHOW_EXIT=1 run_capture "$installer" install
 check_eq "missing base model exit status" 0 "$?"
 check_not "missing base model skips create" grep -q '^create ' "$sandbox/ollama.log"
 check_that "missing base model message" grep -qF "ollama pull qwen3.8:27b-mlx" "$sandbox/err"
+
+server_env_values="$(tr '\n' ' ' < "$repo/ollama/server.env")"
+agent_stub() { echo "$sandbox/stubbin/ollama-agent"; }
+
+new_sandbox
+STUB_OLLAMA_PID=4242 STUB_OLLAMA_ENV="OLLAMA_KEEP_ALIVE=30m" CLAUDE_OLLAMA_AGENT="$(agent_stub)" run_capture "$installer" install
+check_eq "stale server env exit status" 0 "$?"
+check_eq "stale server env is applied once" "-apply" "$(cat "$sandbox/agent.log")"
+check_that "stale server env says it restarts" grep -qF "restarting it" "$sandbox/err"
+
+new_sandbox
+STUB_OLLAMA_PID=4242 STUB_OLLAMA_ENV="$server_env_values" CLAUDE_OLLAMA_AGENT="$(agent_stub)" run_capture "$installer" install
+check_not "current server env is left running" test -e "$sandbox/agent.log"
+
+new_sandbox
+CLAUDE_OLLAMA_AGENT="$(agent_stub)" run_capture "$installer" install
+check_not "no running server is not started" test -e "$sandbox/agent.log"
+
+new_sandbox
+STUB_OLLAMA_PID=4242 STUB_AGENT_EXIT=1 CLAUDE_OLLAMA_AGENT="$(agent_stub)" run_capture "$installer" install
+check_eq "failed restart keeps the install passing" 0 "$?"
+check_that "failed restart message" grep -qF "skip: could not restart Ollama" "$sandbox/err"
 
 new_sandbox
 rm "$sandbox/stubbin/ollama"
