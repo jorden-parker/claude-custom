@@ -475,7 +475,7 @@ reviews_build_needed() {
 }
 
 serve_reviews() {
-  local port=8765 web_dir log_dir url
+  local port=8765 web_dir log_dir url token
   while [ $# -gt 0 ]; do
     case "$1" in
       --port)
@@ -506,13 +506,14 @@ serve_reviews() {
     pnpm --dir "$web_dir" build || exit 1
   fi
   log_dir="${PR_REVIEW_LOG_DIR:-$HOME/.local/share/claude-custom/reviews}"
-  url="http://127.0.0.1:$port/"
+  token="$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')"
+  url="http://127.0.0.1:$port/?token=$token"
   mkdir -p "$log_dir"
   web_url_file="$log_dir/.web-url"
-  printf '%s\n' "$url" > "$web_url_file"
+  (umask 077; rm -f "$web_url_file"; printf '%s\n' "$url" > "$web_url_file")
   trap remove_web_url EXIT INT TERM
   echo "claude-ollama: reviews at $url"
-  pnpm --dir "$web_dir" exec next start -H 127.0.0.1 -p "$port"
+  PR_REVIEW_TOKEN="$token" pnpm --dir "$web_dir" exec next start -H 127.0.0.1 -p "$port"
   exit 0
 }
 

@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -16,6 +17,7 @@ const args = process.argv.slice(2);
 const serve = args.includes("--serve");
 const speed = Number(args[args.indexOf("--speed") + 1]) || 1;
 const port = process.env.PORT || "8799";
+const token = randomBytes(24).toString("hex");
 
 function fixtureNames() {
   return fs
@@ -61,7 +63,7 @@ async function replayLive(dir) {
 function startServer(dir) {
   const server = spawn(path.join(appDir, "node_modules/.bin/next"), ["start", "-H", "127.0.0.1", "-p", port], {
     cwd: appDir,
-    env: { ...process.env, PR_REVIEW_LOG_DIR: dir },
+    env: { ...process.env, PR_REVIEW_LOG_DIR: dir, PR_REVIEW_TOKEN: token },
     stdio: "inherit",
   });
   process.on("exit", () => server.kill());
@@ -75,7 +77,7 @@ console.log(dir);
 const replay = replayLive(dir).catch((error) => console.error(error));
 
 if (serve) {
-  console.log(`serving on http://127.0.0.1:${port}`);
+  console.log(`serving on http://127.0.0.1:${port}/?token=${token}`);
   const server = startServer(dir);
   await new Promise((resolve) => server.once("exit", resolve));
 } else {

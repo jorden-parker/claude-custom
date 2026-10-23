@@ -45,4 +45,17 @@ expect_eq "apostrophe in a shell comment" deny "$(failing_decision $'grep -n "x"
 expect_eq "ansi-c quoted apostrophe" deny "$(failing_decision $'echo $\'it\\\'s\' && git push')"
 expect_eq "fix --yes after an unlexable comment" deny "$(decision $'ls # don\'t\nfallow fix --yes --format json')"
 expect_eq "unlexable command without a gated word" allow "$(failing_decision $'ls # it\'s fine')"
+expect_eq "quoted opener does not hide a prefix terminator" deny "$(decision $'echo "<<EOF"\necho "<<X"\nE\nfallow audit\nX')"
+expect_eq "quoted opener does not hide a git push" deny "$(failing_decision $'echo "<<EOF"\necho "<<X"\nE\ngit push\nX')"
+expect_eq "quoted opener closes only on the full word" allow "$(failing_decision $'cat <<\'EOF\'\nE\ngit push\nEOF')"
+timed_decision() {
+  local started="$SECONDS" verdict
+  verdict="$(decision "$1")"
+  if [ $((SECONDS - started)) -lt 3 ]; then echo "$verdict"; else echo "slow: $verdict"; fi
+}
+long_word="$(head -c 20000 /dev/zero | tr '\0' a)"
+echo_lines="$(printf 'echo x\n%.0s' {1..3000})"
+expect_eq "long word after heredoc opener stays fast" deny "$(timed_decision "cat <<$long_word"$'\n'"$echo_lines"$'\n'"fallow audit")"
+opener_lines="$(printf 'cat <<EOF\n%.0s' {1..6000})"
+expect_eq "many unterminated heredoc openers stay fast" deny "$(timed_decision "$opener_lines"$'\n'"fallow audit")"
 finish

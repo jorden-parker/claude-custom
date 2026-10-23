@@ -555,7 +555,11 @@ echo "PNPM: $*" >> "$PNPM_LOG"
 case "$3" in
   build) mkdir -p "$2/.next" && touch "$2/.next/BUILD_ID" ;;
   install) mkdir -p "$2/node_modules" ;;
-  exec) cat "$PR_REVIEW_LOG_DIR/.web-url" >> "$PNPM_LOG" 2>/dev/null || true ;;
+  exec)
+    cat "$PR_REVIEW_LOG_DIR/.web-url" >> "$PNPM_LOG" 2>/dev/null || true
+    ls -l "$PR_REVIEW_LOG_DIR/.web-url" 2>/dev/null | cut -c1-10 >> "$PNPM_LOG"
+    echo "TOKEN: ${PR_REVIEW_TOKEN:-unset}" >> "$PNPM_LOG"
+    ;;
 esac
 EOF
 chmod +x "$sandbox/stubbin/pnpm"
@@ -566,9 +570,15 @@ check_eq "reviews exit status" 0 "$?"
 check_that "reviews installs when node_modules is missing" grep -qxF -- "PNPM: --dir $web install --frozen-lockfile" "$PNPM_LOG"
 check_that "reviews builds when BUILD_ID is missing" grep -qxF -- "PNPM: --dir $web build" "$PNPM_LOG"
 check_that "reviews serves on loopback at the port" grep -qxF -- "PNPM: --dir $web exec next start -H 127.0.0.1 -p 9000" "$PNPM_LOG"
-check_that "reviews writes .web-url while serving" grep -qxF "http://127.0.0.1:9000/" "$PNPM_LOG"
-check_that "reviews prints its URL" grep -qxF "claude-ollama: reviews at http://127.0.0.1:9000/" "$sandbox/out"
+token="$(sed -n 's#^http://127\.0\.0\.1:9000/?token=##p' "$PNPM_LOG")"
+check_that "reviews writes a tokened .web-url while serving" grep -qxE 'http://127\.0\.0\.1:9000/\?token=[0-9a-f]{48}' "$PNPM_LOG"
+check_that "reviews gives the server the token in .web-url" grep -qxF "TOKEN: $token" "$PNPM_LOG"
+check_that ".web-url is owner-only while serving" grep -qxF -- "-rw-------" "$PNPM_LOG"
+check_that "reviews prints its tokened URL" grep -qxF "claude-ollama: reviews at http://127.0.0.1:9000/?token=$token" "$sandbox/out"
 check_not "reviews removes .web-url after it exits" test -e "$PR_REVIEW_LOG_DIR/.web-url"
+rm -f "$PNPM_LOG"
+run_capture "$repo/bin/claude-ollama" reviews --port 9000
+check_not "each reviews launch gets a new token" grep -qxF "http://127.0.0.1:9000/?token=$token" "$PNPM_LOG"
 check_not "reviews does not launch claude" grep -q '^ARGS:' "$sandbox/out"
 rm -f "$PNPM_LOG"
 mkdir -p "$web/.next"

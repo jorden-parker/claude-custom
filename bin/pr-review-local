@@ -16,6 +16,7 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 DEFAULT_BASE_URL = "http://localhost:11434"
 DEFAULT_AUTH_TOKEN = "local"
@@ -50,6 +51,7 @@ HEADING_LINE = re.compile(r"^#{2,3} (.*)$")
 VERDICT_WORD = re.compile(r"^(\*\*Verdict:\*\* )(REQUEST CHANGES|APPROVE WITH COMMENTS|APPROVE)")
 LABEL_PREFIX = re.compile(r"\*\*([^*]+?):\*\*")
 ANSI_SEQUENCE = re.compile(r"(\033\[[0-9;]*m)")
+CONTROL_CHARACTERS = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
 DIFF_CONTEXT_LINES = 20
 NUMBER_WIDTH = 5
 HUNK_HEADER = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
@@ -83,6 +85,8 @@ SKIPPED_SUFFIXES = (
 TYPESCRIPT_SUFFIXES = (".ts", ".tsx", ".js", ".jsx", ".mts", ".cts", ".mjs", ".cjs")
 FALLOW_LIB = "shared/hooks/fallow-lib.sh"
 FALLOW_USAGE_EXIT_CODE = 2
+FALLOW_PACKAGE = "fallow"
+FALLOW_INSTALL_DIR = "fallow-tool"
 NOT_RUN_NO_TYPESCRIPT = "not run: no TypeScript changed"
 NOT_CHECKED_LOCAL_RANGE = "CI not checked (local range)"
 TRUNCATED_MARK = "\n[diff truncated]"
@@ -318,7 +322,9 @@ def live_page_link(log_path):
         return None
     if not base:
         return None
-    return f"{base.rstrip('/')}/reviews/{log_path.stem}"
+    page = urlsplit(base)
+    path = f"{page.path.rstrip('/')}/reviews/{log_path.stem}"
+    return urlunsplit((page.scheme, page.netloc, path, page.query, ""))
 
 
 class JsonlLog:
@@ -416,7 +422,7 @@ class TerminalRenderer:
     def handle(self, event):
         handler = self.handlers.get(event["kind"])
         if handler is not None:
-            handler(event)
+            handler(strip_control_characters(event))
 
     def paint(self, text, code):
         return ansi(text, code) if self.color else text
@@ -494,6 +500,14 @@ class TerminalRenderer:
 
 def ansi(text, code):
     return f"\033[{code}m{text}\033[0m"
+
+
+def strip_control_characters(value):
+    if isinstance(value, dict):
+        return {key: strip_control_characters(item) for key, item in value.items()}
+    if isinstance(value, str):
+        return CONTROL_CHARACTERS.sub("", value)
+    return value
 
 
 def fit_to_columns(text, columns):
@@ -828,14 +842,25 @@ def nearest_package_dir(root, path):
     return directory
 
 
-def fallow_runner(package_dir):
+def trusted_fallow(user_package_dir):
     found = shutil.which("fallow")
     if found:
-        return [found]
-    local = package_dir / "node_modules" / ".bin" / "fallow"
+        return found
+    local = user_package_dir / "node_modules" / ".bin" / "fallow"
     if os.access(local, os.X_OK):
-        return [str(local)]
-    return ["npx", "-y", "fallow"]
+        return str(local)
+    return None
+
+
+def install_fallow(scratch_dir):
+    return capture(
+        ["npm", "install", "--prefix", str(scratch_dir / FALLOW_INSTALL_DIR), FALLOW_PACKAGE],
+        scratch_dir,
+    )
+
+
+def installed_fallow(scratch_dir):
+    return str(scratch_dir / FALLOW_INSTALL_DIR / "node_modules" / ".bin" / "fallow")
 
 
 def parse_json_object(text):
@@ -859,9 +884,9 @@ def fallow_lines(report_text):
     return run(["jq", "-r", program], stdin=report_text).splitlines()
 
 
-def audit_in_package(package_dir, merge_base):
-    args = [*fallow_runner(package_dir), "audit", "--base", merge_base, "--format", "json", "--quiet"]
-    completed = capture(args, package_dir)
+def audit_in_package(fallow, head_package_dir, merge_base, launch_dir):
+    audit = ["audit", "--base", merge_base, "--format", "json", "--quiet"]
+    completed = capture([fallow, "--root", str(head_package_dir), *audit], launch_dir)
     report = parse_json_object(completed.stdout)
     if completed.returncode == FALLOW_USAGE_EXIT_CODE or report is None or "error" in report:
         return FallowResult(f"did not run: {fallow_error(completed, report)}", [])
@@ -874,6 +899,16 @@ def link_node_modules(package_dir, head_package_dir):
         (head_package_dir / "node_modules").symlink_to(user_modules)
 
 
+def audit_with_fallow(user_package_dir, head_package_dir, scratch_dir, merge_base):
+    fallow = trusted_fallow(user_package_dir)
+    if fallow is None:
+        installed = install_fallow(scratch_dir)
+        if installed.returncode != 0:
+            return FallowResult(f"did not run: {fallow_error(installed, None)}", [])
+        fallow = installed_fallow(scratch_dir)
+    return audit_in_package(fallow, head_package_dir, merge_base, scratch_dir)
+
+
 def audit_at_head(root, package_dir, merge_base, ref):
     temp_dir = Path(tempfile.mkdtemp(prefix="pr-review-fallow-"))
     worktree = temp_dir / "head"
@@ -881,7 +916,7 @@ def audit_at_head(root, package_dir, merge_base, ref):
         run(["git", "worktree", "add", "-q", "--detach", str(worktree), ref], root)
         head_package_dir = worktree / package_dir.relative_to(root)
         link_node_modules(package_dir, head_package_dir)
-        return audit_in_package(head_package_dir, merge_base)
+        return audit_with_fallow(package_dir, head_package_dir, temp_dir, merge_base)
     finally:
         capture(["git", "worktree", "remove", "--force", str(worktree)], root)
         shutil.rmtree(temp_dir, ignore_errors=True)
@@ -1434,7 +1469,7 @@ def run_review(config, reporter):
     started_at = time.perf_counter()
     try:
         review = review_range(config, reporter) if config.commit_range is not None else review_pull_request(config, reporter)
-        report = render_report(config, review)
+        report = strip_control_characters(render_report(config, review))
         if config.post:
             reporter.stage(f"posting the review to {config.target}")
             post_review(config.target, report)

@@ -8,14 +8,16 @@ fallow_marker_dir() {
 }
 
 fallow_project_root() {
-  local start="$1" top dir
+  local start="$1" top dir parent
   top="$(git -C "$start" rev-parse --show-toplevel 2>/dev/null || true)"
   [ "$top" = "$HOME" ] && top=""
   dir="$start"
   while [ -n "$dir" ] && [ "$dir" != "/" ] && [ "$dir" != "$HOME" ]; do
     if [ -f "$dir/package.json" ]; then printf '%s\n' "$dir"; return 0; fi
     [ "$dir" = "$top" ] && break
-    dir="$(dirname "$dir")"
+    parent="$(dirname "$dir")"
+    [ "$parent" = "$dir" ] && break
+    dir="$parent"
   done
   return 1
 }
@@ -52,13 +54,15 @@ fallow_audit_report() {
 
 fallow_command_segments() {
   python3 -I - "$1" <<'PY'
+import bisect
 import re
 import shlex
 import sys
 
 SEPARATOR_CHARS = ";|&()\n"
 SEPARATORS = re.compile(r"[;|&()\n]+")
-HEREDOC_BODY = re.compile(r"(<<-?[ \t]*(['\"]?)(\w+)\2[^\n]*)\n.*?^[ \t]*\3[ \t]*$", re.S | re.M)
+HEREDOC_OPENER = re.compile(r"<<-?[ \t]*(?:(['\"])(\w+)\1|(\w+))")
+WORD_LINE = re.compile(r"\w+")
 
 
 def flatten(word):
@@ -91,8 +95,74 @@ def plain_segments(command):
     return [segment.split() for segment in SEPARATORS.split(command)]
 
 
+class PrefixNode:
+    def __init__(self):
+        self.children = {}
+        self.lines = []
+
+
+class TerminatorIndex:
+    def __init__(self, lines, longest_word):
+        self.root = PrefixNode()
+        for number, line in enumerate(lines):
+            content = line.strip(" \t")
+            if len(content) <= longest_word and WORD_LINE.fullmatch(content):
+                self.add(content, number)
+
+    def add(self, content, number):
+        node = self.root
+        for char in content:
+            if char not in node.children:
+                node.children[char] = PrefixNode()
+            node = node.children[char]
+        node.lines.append(number)
+
+    def find(self, word, quoted, opener_line):
+        node = self.root
+        deepest = None
+        for depth, char in enumerate(word, 1):
+            node = node.children.get(char)
+            if node is None:
+                break
+            position = bisect.bisect_right(node.lines, opener_line)
+            if position < len(node.lines):
+                deepest = (depth, node.lines[position])
+        if deepest is None or (quoted and deepest[0] != len(word)):
+            return None
+        return deepest[1]
+
+
+def opener_word(opener):
+    return opener.group(2) or opener.group(3)
+
+
+def heredoc_terminator(line, number, index):
+    opener = HEREDOC_OPENER.search(line)
+    while opener is not None:
+        quoted = opener.group(1) is not None
+        terminator = index.find(opener_word(opener), quoted, number)
+        if terminator is not None:
+            return terminator
+        opener = HEREDOC_OPENER.search(line, opener.start() + 1)
+    return None
+
+
+def strip_heredocs(command):
+    lines = command.split("\n")
+    openers = HEREDOC_OPENER.finditer(command)
+    longest_word = max((len(opener_word(opener)) for opener in openers), default=0)
+    index = TerminatorIndex(lines, longest_word)
+    kept = []
+    number = 0
+    while number < len(lines):
+        kept.append(lines[number])
+        terminator = heredoc_terminator(lines[number], number, index)
+        number = number + 1 if terminator is None else terminator + 1
+    return "\n".join(kept)
+
+
 def segments(command):
-    without_heredocs = HEREDOC_BODY.sub(r"\1", command)
+    without_heredocs = strip_heredocs(command)
     try:
         return quoted_segments(without_heredocs)
     except ValueError:

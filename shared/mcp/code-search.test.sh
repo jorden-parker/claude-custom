@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -u
+umask 022
 server="$(cd "$(dirname "$0")" && pwd)/code-search.py"
 tmp="$(mktemp -d)"
 failures=0
@@ -84,6 +85,20 @@ by_id = {reply.get("id"): reply for reply in replies}
 print(json.dumps({"ids": sorted(by_id), "initialize": by_id.get(1), "reply": by_id.get(2), "stderr": completed.stderr}))
 PY
 
+cat > "$tmp/index-peak.py" <<'PY'
+import os
+import runpy
+import sys
+import tracemalloc
+
+server, repo = sys.argv[1:3]
+os.chdir(repo)
+sys.argv = [server, "--index"]
+tracemalloc.start()
+runpy.run_path(server, run_name="__main__")
+print(tracemalloc.get_traced_memory()[1])
+PY
+
 start_stub() {
   rm -f "$tmp/port"
   python3 "$tmp/stub.py" "$tmp/embed.log" "$tmp/port" "$tmp/loaded" &
@@ -115,6 +130,10 @@ reply_is_error() {
 
 embedded_inputs_last_call() {
   python3 -c 'import json,sys; lines=open(sys.argv[1]).read().splitlines(); print(sum(json.loads(l)["inputs"] for l in lines))' "$tmp/embed.log"
+}
+
+mode_of() {
+  python3 -c 'import os,stat,sys; print(oct(stat.S_IMODE(os.stat(sys.argv[1]).st_mode)))' "$1"
 }
 
 search() {
@@ -184,6 +203,8 @@ check "initialize echoes the protocol version" contains "$listing" '"protocolVer
 model_loaded
 index_with_stub
 check "index mode embeds every chunk once while the model is loaded" [ "$(embedded_inputs_last_call)" = "3" ]
+check "the index directory is private to its owner" [ "$(mode_of "$repo/.git/code-search")" = "0o700" ]
+check "the index file is private to its owner" [ "$(mode_of "$repo/.git/code-search/index.json")" = "0o600" ]
 check "index entries carry words and counts" grep -q '"terms": {' "$repo/.git/code-search/index.json"
 check "index entries carry a version key" grep -q '"version": 2' "$repo/.git/code-search/index.json"
 
@@ -248,6 +269,18 @@ check "index mode writes the index" test -f "$repo/.git/code-search/index.json"
 check "index mode prints a summary" grep -qE '^indexed [0-9]+ files' "$tmp/index.out"
 check "index mode without the model writes no vectors" lacks "$(cat "$repo/.git/code-search/index.json")" '"vector"'
 check "index mode without the model embeds nothing" [ ! -e "$tmp/embed.log" ]
+
+big="$tmp/huge-repo"
+mkdir -p "$big"
+git -C "$big" init -q
+printf 'def small():\n    return 1\n' > "$big/small.py"
+dd if=/dev/zero of="$big/huge.bin" bs=1 count=0 seek=67108864 2>/dev/null
+head -c 200000 /dev/zero | tr '\0' a > "$big/exact.txt"
+head -c 200001 /dev/zero | tr '\0' a > "$big/over.txt"
+index_peak_bytes() { python3 "$tmp/index-peak.py" "$server" "$big" | tail -n 1; }
+check "indexing never holds a file over the size limit in memory" [ "$(index_peak_bytes)" -lt 16777216 ]
+check "a file exactly at the size limit is indexed" contains "$(cat "$big/.git/code-search/index.json")" '"exact.txt": {'
+check "a file one byte over the size limit is not indexed" lacks "$(cat "$big/.git/code-search/index.json")" '"over.txt"'
 rm -f "$tmp/embed.log"
 (cd "$repo" && CODE_SEARCH_EMBED=1 python3 "$server" --index >"$tmp/index.out" 2>&1)
 check "index mode with embeddings allowed embeds the chunks" [ "$(embedded_inputs_last_call)" -ge 1 ]
@@ -283,6 +316,17 @@ raw="$(printf '%s\n' 'not json' '{"jsonrpc":"2.0","id":7,"method":"initialize","
 check "a malformed line does not kill the server" contains "$raw" '"id": 8'
 check "a non-object params gets an error reply, not a crash" contains "$raw" '"id": 7, "error"'
 check "the server exits 0 at end of input" contains "$raw" 'exit=0'
+
+python3 -c 'print("{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"ping\",\"params\":" + "[" * 1000000 + "]" * 1000000 + "}")' > "$tmp/too-deep.jsonl"
+python3 -c 'print("{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"initialize\",\"params\":{\"protocolVersion\":" + "[" * 120000 + "]" * 120000 + "}}")' > "$tmp/too-deep-echo.jsonl"
+too_deep="$({ cat "$tmp/too-deep.jsonl"; printf '%s\n' '{"jsonrpc":"2.0","id":8,"method":"ping"}'; } | python3 "$server"; echo "exit=$?")"
+check "a line nested too deep to parse does not kill the server" contains "$too_deep" '"id": 8'
+too_deep_echo="$({ cat "$tmp/too-deep-echo.jsonl"; printf '%s\n' '{"jsonrpc":"2.0","id":8,"method":"ping"}'; } | python3 "$server"; echo "exit=$?")"
+check "a reply too deep to serialize does not kill the server" contains "$too_deep_echo" '"id": 8'
+unhashable="$(printf '%s\n' '{"jsonrpc":"2.0","id":9,"method":["ping"]}' '{"jsonrpc":"2.0","id":10,"method":{"name":"ping"}}' '{"jsonrpc":"2.0","id":8,"method":"ping"}' | python3 "$server"; echo "exit=$?")"
+check "a list method gets a method-not-found reply, not a crash" contains "$unhashable" '"id": 9, "error"'
+check "a dict method gets a method-not-found reply, not a crash" contains "$unhashable" '"id": 10, "error"'
+check "unhashable methods do not kill the server" contains "$unhashable" '"id": 8'
 
 ln -s /etc/hosts "$repo/src/link-out"
 printf 'secret = 1\n' > "$repo/src/locked.py"

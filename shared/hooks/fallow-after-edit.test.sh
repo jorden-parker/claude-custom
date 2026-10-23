@@ -30,4 +30,29 @@ expect_eq "findings for the edited file are reported" yes \
 expect_eq "findings for other files are not reported" "" "$(failing_context "$js_project/src/b.ts")"
 expect_eq "findings the PR did not introduce are dropped" yes \
   "$(mixed_context_keeps_only_introduced && echo yes || echo no)"
+
+bare_dir="$sandbox/bare"
+mkdir -p "$bare_dir"
+
+finishes_within_seconds() {
+  local seconds="$1" input="$2" hook_pid watchdog expired
+  "$hook" <<<"$input" >/dev/null 2>&1 &
+  hook_pid=$!
+  expired="$sandbox/expired-$hook_pid"
+  { sleep "$seconds"; touch "$expired"; pkill -P "$hook_pid"; kill "$hook_pid"; } >/dev/null 2>&1 &
+  watchdog=$!
+  wait "$hook_pid" 2>/dev/null
+  kill "$watchdog" >/dev/null 2>&1
+  wait "$watchdog" 2>/dev/null
+  [ ! -e "$expired" ]
+}
+
+relative_edit_without_project() {
+  (cd "$bare_dir" && finishes_within_seconds 10 '{"tool_input":{"file_path":"src/a.ts"}}')
+}
+
+expect_eq "relative edit without a project finishes" yes \
+  "$(relative_edit_without_project && echo yes || echo no)"
+expect_eq "relative edit inside a js project is audited" yes \
+  "$(cd "$js_project" && failing_context src/a.ts | grep -q 'src/a.ts:3 foo' && echo yes || echo no)"
 finish

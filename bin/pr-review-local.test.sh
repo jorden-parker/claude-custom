@@ -39,6 +39,12 @@ DOCS_BLOCKER_REPLY = json.dumps([
      "confidence": "high"},
 ])
 SUMMARY_REPLY = "Adds a widget; one blocking bug."
+CONTROL_SUMMARY_REPLY = "Adds a widget;\u001b[8m one blocking bug.\u001b[0m"
+CONTROL_BAD_REPLY = json.dumps([
+    {"label": "issue", "blocking": True, "path": "src/bad.ts", "line": 3,
+     "summary": "Null deref \u001b]52;c;aGk=\u0007on empty list", "why": "items[0] when items is []",
+     "confidence": "high"},
+])
 ERROR_BODY = json.dumps({"type": "error", "error": {"type": "api_error", "message": "model requires 22.0 GiB but only 11.3 GiB are available"}}).encode("utf-8")
 
 
@@ -61,8 +67,10 @@ def without_confidence(reply):
 
 def plain_reply_for(body):
     if is_summary(body):
-        return SUMMARY_REPLY
+        return CONTROL_SUMMARY_REPLY if body["model"] == "control-model" else SUMMARY_REPLY
     user = body["messages"][0]["content"]
+    if "File: src/bad.ts" in user and body["model"] == "control-model":
+        return CONTROL_BAD_REPLY
     if "File: src/bad.ts" in user:
         return without_confidence(BAD_REPLY) if body["model"] == "no-confidence-model" else BAD_REPLY
     if "File: README.md" in user:
@@ -260,7 +268,7 @@ SH
 cat > "$tmp/stubbin_fallow.sh" <<'SH'
 #!/usr/bin/env bash
 echo "$*" >> "$PR_REVIEW_TEST_TMP/fallow.log"
-printf 'pwd=%s\nbad=%s\n' "$PWD" "$(tail -n 1 src/bad.ts)" >> "$PR_REVIEW_TEST_TMP/fallow-env.log"
+printf 'pwd=%s\nbad=%s\n' "$PWD" "$(tail -n 1 "$2/src/bad.ts")" >> "$PR_REVIEW_TEST_TMP/fallow-env.log"
 printf '%s\n' '{"verdict":"warn","summary":{"dead_code_issues":1,"complexity_findings":0,"duplication_clone_groups":0},"dead_code":{"unused_exports":[{"path":"src/ok.ts","line":1,"export_name":"ok","introduced":true},{"path":"src/old.ts","line":9,"export_name":"old","introduced":false}]}}'
 SH
 
@@ -268,6 +276,19 @@ mkdir -p "$tmp/stubbin"
 mv "$tmp/stubbin_gh.sh" "$tmp/stubbin/gh"
 mv "$tmp/stubbin_fallow.sh" "$tmp/stubbin/fallow"
 chmod +x "$tmp/stubbin/gh" "$tmp/stubbin/fallow"
+
+mkdir -p "$tmp/nofallow"
+for tool in bash git jq python3 tail mkdir cp cat; do
+  ln -s "$(command -v "$tool")" "$tmp/nofallow/$tool"
+done
+cp "$tmp/stubbin/gh" "$tmp/nofallow/gh"
+cat > "$tmp/nofallow/npm" <<'SH'
+#!/usr/bin/env bash
+echo "$PWD $*" >> "$PR_REVIEW_TEST_TMP/npm.log"
+mkdir -p "$3/node_modules/.bin"
+cp "$PR_REVIEW_TEST_TMP/stubbin/fallow" "$3/node_modules/.bin/fallow"
+SH
+chmod +x "$tmp/nofallow/npm"
 
 git init -q --bare "$tmp/origin.git"
 git init -q -b main "$tmp/work"
@@ -305,6 +326,18 @@ printf 'More usage.\n' >> "$tmp/work/README.md"
 git -C "$tmp/work" add -A
 git -C "$tmp/work" commit -q -m "docs"
 git -C "$tmp/work" push -q origin HEAD:refs/pull/8/head
+git -C "$tmp/work" checkout -q main
+git -C "$tmp/work" checkout -q -b planted
+mkdir -p "$tmp/work/node_modules/.bin"
+cat > "$tmp/work/node_modules/.bin/fallow" <<SH
+#!/bin/sh
+: > "$tmp/planted-ran"
+SH
+chmod +x "$tmp/work/node_modules/.bin/fallow"
+printf 'export const planted = 4;\n' > "$tmp/work/src/planted.ts"
+git -C "$tmp/work" add -A
+git -C "$tmp/work" commit -q -m "planted"
+git -C "$tmp/work" push -q origin HEAD:refs/pull/9/head
 git -C "$tmp/work" checkout -q main
 
 stop_stub() {
@@ -371,7 +404,7 @@ err_has() {
 }
 
 fallow_ran_with_merge_base() {
-  [ "$(grep -cE '^audit --base [0-9a-f]{40} --format json --quiet$' "$tmp/fallow.log")" = 1 ]
+  [ "$(grep -cE '^--root [^ ]+ audit --base [0-9a-f]{40} --format json --quiet$' "$tmp/fallow.log")" = 1 ]
 }
 
 review_ref_gone() {
@@ -396,6 +429,7 @@ check_not "fallow finding that is not introduced is omitted" report_has 'src/old
 check_that "fallow ran with the merge base" fallow_ran_with_merge_base
 check_that "fallow ran at the PR head, which appended the bad.ts line" grep -qxF 'bad=export const extra = 3;' "$tmp/fallow-env.log"
 check_not "fallow did not run in the checkout" grep -qF "pwd=$tmp/work" "$tmp/fallow-env.log"
+check_not "fallow did not run inside the PR head" grep -qE '^pwd=.*/head$' "$tmp/fallow-env.log"
 check_eq "temporary worktree is removed" 1 "$(git -C "$tmp/work" worktree list | wc -l | tr -d ' ')"
 check_that "unparsable file is skipped after one retry" report_has 'src/weird.ts: skipped (unparsable answer)'
 check_eq "unparsable file gets exactly two requests" 2 "$(inspect count-user "$tmp/requests.log" 'File: src/weird.ts')"
@@ -504,6 +538,10 @@ live_id=$(sed -n 's#^pr-review-local: live at .*/reviews/##p' "$tmp/live.err")
 check_that "live link names an existing log" test -f "$tmp/live-logs/$live_id.jsonl"
 check_not "live link is not a log stage" jq_quiet -e 'select(.kind == "stage" and (.message | startswith("live at ")))' "$tmp/live-logs/$live_id.jsonl"
 rm -f "$tmp/live-logs/.web-url"
+mkdir "$tmp/tokened-logs"
+printf 'http://127.0.0.1:9/?token=abc123\n' > "$tmp/tokened-logs/.web-url"
+review_in_work 7 --log-dir "$tmp/tokened-logs" > /dev/null 2> "$tmp/tokened.err"
+check_that "stderr links the live page with the token in the query" grep -qE '^pr-review-local: live at http://127\.0\.0\.1:9/reviews/[0-9]{8}-[0-9]{6}-pr-7\?token=abc123$' "$tmp/tokened.err"
 check_that "stderr names the log" grep -qE '^pr-review-local: log .*/logs/[0-9]{8}-[0-9]{6}-pr-7\.jsonl$' "$tmp/err"
 
 review_in_work 7 --post > "$tmp/report.md" 2> "$tmp/err"
@@ -547,6 +585,18 @@ review_in_work 7 --model fenced-model --json > "$tmp/fenced.json" 2> "$tmp/fence
 check_eq "fenced replies parse to the same findings" 3 "$(jq '.findings | length' "$tmp/fenced.json")"
 check_not "fenced replies are not skipped" grep -qF 'src/bad.ts: unparsable answer' "$tmp/fenced.err"
 
+review_in_work 7 --model control-model > "$tmp/control.out" 2> "$tmp/control.err"
+check_eq "control characters exit status" 0 "$?"
+check_not "stderr has no escape character from the model" grep -q "$(printf '\033')" "$tmp/control.err"
+check_not "stderr has no bell character from the model" grep -q "$(printf '\007')" "$tmp/control.err"
+check_not "report has no escape character from the model" grep -q "$(printf '\033')" "$tmp/control.out"
+check_that "finding keeps its text without the control characters" grep -qF 'Null deref ]52;c;aGk=on empty list' "$tmp/control.err"
+check_that "report keeps the finding without the control characters" grep -qF -- '- **issue (blocking):** Null deref ]52;c;aGk=on empty list' "$tmp/control.out"
+check_that "summary keeps its text without the control characters" grep -qF 'Adds a widget;[8m one blocking bug.[0m' "$tmp/control.err"
+review_in_work 7 --model control-model --color always > /dev/null 2> "$tmp/control-color.err"
+check_not "colour mode drops the model's escape codes" grep -qF "$(printf '\033[8m')" "$tmp/control-color.err"
+check_that "colour mode keeps its own label colour" grep -qF "$(printf '\033[31missue (blocking)')" "$tmp/control-color.err"
+
 (cd "$tmp" && "$reviewer" --model stub-model 7 > "$tmp/norepo.out" 2> "$tmp/norepo.err")
 check_eq "outside a repository exits 1" 1 "$?"
 check_that "outside a repository says so" grep -qx 'pr-review-local: not inside a git repository' "$tmp/norepo.err"
@@ -559,6 +609,20 @@ check_eq "fallow is not invoked for a README-only PR" "$fallow_lines_before" "$(
 check_that "fallow not-run status on stderr" grep -qF 'pr-review-local: Fallow not run: no TypeScript changed' "$tmp/err8"
 check_not "no Fallow run line without TypeScript" grep -qF 'running Fallow' "$tmp/err8"
 
+planted_path="$tmp/planted-path"
+mkdir -p "$planted_path"
+for tool in bash git jq; do ln -s "$(command -v "$tool")" "$planted_path/$tool"; done
+cp "$tmp/stubbin/gh" "$planted_path/gh"
+cat > "$planted_path/npx" <<'SH'
+#!/usr/bin/env bash
+echo "pwd=$PWD" >> "$PR_REVIEW_TEST_TMP/npx.log"
+exit 1
+SH
+chmod +x "$planted_path/npx"
+(cd "$tmp/work" && PATH="$planted_path" "$(command -v python3)" "$reviewer" --base-url "http://127.0.0.1:$port" --model stub-model 9 > "$tmp/report9.md" 2> "$tmp/err9")
+check_eq "planted PR tree run exit status" 0 "$?"
+check_not "fallow planted in the PR tree never runs" test -e "$tmp/planted-ran"
+check_not "npx never runs, since it can resolve PR-owned code" test -e "$tmp/npx.log"
 gh_calls_before=$(grep -c '' "$tmp/gh.log")
 review_in_work --range main..widget > "$tmp/range.md" 2> "$tmp/range.err"
 check_eq "range run exit status" 0 "$?"
@@ -579,6 +643,23 @@ check_eq "range without .. exits 1" 1 "$?"
 check_that "bad range is explained" grep -qF 'pr-review-local: --range must be BASE..HEAD' "$tmp/badrange.err"
 review_in_work > /dev/null 2> "$tmp/none.err"
 check_eq "no PR and no range is a usage error" 2 "$?"
+
+rm -f "$tmp/planted-ran" "$tmp/npm.log"
+(cd "$tmp/work" && PATH="$tmp/nofallow" "$reviewer" --base-url "http://127.0.0.1:$port" --model stub-model 9 > "$tmp/planted.md" 2> "$tmp/planted.err")
+check_eq "PR with a planted fallow exits 0" 0 "$?"
+check_not "planted node_modules fallow is not run" test -e "$tmp/planted-ran"
+check_that "fallow is installed outside the PR head" grep -qF ' install --prefix ' "$tmp/npm.log"
+check_not "fallback install does not run inside the PR head" grep -qE '/head install' "$tmp/npm.log"
+check_that "fallback fallow audits the PR" grep -qF 'Fallow warn' "$tmp/planted.md"
+
+rm -f "$tmp/npm.log"
+mkdir -p "$tmp/work/node_modules/.bin"
+cp "$tmp/stubbin/fallow" "$tmp/work/node_modules/.bin/fallow"
+(cd "$tmp/work" && PATH="$tmp/nofallow" "$reviewer" --base-url "http://127.0.0.1:$port" --model stub-model 7 > "$tmp/own.md" 2> "$tmp/own.err")
+check_eq "user's own fallow run exits 0" 0 "$?"
+check_that "user's own fallow audits the PR" grep -qF 'Fallow warn' "$tmp/own.md"
+check_not "user's own fallow needs no install" test -e "$tmp/npm.log"
+rm -rf "$tmp/work/node_modules"
 
 stop_stub
 start_stub 0.6

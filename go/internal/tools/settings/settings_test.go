@@ -173,6 +173,31 @@ func TestSaveWritesThroughSymlinkAndKeepsBackup(t *testing.T) {
 	}
 }
 
+func TestSaveRefusesBackupPathThatIsSymlink(t *testing.T) {
+	dir := t.TempDir()
+	settings := filepath.Join(dir, "settings.json")
+	victim := filepath.Join(t.TempDir(), "victim.json")
+	if err := os.WriteFile(settings, []byte(`{"old":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(victim, []byte(`{"victim":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(victim, settings+".bak"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Save(settings, []byte(`{"new":true}`)); err == nil {
+		t.Fatal("expected an error for a symlinked backup")
+	}
+	if data, _ := os.ReadFile(victim); string(data) != `{"victim":true}` {
+		t.Fatalf("file behind the backup symlink was overwritten: %s", data)
+	}
+	if data, _ := os.ReadFile(settings); string(data) != `{"old":true}` {
+		t.Fatalf("settings changed although the backup failed: %s", data)
+	}
+}
+
 func TestLoadReturnsEmptyObjectForMissingFile(t *testing.T) {
 	data, err := Load(filepath.Join(t.TempDir(), "absent.json"))
 	if err != nil || string(data) != "{}" {

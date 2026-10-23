@@ -24,6 +24,10 @@ function ModelLink({ href, children }: ComponentPropsWithoutRef<"a">) {
   );
 }
 
+function ModelImage({ alt }: ComponentPropsWithoutRef<"img">) {
+  return <>{alt}</>;
+}
+
 function InlineParagraph({ children }: ComponentPropsWithoutRef<"p">) {
   return <span className="block">{children}</span>;
 }
@@ -31,7 +35,10 @@ function InlineParagraph({ children }: ComponentPropsWithoutRef<"p">) {
 export function MarkdownText({ children }: { children: string }) {
   return (
     <div className={BLOCK_BODY_CLASS}>
-      <Markdown urlTransform={safeUrl} components={{ a: ModelLink }}>
+      <Markdown
+        urlTransform={safeUrl}
+        components={{ a: ModelLink, img: ModelImage }}
+      >
         {children}
       </Markdown>
     </div>

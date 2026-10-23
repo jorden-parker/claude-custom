@@ -1,5 +1,20 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Access token
+
+Every route is behind the token gate in `src/proxy.ts`. A request is served only when it carries the value of `PR_REVIEW_TOKEN`, either as the `token` query parameter (the gate then sets an `HttpOnly`, `SameSite=Strict` cookie and redirects to the same page without the parameter) or as that cookie. With `PR_REVIEW_TOKEN` unset, every request gets `401`.
+
+- `claude-ollama reviews` makes a new token on every launch and prints the tokened link.
+- `pnpm demo --serve` makes its own token and prints its tokened link.
+- `pnpm dev` and `pnpm start` need the variable exported first:
+
+```bash
+export PR_REVIEW_TOKEN="$(openssl rand -hex 24)"
+pnpm dev
+```
+
+Then open `http://localhost:3000/?token=<token>`.
+
 ## Getting Started
 
 First, run the development server:

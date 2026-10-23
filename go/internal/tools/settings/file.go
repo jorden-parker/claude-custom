@@ -2,6 +2,7 @@ package settings
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -57,7 +58,16 @@ func backUp(target string) (fs.FileMode, error) {
 	if err != nil {
 		return 0, err
 	}
-	return info.Mode().Perm(), os.WriteFile(target+".bak", original, info.Mode().Perm())
+	backupPath := target + ".bak"
+	if isSymlink(backupPath) {
+		return 0, fmt.Errorf("refusing to write backup through symlink %s", backupPath)
+	}
+	return info.Mode().Perm(), os.WriteFile(backupPath, original, info.Mode().Perm())
+}
+
+func isSymlink(path string) bool {
+	info, err := os.Lstat(path)
+	return err == nil && info.Mode()&fs.ModeSymlink != 0
 }
 
 func replaceAtomically(target string, data []byte, mode fs.FileMode) error {

@@ -73,6 +73,33 @@ describe("ReviewBody", () => {
     expect(markup).not.toContain("<img");
   });
 
+  it("never requests an http image from model text, keeping only its alt text", () => {
+    const state = reduceEvents([
+      ...runningFileEvents,
+      { kind: "summary", text: "![Build badge](http://10.0.0.5/admin?action=x)" },
+      { kind: "verdict", verdict: "REQUEST CHANGES", seconds: 3 },
+    ]);
+    const markup = renderToStaticMarkup(<ReviewBody state={state} elapsedSeconds={5} />);
+
+    expect(markup).toContain("Build badge");
+    expect(markup).not.toContain("<img");
+    expect(markup).not.toContain('rel="preload"');
+    expect(markup).not.toContain("10.0.0.5");
+  });
+
+  it("shows the alt text of a relative-path image without emitting an image", () => {
+    const state = reduceEvents([
+      ...runningFileEvents,
+      { kind: "summary", text: "![Architecture diagram](docs/diagram.png)" },
+      { kind: "verdict", verdict: "REQUEST CHANGES", seconds: 3 },
+    ]);
+    const markup = renderToStaticMarkup(<ReviewBody state={state} elapsedSeconds={5} />);
+
+    expect(markup).toContain("Architecture diagram");
+    expect(markup).not.toContain("<img");
+    expect(markup).not.toContain("docs/diagram.png");
+  });
+
   it("shows the finished elapsed time and a done status once ended", () => {
     const state = reduceEvents([
       { kind: "start", t: 0, name: "PR #3", title: "t", model: "m", base_url: "" },

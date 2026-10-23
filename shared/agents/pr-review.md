@@ -127,20 +127,46 @@ scoped to `$work/head`.
 - **Docs and operations.** Build, CI, config, release or runbook changes without
   a matching doc change. A README or usage text the change made wrong.
 - **Fallow (TypeScript and JavaScript only).** Run this pass when `$work/files`
-  lists a `.ts`, `.tsx`, `.js`, `.jsx`, `.mts` or `.cts` file. Let `PKG` be the
-  directory of the nearest `package.json` at or above the first such file inside
-  `$work/head`. If `$work/head/PKG` has no `node_modules` but the user's
-  checkout has one at the same relative path, link it:
-  `ln -s "$root/PKG/node_modules" "$work/head/PKG/node_modules"`. Then:
+  lists a `.ts`, `.tsx`, `.js`, `.jsx`, `.mts` or `.cts` file. Path names come
+  from the PR author, so never type one into a command: the block finds the
+  package directory itself, keeps it in `$pkg`, and stops on a name outside
+  letters, digits, `.`, `_`, `/` and `-`. It never runs a fallow from
+  `$work/head`, since a binary there is the PR author's code: it uses the user's
+  own fallow, else a temporary install outside the PR head, by absolute path:
 
   ```bash
-  (cd "$work/head/PKG" && npx -y fallow audit --base MERGE_BASE --format json --quiet > "$work/fallow.json"; echo "fallow exit $?")
-  jq -r '.verdict // .message // "no verdict"' "$work/fallow.json"
-  jq -r "$(bash -c 'source "$CLAUDE_CUSTOM_HOME/shared/hooks/fallow-lib.sh" && fallow_report_filter')" "$work/fallow.json" | head -60
+  first_source="$(grep -m1 -E '\.(ts|tsx|js|jsx|mts|cts)$' "$work/files")"
+  pkg="$(dirname -- "$first_source")"
+  while [ "$pkg" != . ] && [ ! -f "$work/head/$pkg/package.json" ]; do pkg="$(dirname -- "$pkg")"; done
+  if [ ! -f "$work/head/$pkg/package.json" ]; then
+    echo "Fallow did not run: no package.json above the changed source"
+  elif ! printf '%s' "$pkg" | grep -qE '^[A-Za-z0-9._/-]+$'; then
+    echo "Fallow did not run: unsafe package path"
+  else
+    if [ ! -e "$work/head/$pkg/node_modules" ] && [ -d "$root/$pkg/node_modules" ]; then
+      ln -s -- "$root/$pkg/node_modules" "$work/head/$pkg/node_modules"
+    fi
+    if [ -x "$root/$pkg/node_modules/.bin/fallow" ]; then
+      fallow_bin="$root/$pkg/node_modules/.bin/fallow"
+    elif command -v fallow > /dev/null; then
+      fallow_bin="$(command -v fallow)"
+    else
+      (cd "$work" && npm install --prefix "$work/fallow-tool" fallow --loglevel=error)
+      fallow_bin="$work/fallow-tool/node_modules/.bin/fallow"
+    fi
+    (cd "$work" && "$fallow_bin" --root "$work/head/$pkg" audit --base MERGE_BASE --format json --quiet > "$work/fallow.json"; echo "fallow exit $?")
+    jq -r '.verdict // .message // "no verdict"' "$work/fallow.json"
+    jq -r "$(bash -c 'source "$CLAUDE_CUSTOM_HOME/shared/hooks/fallow-lib.sh" && fallow_report_filter')" "$work/fallow.json" | head -60
+  fi
   ```
 
-  Exit 0 is pass or warn, 1 is fail, 2 is a runtime error. On exit 2, a JSON
-  `error` field, or a missing `$CLAUDE_CUSTOM_HOME`, write "Fallow did not run:
+  Run it from `$work`, never from inside the PR tree, and point it at the PR
+  head with `--root`, so files the PR commits there (a project `.npmrc`) never
+  decide what runs.
+
+  Exit 0 is pass or warn, 1 is fail, 2 is a runtime error. On exit 2, or 127
+  when no fallow could be found or installed, a JSON `error` field, or a missing
+  `$CLAUDE_CUSTOM_HOME`, write "Fallow did not run:
   <reason>" in the report and continue. The filter prints only findings the PR
   introduced; a `fail` verdict goes under Blocking, `warn` under Non-blocking.
   Never run `fallow fix`.

@@ -7,6 +7,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import urllib.error
 import urllib.request
 from collections import Counter
@@ -112,7 +113,8 @@ def candidate_files(root):
 
 def read_text(path):
     try:
-        data = path.read_bytes()
+        with path.open("rb") as handle:
+            data = handle.read(MAX_FILE_BYTES + 1)
     except OSError:
         return None
     if len(data) > MAX_FILE_BYTES or b"\0" in data[:8192]:
@@ -178,10 +180,12 @@ def load_index(path):
 
 
 def save_index(path, files):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(".tmp")
-    temporary.write_text(json.dumps({"version": INDEX_VERSION, "model": EMBED_MODEL, "files": files}))
-    temporary.replace(path)
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    payload = json.dumps({"version": INDEX_VERSION, "model": EMBED_MODEL, "files": files})
+    descriptor, temporary = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
+    with os.fdopen(descriptor, "w") as handle:
+        handle.write(payload)
+    os.replace(temporary, path)
 
 
 def words(text):
@@ -432,7 +436,8 @@ def error_response(message_id, code, text):
 
 
 def response(message):
-    handler = HANDLERS.get(message.get("method"))
+    method = message.get("method")
+    handler = HANDLERS.get(method) if isinstance(method, str) else None
     if handler is None:
         return error_response(message.get("id"), -32601, "Method not found")
     params = message.get("params")
@@ -447,7 +452,7 @@ def response(message):
 def parsed_message(line):
     try:
         message = json.loads(line)
-    except ValueError:
+    except (ValueError, RecursionError):
         return None
     return message if isinstance(message, dict) else None
 
@@ -465,7 +470,11 @@ def main():
             continue
         message = parsed_message(line)
         if message is not None and "id" in message:
-            print(json.dumps(response(message)), flush=True)
+            try:
+                reply = json.dumps(response(message))
+            except RecursionError:
+                continue
+            print(reply, flush=True)
 
 
 main()
