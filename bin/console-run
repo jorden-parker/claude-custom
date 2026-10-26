@@ -1,0 +1,161 @@
+#!/usr/bin/env python3
+import argparse
+import codecs
+import datetime
+import json
+import os
+import re
+import signal
+import subprocess
+import sys
+import threading
+import time
+
+MAX_LINE_CHARACTERS = 4000
+READ_BYTES = 65536
+MISSING_PROGRAM_CODE = 127
+REFUSED_LOG_CODE = 2
+PRIVATE_DIRECTORY_MODE = 0o700
+PRIVATE_FILE_MODE = 0o600
+ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+LINE_ENDING = re.compile(r"\r\n|\n|\r")
+
+
+def parse_arguments(arguments):
+    parser = argparse.ArgumentParser(prog="console-run")
+    parser.add_argument("--log", required=True)
+    parser.add_argument("--id", required=True)
+    parser.add_argument("--command", required=True)
+    parser.add_argument("--label", required=True)
+    parser.add_argument("argv", nargs="+")
+    return parser.parse_args(arguments)
+
+
+def create_log(path):
+    folder = os.path.dirname(os.path.abspath(path))
+    os.makedirs(folder, mode=PRIVATE_DIRECTORY_MODE, exist_ok=True)
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, PRIVATE_FILE_MODE)
+    return os.fdopen(descriptor, "w", encoding="utf-8")
+
+
+def utc_now():
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def clean(text):
+    return ANSI_ESCAPE.sub("", text)[:MAX_LINE_CHARACTERS]
+
+
+def complete_segments(buffer, at_eof):
+    segments = []
+    position = 0
+    for match in LINE_ENDING.finditer(buffer):
+        if match.group() == "\r" and match.end() == len(buffer) and not at_eof:
+            break
+        segments.append((buffer[position:match.start()], match.group()))
+        position = match.end()
+    return segments, buffer[position:]
+
+
+class RunLog:
+    def __init__(self, handle):
+        self.handle = handle
+        self.lock = threading.Lock()
+        self.started = time.monotonic()
+
+    def write(self, kind, **fields):
+        event = {"t": round(time.monotonic() - self.started, 2), "kind": kind, **fields}
+        line = json.dumps(event, separators=(",", ":"))
+        with self.lock:
+            self.handle.write(line + "\n")
+            self.handle.flush()
+
+
+def pump(stream_name, pipe, log):
+    decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+    buffer = ""
+    while True:
+        chunk = os.read(pipe.fileno(), READ_BYTES)
+        at_eof = not chunk
+        buffer += decoder.decode(chunk, final=at_eof)
+        segments, buffer = complete_segments(buffer, at_eof)
+        for text, ending in segments:
+            kind = "progress" if ending == "\r" else "line"
+            log.write(kind, stream=stream_name, text=clean(text))
+        if at_eof:
+            break
+    if buffer:
+        log.write("line", stream=stream_name, text=clean(buffer))
+
+
+class Runner:
+    def __init__(self, log):
+        self.log = log
+        self.child = None
+        self.cancelled = False
+
+    def cancel(self, signum, frame):
+        self.cancelled = True
+        self.signal_child_group()
+
+    def signal_child_group(self):
+        if self.child is None:
+            return
+        try:
+            os.killpg(self.child.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+
+    def execute(self, argv):
+        try:
+            self.child = subprocess.Popen(
+                argv,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                start_new_session=True,
+            )
+        except OSError as error:
+            message = f"console-run: cannot start {argv[0]}: {error.strerror}"
+            self.log.write("line", stream="stderr", text=message)
+            return MISSING_PROGRAM_CODE
+        if self.cancelled:
+            self.signal_child_group()
+        pipes = (("stdout", self.child.stdout), ("stderr", self.child.stderr))
+        readers = [
+            threading.Thread(target=pump, args=(name, pipe, self.log))
+            for name, pipe in pipes
+        ]
+        for reader in readers:
+            reader.start()
+        for reader in readers:
+            reader.join()
+        return self.child.wait()
+
+
+def main(arguments=None):
+    options = parse_arguments(sys.argv[1:] if arguments is None else arguments)
+    try:
+        handle = create_log(options.log)
+    except FileExistsError:
+        sys.stderr.write(f"console-run: log already exists: {options.log}\n")
+        return REFUSED_LOG_CODE
+    log = RunLog(handle)
+    runner = Runner(log)
+    signal.signal(signal.SIGTERM, runner.cancel)
+    log.write(
+        "start",
+        id=options.id,
+        command=options.command,
+        label=options.label,
+        argv=options.argv,
+        pid=os.getpid(),
+        started_at=utc_now(),
+    )
+    code = runner.execute(options.argv)
+    log.write("end", code=code, cancelled=runner.cancelled)
+    handle.close()
+    return 0
+
+
+sys.exit(main())
