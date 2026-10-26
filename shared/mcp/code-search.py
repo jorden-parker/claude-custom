@@ -13,7 +13,13 @@ import urllib.request
 from collections import Counter
 from pathlib import Path
 
-OLLAMA_URL = os.environ.get("CODE_SEARCH_OLLAMA_URL", "http://localhost:11434")
+
+def ollama_url():
+    url = os.environ.get("CODE_SEARCH_OLLAMA_URL") or os.environ.get("OLLAMA_HOST") or "http://localhost:11434"
+    return url if url.startswith(("http://", "https://")) else f"http://{url}"
+
+
+OLLAMA_URL = ollama_url()
 EMBED_MODEL = os.environ.get("CODE_SEARCH_MODEL") or "qwen3-embedding:0.6b"
 DIMENSIONS = 256
 CHUNK_LINES = 40
@@ -145,6 +151,15 @@ def normalized(vector):
     return [round(value / norm, 5) for value in head]
 
 
+def failure_reason(error):
+    if not isinstance(error, urllib.error.HTTPError):
+        return str(error)
+    try:
+        return f"{error}: {json.load(error)['error']}"
+    except (OSError, KeyError, TypeError, ValueError):
+        return str(error)
+
+
 def embed(texts):
     vectors = []
     for start in range(0, len(texts), EMBED_BATCH):
@@ -163,7 +178,7 @@ def embed_batch(texts):
             return [normalized(vector) for vector in json.load(response)["embeddings"]]
     except (urllib.error.URLError, OSError, KeyError, ValueError) as error:
         raise SearchError(
-            f"Embedding request to {OLLAMA_URL} failed ({error}). Check that `ollama serve` "
+            f"Embedding request to {OLLAMA_URL} failed ({failure_reason(error)}). Check that `ollama serve` "
             f"is running and run `ollama pull {EMBED_MODEL}` (or run `claude-ollama` and pick "
             "'Set up embedding model'). Use `git grep -n` until then."
         ) from error

@@ -49,8 +49,12 @@ class Handler(BaseHTTPRequestHandler):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         with open(log_path, "a") as log:
             log.write(json.dumps({"path": self.path, "model": body["model"], "inputs": len(body["input"]), "keep_alive": body.get("keep_alive")}) + "\n")
-        payload = json.dumps({"embeddings": [word_vector(text) for text in body["input"]]}).encode()
-        self.send_response(200)
+        if body["model"] == "missing-model":
+            payload = json.dumps({"error": 'model "missing-model" not found, try pulling it first'}).encode()
+            self.send_response(404)
+        else:
+            payload = json.dumps({"embeddings": [word_vector(text) for text in body["input"]]}).encode()
+            self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
@@ -335,6 +339,14 @@ survived="$(search "filler")"
 chmod 644 "$repo/src/locked.py"
 check "an unreadable file is skipped, not fatal" [ "$(printf '%s' "$survived" | reply_is_error)" = "False" ]
 check "symlinks are not indexed" lacks "$(printf '%s' "$survived" | reply_text)" "src/link-out"
+
+missing="$(CODE_SEARCH_EMBED=1 CODE_SEARCH_MODEL=missing-model search "filler" | reply_text)"
+check "an Ollama error reply is shown with its reason" contains "$missing" 'model "missing-model" not found, try pulling it first'
+
+stub_host="${CODE_SEARCH_OLLAMA_URL#http://}"
+rm -f "$tmp/embed.log"
+(cd "$repo" && env -u CODE_SEARCH_OLLAMA_URL OLLAMA_HOST="$stub_host" CODE_SEARCH_EMBED=1 python3 "$tmp/client.py" "$server" semantic_search '{"query": "filler"}' >/dev/null)
+check "OLLAMA_HOST picks the Ollama server when CODE_SEARCH_OLLAMA_URL is unset" [ -s "$tmp/embed.log" ]
 
 if [ "$failures" -ne 0 ]; then
   echo "$failures failed"
