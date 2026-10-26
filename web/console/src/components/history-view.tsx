@@ -7,7 +7,6 @@ import type { HistoryChange, HistoryEntry } from "@/lib/history";
 
 export function HistoryView() {
   const [entries, setEntries] = useState<HistoryEntry[] | null>(null);
-  const [kind, setKind] = useState("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<HistoryChange | null>(null);
   const [confirming, setConfirming] = useState(false);
@@ -43,8 +42,6 @@ export function HistoryView() {
     return <EmptyHistory />;
   }
 
-  const kinds = [...new Set(entries.map((entry) => entry.kind))];
-  const visible = kind === "all" ? entries : entries.filter((entry) => entry.kind === kind);
   const shown = detail !== null && detail.entry.id === selectedId ? detail : null;
 
   const selectEntry = (id: string) => {
@@ -68,45 +65,7 @@ export function HistoryView() {
 
   return (
     <section className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)]">
-      <div className="flex flex-col gap-3">
-        <label className="flex items-center gap-2 text-sm">
-          Kind
-          <select
-            value={kind}
-            onChange={(event) => setKind(event.target.value)}
-            className="rounded-md border bg-background px-2 py-1"
-          >
-            <option value="all">All kinds</option>
-            {kinds.map((name) => (
-              <option key={name} value={name}>
-                {name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <ul className="flex flex-col gap-1">
-          {visible.map((entry) => (
-            <li key={entry.id}>
-              <button
-                type="button"
-                onClick={() => selectEntry(entry.id)}
-                aria-pressed={entry.id === selectedId}
-                className={`flex w-full flex-col gap-1 rounded-md border px-3 py-2 text-left text-sm ${
-                  entry.id === selectedId ? "bg-muted" : ""
-                }`}
-              >
-                <span className="flex flex-wrap gap-2 text-xs">
-                  <span className="rounded border px-1">{entry.kind}</span>
-                  <span className="text-muted-foreground">{entry.source}</span>
-                  <span>{formatTime(entry.at)}</span>
-                  {entry.id === highlightId ? <span className="font-medium text-green-700">new</span> : null}
-                </span>
-                <span className="break-all font-mono text-xs">{entry.path}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      </div>
+      <HistoryList entries={entries} selectedId={selectedId} highlightId={highlightId} onSelect={selectEntry} />
       <div className="flex flex-col gap-3">
         {shown === null ? (
           <p className="text-sm text-muted-foreground">Select a change to see its diff.</p>
@@ -122,6 +81,63 @@ export function HistoryView() {
         )}
       </div>
     </section>
+  );
+}
+
+function HistoryList({
+  entries,
+  selectedId,
+  highlightId,
+  onSelect,
+}: {
+  entries: HistoryEntry[];
+  selectedId: string | null;
+  highlightId: string | null;
+  onSelect: (id: string) => void;
+}) {
+  const [kind, setKind] = useState("all");
+  const kinds = [...new Set(entries.map((entry) => entry.kind))];
+  const visible = kind === "all" ? entries : entries.filter((entry) => entry.kind === kind);
+  return (
+    <div className="flex flex-col gap-3">
+      <label className="flex items-center gap-2 text-sm">
+        Kind
+        <select
+          value={kind}
+          onChange={(event) => setKind(event.target.value)}
+          className="rounded-md border bg-background px-2 py-1"
+        >
+          <option value="all">All kinds</option>
+          {kinds.map((name) => (
+            <option key={name} value={name}>
+              {name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <ul className="flex flex-col gap-1">
+        {visible.map((entry) => (
+          <li key={entry.id}>
+            <button
+              type="button"
+              onClick={() => onSelect(entry.id)}
+              aria-pressed={entry.id === selectedId}
+              className={`flex w-full flex-col gap-1 rounded-md border px-3 py-2 text-left text-sm ${
+                entry.id === selectedId ? "bg-muted" : ""
+              }`}
+            >
+              <span className="flex flex-wrap gap-2 text-xs">
+                <span className="rounded border px-1">{entry.kind}</span>
+                <span className="text-muted-foreground">{entry.source}</span>
+                <span>{formatTime(entry.at)}</span>
+                {entry.id === highlightId ? <span className="font-medium text-green-700">new</span> : null}
+              </span>
+              <span className="break-all font-mono text-xs">{entry.path}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
