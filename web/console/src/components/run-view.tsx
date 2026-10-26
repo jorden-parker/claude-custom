@@ -6,10 +6,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { parseRunEvent } from "@/lib/run-event";
+import { percentFrom, phaseFrom } from "@/lib/pull-progress";
 import { elapsedSeconds, formatElapsed, reduceRunMessage, statusOf } from "@/lib/run-display";
 import type { RunStatus, RunSummary } from "@/lib/run-log";
 import { initialRunState, type RunState } from "@/lib/run-state";
 import { runStatusLabel, runStatusTextClass } from "@/lib/run-status-style";
+import { ProgressBar } from "@/components/progress-bar";
 
 const TICK_MS = 1000;
 const STATUS_POLL_MS = 2000;
@@ -129,6 +131,10 @@ function StageBar({ stage }: { stage: NonNullable<RunState["stage"]> }) {
 
 function ProgressLines({ progress }: { progress: RunState["progress"] }) {
   const texts = [progress.stdout, progress.stderr].filter((text): text is string => text !== undefined);
+  const measured = measuredProgress(texts);
+  if (measured !== null) {
+    return <ProgressBar percent={measured.percent} phase={phaseFrom(measured.text)} text={measured.text} />;
+  }
   if (texts.length === 0) {
     return null;
   }
@@ -142,6 +148,16 @@ function ProgressLines({ progress }: { progress: RunState["progress"] }) {
       ))}
     </div>
   );
+}
+
+function measuredProgress(texts: string[]): { percent: number; text: string } | null {
+  for (const text of texts) {
+    const percent = percentFrom(text);
+    if (percent !== null) {
+      return { percent, text };
+    }
+  }
+  return null;
 }
 
 function EndBanner({ status, code }: { status: RunStatus; code: number }) {

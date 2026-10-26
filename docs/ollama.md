@@ -347,3 +347,17 @@ running job. Every run is kept in `$CLAUDE_CONSOLE_STATE_DIR/runs` (default
 `bin/console-run`; a run whose runner died shows as lost. Run logs are kept
 until you delete them: nothing removes them. Only one run of a command runs at a
 time.
+
+#### Models
+
+`/models` lists every configured size with its model, base and a status
+(installed, missing or mismatch against the pin), then each installed model
+with its class, size on disk and whether Ollama has it loaded. It refreshes
+every 5 seconds and shows an Ollama-not-running banner when the server does not
+answer. Prepare starts `claude-ollama prepare SIZE` as a run and shows its
+progress bar; a missing size can take many gigabytes to download. Remove unused
+models opens a panel that lists exactly the third-party and orphan models it
+would remove, with their total size, and starts `ollama-models prune --yes --only
+NAME...` only after you press Remove these. The page only previews: the script
+re-checks each name when it removes it, so a model that stopped being prunable
+is skipped. Pinning stays in the terminal.
