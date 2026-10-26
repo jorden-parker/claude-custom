@@ -7,6 +7,10 @@ import { CONSOLE_COMMANDS, CONSOLE_QUERIES, findCommand } from "./console-comman
 describe("console commands", () => {
   let repo: string;
   const doctor = () => findCommand("doctor");
+  const serverSet = () => findCommand("server-set");
+  const serverApply = () => findCommand("server-apply");
+  const speedCheck = () => findCommand("speed-check");
+  const agent = () => `${repo}/bin/ollama-agent`;
 
   beforeEach(() => {
     repo = fs.mkdtempSync(path.join(os.tmpdir(), "console-commands-"));
@@ -19,8 +23,14 @@ describe("console commands", () => {
     fs.rmSync(repo, { recursive: true, force: true });
   });
 
-  it("lists doctor and review", () => {
-    expect(CONSOLE_COMMANDS.map((command) => command.name)).toEqual(["doctor", "review"]);
+  it("lists every console command", () => {
+    expect(CONSOLE_COMMANDS.map((command) => command.name)).toEqual([
+      "doctor",
+      "review",
+      "server-set",
+      "server-apply",
+      "speed-check",
+    ]);
   });
 
   it("builds the doctor argv for a configured size", () => {
@@ -99,6 +109,58 @@ describe("console commands", () => {
       vi.stubEnv("CONSOLE_PROJECT_DIR", path.join(repo, "ollama", "Modelfile.27b"));
       expect(review()?.argv({ size: "27b", pr: "12" }, repo)).toBeNull();
     });
+  });
+
+  it("builds one -set pair per assignment", () => {
+    expect(serverSet()?.argv({ assignments: "OLLAMA_KEEP_ALIVE=1h,OLLAMA_DEBUG=1" }, repo)).toEqual([
+      agent(),
+      "-set",
+      "OLLAMA_KEEP_ALIVE=1h",
+      "-set",
+      "OLLAMA_DEBUG=1",
+    ]);
+  });
+
+  it("labels server-set with its assignments", () => {
+    expect(
+      serverSet()?.label({
+        assignments: "OLLAMA_KEEP_ALIVE=1h,OLLAMA_DEBUG=1",
+      }),
+    ).toBe("Set OLLAMA_KEEP_ALIVE=1h, OLLAMA_DEBUG=1");
+  });
+
+  it("refuses server-set with an invalid, read-only, duplicate or empty assignment", () => {
+    for (const assignments of [
+      "OLLAMA_KEEP_ALIVE=30x",
+      "OLLAMA_HOST=0.0.0.0",
+      "OLLAMA_ORIGINS=*",
+      "OLLAMA_DEBUG=1,OLLAMA_DEBUG=0",
+      "OLLAMA_DEBUG",
+      "",
+    ]) {
+      expect(serverSet()?.argv({ assignments }, repo)).toBeNull();
+    }
+  });
+
+  it("refuses server-set with more than eight assignments", () => {
+    const nine = Array.from({ length: 9 }, () => "OLLAMA_DEBUG=1");
+    expect(serverSet()?.argv({ assignments: nine.join(",") }, repo)).toBeNull();
+  });
+
+  it("refuses server-set with an extra key", () => {
+    expect(serverSet()?.argv({ assignments: "OLLAMA_DEBUG=1", size: "27b" }, repo)).toBeNull();
+  });
+
+  it("builds the server-apply argv with no parameters", () => {
+    expect(serverApply()?.argv({}, repo)).toEqual([agent(), "-apply"]);
+    expect(serverApply()?.label({})).toBe("Apply server.env");
+    expect(serverApply()?.argv({ size: "27b" }, repo)).toBeNull();
+  });
+
+  it("builds the speed-check argv with no parameters", () => {
+    expect(speedCheck()?.argv({}, repo)).toEqual([`${repo}/bin/claude-ollama`, "speed-check"]);
+    expect(speedCheck()?.label({})).toBe("Speed check");
+    expect(speedCheck()?.argv({ size: "27b" }, repo)).toBeNull();
   });
 
   it("returns undefined for an unknown command", () => {

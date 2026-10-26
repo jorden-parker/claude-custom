@@ -371,3 +371,28 @@ amber, debug muted), can be filtered by substring, and can be paused and resumed
 (while paused, new lines are counted). The view keeps the last 5000 lines. It
 starts from the last 64 KiB of the file and restarts from the top when the file
 shrinks. The page only reads the log and never takes a path from the request.
+
+#### Server
+
+`/server` shows the `local.ollama` LaunchAgent's `OLLAMA_*` values next to the
+recommended ones from `ollama/server.env`, and marks a value that differs. Eight
+tuning variables are editable (`OLLAMA_KEEP_ALIVE`, `OLLAMA_MAX_LOADED_MODELS`,
+`OLLAMA_NUM_PARALLEL`, `OLLAMA_MAX_QUEUE`, `OLLAMA_CONTEXT_LENGTH`,
+`OLLAMA_FLASH_ATTENTION`, `OLLAMA_DEBUG`, `OLLAMA_KV_CACHE_TYPE`); each input
+checks its value as you type, and Save stays disabled until every change is
+valid. Save and reload runs `ollama-agent -set` for the changed values, and
+Apply recommended runs `ollama-agent -apply`. Both stream inline, then the page
+waits up to 30 s for Ollama to answer again. A running Ollama app or a loaded
+brew service blocks both buttons. `OLLAMA_HOST`, `OLLAMA_ORIGINS` and
+`OLLAMA_MODELS` stay read-only here: a wrong `OLLAMA_ORIGINS` lets web pages
+call the local model, a wrong `OLLAMA_HOST` exposes it, and a wrong
+`OLLAMA_MODELS` points at another folder. Change them with
+`claude-custom agent`.
+
+#### Speed check
+
+`/speed-check` starts `claude-ollama speed-check` (it pulls up to four sizes and
+takes a long time; it needs AC power and about 45 GB free) and lists every past
+verdict in `~/bench-results`, newest first, with a button that copies the paste
+block. A failed run is listed with a link to its run page, which shows the
+`speed-check stopped` line. Files that do not parse are skipped.

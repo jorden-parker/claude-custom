@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import { configuredSizes } from "./sizes";
+import { validServerValue } from "./server-vars";
 
 export type CommandParams = Record<string, string>;
 
@@ -16,9 +17,12 @@ export type ConsoleQuery = {
   argv: (params: CommandParams, repoDir: string) => string[] | null;
 };
 
+type Assignment = { name: string; value: string };
+
+const MAX_ASSIGNMENTS = 8;
+
 function isConfiguredSizeOnly(params: CommandParams, repoDir: string): boolean {
-  const onlySize = Object.keys(params).every((key) => key === "size");
-  return onlySize && configuredSizes(repoDir).includes(params.size);
+  return hasExactKeys(params, ["size"]) && configuredSizes(repoDir).includes(params.size);
 }
 
 const doctor: ConsoleCommand = {
@@ -41,9 +45,13 @@ const review: ConsoleCommand = {
   name: "review",
   label: (params) => `Review PR ${params.pr} (${params.size})`,
   argv: (params, repoDir) => {
-    const onlySizeAndPr = Object.keys(params).every((key) => key === "size" || key === "pr");
     const validPr = PR_NUMBER_PATTERN.test(params.pr ?? "");
-    if (!onlySizeAndPr || !validPr || !configuredSizes(repoDir).includes(params.size) || !projectDirectory()) {
+    if (
+      !hasExactKeys(params, ["size", "pr"]) ||
+      !validPr ||
+      !configuredSizes(repoDir).includes(params.size) ||
+      !projectDirectory()
+    ) {
       return null;
     }
     return [`${repoDir}/bin/claude-ollama`, "review", params.size, params.pr];
@@ -51,7 +59,31 @@ const review: ConsoleCommand = {
   cwd: projectDirectory,
 };
 
-export const CONSOLE_COMMANDS: readonly ConsoleCommand[] = [doctor, review];
+const serverSet: ConsoleCommand = {
+  name: "server-set",
+  label: (params) => `Set ${params.assignments.split(",").join(", ")}`,
+  argv: (params, repoDir) => {
+    const assignments = hasExactKeys(params, ["assignments"]) ? parseAssignments(params.assignments) : null;
+    if (assignments === null) {
+      return null;
+    }
+    return [ollamaAgentPath(repoDir), ...assignments.flatMap(({ name, value }) => ["-set", `${name}=${value}`])];
+  },
+};
+
+const serverApply: ConsoleCommand = {
+  name: "server-apply",
+  label: () => "Apply server.env",
+  argv: (params, repoDir) => (hasExactKeys(params, []) ? [ollamaAgentPath(repoDir), "-apply"] : null),
+};
+
+const speedCheck: ConsoleCommand = {
+  name: "speed-check",
+  label: () => "Speed check",
+  argv: (params, repoDir) => (hasExactKeys(params, []) ? [`${repoDir}/bin/claude-ollama`, "speed-check"] : null),
+};
+
+export const CONSOLE_COMMANDS: readonly ConsoleCommand[] = [doctor, review, serverSet, serverApply, speedCheck];
 
 export const CONSOLE_QUERIES = {
   printConfig: {
@@ -74,4 +106,33 @@ export const CONSOLE_QUERIES = {
 
 export function findCommand(name: string): ConsoleCommand | undefined {
   return CONSOLE_COMMANDS.find((command) => command.name === name);
+}
+
+function ollamaAgentPath(repoDir: string): string {
+  return `${repoDir}/bin/ollama-agent`;
+}
+
+function hasExactKeys(params: CommandParams, keys: readonly string[]): boolean {
+  const names = Object.keys(params);
+  return names.length === keys.length && keys.every((key) => names.includes(key));
+}
+
+function parseAssignments(text: string): Assignment[] | null {
+  const parts = text.split(",");
+  if (parts.length > MAX_ASSIGNMENTS) {
+    return null;
+  }
+  const assignments = parts.map(splitAssignment).filter((item): item is Assignment => item !== null);
+  if (assignments.length !== parts.length || new Set(assignments.map(({ name }) => name)).size !== parts.length) {
+    return null;
+  }
+  return assignments.every(({ name, value }) => validServerValue(name, value)) ? assignments : null;
+}
+
+function splitAssignment(part: string): Assignment | null {
+  const equals = part.indexOf("=");
+  if (equals < 0) {
+    return null;
+  }
+  return { name: part.slice(0, equals), value: part.slice(equals + 1) };
 }
