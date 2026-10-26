@@ -59,6 +59,7 @@ new_sandbox() {
   mkdir -p "$HOME" "$sandbox/stubbin"
   unset ZDOTDIR XDG_CONFIG_HOME CLAUDE_CONFIG_DIR STUB_OLLAMA_SHOW_EXIT STUB_OLLAMA_PULL_EXIT
   unset STUB_OLLAMA_PID STUB_OLLAMA_ENV STUB_CURL_EXIT STUB_OLLAMA_NUM_CTX STUB_AGENT_EXIT CMUX_SOCKET_PATH CLAUDE_OLLAMA_CMUX
+  unset STUB_SHASUM_DIGEST STUB_INSPECT_EXIT
   export SHELL=/bin/zsh
   record_installed_num_ctx
   export CLAUDE_OLLAMA_MANAGED_SETTINGS="$sandbox/managed-settings.json"
@@ -118,9 +119,25 @@ exit 0
 EOF
   cat > "$sandbox/stubbin/curl" <<EOF
 #!/bin/sh
-echo "\$*" >> "$sandbox/curl.log"
-case "\$*" in *api/tags*) cat "$sandbox/tags.json" ;; esac
+arguments="\$*"
+echo "\$arguments" >> "$sandbox/curl.log"
+output=""
+while [ \$# -gt 0 ]; do
+  [ "\$1" = -o ] && output="\$2"
+  shift
+done
+case "\$arguments" in *api/tags*) cat "$sandbox/tags.json" ;; esac
+case "\$arguments" in *huggingface.co*) printf 'stub weights' > "\$output" ;; esac
 exit "\${STUB_CURL_EXIT:-0}"
+EOF
+  cat > "$sandbox/stubbin/shasum" <<'EOF'
+#!/bin/sh
+echo "${STUB_SHASUM_DIGEST:-0000000000000000000000000000000000000000000000000000000000000000}  $2"
+EOF
+  cat > "$sandbox/stubbin/gguf-inspect" <<EOF
+#!/bin/sh
+echo "\$*" >> "$sandbox/inspect.log"
+exit "\${STUB_INSPECT_EXIT:-0}"
 EOF
   pinned_tags > "$sandbox/tags.json"
   cat > "$sandbox/stubbin/python3" <<EOF
@@ -133,6 +150,7 @@ echo "\$*" >> "$sandbox/agent.log"
 exit "\${STUB_AGENT_EXIT:-0}"
 EOF
   export CLAUDE_OLLAMA_AGENT="$sandbox/stubbin/ollama-agent"
+  export CLAUDE_OLLAMA_GGUF_INSPECT="$sandbox/stubbin/gguf-inspect"
   cat > "$sandbox/stubbin/pgrep" <<'EOF'
 #!/bin/sh
 [ -n "${STUB_OLLAMA_PID:-}" ] && echo "$STUB_OLLAMA_PID"
@@ -141,7 +159,7 @@ EOF
 #!/bin/sh
 echo "ollama serve ${STUB_OLLAMA_ENV:-}"
 EOF
-  chmod +x "$sandbox/stubbin/claude" "$sandbox/stubbin/ollama" "$sandbox/stubbin/ollama-agent" "$sandbox/stubbin/curl" "$sandbox/stubbin/python3" "$sandbox/stubbin/pgrep" "$sandbox/stubbin/ps"
+  chmod +x "$sandbox/stubbin/claude" "$sandbox/stubbin/ollama" "$sandbox/stubbin/ollama-agent" "$sandbox/stubbin/curl" "$sandbox/stubbin/python3" "$sandbox/stubbin/pgrep" "$sandbox/stubbin/ps" "$sandbox/stubbin/shasum" "$sandbox/stubbin/gguf-inspect"
   link_system_tools
   export PATH="$sandbox/stubbin:$sandbox/sysbin"
 }
@@ -282,6 +300,32 @@ check_eq "claude-ollama 27b failed pull exit status" 1 "$?"
 check_not "claude-ollama 27b failed pull does not create" grep -sq '^create ' "$sandbox/ollama.log"
 check_not "claude-ollama 27b failed pull does not launch claude" grep -q '^ARGS:' "$sandbox/out"
 new_sandbox
+STUB_SHASUM_DIGEST=3f227079003add2511437e5b1e94812e363385225bf6a9b47b0054a72bc8b01e STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" 27b-gguf -p hi
+check_eq "claude-ollama 27b-gguf imports after a matching digest" 0 "$?"
+check_that "claude-ollama 27b-gguf downloads the pinned Hugging Face file" grep -qF "https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/4ca720788d1e01f1bff70c033e0d0028fd02e502/Qwen3.8-27B-UD-Q4_K_XL.gguf" "$sandbox/curl.log"
+check_that "claude-ollama 27b-gguf creates the model from its Modelfile" grep -qxF "create qwen3.8-27b-gguf-cc -f Modelfile.27b-gguf" "$sandbox/ollama.log"
+check_not "claude-ollama 27b-gguf never pulls its weights" grep -q '^pull \./weights' "$sandbox/ollama.log"
+check_that "claude-ollama 27b-gguf launches after importing" grep -qF -- "--model qwen3.8-27b-gguf-cc --tools" "$sandbox/out"
+check_not "claude-ollama 27b-gguf removes the verified download" test -e "$repo/ollama/weights/Qwen3.8-27B-UD-Q4_K_XL.gguf"
+check_not "claude-ollama 27b-gguf leaves no partial download" test -e "$repo/ollama/weights/Qwen3.8-27B-UD-Q4_K_XL.gguf.part"
+new_sandbox
+STUB_SHASUM_DIGEST=abc STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" 27b-gguf -p hi
+check_eq "claude-ollama 27b-gguf exits 1 on a wrong digest" 1 "$?"
+check_that "claude-ollama 27b-gguf names the actual and pinned digests" grep -qF "sha256 abc, but ollama/model-digests.json pins 3f227079003add2511437e5b1e94812e363385225bf6a9b47b0054a72bc8b01e" "$sandbox/err"
+check_not "claude-ollama 27b-gguf does not create after a wrong digest" grep -sq '^create ' "$sandbox/ollama.log"
+check_not "claude-ollama 27b-gguf does not launch after a wrong digest" grep -q '^ARGS:' "$sandbox/out"
+check_not "claude-ollama 27b-gguf removes the download after a wrong digest" test -e "$repo/ollama/weights/Qwen3.8-27B-UD-Q4_K_XL.gguf.part"
+new_sandbox
+STUB_SHASUM_DIGEST=3f227079003add2511437e5b1e94812e363385225bf6a9b47b0054a72bc8b01e STUB_INSPECT_EXIT=1 STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" 27b-gguf -p hi
+check_eq "claude-ollama 27b-gguf exits 1 when inspection fails" 1 "$?"
+check_that "claude-ollama 27b-gguf says the file failed inspection" grep -qF "failed inspection; not importing" "$sandbox/err"
+check_not "claude-ollama 27b-gguf does not create after failed inspection" grep -sq '^create ' "$sandbox/ollama.log"
+check_not "claude-ollama 27b-gguf does not launch after failed inspection" grep -q '^ARGS:' "$sandbox/out"
+check_not "claude-ollama 27b-gguf removes the download after failed inspection" test -e "$repo/ollama/weights/Qwen3.8-27B-UD-Q4_K_XL.gguf.part"
+new_sandbox
+run_capture "$repo/bin/claude-ollama" 27b-gguf -p hi
+check_not "claude-ollama 27b-gguf does not download when the model is installed" grep -qF huggingface.co "$sandbox/curl.log"
+new_sandbox
 STUB_OLLAMA_NUM_CTX=16384 run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "claude-ollama recreates a model with a stale num_ctx" grep -qE '^create qwen3.8-27b-cc -f ' "$sandbox/ollama.log"
 check_that "the recreated model builds on the installed one" grep -qxF "modelfile: FROM qwen3.8-27b-cc" "$sandbox/ollama.log"
@@ -315,7 +359,7 @@ check_that "claude-ollama creates from a base that matches its pin" grep -qxF "c
 new_sandbox
 run_capture "$repo/bin/claude-ollama" --help
 check_eq "claude-ollama help exit status" 0 "$?"
-check_that "claude-ollama help lists sizes" grep -qxF "sizes: 27b 35b-coding 35b" "$sandbox/out"
+check_that "claude-ollama help lists sizes" grep -qxF "sizes: 27b-gguf 27b 35b-coding 35b-gguf 35b" "$sandbox/out"
 check_not "claude-ollama help does not launch claude" grep -q '^ARGS:' "$sandbox/out"
 run_capture "$repo/bin/claude-ollama" 28b -p hi </dev/null
 check_that "claude-ollama unknown size without a tty falls back to 27b" grep -qF -- "$ollama_settings" "$sandbox/out"
@@ -332,7 +376,7 @@ run_capture "$sandbox/repo/bin/claude-ollama" 9b -p hi
 check_that "claude-ollama accepts a newly configured size" grep -qF -- "--settings $sandbox/repo/ollama/settings.9b.json" "$sandbox/out"
 check_not "claude-ollama does not pass a configured size to claude" grep -qF -- "Write 9b" "$sandbox/out"
 run_capture "$sandbox/repo/bin/claude-ollama" --help
-check_that "claude-ollama help lists sizes from config" grep -qxF "sizes: 27b 35b-coding 35b 9b" "$sandbox/out"
+check_that "claude-ollama help lists sizes from config" grep -qxF "sizes: 27b-gguf 27b 35b-coding 35b-gguf 35b 9b" "$sandbox/out"
 
 cat > "$sandbox/stubbin/go" <<'STUB'
 #!/bin/sh

@@ -12,6 +12,7 @@ ollama_url="${OLLAMA_HOST:-http://localhost:11434}"
 case "$ollama_url" in http://*|https://*) ;; *) ollama_url="http://$ollama_url" ;; esac
 keep_alive="${CLAUDE_OLLAMA_KEEP_ALIVE:-30m}"
 ollama_agent="${CLAUDE_OLLAMA_AGENT:-$repo_dir/bin/ollama-agent}"
+gguf_inspect="${CLAUDE_OLLAMA_GGUF_INSPECT:-$repo_dir/bin/gguf-inspect}"
 sandbox_runtime="$HOME/.local/share/claude-custom/sandbox-runtime/node_modules/.bin/srt"
 session_config_dir="$HOME/.claude-ollama"
 sandbox_policy="$session_config_dir/sandbox-policy.json"
@@ -124,9 +125,60 @@ verify_installed_models() {
   done
 }
 
+gguf_source() {
+  jq -r --arg size "$size" '.[$size].gguf // empty | "\(.repo) \(.revision)"' "$profile_dir/sizes.json"
+}
+
+is_gguf_base() {
+  case "$(base_model)" in
+    ./weights/*.gguf) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+import_gguf() {
+  local base source repo revision name file part pin actual created=0
+  base="$(base_model)"
+  source="$(gguf_source)"
+  pin="$(pinned_digest "$base")"
+  if [ -z "$source" ] || [ -z "$pin" ]; then
+    echo "claude-ollama: $base needs a pinned source in sizes.json and a digest in model-digests.json; refusing to download" >&2
+    return 1
+  fi
+  read -r repo revision <<<"$source"
+  name="${base##*/}"
+  file="$profile_dir/${base#./}"
+  part="$file.part"
+  mkdir -p "$profile_dir/weights"
+  echo "claude-ollama: downloading $repo/$name (pinned $revision)" >&2
+  if ! curl -fL --retry 3 -C - -o "$part" "https://huggingface.co/$repo/resolve/$revision/$name"; then
+    rm -f "$part"
+    return 1
+  fi
+  actual="$(shasum -a 256 "$part" | cut -d' ' -f1)"
+  if [ "$actual" != "$pin" ]; then
+    echo "claude-ollama: $name has sha256 $actual, but ollama/model-digests.json pins $pin; not importing" >&2
+    rm -f "$part"
+    return 1
+  fi
+  if ! "$gguf_inspect" "$part" >&2; then
+    echo "claude-ollama: $name failed inspection; not importing" >&2
+    rm -f "$part"
+    return 1
+  fi
+  mv "$part" "$file"
+  (cd "$profile_dir" && ollama create "$model" -f "Modelfile.$size") && created=1
+  rm -f "$file"
+  [ "$created" = 1 ]
+}
+
 ensure_model() {
   if ollama show "$model" >/dev/null 2>&1; then
     refresh_num_ctx "$model" "$(modelfile_num_ctx)"
+    return
+  fi
+  if is_gguf_base; then
+    import_gguf || exit 1
     return
   fi
   ollama pull "$(base_model)"
