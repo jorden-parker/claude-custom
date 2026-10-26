@@ -343,6 +343,21 @@ run_capture "$repo/bin/claude-ollama" prepare 27b
 check_eq "claude-ollama prepare exits 0 when the model is installed" 0 "$?"
 check_not "claude-ollama prepare leaves an installed model alone" grep -sq '^create ' "$sandbox/ollama.log"
 check_not "claude-ollama prepare of an installed model does not launch claude" grep -q '^ARGS:' "$sandbox/out"
+
+new_sandbox
+STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" prepare-embedding
+check_eq "claude-ollama prepare-embedding exits 0 after pulling" 0 "$?"
+check_that "claude-ollama prepare-embedding pulls the embedding model" grep -qxF "pull qwen3-embedding:0.6b" "$sandbox/ollama.log"
+check_not "claude-ollama prepare-embedding does not launch claude" grep -q '^ARGS:' "$sandbox/out"
+
+new_sandbox
+run_capture "$repo/bin/claude-ollama" prepare-embedding
+check_eq "claude-ollama prepare-embedding exits 0 when the model is installed" 0 "$?"
+check_not "claude-ollama prepare-embedding pulls nothing when the model is installed" grep -sq '^pull ' "$sandbox/ollama.log"
+
+new_sandbox
+STUB_OLLAMA_SHOW_EXIT=1 STUB_OLLAMA_PULL_EXIT=1 run_capture "$repo/bin/claude-ollama" prepare-embedding
+check_eq "claude-ollama prepare-embedding exits 1 when the pull fails" 1 "$?"
 new_sandbox
 printf '#!/bin/sh\necho "speed-check args: $*"\n' > "$sandbox/stubbin/speed-check"
 chmod +x "$sandbox/stubbin/speed-check"
@@ -387,6 +402,7 @@ check_that "claude-ollama help lists sizes" grep -qxF "sizes: 27b-gguf 27b 35b-c
 check_not "claude-ollama help does not launch claude" grep -q '^ARGS:' "$sandbox/out"
 check_that "claude-ollama help names speed-check" grep -q '^speed-check: ' "$sandbox/out"
 check_that "claude-ollama help names prepare" grep -q '^prepare \[size\]: ' "$sandbox/out"
+check_that "claude-ollama help names prepare-embedding" grep -q '^prepare-embedding: ' "$sandbox/out"
 run_capture "$repo/bin/claude-ollama" 28b -p hi </dev/null
 check_that "claude-ollama unknown size without a tty falls back to 27b" grep -qF -- "$ollama_settings" "$sandbox/out"
 check_not "claude-ollama drops an unknown size" grep -qF "28b" "$sandbox/out"

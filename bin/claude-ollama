@@ -194,6 +194,11 @@ ensure_embedding_model() {
     echo "claude-ollama: could not pull $embedding_model; semantic_search will fail until you run claude-ollama and pick 'Set up embedding model'" >&2
 }
 
+prepare_embedding() {
+  ollama show "$embedding_model" >/dev/null 2>&1 && exit 0
+  exec ollama pull "$embedding_model"
+}
+
 mcp_config() {
   printf '{"mcpServers":{"code-search":{"command":"python3","args":["%s"]},"repo":{"command":"python3","args":["%s"]}}}' \
     "$repo_dir/shared/mcp/code-search.py" "$repo_dir/shared/mcp/repo-tools.py"
@@ -710,6 +715,7 @@ case "${1:-}" in
     echo "reviews [--port N]: serve live and past reviews at http://127.0.0.1:8765/"
     echo "github-token [read|push]: create a GitHub token in the browser and store it in the keychain (both without a kind)"
     echo "prepare [size]: pull or import the size's model and stop, without starting claude"
+    echo "prepare-embedding: pull the semantic_search embedding model and stop, without starting claude"
     echo "speed-check: check thinking is off and bench the GGUF sizes against the MLX ones, then print a verdict"
     exit 0 ;;
 esac
@@ -719,6 +725,7 @@ case "${1:-}" in
   doctor) mode=doctor; shift ;;
   --print-config) mode=print-config; shift ;;
   logs) mode=logs; shift ;;
+  prepare-embedding) mode=prepare-embedding; shift ;;
   review) mode=review; shift ;;
   ui) mode=ui; shift ;;
   reviews) mode=reviews; shift ;;
@@ -728,6 +735,7 @@ case "${1:-}" in
 esac
 
 [ "$mode" != logs ] || follow_logs "$@"
+[ "$mode" != prepare-embedding ] || prepare_embedding
 [ "$mode" != ui ] || serve_console ui console / "$@"
 [ "$mode" != reviews ] || serve_console reviews reviews /reviews "$@"
 [ "$mode" != github-token ] || setup_github_tokens "$@"
