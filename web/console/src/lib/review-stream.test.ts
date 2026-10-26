@@ -29,14 +29,16 @@ describe("streamReviewEvents", () => {
     reader = streamReviewEvents(file, controller.signal, skipLines).getReader();
   }
 
-  async function readUntil(done: (text: string) => boolean): Promise<string> {
+  async function readUntil(done: (chunkText: string) => boolean): Promise<string> {
     let text = "";
-    while (!done(text)) {
+    let chunkText = "";
+    while (!done(chunkText)) {
       const chunk = await reader.read();
       if (chunk.done) {
         break;
       }
-      text += decoder.decode(chunk.value, { stream: true });
+      chunkText = decoder.decode(chunk.value, { stream: true });
+      text += chunkText;
     }
     return text;
   }
