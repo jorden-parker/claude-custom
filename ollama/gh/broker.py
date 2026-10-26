@@ -20,10 +20,11 @@ READ_COMMANDS = {
     "search": {"issues", "prs", "repos", "commits", "code"},
 }
 BROWSER_FLAGS = {"--web", "-w"}
+OUTPUT_FILTER_FLAGS = {"--jq", "-q", "--template", "-t"}
 REPO_FLAGS = {"--repo", "-R"}
-API_SHORT_FLAGS = {"-q": "--jq", "-t": "--template", "-H": "--header", "-X": "--method", "-i": "--include"}
+API_SHORT_FLAGS = {"-H": "--header", "-X": "--method", "-i": "--include"}
 API_SWITCHES = {"--paginate", "--slurp", "--include", "--silent", "--verbose"}
-API_VALUE_FLAGS = {"--jq", "--template", "--cache", "--header", "--method"}
+API_VALUE_FLAGS = {"--header", "--method"}
 
 
 class Refused(Exception):
@@ -44,6 +45,12 @@ def require_no_browser(args):
     for arg in args:
         if arg.partition("=")[0] in BROWSER_FLAGS:
             raise Refused(f"{arg} would open a browser outside the sandbox")
+
+
+def require_no_output_filter(args):
+    for arg in args:
+        if arg.partition("=")[0] in OUTPUT_FILTER_FLAGS:
+            raise Refused(f"{arg} is not allowed: gh's filters can read its environment; pipe --json output to jq")
 
 
 def names_a_host(arg):
@@ -105,6 +112,7 @@ def require_read_command(args):
         raise Refused("a gh command is required")
     require_separate_short_flags(args)
     require_no_browser(args)
+    require_no_output_filter(args)
     require_github_only(args)
     if args[0] == "api":
         require_read_only_api(args[1:])

@@ -117,14 +117,16 @@ run_client run view 99 --log
 check_that "run view passes" logged "run view 99 --log"
 run_client search prs --author me
 check_that "search passes" logged "search prs --author me"
-run_client api repos/owner/project/pulls --jq '.[].title'
-check_that "api GET passes" logged "api repos/owner/project/pulls --jq .[].title"
+run_client api repos/owner/project/pulls
+check_that "api GET passes" logged "api repos/owner/project/pulls"
+run_client pr list --json number,title
+check_that "--json passes, so the session filters with its own jq" logged "pr list --json number,title"
 run_client api -X GET repos/owner/project/issues
 check_that "api with an explicit GET passes" logged "api -X GET repos/owner/project/issues"
 run_client api -H 'Accept: application/vnd.github.diff' repos/owner/project/pulls/1
 check_that "api with an Accept header passes" logged "api -H Accept: application/vnd.github.diff repos/owner/project/pulls/1"
-run_client api --paginate -q '.[].name' repos/owner/project/branches
-check_that "api --paginate with a short --jq passes" logged "api --paginate -q .[].name repos/owner/project/branches"
+run_client api --paginate --include repos/owner/project/branches
+check_that "api output switches pass" logged "api --paginate --include repos/owner/project/branches"
 
 refused() {
   : > "$tmp/gh.log"
@@ -155,6 +157,13 @@ check_that "api on a full URL is refused" refused api https://example.com/x
 check_that "api to another host is refused" refused api --hostname example.com repos/x/y
 check_that "api with a non-Accept header is refused" refused api -H 'X-HTTP-Method-Override: POST' repos/x/y
 check_that "an empty command is refused" refused
+check_that "api --jq, which can read the token from gh's environment, is refused" refused api repos/x/y --jq '$ENV.GH_TOKEN'
+check_that "api -q is refused" refused api repos/x/y -q env
+check_that "--jq on other commands is refused" refused pr list --json title --jq '$ENV'
+check_that "--jq= is refused" refused pr list --json title --jq=env
+check_that "--template is refused" refused pr view 12 --json title --template '{{.title}}'
+check_that "-t is refused" refused issue list --json title -t x
+check_that "api --cache is refused" refused api --cache 1h repos/x/y
 check_that "api with POST joined into short flags is refused" refused api -iXPOST repos/owner/project/issues
 check_that "api with a field joined into short flags is refused" refused api -pF body=@/etc/passwd repos/x/y
 check_that "api flags outside the allowlist are refused" refused api --unknown repos/x/y

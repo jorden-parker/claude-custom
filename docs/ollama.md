@@ -209,11 +209,12 @@ Running it again replaces the stored token.
   project's `origin`. The broker runs only read commands (`pr`
   `list/view/diff/checks/status`, `issue list/view/status`,
   `run`/`workflow`/`release` `list/view`, `repo view`, `search`, and `gh api` as
-  GET on REST paths), never `--web`, with each short flag on its own
-  (`-i -X GET`, not `-iXGET`), and only on github.com (no URLs or
-  `HOST/OWNER/REPO`). Pass a PR number to `pr view`: the broker can't see your
-  current branch. Without the token or `gh`, the session has no `gh`. A
-  `GH_TOKEN` or `GITHUB_TOKEN` from your shell never reaches the session.
+  GET on REST paths), never `--web` or `--jq`/`--template` (pipe `--json` output
+  to `jq` instead), with each short flag on its own (`-i -X GET`, not `-iXGET`),
+  and only on github.com (no URLs or `HOST/OWNER/REPO`). Pass a PR number to
+  `pr view`: the broker can't see your current branch. Without the token or
+  `gh`, the session has no `gh`. A `GH_TOKEN` or `GITHUB_TOKEN` from your shell
+  never reaches the session.
 
 `bin/ollama-models` manages the installed models:
 

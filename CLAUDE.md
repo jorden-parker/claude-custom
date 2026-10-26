@@ -333,33 +333,35 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   token as `GH_TOKEN` and `GH_REPO` from the project's GitHub `origin`.
   `ollama/sandbox-entry` puts `ollama/gh/bin/gh` (the client) first on PATH. The
   broker runs only an allowlist of read subcommands, plus `gh api` as GET on
-  REST paths with only `--jq`, `--template`, `--cache`, Accept headers and
-  output switches (no `graphql`). It refuses joined short flags (`-iXPOST`,
-  `-cw`), since gh splits them where the broker would not, `--web`, URLs and
-  host-qualified repos (the broker's network is unrestricted). gh runs from an
-  empty temp dir, so it reads no git config the session wrote, with
-  `GH_HOST=github.com` and an empty `GH_CONFIG_DIR`, so none of your saved
-  logins are reachable. The session never holds `GH_TOKEN` (an outer
-  `GH_TOKEN`/`GITHUB_TOKEN` is unset). Tests: `ollama/gh/broker.test.sh` (stub
-  `gh`); the launcher test runs the whole chain from a sandbox under `/tmp`,
-  since a Unix socket path must stay under 104 bytes. `allowLocalBinding` is on
-  because Ollama on localhost is reached directly, not through the proxy, which
-  also opens every other local port. `allowMachLookup` lets the session reach
-  the `com.apple.pasteboard.1` Mach service, which Claude Code's osascript image
-  paste needs; it also lets the session read and write the clipboard. The
-  session never reaches the cmux socket, which would let it type into terminals
-  outside the sandbox. With `CLAUDE_OLLAMA_CMUX=1` (and `$CMUX_SOCKET_PATH` an
-  absolute path to a socket) the launcher starts `ollama/cmux/broker.py` outside
-  the sandbox on `<session config>/cmux-broker.sock`, an `allowUnixSockets`
-  entry (also in `denyWrite`), and `ollama/sandbox-entry` puts
-  `ollama/cmux/bin/cmux` (the client) first on PATH. The broker runs only
-  `cmux browser` commands: `open` on a loopback URL in the `claude-ollama`
-  profile, then an allowlist of verbs on surfaces the session opened, with no
-  host-file verbs or retargeting flags; `screenshot --out` lands in the broker's
-  temp dir and the client writes the file inside the sandbox. It exits when the
-  launcher's process does. The browser's own network is not limited by the
-  policy, so page JavaScript (`eval`) can still reach any host. Tests:
-  `ollama/cmux/broker.test.sh` (stub `cmux`).
+  REST paths with only Accept headers and output switches (no `graphql`). It
+  refuses `--jq`/`--template` on every command (gh's jq reads its environment,
+  which holds the token; the session pipes `--json` output to its own jq),
+  joined short flags (`-iXPOST`, `-cw`), since gh splits them where the broker
+  would not, `--web`, URLs and host-qualified repos (the broker's network is
+  unrestricted). gh runs from an empty temp dir, so it reads no git config the
+  session wrote, with `GH_HOST=github.com` and an empty `GH_CONFIG_DIR`, so none
+  of your saved logins are reachable. The session never holds `GH_TOKEN` (an
+  outer `GH_TOKEN`/`GITHUB_TOKEN` is unset). Tests: `ollama/gh/broker.test.sh`
+  (stub `gh`); the launcher test runs the whole chain from a sandbox under
+  `/tmp`, since a Unix socket path must stay under 104 bytes.
+  `allowLocalBinding` is on because Ollama on localhost is reached directly, not
+  through the proxy, which also opens every other local port. `allowMachLookup`
+  lets the session reach the `com.apple.pasteboard.1` Mach service, which Claude
+  Code's osascript image paste needs; it also lets the session read and write
+  the clipboard. The session never reaches the cmux socket, which would let it
+  type into terminals outside the sandbox. With `CLAUDE_OLLAMA_CMUX=1` (and
+  `$CMUX_SOCKET_PATH` an absolute path to a socket) the launcher starts
+  `ollama/cmux/broker.py` outside the sandbox on
+  `<session config>/cmux-broker.sock`, an `allowUnixSockets` entry (also in
+  `denyWrite`), and `ollama/sandbox-entry` puts `ollama/cmux/bin/cmux` (the
+  client) first on PATH. The broker runs only `cmux browser` commands: `open` on
+  a loopback URL in the `claude-ollama` profile, then an allowlist of verbs on
+  surfaces the session opened, with no host-file verbs or retargeting flags;
+  `screenshot --out` lands in the broker's temp dir and the client writes the
+  file inside the sandbox. It exits when the launcher's process does. The
+  browser's own network is not limited by the policy, so page JavaScript
+  (`eval`) can still reach any host. Tests: `ollama/cmux/broker.test.sh` (stub
+  `cmux`).
 - There is no side model: each Ollama profile sets
   `ANTHROPIC_DEFAULT_HAIKU_MODEL` to its own main model, has no `modelOverrides`
   and no subagent model, and denies `Agent` (it is not in `--tools` either),
