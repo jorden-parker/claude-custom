@@ -390,12 +390,16 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   beside code-search and allow without a prompt (`mcp__repo` in
   `permissions.allow`; `bin/check-config` checks it and that
   `ollama/CLAUDE.local.md` points the model at it). It runs inside the sandbox.
-  `git_status`, `git_diff`, `git_log` and `git_show` run git in the session's
-  folder with `--no-pager`, `--no-ext-diff`, `--no-textconv`, no fsmonitor, and
-  revisions after `--end-of-options` (paths after `--`), so no argument is read
-  as an option and no configured program runs. The eight GitHub tools are listed
-  only when `CLAUDE_OLLAMA_GH_BROKER` is set and go to the broker. Output over
-  20000 characters is cut with a note on how to narrow it.
+  `git_status`, `git_diff`, `git_log` and `git_show` run git with `--no-pager`,
+  `--no-ext-diff`, `--no-textconv`, no fsmonitor, and revisions after
+  `--end-of-options` (paths after `--`), so no argument is read as an option and
+  no diff program runs. The server pins the repository it starts in (`GIT_DIR`
+  and `GIT_WORK_TREE`), so a `.git` the session plants in a subfolder later,
+  with its own config, is never used. Paths must be relative and never climb
+  with `..`: two outside paths would make `git diff` compare any files (implicit
+  `--no-index`). The eight GitHub tools are listed only when
+  `CLAUDE_OLLAMA_GH_BROKER` is set and go to the broker. Output over 20000
+  characters is cut with a note on how to narrow it.
 - `shared/mcp/code-search.py` is the `semantic_search` MCP server (JSON-RPC over
   stdio, stdlib only). It ranks 40-line chunks by their words (BM25) on every
   search, adds a vector ranking through Ollama `/api/embed` only while

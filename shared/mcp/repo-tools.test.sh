@@ -60,6 +60,34 @@ else:
     print(("ERROR " if result["isError"] else "") + "\n".join(item["text"] for item in result["content"]).rstrip("\n"))
 PY
 
+cat > "$tmp/session.py" <<'PY'
+import json
+import subprocess
+import sys
+
+server = sys.argv[1]
+process = subprocess.Popen([sys.executable, server], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+
+
+def send(message):
+    process.stdin.write(json.dumps(message) + "\n")
+    process.stdin.flush()
+    return json.loads(process.stdout.readline())
+
+
+send({"jsonrpc": "2.0", "id": 0, "method": "initialize", "params": {"protocolVersion": "2025-06-18"}})
+for number, step in enumerate(sys.argv[2:], start=1):
+    kind, _, rest = step.partition(":")
+    if kind == "sh":
+        subprocess.run(rest, shell=True, check=True)
+        continue
+    name, _, arguments = rest.partition(":")
+    result = send({"jsonrpc": "2.0", "id": number, "method": "tools/call", "params": {"name": name, "arguments": json.loads(arguments or "{}")}})["result"]
+    print(("ERROR " if result["isError"] else "") + result["content"][0]["text"].rstrip("\n"))
+process.stdin.close()
+process.wait()
+PY
+
 cat > "$tmp/broker.py" <<'PY'
 import json
 import os
@@ -150,6 +178,25 @@ call git_show '{"rev":"HEAD"}' >/dev/null
 check "git tools never run external diff or textconv programs" [ ! -e "$tmp/external-ran" ]
 git -C "$repo" config --unset diff.external
 rm "$repo/.gitattributes"
+
+outside_paths='{"paths":["/etc/hosts","/etc/hosts"]}'
+check "git_diff refuses absolute paths, which would make git compare any two files" \
+  contains "$(call git_diff "$outside_paths")" "ERROR paths must stay inside the repository"
+check "git_diff refuses paths that climb out of the repository" \
+  contains "$(call git_diff '{"paths":["../x"]}')" "ERROR paths must stay inside the repository"
+check "git_log refuses a path outside the repository" \
+  contains "$(call git_log '{"path":"/etc"}')" "ERROR paths must stay inside the repository"
+
+mkdir -p "$repo/sub"
+planted="$(cd "$repo/sub" && python3 "$tmp/session.py" "$server" \
+  "call:git_log:{\"limit\":1}" \
+  "sh:git init -q $repo/sub && git -C $repo/sub -c user.email=x@y -c user.name=Planter commit -q --allow-empty -m planted" \
+  "call:git_log:{\"limit\":1}")"
+check "a .git planted after the server started is never used" lacks "$planted" "planted"
+rm -rf "$repo/sub"
+mkdir -p "$tmp/not-a-repo"
+outside="$(cd "$tmp/not-a-repo" && python3 "$tmp/client.py" "$server" git_status)"
+check "outside a git repository the git tools say so" [ "$outside" = "ERROR the session did not start inside a git repository" ]
 
 check "an unknown argument is an error" contains "$(call git_log '{"since":"yesterday"}')" "ERROR unknown arguments: since"
 check "a limit over 100 is an error" contains "$(call git_log '{"limit":500}')" "ERROR"

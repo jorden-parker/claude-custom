@@ -7,8 +7,8 @@
 - Read git history and GitHub PRs, issues and CI through the mcp__repo__ tools
   (no permission prompt), not Bash `git log`/`git diff` or `gh`.
 - If semantic_search errors, don't retry: use `git grep -n`. If the launch said
-  the embedding pull failed, tell the user to run `claude-ollama` and pick "Set
-  up embedding model".
+  the embedding pull failed, tell the user to pick "Set up embedding model" in
+  `claude-ollama`.
 - Bound shell output: `| head -50`, tests quiet or failures only.
 - Smallest edit that works; never rewrite a whole file.
 - Reply in 10 lines or fewer unless asked for code.

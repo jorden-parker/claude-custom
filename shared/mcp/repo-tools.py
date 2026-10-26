@@ -3,6 +3,7 @@ import json
 import os
 import socket
 import subprocess
+from pathlib import PurePath
 
 from mcp_stdio import serve, tool_result
 
@@ -14,6 +15,7 @@ MAX_LOG_LIMIT = 100
 MAX_PATHS = 50
 GIT = ["git", "--no-pager", "-c", "color.ui=false", "-c", "core.fsmonitor=false"]
 NO_DIFF_PROGRAMS = ["--no-ext-diff", "--no-textconv"]
+OUTSIDE_REPOSITORY = "paths must stay inside the repository"
 BROKER_MISSING = "the GitHub broker is not running; run claude-ollama github-token read, then relaunch"
 
 
@@ -140,13 +142,23 @@ class Arguments:
         value = self.values.get("paths", [])
         if not isinstance(value, list) or len(value) > MAX_PATHS or not all(isinstance(path, str) for path in value):
             raise ToolError(f"paths must be a list of at most {MAX_PATHS} paths")
-        return value
+        return [inside_repository(path) for path in value]
+
+    def path(self):
+        value = self.text("path")
+        return [inside_repository(value)] if value else []
 
     def limit(self):
         value = self.values.get("limit", DEFAULT_LOG_LIMIT)
         if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= MAX_LOG_LIMIT:
             raise ToolError(f"limit must be a whole number from 1 to {MAX_LOG_LIMIT}")
         return value
+
+
+def inside_repository(path):
+    if PurePath(path).is_absolute() or ".." in PurePath(path).parts:
+        raise ToolError(OUTSIDE_REPOSITORY)
+    return path
 
 
 def revision(rev):
@@ -167,9 +179,8 @@ def git_diff(values):
 
 def git_log(values):
     args = Arguments(values, {"limit", "rev", "path"})
-    path = args.text("path")
     command = ["log", f"--max-count={args.limit()}", "--format=%h %ad %an %s", "--date=short"]
-    return [*command, *revision(args.text("rev")), "--", *([path] if path else [])]
+    return [*command, *revision(args.text("rev")), "--", *args.path()]
 
 
 def git_show(values):
@@ -181,10 +192,30 @@ def git_show(values):
 GIT_COMMANDS = {"git_status": git_status, "git_diff": git_diff, "git_log": git_log, "git_show": git_show}
 
 
+def pinned_repository_env():
+    located = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel", "--absolute-git-dir"], capture_output=True, text=True
+    )
+    if located.returncode != 0:
+        return None
+    work_tree, git_dir = located.stdout.splitlines()
+    return {**os.environ, "GIT_DIR": git_dir, "GIT_WORK_TREE": work_tree}
+
+
+PINNED_REPOSITORY_ENV = pinned_repository_env()
+
+
 def run_git(command):
+    if PINNED_REPOSITORY_ENV is None:
+        raise ToolError("the session did not start inside a git repository")
     try:
         completed = subprocess.run(
-            [*GIT, *command], capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=GIT_TIMEOUT_SECONDS
+            [*GIT, *command],
+            capture_output=True,
+            text=True,
+            stdin=subprocess.DEVNULL,
+            env=PINNED_REPOSITORY_ENV,
+            timeout=GIT_TIMEOUT_SECONDS,
         )
     except subprocess.TimeoutExpired:
         raise ToolError("git timed out") from None
