@@ -203,6 +203,15 @@ without it (`claude-custom install` installs it). The policy is
 - Network: `github.com`, `registry.npmjs.org` (for `npx fallow` and installs)
   and localhost. Localhost is open on every port, because Ollama is reached
   directly rather than through the proxy.
+- Web fetch: WebFetch is off unless `~/.config/claude-custom/fetch-domains` (or
+  a file under `$XDG_CONFIG_HOME`) lists hostnames, one per line. Each listed
+  host is added to the session's proxy allowlist (tunnelled, not decrypted) and
+  gets a WebFetch allow rule. Localhost and loopback addresses are always
+  denied. Anthropic's hostname check is skipped, but `api.anthropic.com` stays
+  unreachable, and the page summary runs on the session's own model. An
+  interactive session asks before fetching an unlisted host, and the proxy
+  refuses that host even if you approve, so answer no. `claude-ollama doctor`
+  and `--print-config` show the list.
 
 Every Bash command still asks first, and so do `git commit` and `git push`.
 `git-push-guard.py` refuses force pushes, remote deletes, `--mirror`, `--prune`
