@@ -3,6 +3,7 @@ import type { RunEvent } from "./run-event";
 export const MAX_LINES = 5000;
 
 const STAGE_PATTERN = /^\[(\d+)\/(\d+)\] (.+)$/;
+const REVIEW_LOG_PATTERN = /^log (.+\/)?([0-9]{8}-[0-9]{6}-[A-Za-z0-9._-]+)\.jsonl$/;
 
 export type RunStream = "stdout" | "stderr";
 
@@ -18,6 +19,7 @@ export type RunState = {
   ended: { code: number; cancelled: boolean } | null;
   seconds: number;
   lastEventId: number;
+  reviewId: string | null;
 };
 
 export const initialRunState: RunState = {
@@ -28,6 +30,7 @@ export const initialRunState: RunState = {
   ended: null,
   seconds: 0,
   lastEventId: 0,
+  reviewId: null,
 };
 
 export function applyRunEvent(state: RunState, event: RunEvent, eventId?: number): RunState {
@@ -76,6 +79,7 @@ function appendLine(state: RunState, event: RunEvent): RunState {
     ...state,
     lines: lines.length > MAX_LINES ? lines.slice(lines.length - MAX_LINES) : lines,
     stage: stageOf(text) ?? state.stage,
+    reviewId: reviewIdOf(text) ?? state.reviewId,
   };
 }
 
@@ -85,6 +89,11 @@ function stageOf(text: string): RunStage | null {
     return null;
   }
   return { number: Number(match[1]), total: Number(match[2]), title: match[3] };
+}
+
+function reviewIdOf(text: string): string | null {
+  const match = REVIEW_LOG_PATTERN.exec(text);
+  return match ? match[2] : null;
 }
 
 function streamOf(event: RunEvent): RunStream {

@@ -658,7 +658,8 @@ reviews_build_needed() {
 }
 
 serve_console() {
-  local command_name="$1" label="$2" page="$3" port=8765 web_dir url page_url token
+  local command_name="$1" label="$2" page="$3" port=8765 web_dir url page_url token project_dir
+  project_dir="$(pwd -P)"
   shift 3
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -698,7 +699,7 @@ serve_console() {
   (umask 077; mkdir -p "$console_state_dir"; chmod 700 "$console_state_dir"; rm -f "$console_state_dir/token"; printf '%s\n' "$token" > "$console_state_dir/token")
   trap remove_console_files EXIT INT TERM
   echo "claude-ollama: $label at $page_url"
-  CONSOLE_TOKEN_FILE="$console_state_dir/token" CLAUDE_CUSTOM_HOME="$repo_dir" CLAUDE_CONSOLE_STATE_DIR="$console_state_dir" \
+  CONSOLE_TOKEN_FILE="$console_state_dir/token" CLAUDE_CUSTOM_HOME="$repo_dir" CLAUDE_CONSOLE_STATE_DIR="$console_state_dir" CONSOLE_PROJECT_DIR="$project_dir" \
     pnpm --dir "$web_dir" exec next start -H 127.0.0.1 -p "$port"
   exit 0
 }
