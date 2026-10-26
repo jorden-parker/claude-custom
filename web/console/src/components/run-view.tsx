@@ -6,8 +6,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { parseRunEvent } from "@/lib/run-event";
+import { elapsedSeconds, formatElapsed, reduceRunMessage, statusOf } from "@/lib/run-display";
 import type { RunStatus, RunSummary } from "@/lib/run-log";
-import { applyRunEvent, initialRunState, type RunState } from "@/lib/run-state";
+import { initialRunState, type RunState } from "@/lib/run-state";
 import { runStatusLabel, runStatusTextClass } from "@/lib/run-status-style";
 
 const TICK_MS = 1000;
@@ -17,18 +18,30 @@ const FOLLOW_THRESHOLD_PX = 8;
 type RunViewProps = { id: string };
 
 export function RunView({ id }: RunViewProps) {
-  const [state, dispatch] = useReducer(
-    (current: RunState, event: { data: string; lastEventId: string }) => {
-      const parsed = parseRunEvent(event.data);
-      return parsed ? applyRunEvent(current, parsed, Number(event.lastEventId) || undefined) : current;
-    },
-    initialRunState,
-  );
+  const state = useRunStream(id);
   const serverStatus = useServerStatus(id, state.ended !== null);
   const now = useNow(state.ended !== null);
-  const outputRef = useRef<HTMLDivElement>(null);
-  const followRef = useRef(true);
 
+  const status = statusOf(state, serverStatus);
+
+  return (
+    <div className="flex flex-col gap-4">
+      <RunHeader
+        id={id}
+        label={labelOf(state)}
+        status={status}
+        seconds={elapsedSeconds(state, now)}
+      />
+      {state.stage === null ? null : <StageBar stage={state.stage} />}
+      <ProgressLines progress={state.progress} />
+      <OutputBox lines={state.lines} />
+      {state.ended === null ? null : <EndBanner status={status} code={state.ended.code} />}
+    </div>
+  );
+}
+
+function useRunStream(id: string): RunState {
+  const [state, dispatch] = useReducer(reduceRunMessage, initialRunState);
   useEffect(() => {
     const source = new EventSource(`/api/runs/${encodeURIComponent(id)}/events`);
     source.onmessage = (message) => {
@@ -39,53 +52,65 @@ export function RunView({ id }: RunViewProps) {
     };
     return () => source.close();
   }, [id]);
+  return state;
+}
+
+function labelOf(state: RunState): string {
+  return state.header === null ? "" : state.header.label;
+}
+
+function RunHeader({ id, label, status, seconds }: { id: string; label: string; status: RunStatus; seconds: number }) {
+  return (
+    <header className="flex flex-wrap items-center gap-3">
+      <h1 className="min-w-0 break-words text-xl font-semibold">{label || id}</h1>
+      <Badge variant="outline" className={runStatusTextClass(status)}>
+        {runStatusLabel(status)}
+      </Badge>
+      <span className="font-mono text-sm tabular-nums text-muted-foreground">{formatElapsed(seconds)}</span>
+      {status === "running" ? (
+        <Button variant="outline" size="sm" onClick={() => void cancelRun(id)}>
+          Cancel
+        </Button>
+      ) : null}
+    </header>
+  );
+}
+
+function OutputBox({ lines }: { lines: RunState["lines"] }) {
+  const outputRef = useRef<HTMLDivElement>(null);
+  const followRef = useRef(true);
 
   useEffect(() => {
     const output = outputRef.current;
     if (output && followRef.current) {
       output.scrollTop = output.scrollHeight;
     }
-  }, [state.lines.length]);
-
-  const status = statusOf(state, serverStatus);
-  const elapsed = elapsedSeconds(state, now);
+  }, [lines.length]);
 
   return (
-    <div className="flex flex-col gap-4">
-      <header className="flex flex-wrap items-center gap-3">
-        <h1 className="min-w-0 break-words text-xl font-semibold">{state.header?.label || id}</h1>
-        <Badge variant="outline" className={runStatusTextClass(status)}>
-          {runStatusLabel(status)}
-        </Badge>
-        <span className="font-mono text-sm tabular-nums text-muted-foreground">{formatElapsed(elapsed)}</span>
-        {status === "running" ? (
-          <Button variant="outline" size="sm" onClick={() => void cancelRun(id)}>
-            Cancel
-          </Button>
-        ) : null}
-      </header>
-      {state.stage === null ? null : <StageBar stage={state.stage} />}
-      <ProgressLines progress={state.progress} />
-      <div
-        ref={outputRef}
-        onScroll={(event) => {
-          const box = event.currentTarget;
-          followRef.current = box.scrollHeight - box.scrollTop - box.clientHeight < FOLLOW_THRESHOLD_PX;
-        }}
-        className="max-h-[60vh] overflow-auto rounded-lg bg-muted/40 p-3 font-mono text-xs"
-      >
-        {state.lines.map((line, index) => (
-          <div
-            key={index}
-            className={`animate-in fade-in whitespace-pre-wrap break-all ${line.stream === "stderr" ? "text-muted-foreground" : ""}`}
-          >
-            {line.text}
-          </div>
-        ))}
-      </div>
-      {state.ended === null ? null : <EndBanner status={status} code={state.ended.code} />}
+    <div
+      ref={outputRef}
+      onScroll={(event) => {
+        followRef.current = isAtBottom(event.currentTarget);
+      }}
+      className="max-h-[60vh] overflow-auto rounded-lg bg-muted/40 p-3 font-mono text-xs"
+    >
+      {lines.map((line, index) => (
+        <div key={index} className={lineClass(line.stream)}>
+          {line.text}
+        </div>
+      ))}
     </div>
   );
+}
+
+function isAtBottom(box: HTMLDivElement): boolean {
+  return box.scrollHeight - box.scrollTop - box.clientHeight < FOLLOW_THRESHOLD_PX;
+}
+
+function lineClass(stream: RunState["lines"][number]["stream"]): string {
+  const color = stream === "stderr" ? "text-muted-foreground" : "";
+  return `animate-in fade-in whitespace-pre-wrap break-all ${color}`;
 }
 
 function StageBar({ stage }: { stage: NonNullable<RunState["stage"]> }) {
@@ -128,29 +153,6 @@ function EndBanner({ status, code }: { status: RunStatus; code: number }) {
       </CardContent>
     </Card>
   );
-}
-
-function statusOf(state: RunState, serverStatus: RunStatus | null): RunStatus {
-  if (state.ended) {
-    if (state.ended.cancelled) {
-      return "cancelled";
-    }
-    return state.ended.code === 0 ? "ok" : "failed";
-  }
-  return serverStatus ?? "running";
-}
-
-function elapsedSeconds(state: RunState, now: number): number {
-  if (state.ended || state.header === null || now === 0) {
-    return state.seconds;
-  }
-  const started = Date.parse(state.header.startedAt);
-  return Number.isNaN(started) ? state.seconds : Math.max(state.seconds, (now - started) / 1000);
-}
-
-function formatElapsed(seconds: number): string {
-  const whole = Math.floor(seconds);
-  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
 }
 
 function useNow(stopped: boolean): number {
