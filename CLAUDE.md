@@ -502,6 +502,16 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   `Bash(git log *)` are never changed. "Disable" means a bare deny rule. Write
   rules are in `go/cmd/claude-tools/README.md`.
 
+- `go/internal/history` records every write to `~/.claude/settings.json` and the
+  `local.ollama` plist before the rename, as `index.jsonl` plus
+  `<id>.before`/`<id>.after` in `<state>/history` (0700 folder, 0600 files).
+  `CLAUDE_CUSTOM_HISTORY=off` turns it off; the console's History page and
+  `/api/history` read the same format, and restore writes the before bytes back.
+  The claude-ollama sandbox can't read it, since settings may hold env values.
+  Any new writer of a user config should call `history.Record`, not keep its own
+  backup. `catalog.Ensure` refetches the tool catalog when it is missing or
+  older than seven days.
+
 - The log dir is the contract between `bin/pr-review-local` and `web/console`:
   the events route tails the JSONL logs there, the page binds 127.0.0.1 only,
   and the AI Elements components are vendored in `web/console/src/components`

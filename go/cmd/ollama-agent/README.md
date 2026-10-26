@@ -49,6 +49,9 @@ value (or `unset`) and a one-line summary. When a value differs from
 With no plist yet, values start from `server.env` and the agent counts as
 unsaved. A plist that isn't valid XML is an error and nothing opens.
 
+Each save writes the old and new plist to the change history before it replaces
+the file, so the console's History page can show the diff and restore it.
+
 Warnings at the top name anything else serving on the same port: the Homebrew
 service (`homebrew.mxcl.ollama` loaded) or the Ollama menu-bar app. Stop them
 first, or the agent's server can't bind `11434`.

@@ -329,9 +329,11 @@ changed files, per-file progress, findings and verdict appear as the reviewer
 writes them, and finished reviews stay listed. The page only reads those logs;
 it calls no model. The first run installs and builds `web/console` with pnpm
 (Node 22 or later and pnpm 10 are required; `brew install pnpm` if pnpm is
-missing). While it runs, the command writes the page URL to `.web-url` in the
-log directory and removes that file when it exits. The console token lives in
-`$CLAUDE_CONSOLE_STATE_DIR/tokens/<port>` (default
+missing). `/history` lists every settings and LaunchAgent change, with a diff
+and a Restore button; recording is on by default and `CLAUDE_CUSTOM_HISTORY=off`
+turns it off. While it runs, the command writes the page URL to `.web-url` in
+the log directory and removes that file when it exits. The console token lives
+in `$CLAUDE_CONSOLE_STATE_DIR/tokens/<port>` (default
 `~/.local/share/claude-custom/console/tokens/<port>`, mode `0600`), so two
 consoles on different ports keep their own tokens. The token is not in the
 environment; the session's sandbox denies reading both that folder and the
