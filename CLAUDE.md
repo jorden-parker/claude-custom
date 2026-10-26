@@ -137,7 +137,10 @@ before changing how any file gets applied.
 
 `claude-custom install` (and `update`, which runs it) restarts a running Ollama
 server through `ollama-agent -apply` when it lacks a value from
-`ollama/server.env` (macOS only; a failed restart only warns).
+`ollama/server.env` (macOS only; a failed restart only warns). `update` execs
+the pulled `claude-custom finish-update`, which installs and then, with
+`CMUX_SOCKET_PATH` set, runs `claude-ollama browser-check` (a failure makes
+update exit 1).
 
 There is no build step outside the Go module. `claude-custom install` builds
 `go/cmd/claude-tools/claude-tools`, `go/cmd/model-picker/model-picker` and
