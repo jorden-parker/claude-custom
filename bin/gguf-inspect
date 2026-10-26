@@ -1,0 +1,443 @@
+#!/usr/bin/env python3
+import argparse
+import enum
+import math
+import re
+import struct
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+
+GGUF_MAGIC = b"GGUF"
+GGUF_VERSION = 3
+DEFAULT_ALIGNMENT = 32
+MIN_ALIGNMENT = 8
+MAX_ALIGNMENT = 4096
+MAX_TENSOR_COUNT = 20000
+MAX_KEYVALUE_COUNT = 10000
+MAX_ARRAY_COUNT = 10_000_000
+MAX_STRING_BYTES = 16 * 1024 * 1024
+MAX_NAME_BYTES = 256
+MAX_DIMS = 4
+READ_LIMIT_BYTES = 256 * 1024 * 1024
+DISPLAY_CHARS = 80
+ARCHITECTURE_KEY = "general.architecture"
+ALIGNMENT_KEY = "general.alignment"
+TEMPLATE_KEY = "tokenizer.chat_template"
+KEY_PREFIXES = ("general.", "tokenizer.", "quantize.", "split.")
+TEMPLATE_WARNING = re.compile(r"https?://\S+|\{%-?\s*(?:include|import|extends)\b|\bignore\b|system prompt", re.IGNORECASE)
+EXIT_OK = 0
+EXIT_FAILED = 1
+EXIT_TRUNCATED = 3
+
+STRING_TYPE = 8
+ARRAY_TYPE = 9
+SCALAR_FORMATS = {
+    0: ("B", "uint8"),
+    1: ("b", "int8"),
+    2: ("H", "uint16"),
+    3: ("h", "int16"),
+    4: ("I", "uint32"),
+    5: ("i", "int32"),
+    6: ("f", "float32"),
+    7: ("?", "bool"),
+    10: ("Q", "uint64"),
+    11: ("q", "int64"),
+    12: ("d", "float64"),
+}
+TYPE_NAMES = {
+    **{type_id: name for type_id, (_, name) in SCALAR_FORMATS.items()},
+    STRING_TYPE: "string",
+    ARRAY_TYPE: "array",
+}
+
+QK_K = 256
+
+
+class GgmlType(enum.IntEnum):
+    F32 = 0
+    F16 = 1
+    Q4_0 = 2
+    Q4_1 = 3
+    Q5_0 = 6
+    Q5_1 = 7
+    Q8_0 = 8
+    Q8_1 = 9
+    Q2_K = 10
+    Q3_K = 11
+    Q4_K = 12
+    Q5_K = 13
+    Q6_K = 14
+    Q8_K = 15
+    IQ2_XXS = 16
+    IQ2_XS = 17
+    IQ3_XXS = 18
+    IQ1_S = 19
+    IQ4_NL = 20
+    IQ3_S = 21
+    IQ2_S = 22
+    IQ4_XS = 23
+    I8 = 24
+    I16 = 25
+    I32 = 26
+    I64 = 27
+    F64 = 28
+    IQ1_M = 29
+    BF16 = 30
+    TQ1_0 = 34
+    TQ2_0 = 35
+    MXFP4 = 39
+    NVFP4 = 40
+    Q1_0 = 41
+    Q2_0 = 42
+
+
+GGML_QUANT_SIZES = {
+    GgmlType.F32: (1, 4),
+    GgmlType.F16: (1, 2),
+    GgmlType.Q4_0: (32, 2 + 16),
+    GgmlType.Q4_1: (32, 2 + 2 + 16),
+    GgmlType.Q5_0: (32, 2 + 4 + 16),
+    GgmlType.Q5_1: (32, 2 + 2 + 4 + 16),
+    GgmlType.Q8_0: (32, 2 + 32),
+    GgmlType.Q8_1: (32, 2 + 2 + 32),
+    GgmlType.Q2_K: (256, 2 + 2 + QK_K // 16 + QK_K // 4),
+    GgmlType.Q3_K: (256, 2 + QK_K // 4 + QK_K // 8 + 12),
+    GgmlType.Q4_K: (256, 2 + 2 + QK_K // 2 + 12),
+    GgmlType.Q5_K: (256, 2 + 2 + QK_K // 2 + QK_K // 8 + 12),
+    GgmlType.Q6_K: (256, 2 + QK_K // 2 + QK_K // 4 + QK_K // 16),
+    GgmlType.Q8_K: (256, 4 + QK_K + QK_K // 8),
+    GgmlType.IQ2_XXS: (256, 2 + QK_K // 4),
+    GgmlType.IQ2_XS: (256, 2 + QK_K // 4 + QK_K // 32),
+    GgmlType.IQ3_XXS: (256, 2 + QK_K // 4 + QK_K // 8),
+    GgmlType.IQ1_S: (256, 2 + QK_K // 8 + QK_K // 16),
+    GgmlType.IQ4_NL: (32, 2 + 16),
+    GgmlType.IQ3_S: (256, 2 + QK_K // 4 + QK_K // 8 + QK_K // 32 + 4),
+    GgmlType.IQ2_S: (256, 2 + QK_K // 4 + QK_K // 16),
+    GgmlType.IQ4_XS: (256, 2 + 2 + QK_K // 2 + QK_K // 64),
+    GgmlType.I8: (1, 1),
+    GgmlType.I16: (1, 2),
+    GgmlType.I32: (1, 4),
+    GgmlType.I64: (1, 8),
+    GgmlType.F64: (1, 8),
+    GgmlType.IQ1_M: (256, QK_K // 8 + QK_K // 16 + QK_K // 32),
+    GgmlType.BF16: (1, 2),
+    GgmlType.TQ1_0: (256, 2 + 4 * 13),
+    GgmlType.TQ2_0: (256, 2 + 64),
+    GgmlType.MXFP4: (32, 1 + 16),
+    GgmlType.NVFP4: (64, 4 + 32),
+    GgmlType.Q1_0: (128, 2 + 16),
+    GgmlType.Q2_0: (64, 2 + 16),
+}
+
+
+class Truncated(Exception):
+    pass
+
+
+class Malformed(Exception):
+    pass
+
+
+@dataclass(frozen=True)
+class ArrayValue:
+    element_type: int
+    count: int
+
+
+@dataclass(frozen=True)
+class KeyValue:
+    key: str
+    type_id: int
+    value: object
+
+
+@dataclass(frozen=True)
+class TensorInfo:
+    name: str
+    dims: tuple
+    ggml_type: int
+    offset: int
+
+
+@dataclass(frozen=True)
+class Header:
+    version: int
+    keyvalues: list
+    tensors: list
+    alignment: int
+    data_start: int
+
+
+class Reader:
+    def __init__(self, data):
+        self.data = data
+        self.position = 0
+
+    def require(self, count):
+        if count > len(self.data) - self.position:
+            raise Truncated()
+
+    def take(self, count):
+        self.require(count)
+        chunk = self.data[self.position : self.position + count]
+        self.position += count
+        return chunk
+
+    def skip(self, count):
+        self.require(count)
+        self.position += count
+
+    def unpack(self, code):
+        return struct.unpack("<" + code, self.take(struct.calcsize("<" + code)))[0]
+
+    def string(self):
+        length = self.unpack("Q")
+        self.require(length)
+        if length > MAX_STRING_BYTES:
+            raise Malformed(f"a string is {length} bytes, over the 16 MiB limit")
+        try:
+            return self.take(length).decode("utf-8")
+        except UnicodeDecodeError as error:
+            raise Malformed("a string is not UTF-8") from error
+
+
+def read_name(reader):
+    name = reader.string()
+    if len(name.encode("utf-8")) > MAX_NAME_BYTES:
+        raise Malformed(f"name {name[:40]!r} is over 256 bytes")
+    return name
+
+
+def read_array(reader):
+    element_type = reader.unpack("I")
+    count = reader.unpack("Q")
+    if count > MAX_ARRAY_COUNT:
+        raise Malformed(f"array has {count} elements, over the 10,000,000 limit")
+    if element_type == STRING_TYPE:
+        for _ in range(count):
+            reader.string()
+    elif element_type in SCALAR_FORMATS:
+        reader.skip(count * struct.calcsize("<" + SCALAR_FORMATS[element_type][0]))
+    else:
+        raise Malformed(f"array of unsupported element type {element_type}")
+    return ArrayValue(element_type, count)
+
+
+def read_value(reader, type_id):
+    if type_id == STRING_TYPE:
+        return reader.string()
+    if type_id == ARRAY_TYPE:
+        return read_array(reader)
+    if type_id not in SCALAR_FORMATS:
+        raise Malformed(f"unknown value type {type_id}")
+    return reader.unpack(SCALAR_FORMATS[type_id][0])
+
+
+def read_keyvalue(reader):
+    key = read_name(reader)
+    type_id = reader.unpack("I")
+    return KeyValue(key, type_id, read_value(reader, type_id))
+
+
+def read_tensor(reader):
+    name = read_name(reader)
+    dim_count = reader.unpack("I")
+    if not 1 <= dim_count <= MAX_DIMS:
+        raise Malformed(f"tensor {name} has {dim_count} dimensions")
+    dims = tuple(reader.unpack("Q") for _ in range(dim_count))
+    ggml_type = reader.unpack("I")
+    offset = reader.unpack("Q")
+    return TensorInfo(name, dims, ggml_type, offset)
+
+
+def align_up(position, alignment):
+    return -(-position // alignment) * alignment
+
+
+def find_value(keyvalues, key):
+    return next((kv.value for kv in keyvalues if kv.key == key), None)
+
+
+def alignment_of(keyvalues):
+    value = find_value(keyvalues, ALIGNMENT_KEY)
+    if isinstance(value, int) and value > 0:
+        return value
+    return DEFAULT_ALIGNMENT
+
+
+def parse_header(data):
+    reader = Reader(data)
+    if reader.take(len(GGUF_MAGIC)) != GGUF_MAGIC:
+        raise Malformed("magic is not GGUF")
+    version = reader.unpack("I")
+    if version != GGUF_VERSION:
+        raise Malformed(f"version is {version}, expected {GGUF_VERSION}")
+    tensor_count = reader.unpack("Q")
+    keyvalue_count = reader.unpack("Q")
+    if tensor_count > MAX_TENSOR_COUNT:
+        raise Malformed(f"{tensor_count} tensors, over the 20000 limit")
+    if keyvalue_count > MAX_KEYVALUE_COUNT:
+        raise Malformed(f"{keyvalue_count} metadata keys, over the 10000 limit")
+    keyvalues = [read_keyvalue(reader) for _ in range(keyvalue_count)]
+    tensors = [read_tensor(reader) for _ in range(tensor_count)]
+    alignment = alignment_of(keyvalues)
+    return Header(version, keyvalues, tensors, alignment, align_up(reader.position, alignment))
+
+
+def architecture_failures(keyvalues):
+    architecture = find_value(keyvalues, ARCHITECTURE_KEY)
+    if not isinstance(architecture, str):
+        return [f"{ARCHITECTURE_KEY} is missing or not a string"]
+    allowed = KEY_PREFIXES + (f"{architecture}.",)
+    unexpected = [kv.key for kv in keyvalues if not kv.key.startswith(allowed)]
+    if unexpected:
+        return [f"unexpected metadata keys: {', '.join(unexpected)}"]
+    return []
+
+
+def alignment_failures(keyvalues):
+    value = find_value(keyvalues, ALIGNMENT_KEY)
+    if value is None:
+        return []
+    if not isinstance(value, int) or not MIN_ALIGNMENT <= value <= MAX_ALIGNMENT or value & (value - 1):
+        return [f"{ALIGNMENT_KEY} is {value}, expected a power of two from 8 to 4096"]
+    return []
+
+
+def tensor_byte_size(tensor):
+    try:
+        ggml_type = GgmlType(tensor.ggml_type)
+    except ValueError:
+        return None, f"tensor {tensor.name} has unknown ggml type {tensor.ggml_type}"
+    block, type_size = GGML_QUANT_SIZES[ggml_type]
+    elements = math.prod(tensor.dims)
+    if elements % block:
+        return None, f"tensor {tensor.name} has {elements} elements, not a multiple of block size {block}"
+    return elements // block * type_size, None
+
+
+def duplicate_name_failures(tensors):
+    names = [tensor.name for tensor in tensors]
+    duplicates = sorted({name for name in names if names.count(name) > 1})
+    if duplicates:
+        return [f"tensor names are not unique: {', '.join(duplicates)}"]
+    return []
+
+
+def overlap_failures(ranges):
+    ordered = sorted(ranges)
+    failures = []
+    for (first_offset, first_size, first_name), (second_offset, _, second_name) in zip(ordered, ordered[1:]):
+        if second_offset < first_offset + first_size:
+            failures.append(f"tensors {first_name} and {second_name} overlap")
+    return failures
+
+
+def tensor_failures(header, file_size):
+    failures = duplicate_name_failures(header.tensors)
+    data_length = file_size - header.data_start
+    ranges = []
+    for tensor in header.tensors:
+        if any(dim < 1 for dim in tensor.dims):
+            failures.append(f"tensor {tensor.name} has a dimension below 1")
+            continue
+        nbytes, failure = tensor_byte_size(tensor)
+        if failure:
+            failures.append(failure)
+            continue
+        if tensor.offset % header.alignment:
+            failures.append(f"tensor {tensor.name} offset {tensor.offset} is not a multiple of {header.alignment}")
+        if tensor.offset + nbytes > data_length:
+            failures.append(f"tensor {tensor.name} ends past the end of the file")
+        ranges.append((tensor.offset, nbytes, tensor.name))
+    return failures + overlap_failures(ranges)
+
+
+def check_header(header, file_size):
+    return (
+        architecture_failures(header.keyvalues)
+        + alignment_failures(header.keyvalues)
+        + tensor_failures(header, file_size)
+    )
+
+
+def template_warnings(keyvalues):
+    template = find_value(keyvalues, TEMPLATE_KEY)
+    if not isinstance(template, str):
+        return []
+    matches = sorted({match.group(0) for match in TEMPLATE_WARNING.finditer(template)})
+    return [f"chat template contains {match!r}" for match in matches]
+
+
+def write_template(keyvalues, path):
+    template = find_value(keyvalues, TEMPLATE_KEY)
+    if not isinstance(template, str):
+        return [f"no {TEMPLATE_KEY} to write to {path}"]
+    with open(path, "w", encoding="utf-8", newline="") as handle:
+        handle.write(template)
+    return []
+
+
+def describe(value):
+    if isinstance(value, ArrayValue):
+        return f"array[{TYPE_NAMES[value.element_type]}] x {value.count}"
+    text = str(value).replace("\n", "\\n")
+    if len(text) <= DISPLAY_CHARS:
+        return text
+    return text[: DISPLAY_CHARS - 3] + "..."
+
+
+def known_tensor_bytes(tensors):
+    return sum(tensor_byte_size(tensor)[0] or 0 for tensor in tensors)
+
+
+def print_summary(header, file_size):
+    print(f"version: {header.version}")
+    print(f"architecture: {find_value(header.keyvalues, ARCHITECTURE_KEY)}")
+    print(f"tensors: {len(header.tensors)}")
+    print(f"keys: {len(header.keyvalues)}")
+    print(f"data start: {header.data_start}")
+    print(f"file size: {file_size}")
+    print(f"tensor bytes: {known_tensor_bytes(header.tensors)}")
+    for kv in header.keyvalues:
+        print(f"{kv.key}  {TYPE_NAMES[kv.type_id]}  {describe(kv.value)}")
+
+
+def parse_args(argv):
+    parser = argparse.ArgumentParser(description="Check a GGUF header before Ollama parses it. Never reads tensor data.")
+    parser.add_argument("file", type=Path)
+    parser.add_argument("--file-size", type=int)
+    parser.add_argument("--template-out", type=Path)
+    return parser.parse_args(argv)
+
+
+def read_header_bytes(path):
+    with open(path, "rb") as handle:
+        return handle.read(READ_LIMIT_BYTES)
+
+
+def main(argv):
+    args = parse_args(argv)
+    file_size = args.file_size if args.file_size is not None else args.file.stat().st_size
+    try:
+        header = parse_header(read_header_bytes(args.file))
+    except Truncated:
+        print("truncated: the header runs past the bytes in FILE; inspect a longer prefix", file=sys.stderr)
+        return EXIT_TRUNCATED
+    except Malformed as error:
+        print(f"FAIL: {error}")
+        return EXIT_FAILED
+    failures = check_header(header, file_size)
+    if args.template_out is not None:
+        failures.extend(write_template(header.keyvalues, args.template_out))
+    for failure in failures:
+        print(f"FAIL: {failure}")
+    for warning in template_warnings(header.keyvalues):
+        print(f"WARN: {warning}")
+    print_summary(header, file_size)
+    return EXIT_FAILED if failures else EXIT_OK
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
