@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/jordenparker/claude-custom/go/internal/history"
 )
 
 var managed = []string{"Bash", "Read", "WebFetch", "WebSearch"}
@@ -213,4 +215,72 @@ func TestSaveCreatesMissingFile(t *testing.T) {
 	if data, _ := os.ReadFile(path); string(data) != "{}" {
 		t.Fatalf("got %s", data)
 	}
+}
+
+func isolateHistory(t *testing.T) string {
+	t.Helper()
+	t.Setenv("CLAUDE_CONSOLE_STATE_DIR", t.TempDir())
+	t.Setenv("CLAUDE_CUSTOM_HISTORY", "")
+	return history.Dir()
+}
+
+func TestSaveRecordsOldAndNewBytesAndKeepsBackup(t *testing.T) {
+	dir := isolateHistory(t)
+	path := filepath.Join(t.TempDir(), "settings.json")
+	if err := os.WriteFile(path, []byte(`{"old":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Save(path, []byte(`{"new":true}`)); err != nil {
+		t.Fatal(err)
+	}
+
+	entries, err := history.List(dir)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("entries = %v, %v, want one", entries, err)
+	}
+	entry := entries[0]
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry.Kind != "settings" || entry.Path != resolved || entry.Before == nil {
+		t.Fatalf("entry = %+v", entry)
+	}
+	if got := readText(t, filepath.Join(dir, *entry.Before)); got != `{"old":true}` {
+		t.Errorf("before = %q", got)
+	}
+	if got := readText(t, filepath.Join(dir, entry.After)); got != `{"new":true}` {
+		t.Errorf("after = %q", got)
+	}
+	if got := readText(t, path+".bak"); got != `{"old":true}` {
+		t.Errorf("backup = %q", got)
+	}
+}
+
+func TestSaveLeavesTargetUntouchedWhenRecordingFails(t *testing.T) {
+	dir := isolateHistory(t)
+	if err := os.WriteFile(dir, []byte("a file, not a folder"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "settings.json")
+	if err := os.WriteFile(path, []byte(`{"old":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Save(path, []byte(`{"new":true}`)); err == nil {
+		t.Fatal("Save succeeded though recording failed")
+	}
+	if got := readText(t, path); got != `{"old":true}` {
+		t.Errorf("target = %q, want unchanged", got)
+	}
+}
+
+func readText(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
 }

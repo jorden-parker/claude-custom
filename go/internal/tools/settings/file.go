@@ -6,6 +6,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+
+	"github.com/jordenparker/claude-custom/go/internal/history"
 )
 
 const newFileMode fs.FileMode = 0o644
@@ -33,6 +35,9 @@ func Save(path string, data []byte) error {
 	}
 	mode, err := backUp(target)
 	if err != nil {
+		return err
+	}
+	if err := history.RecordWrite("settings", target, data); err != nil {
 		return err
 	}
 	return replaceAtomically(target, data, mode)

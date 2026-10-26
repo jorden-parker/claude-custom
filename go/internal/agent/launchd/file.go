@@ -5,6 +5,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+
+	"github.com/jordenparker/claude-custom/go/internal/history"
 )
 
 const (
@@ -44,12 +46,16 @@ func Save(path string, agent Agent) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
+	data := Render(agent)
+	if err := history.RecordWrite("launch-agent", path, data); err != nil {
+		return err
+	}
 	temp, err := os.CreateTemp(filepath.Dir(path), ".agent-*.plist")
 	if err != nil {
 		return err
 	}
 	defer os.Remove(temp.Name())
-	if _, err := temp.Write(Render(agent)); err != nil {
+	if _, err := temp.Write(data); err != nil {
 		temp.Close()
 		return err
 	}

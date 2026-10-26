@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Lock } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { ServerRestart } from "@/components/server-restart";
@@ -77,6 +78,9 @@ function ServerEnvForm({ snapshot, edits, onEdit, runId, onStarted, onBack }: Se
         {snapshot.path}
         {snapshot.exists ? "" : " (not created yet)"}
       </p>
+      <Link href="/history" className="text-sm underline">
+        History
+      </Link>
       {snapshot.conflicts.map((text) => (
         <Card key={text}>
           <CardContent className="text-sm text-amber-700 dark:text-amber-400">{text}</CardContent>

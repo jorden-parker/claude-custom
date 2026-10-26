@@ -661,6 +661,7 @@ case "$3" in
     echo "CUSTOM_HOME: ${CLAUDE_CUSTOM_HOME:-unset}" >> "$PNPM_LOG"
     echo "RUN_STATE_DIR: ${CLAUDE_CONSOLE_STATE_DIR:-unset}" >> "$PNPM_LOG"
     echo "PROJECT: ${CONSOLE_PROJECT_DIR:-unset}" >> "$PNPM_LOG"
+    echo "SOURCE: ${CLAUDE_CUSTOM_CHANGE_SOURCE:-unset}" >> "$PNPM_LOG"
     ;;
 esac
 EOF
@@ -688,6 +689,7 @@ check_that "the console server gets the console state dir" grep -qxF -- "RUN_STA
 rm -f "$PNPM_LOG"
 run_capture "$repo/bin/claude-ollama" ui --port 9000
 check_that "ui serves the console on loopback at the port" grep -qxF -- "PNPM: --dir $web exec next start -H 127.0.0.1 -p 9000" "$PNPM_LOG"
+check_that "the console marks its changes with its own source" grep -qxF -- "SOURCE: console" "$PNPM_LOG"
 check_that "ui prints its tokened console URL" grep -qxE "claude-ollama: console at http://127\.0\.0\.1:9000/\?token=[0-9a-f]{48}" "$sandbox/out"
 check_not "ui removes .web-url after it exits" test -e "$PR_REVIEW_LOG_DIR/.web-url"
 (cd "$sandbox" && run_capture "$repo/bin/claude-ollama" ui --port 9000)

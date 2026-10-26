@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/jordenparker/claude-custom/go/internal/history"
 )
 
 var agent = Agent{
@@ -90,4 +92,79 @@ func TestSaveThenLoad(t *testing.T) {
 	if err != nil || info.Mode().Perm() != 0o644 {
 		t.Fatalf("mode %v, %v", info.Mode().Perm(), err)
 	}
+}
+
+func isolateLaunchHistory(t *testing.T) string {
+	t.Helper()
+	t.Setenv("CLAUDE_CONSOLE_STATE_DIR", t.TempDir())
+	t.Setenv("CLAUDE_CUSTOM_HISTORY", "")
+	return history.Dir()
+}
+
+func TestSaveRecordsNewPlistWithoutBefore(t *testing.T) {
+	dir := isolateLaunchHistory(t)
+	path := filepath.Join(t.TempDir(), "local.ollama.plist")
+
+	if err := Save(path, agent); err != nil {
+		t.Fatal(err)
+	}
+
+	entries, err := history.List(dir)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("entries = %v, %v, want one", entries, err)
+	}
+	entry := entries[0]
+	if entry.Kind != "launch-agent" || entry.Path != path || entry.Before != nil {
+		t.Fatalf("entry = %+v", entry)
+	}
+	if got := readPlist(t, filepath.Join(dir, entry.After)); got != string(Render(agent)) {
+		t.Errorf("after bytes differ from Render")
+	}
+}
+
+func TestSaveRecordsPreviousPlistBeforeReplacing(t *testing.T) {
+	dir := isolateLaunchHistory(t)
+	path := filepath.Join(t.TempDir(), "local.ollama.plist")
+	if err := Save(path, agent); err != nil {
+		t.Fatal(err)
+	}
+	previous := readPlist(t, path)
+	changed := agent
+	changed.Env = map[string]string{"OLLAMA_KEEP_ALIVE": "10m"}
+
+	if err := Save(path, changed); err != nil {
+		t.Fatal(err)
+	}
+
+	entries, err := history.List(dir)
+	if err != nil || len(entries) != 2 || entries[0].Before == nil {
+		t.Fatalf("entries = %v, %v, want two with a before", entries, err)
+	}
+	if got := readPlist(t, filepath.Join(dir, *entries[0].Before)); got != previous {
+		t.Errorf("before bytes differ from the previous plist")
+	}
+}
+
+func TestSaveLeavesPlistMissingWhenRecordingFails(t *testing.T) {
+	dir := isolateLaunchHistory(t)
+	if err := os.WriteFile(dir, []byte("a file, not a folder"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "local.ollama.plist")
+
+	if err := Save(path, agent); err == nil {
+		t.Fatal("Save succeeded though recording failed")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("plist exists after failed record: %v", err)
+	}
+}
+
+func readPlist(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
 }

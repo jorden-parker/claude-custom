@@ -22,9 +22,12 @@ Discard. Save runs `claude-tools -set ... user` as a console run and reloads the
 table when it ends. The page says that changes apply to new Claude Code
 sessions.
 
-The console reads the catalog cache written by the TUI and never fetches the
-docs. With no cache it shows the error and how to fix it: open `claude-tools`
-once and sync. For a browser check that must not touch the real file, set
+The console reads the catalog cache through `claude-tools`, which fetches the
+docs itself when the cache is missing or older than seven days, and keeps the
+old cache when a fetch fails. With no cache and no network it shows the error
+and the fix: open `claude-tools` once and sync. Every save is recorded in the
+History page at `/history`, with a diff and a Restore button. For a browser
+check that must not touch the real file, set
 `CONSOLE_TOOLS_SETTINGS=/path/to/settings.json` before starting the console; the
 page then reads and writes that file instead of the user file.
 
