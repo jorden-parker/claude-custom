@@ -162,6 +162,10 @@ check_that "open on a loopback URL succeeds" contains "$reply" '"ok": true'
 check_that "the URL reaches the program canonicalized" \
   contains "$(cat "$tmp/stdin.last")" 'await __cc_run({"op": "open", "url": "http://localhost:3000/a?b=1#c"})'
 check_that "open returns the page result from the browser" contains "$reply" '"url": "http://localhost:3000/"'
+check_that "the program routes the browser away from the user's profile" contains "$(cat "$tmp/stdin.last")" 'session.configure({ proxy: __CC_PROXY })'
+check_that "the proxy is a closed local port that no page can use" contains "$(cat "$tmp/stdin.last")" 'server: "http://127.0.0.1:9"'
+check_that "the program configures the proxy before it locks the session" \
+  test "$(grep -bo 'session.configure' "$tmp/stdin.last" | head -n 1 | cut -d: -f1)" -lt "$(grep -bo 'session.allowedDomains' "$tmp/stdin.last" | head -n 1 | cut -d: -f1)"
 
 reply="$(ask '{"page":{"op":"act","action":"fill","target":"zq-target-7","text":"zq-text-9"}}')"
 check_that "act returns ok on success" contains "$reply" '"ok": true'

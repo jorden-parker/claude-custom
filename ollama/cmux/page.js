@@ -1,4 +1,8 @@
 var __CC_ALLOWED = ["localhost", "127.0.0.1", "[::1]"];
+var __CC_PROXY = {
+  server: "http://127.0.0.1:9",
+  bypass: "localhost,127.0.0.1,[::1]",
+};
 var __CC_CONSOLE_TYPES = ["error", "warning", "warn"];
 var __CC_MAX_CONSOLE = 100;
 var __CC_DEFAULT_SCROLL = 600;
@@ -18,7 +22,15 @@ function __ccSleep(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
+async function __cc_configure_proxy() {
+  const configured = await session.configure({ proxy: __CC_PROXY });
+  if (!configured || !configured.proxy) {
+    throw new Error("could not keep the browser off your own profile");
+  }
+}
+
 async function __cc_lock() {
+  await __cc_configure_proxy();
   if (
     JSON.stringify(session.allowedDomains()) !== JSON.stringify(__CC_ALLOWED)
   ) {
