@@ -153,11 +153,22 @@ allows_repo_tools() {
   jq -e '.permissions.allow | index("mcp__repo") != null' "$1" >/dev/null
 }
 
+allows_read_only_dev_tools() {
+  jq -e '.permissions.allow as $allowed | all(["mcp__dev__dev_status", "mcp__dev__dev_logs", "mcp__dev__dev_errors", "mcp__dev__page_check", "mcp__dev__page_snapshot", "mcp__dev__page_act"][]; . as $tool | any($allowed[]; . == $tool))' "$1" >/dev/null
+}
+
+asks_before_dev_start() {
+  jq -e '.permissions.allow | all(. != "mcp__dev" and . != "mcp__dev__dev_start" and . != "mcp__dev__dev_stop")' "$1" >/dev/null
+}
+
 check_that "CLAUDE.local.md tells the model to use the repo tools" grep -qF 'mcp__repo__' "$repo/ollama/CLAUDE.local.md"
+check_that "CLAUDE.local.md tells the model to use the dev tools" grep -qF 'mcp__dev__dev_status' "$repo/ollama/CLAUDE.local.md"
 
 for settings in "$repo"/ollama/settings.*.json; do
   check_that "${settings##*/} allows semantic_search" allows_semantic_search "$settings"
   check_that "${settings##*/} allows the read-only repo tools without a prompt" allows_repo_tools "$settings"
+  check_that "${settings##*/} allows the read-only dev tools without a prompt" allows_read_only_dev_tools "$settings"
+  check_that "${settings##*/} asks before dev_start and dev_stop" asks_before_dev_start "$settings"
 done
 
 gates_text_search() {

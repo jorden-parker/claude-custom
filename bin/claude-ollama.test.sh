@@ -143,6 +143,9 @@ EOF
   pinned_tags > "$sandbox/tags.json"
   cat > "$sandbox/stubbin/python3" <<EOF
 #!/bin/sh
+case "\$1" in
+  *cmux/broker.py) exec /usr/bin/python3 "\$@" ;;
+esac
 echo "\$*" >> "$sandbox/python.log"
 EOF
   cat > "$sandbox/stubbin/ollama-agent" <<EOF
@@ -246,7 +249,7 @@ rm -f "$sandbox/curl.log"
 OLLAMA_HOST=http://box:1 run_capture "$repo/bin/claude-ollama" 35b -p hi
 check_that "claude-ollama warm-up follows OLLAMA_HOST" grep -q 'box:1/api/generate' "$sandbox/curl.log"
 check_not "claude-ollama 35b skips pull when the model exists" grep -sqE '^(pull|create) ' "$sandbox/ollama.log"
-check_that "claude-ollama starts the code-search and repo MCP servers" grep -qF -- "--strict-mcp-config --mcp-config {\"mcpServers\":{\"code-search\":{\"command\":\"python3\",\"args\":[\"$repo/shared/mcp/code-search.py\"]},\"repo\":{\"command\":\"python3\",\"args\":[\"$repo/shared/mcp/repo-tools.py\"]}}}" "$sandbox/out"
+check_that "claude-ollama starts the code-search, repo and dev MCP servers" grep -qF -- "--strict-mcp-config --mcp-config {\"mcpServers\":{\"code-search\":{\"command\":\"python3\",\"args\":[\"$repo/shared/mcp/code-search.py\"]},\"repo\":{\"command\":\"python3\",\"args\":[\"$repo/shared/mcp/repo-tools.py\"]},\"dev\":{\"command\":\"python3\",\"args\":[\"$repo/shared/mcp/dev-server.py\"]}}}" "$sandbox/out"
 rm -f "$sandbox/python.log"
 run_capture "$repo/bin/claude-ollama" 35b -p hi
 sleep 1
@@ -364,6 +367,8 @@ chmod +x "$sandbox/stubbin/speed-check"
 CLAUDE_OLLAMA_SPEED_CHECK="$sandbox/stubbin/speed-check" run_capture "$repo/bin/claude-ollama" speed-check --flag
 check_that "claude-ollama speed-check runs the speed check with its arguments" grep -qxF "speed-check args: --flag" "$sandbox/out"
 check_not "claude-ollama speed-check does not launch claude" grep -q '^ARGS:' "$sandbox/out"
+CLAUDE_OLLAMA_SPEED_CHECK="$sandbox/stubbin/speed-check" run_capture "$repo/bin/claude-ollama" thinking-check
+check_that "claude-ollama thinking-check runs the speed check's thinking-only mode" grep -qxF "speed-check args: --thinking-only" "$sandbox/out"
 new_sandbox
 STUB_OLLAMA_NUM_CTX=16384 run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "claude-ollama recreates a model with a stale num_ctx" grep -qE '^create qwen3.8-27b-cc -f ' "$sandbox/ollama.log"
@@ -401,6 +406,7 @@ check_eq "claude-ollama help exit status" 0 "$?"
 check_that "claude-ollama help lists sizes" grep -qxF "sizes: 27b-gguf 27b 35b-coding 35b-gguf 35b" "$sandbox/out"
 check_not "claude-ollama help does not launch claude" grep -q '^ARGS:' "$sandbox/out"
 check_that "claude-ollama help names speed-check" grep -q '^speed-check: ' "$sandbox/out"
+check_that "claude-ollama help names thinking-check" grep -q '^thinking-check: ' "$sandbox/out"
 check_that "claude-ollama help names prepare" grep -q '^prepare \[size\]: ' "$sandbox/out"
 check_that "claude-ollama help names prepare-embedding" grep -q '^prepare-embedding: ' "$sandbox/out"
 run_capture "$repo/bin/claude-ollama" 28b -p hi </dev/null
@@ -735,7 +741,7 @@ policy_lists() {
   jq -e --arg entry "$2" ".filesystem.$1 | index(\$entry) != null" "$sandbox/policy.json" >/dev/null
 }
 
-new_sandbox
+new_sandbox /tmp
 export PR_REVIEW_LOG_DIR="$sandbox/reviews"
 export CLAUDE_CONSOLE_STATE_DIR="$sandbox/console"
 session_config="$HOME/.claude-ollama"
@@ -778,20 +784,55 @@ run_capture env CLAUDE_OLLAMA_CMUX_BROKER=/tmp/stale.sock "$repo/bin/claude-olla
 check_eq "an inherited cmux broker address never reaches the session" "" "$(session_env CLAUDE_OLLAMA_CMUX_BROKER)"
 cmux_socket="$sandbox/cmux.sock"
 /usr/bin/python3 -c 'import socket, sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])' "$cmux_socket"
-run_capture env CMUX_SOCKET_PATH="$cmux_socket" "$repo/bin/claude-ollama" 27b -p hi
-check_eq "inside cmux the sandbox allows no Unix sockets unless asked" null "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
-printf '#!/bin/sh\n' > "$sandbox/stubbin/cmux"
+cat > "$sandbox/stubbin/cmux" <<'EOF'
+#!/bin/sh
+case "$*" in
+  "browser repl "*)
+    echo '"{\"allowed\":[\"localhost\",\"127.0.0.1\",\"[::1]\"]}"'
+    echo '[ok | 1ms]'
+    ;;
+esac
+EOF
 chmod +x "$sandbox/stubbin/cmux"
-run_capture env CLAUDE_OLLAMA_CMUX=1 CMUX_SOCKET_PATH="$cmux_socket" "$repo/bin/claude-ollama" 27b -p hi
+run_capture env CMUX_SOCKET_PATH="$cmux_socket" "$repo/bin/claude-ollama" 27b -p hi
 broker_socket="$session_config/cmux-broker.sock"
+check_eq "inside cmux with no CLAUDE_OLLAMA_CMUX the sandbox allows the broker's socket" "[\"$broker_socket\"]" "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
+run_capture env CLAUDE_OLLAMA_CMUX=0 CMUX_SOCKET_PATH="$cmux_socket" "$repo/bin/claude-ollama" 27b -p hi
+check_eq "CLAUDE_OLLAMA_CMUX=0 turns the broker off" null "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
+run_capture env CLAUDE_OLLAMA_CMUX=1 CMUX_SOCKET_PATH="$cmux_socket" "$repo/bin/claude-ollama" 27b -p hi
 check_eq "CLAUDE_OLLAMA_CMUX=1 allows only the cmux broker's socket" "[\"$broker_socket\"]" "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
 check_eq "the session finds the cmux broker" "$broker_socket" "$(session_env CLAUDE_OLLAMA_CMUX_BROKER)"
 check_that "the session cannot replace the cmux broker's socket" policy_lists denyWrite "$broker_socket"
-check_that "the session's cmux is the broker client" test "$(session_env PATH | cut -d: -f1)" = "$repo/ollama/cmux/bin"
-run_capture env CLAUDE_OLLAMA_CMUX=1 CMUX_SOCKET_PATH="$sandbox/not-a-socket" "$repo/bin/claude-ollama" 27b -p hi
-check_eq "CLAUDE_OLLAMA_CMUX=1 ignores a path that is not a socket" null "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
-run_capture env CLAUDE_OLLAMA_CMUX=1 CMUX_SOCKET_PATH="cmux.sock" "$repo/bin/claude-ollama" 27b -p hi
-check_eq "CLAUDE_OLLAMA_CMUX=1 ignores a relative socket path" null "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
+check_not "the session has no cmux client on its PATH" grep -qF "$repo/ollama/cmux/" "$sandbox/claude-env"
+run_capture env CMUX_SOCKET_PATH="$sandbox/not-a-socket" "$repo/bin/claude-ollama" 27b -p hi
+check_eq "inside cmux the broker ignores a path that is not a socket" null "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
+run_capture env CMUX_SOCKET_PATH="cmux.sock" "$repo/bin/claude-ollama" 27b -p hi
+check_eq "inside cmux the broker ignores a relative socket path" null "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
+cat > "$sandbox/stubbin/cmux" <<'EOF'
+#!/bin/sh
+case "$*" in
+  "browser repl "*)
+    echo '"{\"allowed\":[\"*\"]}"'
+    echo '[ok | 1ms]'
+    ;;
+esac
+EOF
+run_capture env CMUX_SOCKET_PATH="$cmux_socket" "$repo/bin/claude-ollama" 27b -p hi
+cat > "$sandbox/stubbin/cmux" <<'EOF'
+#!/bin/sh
+case "$*" in
+  "browser repl "*)
+    echo '"{\"allowed\":[\"localhost\",\"127.0.0.1\",\"[::1]\"]}"'
+    echo '[ok | 1ms]'
+    ;;
+esac
+EOF
+check_eq "a broker that cannot lock the browser gives the sandbox no socket" null "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
+check_eq "a broker that cannot lock the browser gives the session no broker address" "" "$(session_env CLAUDE_OLLAMA_CMUX_BROKER)"
+check_that "the launch says how to check the browser" grep -qF "run claude-ollama browser-check" "$sandbox/err"
+run_capture env -u CMUX_SOCKET_PATH "$repo/bin/claude-ollama" browser-check
+check_eq "browser-check outside a cmux terminal exits 1" 1 "$?"
+check_that "browser-check outside a cmux terminal says to run it from one" grep -qF "run this from a cmux terminal" "$sandbox/err"
 check_eq "without a GitHub token git gets no auth header" "unset unset unset" "$(cat "$sandbox/git-config-env")"
 check_not "without a terminal claude-ollama leaves the terminal mode alone" test -e "$sandbox/stty.log"
 if [ "$(uname)" = Darwin ]; then
@@ -1016,7 +1057,7 @@ check_eq "a fetch list allows the listed domains through the proxy" '["github.co
 check_eq "a fetch list tunnels the listed domains without decrypting them" '["registry.npmjs.org","docs.python.org","pkg.go.dev"]' "$(jq -c .network.tlsTerminate.excludeDomains "$sandbox/policy.json")"
 check_that "the session cannot rewrite the derived settings" policy_lists denyWrite "$fetch_settings_file"
 check_that "an invalid fetch line is ignored with a message" grep -qxF "claude-ollama: ignoring fetch domain 'bad_host' (expected a hostname like docs.python.org)" "$sandbox/err"
-check_eq "a fetch list allows WebFetch for exactly the listed hosts" '["mcp__code-search__semantic_search","mcp__repo","WebFetch(domain:docs.python.org)","WebFetch(domain:pkg.go.dev)"]' "$(jq -c .permissions.allow "$fetch_settings_file")"
+check_eq "a fetch list allows WebFetch for exactly the listed hosts" '["mcp__code-search__semantic_search","mcp__repo","mcp__dev__dev_status","mcp__dev__dev_logs","mcp__dev__dev_errors","mcp__dev__page_check","mcp__dev__page_snapshot","mcp__dev__page_act","WebFetch(domain:docs.python.org)","WebFetch(domain:pkg.go.dev)"]' "$(jq -c .permissions.allow "$fetch_settings_file")"
 check_that "the derived settings lift the bare WebFetch deny" jq -e '.permissions.deny | index("WebFetch") == null' "$fetch_settings_file"
 check_that "the derived settings keep WebSearch denied" jq -e '.permissions.deny | index("WebSearch") != null' "$fetch_settings_file"
 check_eq "the derived settings deny loopback hosts for WebFetch" '["WebFetch(domain:localhost)","WebFetch(domain:127.0.0.1)","WebFetch(domain:0.0.0.0)","WebFetch(domain:[::1])"]' "$(jq -c '[.permissions.deny[] | select(startswith("WebFetch("))]' "$fetch_settings_file")"

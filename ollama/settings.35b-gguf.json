@@ -61,7 +61,16 @@
     "defaultMode": "default",
     "disableAutoMode": "disable",
     "ask": ["Bash", "Bash(git commit *)", "Bash(git push *)"],
-    "allow": ["mcp__code-search__semantic_search", "mcp__repo"]
+    "allow": [
+      "mcp__code-search__semantic_search",
+      "mcp__repo",
+      "mcp__dev__dev_status",
+      "mcp__dev__dev_logs",
+      "mcp__dev__dev_errors",
+      "mcp__dev__page_check",
+      "mcp__dev__page_snapshot",
+      "mcp__dev__page_act"
+    ]
   },
   "sandbox": {
     "enabled": false
@@ -97,6 +106,10 @@
           {
             "type": "command",
             "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/git-push-guard.py"
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/dev-server-guard.py"
           }
         ]
       },

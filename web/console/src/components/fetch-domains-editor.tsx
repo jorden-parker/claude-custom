@@ -31,7 +31,6 @@ const FETCH_DOMAIN_KIND = "fetch-domains";
 export function FetchDomainsEditor() {
   const [saved, setSaved] = useState<FetchDomainState | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
-  const [draft, setDraft] = useState("");
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -57,18 +56,10 @@ export function FetchDomainsEditor() {
     void fetchHistory().then(setHistory);
   }, [applyState]);
 
-  useEffect(() => {
-    const host = scrollTarget.current;
-    if (host === null) {
-      return;
-    }
-    scrollTarget.current = null;
-    document.querySelector<HTMLElement>(`[data-host="${host}"]`)?.scrollIntoView?.({ block: "center" });
-  }, [rows]);
+  useScrollToPendingHost(scrollTarget, rows);
 
-  const draftError = draft.trim() !== "" && !isValidHost(normalizeHost(draft)) ? INVALID_MESSAGE : null;
   const onHosts = rows.filter((row) => row.on).map((row) => row.host);
-  const dirty = saved !== null && JSON.stringify(onHosts) !== JSON.stringify(saved.hosts);
+  const dirty = hasUnsavedHosts(saved, onHosts);
 
   function toggle(host: string) {
     setRows((current) => current.map((row) => (row.host === host ? { ...row, on: !row.on } : row)));
@@ -85,15 +76,10 @@ export function FetchDomainsEditor() {
     setRows((current) => current.filter((row) => row.host !== host));
   }
 
-  function addDraft() {
-    const host = normalizeHost(draft);
-    if (!isValidHost(host)) {
-      return;
-    }
+  function addHost(host: string) {
     setRows((current) =>
       current.some((row) => row.host === host) ? turnOn(current, host) : insertCustom(current, host),
     );
-    setDraft("");
     setMessage(null);
     scrollTarget.current = host;
   }
@@ -120,101 +106,172 @@ export function FetchDomainsEditor() {
       <p className="rounded-md border border-amber-500/60 bg-amber-500/10 px-4 py-3 text-sm">
         Each host listed here can be read by the local model&apos;s sessions.
       </p>
-      {saved ? <p className="text-sm text-muted-foreground">File: {saved.path}</p> : null}
+      <FilePath path={saved?.path ?? null} />
       {error ? <p className="text-sm text-red-600">{error}</p> : null}
-      {saved && saved.ignored.length > 0 ? (
-        <div className="rounded-md border border-amber-500/60 bg-amber-500/10 px-4 py-3 text-sm">
-          <p className="font-medium">Ignored lines in the file</p>
-          <ul className="mt-2 flex flex-col gap-1">
-            {saved.ignored.map((line, index) => (
-              <li key={`${line}-${index}`}>
-                <code>{line}</code>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
+      <IgnoredLines ignored={saved?.ignored ?? []} />
 
-      <form
-        className="flex items-start gap-2"
-        onSubmit={(event) => {
-          event.preventDefault();
-          addDraft();
-        }}
-      >
-        <div className="flex flex-col gap-1">
-          <input
-            aria-label="Add host"
-            aria-invalid={draftError !== null}
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            placeholder="docs.example.com"
-            className={`rounded-md border bg-background px-3 py-2 text-sm ${draftError ? "border-red-500 ring-2 ring-red-500" : "border-input"}`}
-          />
-          {draftError ? <span className="text-xs text-red-600">{draftError}</span> : null}
-        </div>
-        <Button type="submit" variant="outline" disabled={draft.trim() === "" || draftError !== null}>
-          Add
-        </Button>
-      </form>
+      <AddHostForm onAdd={addHost} />
 
       <ul className="flex flex-col divide-y rounded-md border">
         {rows.map((row) => (
-          <li
-            key={row.host}
-            data-host={row.host}
-            className="animate-in fade-in slide-in-from-top-1 flex items-center justify-between gap-4 px-4 py-3"
-          >
-            <label className="flex items-center gap-3 text-sm">
-              <input
-                type="checkbox"
-                role="switch"
-                aria-label={row.host}
-                checked={row.on}
-                onChange={() => toggle(row.host)}
-                className="size-4"
-              />
-              <span className="font-mono">{row.host}</span>
-              {row.suggestedOnly && !row.on ? (
-                <span className="rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">suggested</span>
-              ) : null}
-            </label>
-            {isCustom(row.host) ? (
-              <Button type="button" variant="ghost" size="sm" onClick={() => remove(row.host)}>
-                Remove
-              </Button>
-            ) : null}
-          </li>
+          <DomainRow key={row.host} row={row} onToggle={toggle} onRemove={remove} />
         ))}
       </ul>
 
-      <section className="flex flex-col gap-2">
-        <h2 className="text-lg font-medium">History</h2>
-        {history.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No saves yet.</p>
-        ) : (
-          <ul className="flex flex-col gap-1 text-sm">
-            {history.map((entry) => (
-              <li key={entry.id}>{new Date(entry.at).toLocaleString()}</li>
-            ))}
-          </ul>
-        )}
-      </section>
+      <HistorySection entries={history} />
 
-      {dirty ? (
-        <div className="sticky bottom-0 flex items-center justify-between gap-4 border-t bg-background px-4 py-3">
-          <span className="text-sm">Unsaved changes</span>
-          <div className="flex gap-2">
-            <Button type="button" variant="outline" onClick={discard}>
-              Discard
-            </Button>
-            <Button type="button" onClick={() => void save()} disabled={saving}>
-              Save
-            </Button>
-          </div>
-        </div>
-      ) : null}
+      {dirty ? <UnsavedBar saving={saving} onDiscard={discard} onSave={() => void save()} /> : null}
       {message ? <p className="text-sm text-green-700">{message}</p> : null}
+    </div>
+  );
+}
+
+function hasUnsavedHosts(saved: FetchDomainState | null, onHosts: string[]): boolean {
+  return saved !== null && JSON.stringify(onHosts) !== JSON.stringify(saved.hosts);
+}
+
+function FilePath({ path }: { path: string | null }) {
+  if (path === null) {
+    return null;
+  }
+  return <p className="text-sm text-muted-foreground">File: {path}</p>;
+}
+
+function useScrollToPendingHost(pendingHostRef: { current: string | null }, rows: Row[]) {
+  useEffect(() => {
+    const host = pendingHostRef.current;
+    if (host === null) {
+      return;
+    }
+    pendingHostRef.current = null;
+    document.querySelector<HTMLElement>(`[data-host="${host}"]`)?.scrollIntoView?.({ block: "center" });
+  }, [pendingHostRef, rows]);
+}
+
+function AddHostForm({ onAdd }: { onAdd: (host: string) => void }) {
+  const [draft, setDraft] = useState("");
+  const host = normalizeHost(draft);
+  const isEmpty = draft.trim() === "";
+  const draftError = !isEmpty && !isValidHost(host) ? INVALID_MESSAGE : null;
+
+  function submit() {
+    if (isEmpty || draftError !== null) {
+      return;
+    }
+    onAdd(host);
+    setDraft("");
+  }
+
+  return (
+    <form
+      className="flex items-start gap-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        submit();
+      }}
+    >
+      <div className="flex flex-col gap-1">
+        <input
+          aria-label="Add host"
+          aria-invalid={draftError !== null}
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          placeholder="docs.example.com"
+          className={`rounded-md border bg-background px-3 py-2 text-sm ${draftError ? "border-red-500 ring-2 ring-red-500" : "border-input"}`}
+        />
+        {draftError ? <span className="text-xs text-red-600">{draftError}</span> : null}
+      </div>
+      <Button type="submit" variant="outline" disabled={isEmpty || draftError !== null}>
+        Add
+      </Button>
+    </form>
+  );
+}
+
+function DomainRow({
+  row,
+  onToggle,
+  onRemove,
+}: {
+  row: Row;
+  onToggle: (host: string) => void;
+  onRemove: (host: string) => void;
+}) {
+  return (
+    <li
+      data-host={row.host}
+      className="animate-in fade-in slide-in-from-top-1 flex items-center justify-between gap-4 px-4 py-3"
+    >
+      <label className="flex items-center gap-3 text-sm">
+        <input
+          type="checkbox"
+          role="switch"
+          aria-label={row.host}
+          checked={row.on}
+          onChange={() => onToggle(row.host)}
+          className="size-4"
+        />
+        <span className="font-mono">{row.host}</span>
+        {row.suggestedOnly && !row.on ? (
+          <span className="rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">suggested</span>
+        ) : null}
+      </label>
+      {isCustom(row.host) ? (
+        <Button type="button" variant="ghost" size="sm" onClick={() => onRemove(row.host)}>
+          Remove
+        </Button>
+      ) : null}
+    </li>
+  );
+}
+
+function IgnoredLines({ ignored }: { ignored: string[] }) {
+  if (ignored.length === 0) {
+    return null;
+  }
+  return (
+    <div className="rounded-md border border-amber-500/60 bg-amber-500/10 px-4 py-3 text-sm">
+      <p className="font-medium">Ignored lines in the file</p>
+      <ul className="mt-2 flex flex-col gap-1">
+        {ignored.map((line, index) => (
+          <li key={`${line}-${index}`}>
+            <code>{line}</code>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function HistorySection({ entries }: { entries: HistoryEntry[] }) {
+  return (
+    <section className="flex flex-col gap-2">
+      <h2 className="text-lg font-medium">History</h2>
+      {entries.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No saves yet.</p>
+      ) : (
+        <ul className="flex flex-col gap-1 text-sm">
+          {entries.map((entry) => (
+            <li key={entry.id}>{new Date(entry.at).toLocaleString()}</li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function UnsavedBar({ saving, onDiscard, onSave }: { saving: boolean; onDiscard: () => void; onSave: () => void }) {
+  return (
+    <div className="sticky bottom-0 flex items-center justify-between gap-4 border-t bg-background px-4 py-3">
+      <span className="text-sm">Unsaved changes</span>
+      <div className="flex gap-2">
+        <Button type="button" variant="outline" onClick={onDiscard}>
+          Discard
+        </Button>
+        <Button type="button" onClick={onSave} disabled={saving}>
+          Save
+        </Button>
+      </div>
     </div>
   );
 }

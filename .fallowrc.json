@@ -1,4 +1,5 @@
 {
+  "entry": ["ollama/cmux/page.js"],
   "ignoreFindings": [
     "web/console/src/components/ui/**",
     "web/console/src/components/ai-elements/**"

@@ -203,8 +203,8 @@ prepare_embedding() {
 }
 
 mcp_config() {
-  printf '{"mcpServers":{"code-search":{"command":"python3","args":["%s"]},"repo":{"command":"python3","args":["%s"]}}}' \
-    "$repo_dir/shared/mcp/code-search.py" "$repo_dir/shared/mcp/repo-tools.py"
+  printf '{"mcpServers":{"code-search":{"command":"python3","args":["%s"]},"repo":{"command":"python3","args":["%s"]},"dev":{"command":"python3","args":["%s"]}}}' \
+    "$repo_dir/shared/mcp/code-search.py" "$repo_dir/shared/mcp/repo-tools.py" "$repo_dir/shared/mcp/dev-server.py"
 }
 
 warm_model() {
@@ -287,19 +287,34 @@ require_plain_project_root() {
 }
 
 cmux_broker_wanted() {
-  [ "${CLAUDE_OLLAMA_CMUX:-}" = 1 ] || return 1
+  [ "${CLAUDE_OLLAMA_CMUX:-}" = 0 ] && return 1
   case "${CMUX_SOCKET_PATH:-}" in
     /*) [ -S "$CMUX_SOCKET_PATH" ] && command -v cmux >/dev/null 2>&1 ;;
     *) return 1 ;;
   esac
 }
 
+wait_for_socket() {
+  local attempts=0
+  while [ "$attempts" -lt 75 ]; do
+    [ -S "$1" ] && return 0
+    sleep 0.2
+    attempts=$((attempts + 1))
+  done
+  return 1
+}
+
 start_cmux_broker() {
   cmux_broker_wanted || return 0
   cmux_broker_socket="$session_config_dir/cmux-broker.sock"
-  nohup "$profile_dir/cmux/broker.py" --socket "$cmux_broker_socket" --cmux "$(command -v cmux)" \
-    --watch-pid "$$" >/dev/null 2>&1 &
-  export CLAUDE_OLLAMA_CMUX_BROKER="$cmux_broker_socket"
+  nohup "$profile_dir/cmux/broker.py" --socket "$cmux_broker_socket" \
+    --cmux "$(command -v cmux)" --watch-pid "$$" >/dev/null 2>&1 &
+  if wait_for_socket "$cmux_broker_socket"; then
+    export CLAUDE_OLLAMA_CMUX_BROKER="$cmux_broker_socket"
+  else
+    cmux_broker_socket=""
+    echo "claude-ollama: the cmux browser is off for this session: the browser could not be locked to localhost (run claude-ollama browser-check)" >&2
+  fi
 }
 
 github_repo_slug() {
@@ -791,12 +806,23 @@ case "${1:-}" in
     echo "prepare [size]: pull or import the size's model and stop, without starting claude"
     echo "prepare-embedding: pull the semantic_search embedding model and stop, without starting claude"
     echo "speed-check: check thinking is off and bench the GGUF sizes against the MLX ones, then print a verdict"
+    echo "thinking-check: check thinking is off on the MLX sizes and print PASS or FAIL"
+    echo "browser-check: prove the session browser stays on localhost (run from a cmux terminal)"
     exit 0 ;;
 esac
+
+run_browser_check() {
+  if [ -z "${CMUX_SOCKET_PATH:-}" ] || ! command -v cmux >/dev/null 2>&1; then
+    echo "claude-ollama browser-check: run this from a cmux terminal" >&2
+    exit 1
+  fi
+  exec python3 "$repo_dir/ollama/cmux/broker.py" --self-test --cmux "$(command -v cmux)"
+}
 
 mode=launch
 case "${1:-}" in
   doctor) mode=doctor; shift ;;
+  browser-check) mode=browser-check; shift ;;
   --print-config) mode=print-config; shift ;;
   logs) mode=logs; shift ;;
   prepare-embedding) mode=prepare-embedding; shift ;;
@@ -806,6 +832,7 @@ case "${1:-}" in
   github-token) mode=github-token; shift ;;
   prepare) mode=prepare; shift ;;
   speed-check) exec "${CLAUDE_OLLAMA_SPEED_CHECK:-$repo_dir/bin/speed-check}" "${@:2}" ;;
+  thinking-check) exec "${CLAUDE_OLLAMA_SPEED_CHECK:-$repo_dir/bin/speed-check}" --thinking-only ;;
 esac
 
 [ "$mode" != logs ] || follow_logs "$@"
@@ -813,6 +840,7 @@ esac
 [ "$mode" != ui ] || serve_console ui console / "$@"
 [ "$mode" != reviews ] || serve_console reviews reviews /reviews "$@"
 [ "$mode" != github-token ] || setup_github_tokens "$@"
+[ "$mode" != browser-check ] || run_browser_check
 
 if ! command -v jq >/dev/null 2>&1; then
   echo "claude-ollama: jq is required (brew install jq)" >&2

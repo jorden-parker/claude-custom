@@ -1,60 +1,40 @@
 #!/usr/bin/env python3
 import argparse
-import base64
+import http.server
 import json
 import os
+import re
+import secrets
 import socketserver
 import subprocess
+import sys
 import tempfile
 import threading
 import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
-PROFILE = "claude-ollama"
 COMMAND_TIMEOUT_SECONDS = 120
-OPEN_VERBS = {"open", "open-split", "new"}
-NAVIGATE_VERBS = {"goto", "navigate"}
-SURFACE_VERBS = NAVIGATE_VERBS | {
-    "back",
-    "forward",
-    "reload",
-    "url",
-    "get-url",
-    "snapshot",
-    "eval",
-    "wait",
-    "click",
-    "dblclick",
-    "hover",
-    "focus",
-    "check",
-    "uncheck",
-    "scroll-into-view",
-    "type",
-    "fill",
-    "press",
-    "key",
-    "keydown",
-    "keyup",
-    "select",
-    "scroll",
-    "screenshot",
-    "get",
-    "is",
-    "find",
-    "frame",
-    "dialog",
-    "console",
-    "errors",
-    "highlight",
-    "viewport",
-}
-TARGETING_FLAGS = {"--surface", "--workspace", "--window", "--profile", "--out", "--path", "--file"}
+REPL_TIMEOUT_MS = 60000
+TEXT_LIMIT = 1000
+REPLY_TAIL_LINES = 20
 LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
+LOCKED_HOSTS = ["localhost", "127.0.0.1", "[::1]"]
+PAGE_PROGRAM = Path(__file__).resolve().with_name("page.js")
+STATUS_LINE = re.compile(r"^\[(ok|error) \|.*\]$")
+PAGE_OPS = {
+    "open": {"url"},
+    "snapshot": set(),
+    "act": {"action", "target", "text"},
+}
+PAGE_ACTIONS = {"click", "dblclick", "hover", "focus", "fill", "type", "press", "select", "check", "uncheck", "scroll"}
 
 
 class Refused(Exception):
+    pass
+
+
+class PageFailed(Exception):
     pass
 
 
@@ -78,7 +58,7 @@ def canonical_url(parts, host, port):
 
 def require_loopback_url(url):
     refusal = Refused(f"only http(s) URLs on localhost are allowed, not {url}")
-    if has_ambiguous_characters(url):
+    if not isinstance(url, str) or has_ambiguous_characters(url):
         raise refusal
     try:
         parts = urlsplit(url)
@@ -91,149 +71,112 @@ def require_loopback_url(url):
     return canonical_url(parts, host, port)
 
 
-def require_no_targeting_flags(args):
-    for arg in args:
-        if arg.split("=", 1)[0] in TARGETING_FLAGS:
-            raise Refused(f"{arg} is not allowed from this session")
+def checked_text(value, name):
+    if not isinstance(value, str) or len(value) > TEXT_LIMIT:
+        raise Refused(f"{name} must be text of at most {TEXT_LIMIT} characters")
+    return value
 
 
-def split_global_flags(args):
-    if args[:1] == ["--json"]:
-        return ["--json"], args[1:]
-    return [], args
+def checked_act(page):
+    action = page.get("action")
+    if action not in PAGE_ACTIONS:
+        raise Refused(f"action must be one of {', '.join(sorted(PAGE_ACTIONS))}")
+    request = {"op": "act", "action": action}
+    for name in ("target", "text"):
+        if name in page:
+            request[name] = checked_text(page[name], name)
+    return request
 
 
-def split_surface(args):
-    if args[:1] == ["--surface"]:
-        return args[1:2], args[2:]
-    return args[:1], args[1:]
+def checked_page(request):
+    if not isinstance(request, dict) or set(request) != {"page"} or not isinstance(request["page"], dict):
+        raise Refused("this broker takes only page requests")
+    page = request["page"]
+    op = page.get("op")
+    if op not in PAGE_OPS:
+        raise Refused(f"unknown op {op!r}")
+    unknown = set(page) - PAGE_OPS[op] - {"op"}
+    if unknown:
+        raise Refused(f"unknown keys: {', '.join(sorted(unknown))}")
+    if op == "open":
+        return {"op": "open", "url": require_loopback_url(page.get("url"))}
+    if op == "act":
+        return checked_act(page)
+    return {"op": "snapshot"}
 
 
-def with_canonical_url(args):
-    for at, arg in enumerate(args):
-        if not arg.startswith("-"):
-            return [*args[:at], require_loopback_url(arg), *args[at + 1 :]]
-    raise Refused("navigation needs a URL")
+def loads_or_none(text):
+    try:
+        return json.loads(text)
+    except ValueError:
+        return None
 
 
-def parse_open_args(args):
-    urls = []
-    focus = "false"
-    remaining = list(args)
-    while remaining:
-        arg = remaining.pop(0)
-        if arg == "--focus" and remaining[:1] in (["true"], ["false"]):
-            focus = remaining.pop(0)
-        elif arg.startswith("-"):
-            raise Refused(f"{arg} is not allowed on open")
-        else:
-            urls.append(arg)
-    if len(urls) > 1:
-        raise Refused("open takes at most one URL")
-    return [require_loopback_url(url) for url in urls], focus
+def repl_result(output):
+    lines = [line for line in output.splitlines() if not STATUS_LINE.match(line)]
+    for line in reversed(lines):
+        value = loads_or_none(line)
+        if isinstance(value, str):
+            value = loads_or_none(value)
+        if isinstance(value, dict):
+            return value
+    return None
+
+
+def tail_text(output):
+    return "\n".join(output.splitlines()[-REPLY_TAIL_LINES:])
 
 
 class Broker:
     def __init__(self, cmux):
         self.cmux = cmux
-        self.surface_ids = {}
+        self.session = f"claude-ollama-{secrets.token_hex(8)}"
+        self.workdir = tempfile.TemporaryDirectory(prefix="claude-ollama-browser-")
+        self.program = PAGE_PROGRAM.read_text()
 
-    def run_cmux(self, args):
+    def close(self):
+        self.workdir.cleanup()
+
+    def run_repl(self, program):
         return subprocess.run(
-            [self.cmux, *args], capture_output=True, text=True, timeout=COMMAND_TIMEOUT_SECONDS
+            [self.cmux, "browser", "repl", "--session", self.session, "--timeout", str(REPL_TIMEOUT_MS), "--eval", "-"],
+            input=program,
+            capture_output=True,
+            text=True,
+            cwd=self.workdir.name,
+            timeout=COMMAND_TIMEOUT_SECONDS,
         )
 
-    def ensure_profile(self):
-        listing = self.run_cmux(["browser", "profiles", "list"]).stdout
-        names = {line.split("\t", 1)[0] for line in listing.splitlines()}
-        if PROFILE not in names:
-            self.run_cmux(["browser", "profiles", "add", PROFILE])
+    def run_page(self, page):
+        program = f"{self.program}\nawait __cc_run({json.dumps(page)})\n"
+        completed = self.run_repl(program)
+        result = repl_result(completed.stdout)
+        if completed.returncode != 0 or result is None:
+            raise PageFailed(tail_text(completed.stdout + completed.stderr))
+        return result
 
-    def handle(self, args, wants_file):
-        global_flags, command = split_global_flags(args)
-        if command[:1] != ["browser"]:
-            raise Refused("only `cmux browser` commands reach cmux from this session")
-        browser_args = command[1:]
-        if browser_args[:1] and browser_args[0] in OPEN_VERBS:
-            return self.open(browser_args[0], browser_args[1:])
-        return self.run_on_surface(global_flags, browser_args, wants_file)
+    def prove_lock(self):
+        result = self.run_page({"op": "lock"})
+        if result.get("allowed") != LOCKED_HOSTS:
+            raise PageFailed(f"the browser allows {result.get('allowed')}")
 
-    def open(self, verb, args):
-        urls, focus = parse_open_args(args)
-        completed = self.run_cmux(
-            [
-                "--json",
-                "--id-format",
-                "both",
-                "browser",
-                verb,
-                *urls,
-                "--profile",
-                PROFILE,
-                "--focus",
-                focus,
-            ]
-        )
-        self.remember_surface(completed.stdout)
-        return reply_from(completed)
-
-    def remember_surface(self, stdout):
+    def handle(self, request):
+        page = checked_page(request)
         try:
-            opened = json.loads(stdout)
-        except json.JSONDecodeError:
-            return
-        surface_id = opened.get("surface_id")
-        if not surface_id:
-            return
-        self.surface_ids[surface_id] = surface_id
-        if opened.get("surface_ref"):
-            self.surface_ids[opened["surface_ref"]] = surface_id
-
-    def run_on_surface(self, global_flags, args, wants_file):
-        surface, rest = split_surface(args)
-        surface_id = self.surface_ids.get(surface[0]) if surface else None
-        if not surface_id:
-            raise Refused("only browser surfaces this session opened can be used")
-        verb, verb_args = (rest[0], rest[1:]) if rest else (None, [])
-        if verb not in SURFACE_VERBS:
-            raise Refused(f"browser {verb} is not allowed from this session")
-        require_no_targeting_flags(verb_args)
-        if verb in NAVIGATE_VERBS:
-            verb_args = with_canonical_url(verb_args)
-        command = [*global_flags, "browser", "--surface", surface_id, verb, *verb_args]
-        if verb == "screenshot":
-            return self.screenshot(command, wants_file)
-        return reply_from(self.run_cmux(command))
-
-    def screenshot(self, command, wants_file):
-        if not wants_file:
-            raise Refused("screenshot needs --out PATH")
-        with tempfile.TemporaryDirectory() as folder:
-            image = Path(folder) / "screenshot.png"
-            reply = reply_from(self.run_cmux([*command, "--out", str(image)]))
-            if image.exists():
-                reply["file"] = base64.b64encode(image.read_bytes()).decode()
-        return reply
-
-
-def reply_from(completed):
-    return {"exit": completed.returncode, "stdout": completed.stdout, "stderr": completed.stderr}
-
-
-def refusal(reason):
-    return {"exit": 1, "stdout": "", "stderr": f"cmux broker: {reason}\n"}
+            return {"ok": True, "result": self.run_page(page)}
+        except PageFailed as failure:
+            return {"ok": False, "error": str(failure)}
 
 
 def answer(broker, line):
     try:
-        request = json.loads(line)
-        return broker.handle(list(request.get("args", [])), bool(request.get("out")))
+        return broker.handle(json.loads(line))
     except Refused as reason:
-        return refusal(str(reason))
-    except (json.JSONDecodeError, AttributeError, TypeError):
-        return refusal("malformed request")
+        return {"ok": False, "error": str(reason)}
+    except ValueError:
+        return {"ok": False, "error": "malformed request"}
     except subprocess.TimeoutExpired:
-        return refusal("cmux timed out")
+        return {"ok": False, "error": "cmux timed out"}
 
 
 def serve(broker, socket_path):
@@ -257,24 +200,85 @@ def process_alive(pid):
     return True
 
 
-def exit_when_gone(pid, socket_path):
+def exit_when_gone(pid, socket_path, cleanup):
     while process_alive(pid):
         time.sleep(0.5)
     Path(socket_path).unlink(missing_ok=True)
+    cleanup()
     os._exit(0)
+
+
+SELF_TEST_PAGE = "claude-ollama browser-check page"
+
+
+class SelfTestPage(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        body = f"<html><body>{SELF_TEST_PAGE}</body></html>".encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args):
+        pass
+
+
+def self_test_checks(result):
+    return [
+        ("fetch to example.com blocked", result.get("fetch") == "blocked"),
+        ("opening example.com in a tab blocked", result.get("open") == "blocked"),
+        ("navigating to example.com blocked", result.get("goto") == "blocked"),
+        ("browser locked to localhost", result.get("allowed") == LOCKED_HOSTS),
+        ("localhost page loads through the proxy bypass", SELF_TEST_PAGE in str(result.get("local", ""))),
+    ]
+
+
+def run_self_test(cmux):
+    page_server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), SelfTestPage)
+    threading.Thread(target=page_server.serve_forever, daemon=True).start()
+    broker = Broker(cmux)
+    result = {}
+    try:
+        result = broker.run_page(
+            {"op": "selftest", "localUrl": f"http://127.0.0.1:{page_server.server_address[1]}/"}
+        )
+    except (PageFailed, OSError, subprocess.TimeoutExpired) as failure:
+        print(f"FAIL: the browser self-test did not finish: {failure}")
+    finally:
+        page_server.shutdown()
+        broker.close()
+    checks = self_test_checks(result)
+    for name, passed in checks:
+        print(f"{'ok' if passed else 'FAIL'}: {name}")
+    if all(passed for _name, passed in checks):
+        print("browser-check: passed")
+        return 0
+    print("browser-check: FAILED")
+    return 1
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--socket", required=True)
+    parser.add_argument("--socket")
     parser.add_argument("--cmux", required=True)
-    parser.add_argument("--watch-pid", type=int, required=True)
+    parser.add_argument("--watch-pid", type=int)
+    parser.add_argument("--self-test", action="store_true")
     options = parser.parse_args()
+    if options.self_test:
+        sys.exit(run_self_test(options.cmux))
+    if options.socket is None or options.watch_pid is None:
+        parser.error("--socket and --watch-pid are required")
     broker = Broker(options.cmux)
-    broker.ensure_profile()
+    try:
+        broker.prove_lock()
+    except (PageFailed, OSError, subprocess.TimeoutExpired) as failure:
+        broker.close()
+        print(f"cmux broker: could not lock the browser to localhost: {failure}", file=sys.stderr)
+        sys.exit(1)
     server = serve(broker, options.socket)
     threading.Thread(
-        target=exit_when_gone, args=(options.watch_pid, options.socket), daemon=True
+        target=exit_when_gone, args=(options.watch_pid, options.socket, broker.close), daemon=True
     ).start()
     server.serve_forever()
 

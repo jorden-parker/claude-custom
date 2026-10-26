@@ -12,7 +12,9 @@ PAIRS = (("27b", "27b-gguf"), ("35b", "35b-gguf"))
 SIZES = tuple(size for pair in PAIRS for size in pair)
 GGUF_SIZES = tuple(gguf for _, gguf in PAIRS)
 MLX_SIZES = tuple(mlx for mlx, _ in PAIRS)
-STAGE_COUNT = 6
+SPEED_STAGE_COUNT = 6
+THINKING_STAGE_COUNT = 3
+THINKING_ONLY_FLAG = "--thinking-only"
 MIN_FREE_KB = 45 * 1024 * 1024
 THINKING_PREFIX_TOKENS = "2000"
 THINKING_TOOL_TRIALS = 3
@@ -59,8 +61,8 @@ def command_output(command):
     return subprocess.run(command, capture_output=True, text=True)
 
 
-def announce(number, title):
-    print(f"[{number}/{STAGE_COUNT}] {title}", flush=True)
+def announce(number, total, title):
+    print(f"[{number}/{total}] {title}", flush=True)
 
 
 def require(condition, fix):
@@ -98,8 +100,12 @@ def free_disk_kb():
     return int(lines[-1].split()[3])
 
 
-def preflight():
+def require_ollama():
     require(ollama_answers(), f"Ollama is not answering at {ollama_base_url()}: start it, then {RERUN}")
+
+
+def preflight():
+    require_ollama()
     require(on_ac_power(), f"plug in the charger, then {RERUN}")
     require(not low_power_mode_on(), f"turn off Low Power Mode in System Settings > Battery, then {RERUN}")
     require(not other_session_running(), f"quit the other claude-ollama session, then {RERUN}")
@@ -108,8 +114,8 @@ def preflight():
         require(free_disk_kb() >= MIN_FREE_KB, f"free up disk space (45 GB needed to import {', '.join(missing)}), then {RERUN}")
 
 
-def prepare_models():
-    for size in SIZES:
+def prepare_models(sizes):
+    for size in sizes:
         result = subprocess.run([tool_path("SPEED_CHECK_LAUNCHER", "claude-ollama"), "prepare", size])
         require(result.returncode == 0, f"claude-ollama prepare {size} failed: fix the error above, then {RERUN}")
 
@@ -188,8 +194,12 @@ def pair_verdict(mlx, gguf, benches, probes):
     return PairVerdict(mlx, failed)
 
 
+def thinking_passed(thinking):
+    return all(result["passed"] for result in thinking.values())
+
+
 def thinking_line(thinking):
-    status = "PASS" if all(result["passed"] for result in thinking.values()) else "FAIL"
+    status = "PASS" if thinking_passed(thinking) else "FAIL"
     counts = ", ".join(
         f"{size} think {result['claude_code_thinking_chars']} -> {result['disabled_thinking_chars']}"
         for size, result in thinking.items()
@@ -205,7 +215,7 @@ def pair_numbers(mlx, gguf, benches):
 
 def next_line(thinking, verdicts):
     better = [f"{verdict.name}-gguf" for verdict in verdicts if verdict.gguf_is_better]
-    if not all(result["passed"] for result in thinking.values()):
+    if not thinking_passed(thinking):
         return "Next: paste the block below into Claude; thinking is still on."
     if better:
         return f"Next: paste the block below into Claude and ask to make {' and '.join(better)} the default."
@@ -233,18 +243,30 @@ def print_verdict(lines, next_action, report_path):
     print("```")
 
 
-def run():
-    announce(1, "Preflight: Ollama, power, other sessions, disk")
-    preflight()
-    announce(2, "Prepare models: pull or import every size")
-    prepare_models()
-    announce(3, "Renderer check: GGUF models use Ollama's renderer and parser")
-    check_renderers()
-    announce(4, "Thinking check (plan 066)")
+def run_thinking_only():
+    announce(1, THINKING_STAGE_COUNT, "Preflight: Ollama")
+    require_ollama()
+    announce(2, THINKING_STAGE_COUNT, "Prepare models: pull the MLX sizes")
+    prepare_models(MLX_SIZES)
+    announce(3, THINKING_STAGE_COUNT, "Thinking check (plan 066)")
     thinking = check_thinking()
-    announce(5, "Speed bench (plan 067): MLX then GGUF, back to back")
+    print()
+    print(thinking_line(thinking))
+    return 0 if thinking_passed(thinking) else 1
+
+
+def run_speed_check():
+    announce(1, SPEED_STAGE_COUNT, "Preflight: Ollama, power, other sessions, disk")
+    preflight()
+    announce(2, SPEED_STAGE_COUNT, "Prepare models: pull or import every size")
+    prepare_models(SIZES)
+    announce(3, SPEED_STAGE_COUNT, "Renderer check: GGUF models use Ollama's renderer and parser")
+    check_renderers()
+    announce(4, SPEED_STAGE_COUNT, "Thinking check (plan 066)")
+    thinking = check_thinking()
+    announce(5, SPEED_STAGE_COUNT, "Speed bench (plan 067): MLX then GGUF, back to back")
     benches = bench_pairs()
-    announce(6, "Cache probe")
+    announce(6, SPEED_STAGE_COUNT, "Cache probe")
     probes = probe_caches()
     verdicts = [pair_verdict(mlx, gguf, benches, probes) for mlx, gguf in PAIRS]
     lines = [thinking_line(thinking)]
@@ -254,16 +276,16 @@ def run():
     report_path = save_report({"verdict": lines, "next": next_action, "thinking": thinking,
                                "benches": benches, "probes": probes})
     print_verdict(lines, next_action, report_path)
-
-
-def main():
-    try:
-        run()
-    except StageFailure as failure:
-        print(f"speed-check stopped: {failure}", file=sys.stderr)
-        return 1
     return 0
 
 
+def main(argv):
+    try:
+        return run_thinking_only() if THINKING_ONLY_FLAG in argv else run_speed_check()
+    except StageFailure as failure:
+        print(f"speed-check stopped: {failure}", file=sys.stderr)
+        return 1
+
+
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))

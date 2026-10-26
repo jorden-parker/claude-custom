@@ -79,7 +79,8 @@ before changing how any file gets applied.
   `_PROBE` override the scripts in tests; tests: `bin/speed-check.test.sh`.
   `claude-ollama prepare [size]` pulls or imports one size and exits;
   `claude-ollama prepare-embedding` pulls the `semantic_search` embedding model
-  and exits
+  and exits; `claude-ollama thinking-check` (`bin/speed-check --thinking-only`)
+  runs only the thinking check on the MLX sizes and exits 1 when it fails
 - Messages bench:
   `bin/messages-bench --model M [--base-url URL] [--thinking omit|claude-code|disabled]`
   times any `/v1/messages` server (cold/warm TTFT, prefill, decode, tool calls);
@@ -98,11 +99,15 @@ before changing how any file gets applied.
 - Repo tools MCP server: `shared/mcp/repo-tools.py`; its tests are
   `shared/mcp/repo-tools.test.sh` (fake broker, temp git repo). Both servers
   share the JSON-RPC loop in `shared/mcp/mcp_stdio.py`.
+- Dev server MCP server: `shared/mcp/dev-server.py`; its tests are
+  `shared/mcp/dev-server.test.sh` (stub npm, fake Next server, stub cmux).
 - Feed the hook one command by hand:
   `printf '{"tool_input":{"command":"git log"}}' | shared/hooks/bash-output-guard.py`
 - Validate JSON after editing: `make check-json`
 - Launch the work harness: `claude-ollama [27b|35b] [claude args...]` (27b is
   the default size; `--help` lists sizes)
+- `claude-ollama browser-check` proves the session browser can't leave localhost
+  (needs a cmux terminal; prints `browser-check: passed`).
 - Check the work harness: `claude-ollama doctor [size]` (exit 1 on a missing
   model, hook, context mismatch or server env var; needs `jq`) and
   `claude-ollama --print-config [size]` (resolved values, no launch). Follow the
@@ -398,19 +403,22 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   `allowMachLookup` lets the session reach the `com.apple.pasteboard.1` Mach
   service, which Claude Code's osascript image paste needs; it also lets the
   session read and write the clipboard. The session never reaches the cmux
-  socket, which would let it type into terminals outside the sandbox. With
-  `CLAUDE_OLLAMA_CMUX=1` (and `$CMUX_SOCKET_PATH` an absolute path to a socket)
-  the launcher starts `ollama/cmux/broker.py` outside the sandbox on
-  `<session config>/cmux-broker.sock`, an `allowUnixSockets` entry (also in
-  `denyWrite`), and `ollama/sandbox-entry` puts `ollama/cmux/bin/cmux` (the
-  client) first on PATH. The broker runs only `cmux browser` commands: `open` on
-  a loopback URL in the `claude-ollama` profile, then an allowlist of verbs on
-  surfaces the session opened, with no host-file verbs or retargeting flags;
-  `screenshot --out` lands in the broker's temp dir and the client writes the
-  file inside the sandbox. It exits when the launcher's process does. The
-  browser's own network is not limited by the policy, so page JavaScript
-  (`eval`) can still reach any host. Tests: `ollama/cmux/broker.test.sh` (stub
-  `cmux`).
+  socket, which would let it type into terminals outside the sandbox. When
+  `$CMUX_SOCKET_PATH` is an absolute path to a socket and `cmux` is on PATH (a
+  cmux terminal), the launcher starts by default, and `CLAUDE_OLLAMA_CMUX=0`
+  turns it off. The launcher starts `ollama/cmux/broker.py` outside the sandbox
+  on `<session config>/cmux-broker.sock`, an `allowUnixSockets` entry (also in
+  `denyWrite`); the session has no cmux command. The broker drives one cmux
+  browser REPL session (`cmux browser repl`) that it locks to `localhost`,
+  `127.0.0.1` and `[::1]` (navigations, new tabs, `fetch`, subresources and
+  websockets, through `session.allowedDomains(..., { lock: true })`). It routes
+  the REPL's browser through a closed proxy so the pages never use the user's
+  own profile. It takes only structured page requests (`open`, `snapshot`,
+  `act`), never JavaScript or raw cmux argv, and proves the lock before it
+  creates its socket. `claude-ollama browser-check` is the live proof on a real
+  machine. It exits when the launcher's process does. Not covered by WebKit
+  content rules: WebRTC (STUN/TURN) and DNS prefetch. Tests:
+  `ollama/cmux/broker.test.sh` (stub `cmux`).
 - There is no side model: each Ollama profile sets
   `ANTHROPIC_DEFAULT_HAIKU_MODEL` to its own main model, has no `modelOverrides`
   and no subagent model, and denies `Agent` (it is not in `--tools` either),
@@ -426,6 +434,16 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   `go/cmd/model-picker` (which renders on stderr and prints the chosen size on
   stdout); without one it uses 27b. A first arg that is neither a size nor a
   flag is dropped so it doesn't reach `claude` as a prompt.
+- `shared/mcp/dev-server.py` is the `dev` MCP server the Ollama profiles start
+  beside `repo`. It reads `.next/dev/lock` (only its port), the dev script's
+  port flag and `/_next/mcp` (Next.js 16+), and the session's own log; it never
+  trusts a lock's URL. It stops only the servers its session started. The
+  read-only tools are allowed by full name (`mcp__dev__dev_status`, `dev_logs`,
+  `dev_errors`, `page_check`, `page_snapshot`, `page_act`; the page tools call
+  the cmux broker through `CLAUDE_OLLAMA_CMUX_BROKER`, never a `cmux` command);
+  `dev_start` and `dev_stop` still ask, and no bare `mcp__dev` may be allowed.
+  `shared/hooks/dev-server-guard.py` (Ollama-only, PreToolUse on Bash) denies
+  `pnpm dev`-style starts and points the model at `dev_start`.
 - `shared/mcp/repo-tools.py` is the `repo` MCP server the Ollama profiles start
   beside code-search and allow without a prompt (`mcp__repo` in
   `permissions.allow`; `bin/check-config` checks it and that
