@@ -194,6 +194,11 @@ ensure_embedding_model() {
     echo "claude-ollama: could not pull $embedding_model; semantic_search will fail until you run claude-ollama and pick 'Set up embedding model'" >&2
 }
 
+prepare_embedding() {
+  ollama show "$embedding_model" >/dev/null 2>&1 && exit 0
+  exec ollama pull "$embedding_model"
+}
+
 mcp_config() {
   printf '{"mcpServers":{"code-search":{"command":"python3","args":["%s"]},"repo":{"command":"python3","args":["%s"]}}}' \
     "$repo_dir/shared/mcp/code-search.py" "$repo_dir/shared/mcp/repo-tools.py"
@@ -627,12 +632,16 @@ server_log_path() {
 
 follow_logs() {
   local lines=50 path
-  if [ "${1:-}" = -n ] && [ -n "${2:-}" ]; then
-    lines="$2"
-  fi
   if ! path="$(server_log_path)"; then
     echo "claude-ollama: no Ollama log found (LaunchAgent, Homebrew service or app); a server started with 'ollama serve' logs to its own terminal" >&2
     exit 1
+  fi
+  if [ "${1:-}" = --path ]; then
+    echo "$path"
+    exit 0
+  fi
+  if [ "${1:-}" = -n ] && [ -n "${2:-}" ]; then
+    lines="$2"
   fi
   echo "claude-ollama: following $path" >&2
   exec tail -n "$lines" -F "$path"
@@ -701,12 +710,13 @@ case "${1:-}" in
     echo "no size: pick one in a menu (or $default_size without a terminal)"
     echo "doctor [size]: check models, context sizes, hooks, Ollama and the server env"
     echo "--print-config [size]: print the resolved settings and the claude command"
-    echo "logs [-n LINES]: follow the Ollama server log (LaunchAgent, Homebrew service or app)"
+    echo "logs [-n LINES|--path]: follow the Ollama server log (LaunchAgent, Homebrew service or app), or print its path"
     echo "review [size] PR [--post]: review a pull request with the size's model, one file per request"
     echo "ui [--port N]: serve the console (runs, health, logs, models, reviews) at http://127.0.0.1:8765/"
     echo "reviews [--port N]: serve live and past reviews at http://127.0.0.1:8765/"
     echo "github-token [read|push]: create a GitHub token in the browser and store it in the keychain (both without a kind)"
     echo "prepare [size]: pull or import the size's model and stop, without starting claude"
+    echo "prepare-embedding: pull the semantic_search embedding model and stop, without starting claude"
     echo "speed-check: check thinking is off and bench the GGUF sizes against the MLX ones, then print a verdict"
     exit 0 ;;
 esac
@@ -716,6 +726,7 @@ case "${1:-}" in
   doctor) mode=doctor; shift ;;
   --print-config) mode=print-config; shift ;;
   logs) mode=logs; shift ;;
+  prepare-embedding) mode=prepare-embedding; shift ;;
   review) mode=review; shift ;;
   ui) mode=ui; shift ;;
   reviews) mode=reviews; shift ;;
@@ -725,6 +736,7 @@ case "${1:-}" in
 esac
 
 [ "$mode" != logs ] || follow_logs "$@"
+[ "$mode" != prepare-embedding ] || prepare_embedding
 [ "$mode" != ui ] || serve_console ui console / "$@"
 [ "$mode" != reviews ] || serve_console reviews reviews /reviews "$@"
 [ "$mode" != github-token ] || setup_github_tokens "$@"

@@ -343,6 +343,21 @@ run_capture "$repo/bin/claude-ollama" prepare 27b
 check_eq "claude-ollama prepare exits 0 when the model is installed" 0 "$?"
 check_not "claude-ollama prepare leaves an installed model alone" grep -sq '^create ' "$sandbox/ollama.log"
 check_not "claude-ollama prepare of an installed model does not launch claude" grep -q '^ARGS:' "$sandbox/out"
+
+new_sandbox
+STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" prepare-embedding
+check_eq "claude-ollama prepare-embedding exits 0 after pulling" 0 "$?"
+check_that "claude-ollama prepare-embedding pulls the embedding model" grep -qxF "pull qwen3-embedding:0.6b" "$sandbox/ollama.log"
+check_not "claude-ollama prepare-embedding does not launch claude" grep -q '^ARGS:' "$sandbox/out"
+
+new_sandbox
+run_capture "$repo/bin/claude-ollama" prepare-embedding
+check_eq "claude-ollama prepare-embedding exits 0 when the model is installed" 0 "$?"
+check_not "claude-ollama prepare-embedding pulls nothing when the model is installed" grep -sq '^pull ' "$sandbox/ollama.log"
+
+new_sandbox
+STUB_OLLAMA_SHOW_EXIT=1 STUB_OLLAMA_PULL_EXIT=1 run_capture "$repo/bin/claude-ollama" prepare-embedding
+check_eq "claude-ollama prepare-embedding exits 1 when the pull fails" 1 "$?"
 new_sandbox
 printf '#!/bin/sh\necho "speed-check args: $*"\n' > "$sandbox/stubbin/speed-check"
 chmod +x "$sandbox/stubbin/speed-check"
@@ -387,6 +402,7 @@ check_that "claude-ollama help lists sizes" grep -qxF "sizes: 27b-gguf 27b 35b-c
 check_not "claude-ollama help does not launch claude" grep -q '^ARGS:' "$sandbox/out"
 check_that "claude-ollama help names speed-check" grep -q '^speed-check: ' "$sandbox/out"
 check_that "claude-ollama help names prepare" grep -q '^prepare \[size\]: ' "$sandbox/out"
+check_that "claude-ollama help names prepare-embedding" grep -q '^prepare-embedding: ' "$sandbox/out"
 run_capture "$repo/bin/claude-ollama" 28b -p hi </dev/null
 check_that "claude-ollama unknown size without a tty falls back to 27b" grep -qF -- "$ollama_settings" "$sandbox/out"
 check_not "claude-ollama drops an unknown size" grep -qF "28b" "$sandbox/out"
@@ -488,6 +504,14 @@ printf '<plist><dict>\n  <key>Label</key><string>local.ollama</string>\n  <key>S
 rm -f "$sandbox/tail.log"
 HOMEBREW_PREFIX="$sandbox/brew" run_capture "$repo/bin/claude-ollama" logs
 check_that "logs prefers the LaunchAgent log" grep -qxF -- "-n 50 -F $sandbox/agent-ollama.log" "$sandbox/tail.log"
+rm -f "$sandbox/tail.log"
+run_capture "$repo/bin/claude-ollama" logs --path
+check_eq "logs --path exit status" 0 "$?"
+check_that "logs --path prints only the chosen log path" test "$(cat "$sandbox/out")" = "$sandbox/agent-ollama.log"
+check_not "logs --path does not tail the log" test -e "$sandbox/tail.log"
+HOME="$sandbox/bare-home" HOMEBREW_PREFIX="$sandbox/brew-none" run_capture "$repo/bin/claude-ollama" logs --path
+check_eq "logs --path without a log file exits 1" 1 "$?"
+check_that "logs --path without a log file says so" grep -q 'no Ollama log found' "$sandbox/err"
 new_sandbox
 cat > "$sandbox/stubbin/pr-review-local" <<EOF
 #!/bin/sh
@@ -518,7 +542,7 @@ run_capture "$repo/bin/claude-ollama" review 9 </dev/null
 check_that "review without a size uses the default" grep -q 'REVIEW: --model qwen3.8-27b-cc ' "$sandbox/out"
 unset CLAUDE_OLLAMA_REVIEWER
 run_capture "$repo/bin/claude-ollama" --help
-check_that "claude-ollama help lists logs" grep -q '^logs \[-n LINES\]' "$sandbox/out"
+check_that "claude-ollama help lists logs" grep -q '^logs \[-n LINES|--path\]: ' "$sandbox/out"
 
 new_sandbox
 STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2" run_capture "$repo/bin/claude-ollama" doctor 27b
