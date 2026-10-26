@@ -238,8 +238,13 @@ def log_url(log_path):
     for line in clean_lines(log_path):
         match = LOCAL_URL.search(line)
         if match:
-            return match.group(0).replace("0.0.0.0", "localhost")
+            return url_for_port(match.group(1))
     return None
+
+
+def url_for_port(text):
+    port = int(text)
+    return f"http://localhost:{port}" if 1 <= port <= 65535 else None
 
 
 def dir_candidates(dir_text):

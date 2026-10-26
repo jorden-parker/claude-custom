@@ -122,7 +122,7 @@ with open(".next/dev/lock", "w") as lock:
     json.dump({"pid": os.getpid(), "port": port, "hostname": "localhost", "appUrl": "http://localhost:%d" % port, "startedAt": 0}, lock)
 with open(ports_log, "a") as log:
     log.write("%d\n" % port)
-print("   \x1b[1m- Local:\x1b[0m        http://localhost:%d" % port, flush=True)
+print("   \x1b[1m- Local:\x1b[0m        http://localhost:%d%s" % (port, os.environ.get("FAKE_LOCAL_SUFFIX", "")), flush=True)
 print("Error: Cannot find module './missing'", flush=True)
 print("    at Object.<anonymous> (app/page.tsx:3:1)", flush=True)
 server.serve_forever()
@@ -235,6 +235,13 @@ check "and drops the Local line" lacks "$logs" "Local:"
 check "dev_errors shows the Next.js error text" contains "$(section dev_errors "$start_out")" "Hydration failed"
 check "dev_stop reports it stopped the server" contains "$(section dev_stop "$start_out")" "stopped app"
 check "the stopped server refuses connections" [ ! -e "$tmp/still-up" ]
+
+evil_out="$tmp/session-evil.out"
+(export FAKE_LOCAL_SUFFIX="@evil.test/"; session "$evil_out" '["dev_start",{"dir":"app"}]' '["dev_stop",{"dir":"app"}]')
+evil_port="$(tail -n 1 "$tmp/ports.log")"
+check "a log URL with a userinfo host yields the port's localhost URL" \
+  contains "$(section dev_start "$evil_out")" "ready at http://localhost:$evil_port "
+check "and the log's host is never reported" lacks "$(cat "$evil_out")" "evil.test"
 
 : > "$tmp/npm.log"
 second_out="$tmp/session-second.out"
