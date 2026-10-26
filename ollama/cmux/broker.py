@@ -6,6 +6,7 @@ import re
 import secrets
 import socketserver
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -17,6 +18,7 @@ REPL_TIMEOUT_MS = 60000
 TEXT_LIMIT = 1000
 REPLY_TAIL_LINES = 20
 LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
+LOCKED_HOSTS = ["localhost", "127.0.0.1", "[::1]"]
 PAGE_PROGRAM = Path(__file__).resolve().with_name("page.js")
 STATUS_LINE = re.compile(r"^\[(ok|error) \|.*\]$")
 PAGE_OPS = {
@@ -28,6 +30,10 @@ PAGE_ACTIONS = {"click", "dblclick", "hover", "focus", "fill", "type", "press", 
 
 
 class Refused(Exception):
+    pass
+
+
+class PageFailed(Exception):
     pass
 
 
@@ -140,14 +146,25 @@ class Broker:
             timeout=COMMAND_TIMEOUT_SECONDS,
         )
 
-    def handle(self, request):
-        page = checked_page(request)
+    def run_page(self, page):
         program = f"{self.program}\nawait __cc_run({json.dumps(page)})\n"
         completed = self.run_repl(program)
         result = repl_result(completed.stdout)
         if completed.returncode != 0 or result is None:
-            return {"ok": False, "error": tail_text(completed.stdout + completed.stderr)}
-        return {"ok": True, "result": result}
+            raise PageFailed(tail_text(completed.stdout + completed.stderr))
+        return result
+
+    def prove_lock(self):
+        result = self.run_page({"op": "lock"})
+        if result.get("allowed") != LOCKED_HOSTS:
+            raise PageFailed(f"the browser allows {result.get('allowed')}")
+
+    def handle(self, request):
+        page = checked_page(request)
+        try:
+            return {"ok": True, "result": self.run_page(page)}
+        except PageFailed as failure:
+            return {"ok": False, "error": str(failure)}
 
 
 def answer(broker, line):
@@ -197,6 +214,12 @@ def main():
     parser.add_argument("--watch-pid", type=int, required=True)
     options = parser.parse_args()
     broker = Broker(options.cmux)
+    try:
+        broker.prove_lock()
+    except (PageFailed, OSError, subprocess.TimeoutExpired) as failure:
+        broker.close()
+        print(f"cmux broker: could not lock the browser to localhost: {failure}", file=sys.stderr)
+        sys.exit(1)
     server = serve(broker, options.socket)
     threading.Thread(
         target=exit_when_gone, args=(options.watch_pid, options.socket, broker.close), daemon=True

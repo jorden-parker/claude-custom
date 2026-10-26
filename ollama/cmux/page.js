@@ -138,16 +138,21 @@ async function __cc_act(request) {
   return report;
 }
 
+async function __cc_lock_only() {
+  await __cc_lock();
+  return { allowed: session.allowedDomains() };
+}
+
+var __CC_OPS = {
+  lock: __cc_lock_only,
+  open: __cc_open,
+  snapshot: __cc_snapshot,
+  act: __cc_act,
+};
+
 async function __cc_run(request) {
-  let result;
-  if (request.op === "open") {
-    result = await __cc_open(request);
-  } else if (request.op === "snapshot") {
-    result = await __cc_snapshot();
-  } else if (request.op === "act") {
-    result = await __cc_act(request);
-  } else {
+  if (!Object.prototype.hasOwnProperty.call(__CC_OPS, request.op)) {
     throw new Error("unknown op " + request.op);
   }
-  return JSON.stringify(result);
+  return JSON.stringify(await __CC_OPS[request.op](request));
 }

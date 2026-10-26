@@ -284,12 +284,27 @@ cmux_broker_wanted() {
   esac
 }
 
+wait_for_socket() {
+  local attempts=0
+  while [ "$attempts" -lt 75 ]; do
+    [ -S "$1" ] && return 0
+    sleep 0.2
+    attempts=$((attempts + 1))
+  done
+  return 1
+}
+
 start_cmux_broker() {
   cmux_broker_wanted || return 0
   cmux_broker_socket="$session_config_dir/cmux-broker.sock"
-  nohup "$profile_dir/cmux/broker.py" --socket "$cmux_broker_socket" --cmux "$(command -v cmux)" \
-    --watch-pid "$$" >/dev/null 2>&1 &
-  export CLAUDE_OLLAMA_CMUX_BROKER="$cmux_broker_socket"
+  nohup "${CLAUDE_OLLAMA_CMUX_BROKER_BIN:-$profile_dir/cmux/broker.py}" --socket "$cmux_broker_socket" \
+    --cmux "$(command -v cmux)" --watch-pid "$$" >/dev/null 2>&1 &
+  if wait_for_socket "$cmux_broker_socket"; then
+    export CLAUDE_OLLAMA_CMUX_BROKER="$cmux_broker_socket"
+  else
+    cmux_broker_socket=""
+    echo "claude-ollama: the cmux browser is off for this session: the browser could not be locked to localhost (run claude-ollama browser-check)" >&2
+  fi
 }
 
 github_repo_slug() {

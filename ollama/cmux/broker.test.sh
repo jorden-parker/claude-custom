@@ -123,8 +123,11 @@ ok_reply() {
   printf '%s\n' '"{\"url\":\"http://localhost:3000/\",\"errors\":[],\"console\":[],\"surface\":null}"' '[ok | 5ms]'
 }
 
-set_reply "$(ok_reply)"
+set_reply '"{\"allowed\":[\"localhost\",\"127.0.0.1\",\"[::1]\"]}"'
 start_broker
+check_that "the broker proves the localhost lock at startup" \
+  contains "$(cat "$tmp/stdin.last")" 'await __cc_run({"op": "lock"})'
+set_reply "$(ok_reply)"
 
 check_that "a request without a page object is refused with the page-only message" \
   contains "$(ask '{"args":["browser","open","http://localhost:3000"]}')" "this broker takes only page requests"
@@ -200,6 +203,14 @@ done
 check_not "the broker exits when the session ends" kill -0 "$broker_pid" 2>/dev/null
 check_not "the broker removes its socket when it exits" test -e "$socket"
 stop_broker
+
+: > "$tmp/cmux.log"
+set_reply '"{\"allowed\":[\"*\"]}"'
+rm -f "$socket"
+python3 "$broker" --socket "$socket" --cmux "$tmp/cmux" --watch-pid $$ 2>"$tmp/lock-err"
+check_eq "a broker whose browser is not locked to localhost exits 1" 1 "$?"
+check_not "it never creates its socket when the lock is not proven" test -e "$socket"
+check_that "it says the browser could not be locked" grep -q "could not lock the browser to localhost" "$tmp/lock-err"
 
 if command -v node >/dev/null 2>&1; then
   check_that "page.js is valid JavaScript" node --check "$here/page.js"
