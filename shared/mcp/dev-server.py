@@ -5,6 +5,7 @@ import json
 import os
 import re
 import signal
+import socket
 import subprocess
 import sys
 import time
@@ -18,10 +19,8 @@ from mcp_stdio import serve, tool_result
 READY_TIMEOUT_SECONDS = 90
 PROBE_TIMEOUT_SECONDS = 2
 MCP_TIMEOUT_SECONDS = 10
-CMUX_TIMEOUT_SECONDS = 60
 STOP_TIMEOUT_SECONDS = 10
 POLL_SECONDS = 0.5
-SETTLE_SECONDS = 1
 DEFAULT_LOG_LINES = 40
 MAX_LOG_LINES = 200
 READY_ERROR_LINES = 20
@@ -29,7 +28,6 @@ STILL_STARTING_LINES = 20
 MAX_STACK_LINES = 5
 MAX_APP_DIRS = 20
 MAX_OUTPUT_CHARS = 20000
-BROWSER_WAIT_MS = 15000
 SCRIPT_PATTERN = re.compile(r"^dev:[A-Za-z0-9_.-]{1,48}$")
 START_SCRIPT_NAMES = {"dev", "start"}
 LOCAL_URL = re.compile(r"https?://(?:localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0):(\d+)\S*")
@@ -45,6 +43,8 @@ PATH_RULE = "path must start with a single /"
 CMUX_OFF = "the cmux browser is off; launch claude-ollama from a cmux terminal without CLAUDE_OLLAMA_CMUX=0. dev_errors still works."
 NO_SERVER = "no dev server answers for {}; call dev_status"
 NOT_NEXT = "not a Next.js 16+ dev server"
+NO_PAGE_ORIGIN = "unknown: this session has not run page_check"
+BROKER_MISSING = "the cmux browser broker is not running; launch claude-ollama from a cmux terminal"
 
 NO_PROXY_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 DEV_SERVER_ENV = {"NO_COLOR": "1", "FORCE_COLOR": "0", "CI": ""}
@@ -128,9 +128,9 @@ def git_root():
 
 ROOT = git_root()
 STARTED = {}
-BROWSER = {"surface": None, "origin": None}
+BROWSER = {"origin": None}
+BROKER_TIMEOUT_SECONDS = 90
 PAGE_ACTIONS = {"click", "dblclick", "hover", "focus", "fill", "type", "press", "select", "check", "uncheck", "scroll"}
-DEFAULT_SCROLL_PIXELS = "600"
 
 
 def is_inside_root(path):
@@ -506,73 +506,53 @@ def stop_process(process):
         process.wait()
 
 
-def run_cmux(*arguments):
-    try:
-        completed = subprocess.run(["cmux", *arguments], capture_output=True, text=True, timeout=CMUX_TIMEOUT_SECONDS)
-    except (OSError, subprocess.TimeoutExpired) as error:
-        raise ToolError(f"cmux failed: {error}")
-    if completed.returncode != 0:
-        raise ToolError(completed.stderr.strip() or f"cmux exited with code {completed.returncode}")
-    return completed
-
-
-def open_browser(url):
-    completed = run_cmux("--json", "browser", "open", url)
-    try:
-        opened = json.loads(completed.stdout)
-    except ValueError:
-        raise ToolError("cmux did not report the opened surface")
-    surface = opened.get("surface_id") or opened.get("surface_ref")
-    if not surface:
-        raise ToolError("cmux did not report the opened surface")
-    return surface
-
-
-def navigate_surface(surface, url):
-    run_cmux("browser", "--surface", surface, "console", "clear")
-    run_cmux("browser", "--surface", surface, "errors", "clear")
-    run_cmux("browser", "--surface", surface, "navigate", url)
-
-
-def browser_surface_for(url):
-    surface = BROWSER["surface"]
-    if surface is not None:
+def ask_browser(request):
+    socket_path = os.environ.get("CLAUDE_OLLAMA_CMUX_BROKER", "")
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+        connection.settimeout(BROKER_TIMEOUT_SECONDS)
         try:
-            navigate_surface(surface, url)
-            return surface
-        except ToolError:
-            BROWSER["surface"] = None
-    surface = open_browser(url)
-    BROWSER["surface"] = surface
-    return surface
+            connection.connect(socket_path)
+        except OSError:
+            raise ToolError(BROKER_MISSING) from None
+        connection.sendall(json.dumps({"page": request}).encode() + b"\n")
+        with connection.makefile("rb") as replies:
+            line = replies.readline()
+    try:
+        reply = json.loads(line)
+    except ValueError:
+        raise ToolError("the browser broker sent no reply") from None
+    if not reply.get("ok"):
+        raise ToolError(reply.get("error") or "the browser broker failed")
+    return reply["result"]
 
 
 def valid_path(path):
     return path.startswith("/") and not path.startswith("//") and "://" not in path
 
 
-def read_page_state(surface, origin):
-    errors = run_cmux("browser", "--surface", surface, "errors", "list").stdout.rstrip("\n")
-    console = run_cmux("browser", "--surface", surface, "console", "list").stdout.rstrip("\n")
-    next_text = next_errors(origin) or NOT_NEXT
+def listing(items):
+    return "\n".join(items) if items else "(none)"
+
+
+def next_errors_text(origin):
+    if origin is None:
+        return NO_PAGE_ORIGIN
+    return next_errors(origin) or NOT_NEXT
+
+
+def browser_sections(page, origin):
     return [
         "Browser errors:",
-        errors or "(none)",
+        listing(page.get("errors")),
         "Console:",
-        console or "(none)",
+        listing(page.get("console")),
         "Next.js:",
-        next_text,
+        next_errors_text(origin),
     ]
 
 
-def current_page():
-    if BROWSER["surface"] is None:
-        raise ToolError("call page_check first")
-    return BROWSER["surface"], BROWSER["origin"]
-
-
-def page_elements(surface):
-    return run_cmux("browser", "--surface", surface, "snapshot", "--interactive", "--compact").stdout.rstrip("\n")
+def surface_lines(page):
+    return [f"Surface: {page['surface']}"] if page.get("surface") else []
 
 
 def page_check(arguments):
@@ -586,76 +566,53 @@ def page_check(arguments):
     if candidate is None:
         raise ToolError(NO_SERVER.format(dir_text))
     url = candidate.url + path
-    surface = browser_surface_for(url)
     BROWSER["origin"] = candidate.url
-    run_cmux("browser", "--surface", surface, "wait", "--load-state", "complete", "--timeout-ms", str(BROWSER_WAIT_MS))
-    time.sleep(SETTLE_SECONDS)
-    return "\n".join([f"Page: {url}", f"Surface: {surface}", *read_page_state(surface, candidate.url)])
+    page = ask_browser({"op": "open", "url": url})
+    return "\n".join([f"Page: {url}", *surface_lines(page), *browser_sections(page, candidate.url)])
 
 
 def page_snapshot(arguments):
-    surface, _origin = current_page()
-    return page_elements(surface)
-
-
-def checked_target(target):
-    if not target:
-        raise ToolError("target is required for this action (a ref like e3, or a CSS selector)")
-    if target.startswith("-"):
-        raise ToolError("target must not start with -")
-    return target
-
-
-def checked_text(text):
-    if text is not None and text.startswith("--"):
-        raise ToolError("text must not start with --")
-    return text
+    return ask_browser({"op": "snapshot"})["elements"]
 
 
 def required_text(text, meaning):
     if not text:
         raise ToolError(f"text is required: {meaning}")
-    return checked_text(text)
+    return text
 
 
-def scroll_words(target, text):
-    pixels = DEFAULT_SCROLL_PIXELS if text is None else text
-    if not pixels.isdigit():
-        raise ToolError("text must be a whole number of pixels for scroll")
-    words = ["scroll", "--dy", pixels]
+def scroll_request(target, text):
+    request = {"op": "act", "action": "scroll"}
     if target:
-        words += ["--selector", checked_target(target)]
-    return words
+        request["target"] = target
+    if text is not None:
+        if not text.isdigit():
+            raise ToolError("text must be a whole number of pixels for scroll")
+        request["text"] = text
+    return request
 
 
-def action_words(action, target, text):
+def action_request(action, target, text):
     if action == "press":
-        return ["press", required_text(text, "the key, e.g. Enter")]
+        return {"op": "act", "action": action, "text": required_text(text, "the key, e.g. Enter")}
     if action == "scroll":
-        return scroll_words(target, text)
-    words = [action, checked_target(target)]
+        return scroll_request(target, text)
+    if not target:
+        raise ToolError("target is required for this action (a ref like e3, or a CSS selector)")
+    request = {"op": "act", "action": action, "target": target}
     if action in ("type", "select"):
-        words.append(required_text(text, "the text or value"))
+        request["text"] = required_text(text, "the text or value")
     elif action == "fill" and text is not None:
-        words.append(checked_text(text))
-    return words
+        request["text"] = text
+    return request
 
 
 def page_act(arguments):
     action = arguments.choice("action", PAGE_ACTIONS)
-    words = action_words(action, arguments.text("target"), arguments.text("text"))
-    surface, origin = current_page()
-    run_cmux("browser", "--surface", surface, "console", "clear")
-    run_cmux("browser", "--surface", surface, "errors", "clear")
-    run_cmux("browser", "--surface", surface, *words)
-    try:
-        run_cmux("browser", "--surface", surface, "wait", "--load-state", "complete", "--timeout-ms", "10000")
-    except ToolError:
-        pass
-    time.sleep(SETTLE_SECONDS)
-    url_now = run_cmux("browser", "--surface", surface, "get", "url").stdout.strip()
-    state = read_page_state(surface, origin)
-    return "\n".join([f"URL now: {url_now}", *state, "Elements:", page_elements(surface)])
+    page = ask_browser(action_request(action, arguments.text("target"), arguments.text("text")))
+    return "\n".join(
+        [f"URL now: {page.get('url', '')}", *browser_sections(page, BROWSER["origin"]), "Elements:", page.get("elements", "")]
+    )
 
 
 def truncated(text):

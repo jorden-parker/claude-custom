@@ -5,7 +5,7 @@ server="$(cd "$(dirname "$0")" && pwd)/dev-server.py"
 tmp="$(cd "$(mktemp -d)" && pwd -P)"
 failures=0
 
-trap 'rm -rf "$tmp"' EXIT
+trap 'kill "${broker_pid:-}" 2>/dev/null; rm -rf "$tmp"' EXIT
 
 export DEV_TEST_DIR="$tmp"
 export FAKE_PORTS_LOG="$tmp/ports.log"
@@ -43,9 +43,8 @@ port_refuses() {
   ! curl --noproxy '*' -sf "http://localhost:$1/" >/dev/null
 }
 
-navigated_once() {
-  [ "$(grep -c -- '--json browser open' "$tmp/cmux.log")" = 1 ] &&
-    grep -qF -- "browser --surface S-1 navigate http://localhost:$1/other" "$tmp/cmux.log"
+requested() {
+  grep -qxF -- "$1" "$tmp/broker.log"
 }
 
 section() {
@@ -68,20 +67,50 @@ esac
 exit 1
 SH
 
-cat > "$tmp/bin/cmux" <<'SH'
-#!/usr/bin/env bash
-printf '%s\n' "$*" >> "$DEV_TEST_DIR/cmux.log"
-case "$*" in
-  "--json browser open "*) echo '{"surface_id":"S-1","surface_ref":"surface:1"}' ;;
-  *"errors list"*) echo "TypeError: x is undefined" ;;
-  *"console list"*) echo "[warn] If you do not provide a visible label, you must specify an aria-label or aria-labelledby attribute for accessibility" ;;
-  *" snapshot "*) printf '%s\n' '- button "Save" [ref=e1]' '- textbox "Name" [ref=e2]' ;;
-  *" get url") echo "http://localhost:1/settings" ;;
-esac
-exit 0
-SH
+cat > "$tmp/broker.py" <<'PY'
+import json
+import os
+import socketserver
+import sys
 
-chmod +x "$tmp/bin/npm" "$tmp/bin/cmux"
+socket_path, log_path, opened_flag = sys.argv[1:4]
+CONSOLE_LINE = "[warn] If you do not provide a visible label, you must specify an aria-label or aria-labelledby attribute for accessibility"
+ELEMENTS = '- button "Save" [ref=e1]\n- textbox "Name" [ref=e2]'
+
+
+def answer(request):
+    operation = request["page"]["op"]
+    if operation == "open":
+        open(opened_flag, "w").close()
+        return {"ok": True, "result": {"url": request["page"]["url"], "errors": ["TypeError: x is undefined"], "console": [CONSOLE_LINE], "surface": "S-1"}}
+    if not os.path.exists(opened_flag):
+        return {"ok": False, "error": "call page_check first"}
+    if operation == "snapshot":
+        return {"ok": True, "result": {"elements": ELEMENTS}}
+    return {"ok": True, "result": {"url": "http://localhost:1/settings", "errors": [], "console": [], "elements": ELEMENTS}}
+
+
+class Handler(socketserver.StreamRequestHandler):
+    def handle(self):
+        request = json.loads(self.rfile.readline())
+        with open(log_path, "a") as record:
+            record.write(json.dumps(request) + "\n")
+        self.wfile.write(json.dumps(answer(request)).encode() + b"\n")
+
+
+if os.path.exists(socket_path):
+    os.unlink(socket_path)
+socketserver.UnixStreamServer(socket_path, Handler).serve_forever()
+PY
+
+chmod +x "$tmp/bin/npm"
+: > "$tmp/broker.log"
+python3 "$tmp/broker.py" "$tmp/broker.sock" "$tmp/broker.log" "$tmp/opened" &
+broker_pid=$!
+for _ in $(seq 50); do
+  [ -S "$tmp/broker.sock" ] && break
+  sleep 0.1
+done
 
 cat > "$tmp/fake-next.py" <<'PY'
 import http.server
@@ -275,13 +304,18 @@ exit_port="$(tail -n 1 "$tmp/ports.log")"
 sleep 2
 check "servers a session started are gone when it ends" port_refuses "$exit_port"
 
-: > "$tmp/cmux.log"
-BROKER='' call page_check '{"dir":"app","path":"/settings"}' > "$tmp/no-broker.out"
-check "page_check without the cmux broker says to launch from a cmux terminal" \
-  error_with "$(cat "$tmp/no-broker.out")" "cmux terminal"
+rm -f "$tmp/opened"
+check "page_snapshot before any page_check says to call page_check first" \
+  error_with "$(BROKER="$tmp/broker.sock" call page_snapshot '{}')" "call page_check first"
+check "page_act before any page_check says to call page_check first" \
+  error_with "$(BROKER="$tmp/broker.sock" call page_act '{"action":"click","target":"e1"}')" "call page_check first"
 
+check "page_check without the cmux broker says to launch from a cmux terminal" \
+  error_with "$(BROKER='' call page_check '{"dir":"app","path":"/settings"}')" "cmux terminal"
+
+: > "$tmp/broker.log"
 browser_out="$tmp/session-browser.out"
-BROKER="$tmp/fake.sock" session "$browser_out" \
+BROKER="$tmp/broker.sock" session "$browser_out" \
   '["dev_start",{"dir":"app"}]' \
   '["page_check",{"dir":"app","path":"/settings"}]' \
   '["page_check",{"dir":"app","path":"/other"}]'
@@ -291,40 +325,39 @@ check "page_check reports browser errors" contains "$page" "Browser errors:"
 check "and the TypeError from errors list" contains "$page" "TypeError: x is undefined"
 check "and the console warning from console list" contains "$page" "aria-label"
 check "and the Next.js error from get_errors" contains "$page" "Hydration failed"
-check "the first page_check opens the page in the cmux browser" \
-  [ "$(head -n 1 "$tmp/cmux.log")" = "--json browser open http://localhost:$browser_port/settings" ]
-check "a later page_check navigates the same surface and does not open again" navigated_once "$browser_port"
-
-check "page_snapshot before any page_check says to call page_check first" \
-  error_with "$(BROKER=x call page_snapshot '{}')" "call page_check first"
-check "page_act before any page_check says to call page_check first" \
-  error_with "$(BROKER=x call page_act '{"action":"click","target":"e1"}')" "call page_check first"
 check "page_check names the surface it uses" contains "$page" "Surface: S-1"
+check "the first page_check asks the broker to open the page" \
+  requested "{\"page\": {\"op\": \"open\", \"url\": \"http://localhost:$browser_port/settings\"}}"
+check "a later page_check asks the broker to open its path on the same session" \
+  requested "{\"page\": {\"op\": \"open\", \"url\": \"http://localhost:$browser_port/other\"}}"
 
-: > "$tmp/cmux.log"
 act_out="$tmp/session-act.out"
-BROKER="$tmp/fake.sock" session "$act_out" \
+BROKER="$tmp/broker.sock" session "$act_out" \
   '["dev_start",{"dir":"app"}]' \
   '["page_check",{"dir":"app","path":"/settings"}]' \
   '["page_snapshot",{}]' \
   '["page_act",{"action":"fill","target":"e2","text":"Ada"}]' \
-  '["page_act",{"action":"press","text":"Enter"}]'
+  '["page_act",{"action":"press","text":"Enter"}]' \
+  '["page_act",{"action":"scroll","text":"300"}]'
 snapshot="$(section page_snapshot "$act_out")"
 check "page_snapshot lists elements with refs" contains "$snapshot" "[ref=e1]"
+check "page_snapshot asks the broker for the elements" requested '{"page": {"op": "snapshot"}}'
 fill="$(section page_act "$act_out")"
-check "page_act fill runs on the page's surface by ref" \
-  grep -qF -- "browser --surface S-1 fill e2 Ada" "$tmp/cmux.log"
-check "page_act reports browser errors, console and elements" \
-  [ "$(printf '%s\n' "$fill" | grep -c -e '^Browser errors:' -e '^Console:' -e '^Elements:')" -ge 3 ]
-check "page_act press sends the key" grep -qF -- "browser --surface S-1 press Enter" "$tmp/cmux.log"
+check "page_act fill asks the broker to fill the ref with the text" \
+  requested '{"page": {"op": "act", "action": "fill", "target": "e2", "text": "Ada"}}'
+check "page_act reports the URL, browser errors, console and elements" \
+  [ "$(printf '%s\n' "$fill" | grep -c -e '^URL now:' -e '^Browser errors:' -e '^Console:' -e '^Elements:')" -ge 4 ]
+check "page_act press asks the broker for the key" \
+  requested '{"page": {"op": "act", "action": "press", "text": "Enter"}}'
+check "page_act scroll asks the broker for the pixels" \
+  requested '{"page": {"op": "act", "action": "scroll", "text": "300"}}'
 check "page_act click without a target is refused" \
-  error_with "$(BROKER=x call page_act '{"action":"click"}')" "target is required"
-check "page_act refuses a target that looks like a flag" \
-  error_with "$(BROKER=x call page_act '{"action":"click","target":"--surface x"}')" "must not start with -"
-check "page_act refuses text that looks like a flag" \
-  error_with "$(BROKER=x call page_act '{"action":"fill","target":"e2","text":"--surface x"}')" "must not start with --"
+  error_with "$(BROKER="$tmp/broker.sock" call page_act '{"action":"click"}')" "target is required"
+BROKER="$tmp/broker.sock" call page_act '{"action":"click","target":"--surface x"}' >/dev/null
+check "page_act click takes a target that looks like a flag, sent as data" \
+  requested '{"page": {"op": "act", "action": "click", "target": "--surface x"}}'
 check "page_act has no eval action" \
-  error_with "$(BROKER=x call page_act '{"action":"eval","target":"x"}')" "action must be one of"
+  error_with "$(BROKER="$tmp/broker.sock" call page_act '{"action":"eval","target":"x"}')" "action must be one of"
 
 check "page_check rejects a path without a leading slash" \
   error_with "$(BROKER=x call page_check '{"dir":"app","path":"settings"}')" "path must start with a single /"
