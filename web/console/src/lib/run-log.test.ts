@@ -6,7 +6,6 @@ import {
   isRunId,
   listRuns,
   newRunId,
-  parseRunEvents,
   resolveRunFile,
   runStatus,
 } from "./run-log";
@@ -59,13 +58,6 @@ describe("resolveRunFile", () => {
     expect(resolveRunFile(RUN_ID)).toBeNull();
     expect(resolveRunFile("../../etc/passwd")).toBeNull();
     expect(resolveRunFile("not-an-id")).toBeNull();
-  });
-});
-
-describe("parseRunEvents", () => {
-  it("skips lines that are not events", () => {
-    const text = `${JSON.stringify({ t: 0, kind: "line", text: "a" })}\nnot json\n\n{"no":"kind"}\n`;
-    expect(parseRunEvents(text)).toEqual([{ t: 0, kind: "line", text: "a" }]);
   });
 });
 

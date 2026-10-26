@@ -1,10 +1,9 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { parseRunEvents, type RunEvent } from "./run-event";
 
 export type RunStatus = "running" | "ok" | "failed" | "cancelled" | "lost";
-
-export type RunEvent = { kind: string; t?: number } & Record<string, unknown>;
 
 export type RunSummary = {
   id: string;
@@ -47,34 +46,6 @@ export function resolveRunFileIn(directory: string, id: string): string | null {
     return null;
   }
   return fs.existsSync(file) ? file : null;
-}
-
-export function isRunEndLine(line: string): boolean {
-  return parseRunEvent(line)?.kind === "end";
-}
-
-export function parseRunEvents(text: string): RunEvent[] {
-  return text
-    .split("\n")
-    .map(parseRunEvent)
-    .filter((event): event is RunEvent => event !== null);
-}
-
-function parseRunEvent(line: string): RunEvent | null {
-  try {
-    const value: unknown = JSON.parse(line);
-    return isRunEvent(value) ? value : null;
-  } catch {
-    return null;
-  }
-}
-
-function isRunEvent(value: unknown): value is RunEvent {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    typeof (value as { kind?: unknown }).kind === "string"
-  );
 }
 
 export function runStatus(events: RunEvent[], isAlive: (pid: number) => boolean): RunStatus {

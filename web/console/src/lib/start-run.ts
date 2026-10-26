@@ -3,11 +3,12 @@ import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { findCommand, type CommandParams } from "./console-commands";
+import { consoleRepoDir } from "./sizes";
+import { parseRunEvents } from "./run-event";
 import {
   isProcessAlive,
   listRuns,
   newRunId,
-  parseRunEvents,
   resolveRunFileIn,
   runsDir,
   runStatus,
@@ -93,7 +94,7 @@ export function cancelRun(id: string, deps: CancelDeps): CancelResult {
 
 export function startDeps(): StartDeps {
   return {
-    repoDir: process.env.CLAUDE_CUSTOM_HOME ?? "",
+    repoDir: consoleRepoDir(),
     runsDir: runsDir(),
     now: () => new Date(),
     randomHex: () => randomBytes(2).toString("hex"),

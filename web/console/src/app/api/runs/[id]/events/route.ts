@@ -1,4 +1,5 @@
-import { resolveRunFile, isRunEndLine } from "@/lib/run-log";
+import { isRunEndLine } from "@/lib/run-event";
+import { resolveRunFile } from "@/lib/run-log";
 import { parseLastEventId } from "@/lib/review-stream";
 import { serverSentFrame, streamLines } from "@/lib/line-tail";
 

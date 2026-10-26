@@ -1,0 +1,47 @@
+"use client";
+
+import { Loader2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useState, type ReactNode } from "react";
+import { Button } from "@/components/ui/button";
+import type { CommandParams } from "@/lib/console-commands";
+
+type StartRunButtonProps = {
+  command: string;
+  params: CommandParams;
+  children: ReactNode;
+};
+
+export function StartRunButton({ command, params, children }: StartRunButtonProps) {
+  const router = useRouter();
+  const [pending, setPending] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const start = async () => {
+    setPending(true);
+    setMessage(null);
+    const response = await fetch("/api/runs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ command, params }),
+    });
+    if (response.status === 201) {
+      const { id } = (await response.json()) as { id: string };
+      router.push(`/runs/${encodeURIComponent(id)}`);
+      return;
+    }
+    const { message: reason } = (await response.json()) as { message: string };
+    setMessage(reason);
+    setPending(false);
+  };
+
+  return (
+    <div className="flex flex-col items-start gap-2">
+      <Button onClick={start} disabled={pending}>
+        {pending ? <Loader2 className="animate-spin" /> : null}
+        {children}
+      </Button>
+      {message === null ? null : <p className="text-sm text-red-700 dark:text-red-400">{message}</p>}
+    </div>
+  );
+}
