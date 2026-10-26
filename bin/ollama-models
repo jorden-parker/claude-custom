@@ -10,9 +10,10 @@ case "$ollama_url" in http://*|https://*) ;; *) ollama_url="http://$ollama_url" 
 
 usage() {
   cat >&2 <<'EOF'
-usage: ollama-models list | prune [--yes] | pin NAME[:TAG]
+usage: ollama-models list | prune [--yes] | prune --yes --only NAME... | pin NAME[:TAG]
   list   show each installed model as pinned, mismatch, profile, orphan, third-party or other
   prune  remove third-party models and -cc models no profile uses (asks unless --yes)
+  prune --yes --only NAME...  remove just the named models that are still prunable
   pin    record NAME's registry manifest sha256 in ollama/model-digests.json
 EOF
   exit 2
@@ -73,6 +74,39 @@ prune_models() {
   echo "$models" | xargs ollama rm
 }
 
+prune_only() {
+  local name prunable removable=()
+  prunable="$(prunable_models)"
+  for name in "$@"; do
+    if grep -Fxq -- "$name" <<<"$prunable"; then
+      removable+=("$name")
+    else
+      echo "skipped $name (not prunable)"
+    fi
+  done
+  if [ "${#removable[@]}" -eq 0 ]; then
+    echo "nothing to prune"
+    return 0
+  fi
+  printf '%s\n' "${removable[@]}"
+  ollama rm "${removable[@]}"
+}
+
+prune_command() {
+  local yes=""
+  if [ "${1:-}" = --yes ]; then
+    yes=--yes
+    shift
+  fi
+  if [ "${1:-}" = --only ]; then
+    [ "$yes" = --yes ] && [ "$#" -ge 2 ] || usage
+    shift
+    prune_only "$@"
+  else
+    prune_models "$yes"
+  fi
+}
+
 sha256_of_stdin() {
   if command -v sha256sum >/dev/null 2>&1; then
     sha256sum | cut -c1-64
@@ -102,7 +136,7 @@ pin_model() {
 
 case "${1:-}" in
   list) list_models ;;
-  prune) prune_models "${2:-}" ;;
+  prune) shift; prune_command "$@" ;;
   pin) [ -n "${2:-}" ] || usage; pin_model "$2" ;;
   *) usage ;;
 esac
