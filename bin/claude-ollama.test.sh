@@ -757,6 +757,9 @@ EOF
 check_eq "a broker that cannot lock the browser gives the sandbox no socket" null "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
 check_eq "a broker that cannot lock the browser gives the session no broker address" "" "$(session_env CLAUDE_OLLAMA_CMUX_BROKER)"
 check_that "the launch says how to check the browser" grep -qF "run claude-ollama browser-check" "$sandbox/err"
+run_capture env -u CMUX_SOCKET_PATH "$repo/bin/claude-ollama" browser-check
+check_eq "browser-check outside a cmux terminal exits 1" 1 "$?"
+check_that "browser-check outside a cmux terminal says to run it from one" grep -qF "run this from a cmux terminal" "$sandbox/err"
 check_eq "without a GitHub token git gets no auth header" "unset unset unset" "$(cat "$sandbox/git-config-env")"
 check_not "without a terminal claude-ollama leaves the terminal mode alone" test -e "$sandbox/stty.log"
 if [ "$(uname)" = Darwin ]; then

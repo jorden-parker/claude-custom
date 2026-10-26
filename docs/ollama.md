@@ -268,6 +268,10 @@ when claude-ollama runs in a cmux terminal; `CLAUDE_OLLAMA_CMUX=0` turns it off.
 In claude-ollama sessions the Bash guard denies `pnpm dev` and similar starts,
 and only there.
 
+`claude-ollama browser-check` is the live proof that the session browser stays
+on localhost. Run it from a cmux terminal; it prints `browser-check: passed` or
+`browser-check: FAILED`, one `ok:` or `FAIL:` line per check.
+
 ### Reviewing a pull request locally
 
 `claude-ollama review [size] PR [--post] [--json]` reviews a GitHub pull request

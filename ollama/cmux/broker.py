@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import http.server
 import json
 import os
 import re
@@ -207,12 +208,67 @@ def exit_when_gone(pid, socket_path, cleanup):
     os._exit(0)
 
 
+SELF_TEST_PAGE = "claude-ollama browser-check page"
+
+
+class SelfTestPage(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        body = f"<html><body>{SELF_TEST_PAGE}</body></html>".encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args):
+        pass
+
+
+def self_test_checks(result):
+    return [
+        ("fetch to example.com blocked", result.get("fetch") == "blocked"),
+        ("opening example.com in a tab blocked", result.get("open") == "blocked"),
+        ("navigating to example.com blocked", result.get("goto") == "blocked"),
+        ("browser locked to localhost", result.get("allowed") == LOCKED_HOSTS),
+        ("localhost page loads through the proxy bypass", SELF_TEST_PAGE in str(result.get("local", ""))),
+    ]
+
+
+def run_self_test(cmux):
+    page_server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), SelfTestPage)
+    threading.Thread(target=page_server.serve_forever, daemon=True).start()
+    broker = Broker(cmux)
+    result = {}
+    try:
+        result = broker.run_page(
+            {"op": "selftest", "localUrl": f"http://127.0.0.1:{page_server.server_address[1]}/"}
+        )
+    except (PageFailed, OSError, subprocess.TimeoutExpired) as failure:
+        print(f"FAIL: the browser self-test did not finish: {failure}")
+    finally:
+        page_server.shutdown()
+        broker.close()
+    checks = self_test_checks(result)
+    for name, passed in checks:
+        print(f"{'ok' if passed else 'FAIL'}: {name}")
+    if all(passed for _name, passed in checks):
+        print("browser-check: passed")
+        return 0
+    print("browser-check: FAILED")
+    return 1
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--socket", required=True)
+    parser.add_argument("--socket")
     parser.add_argument("--cmux", required=True)
-    parser.add_argument("--watch-pid", type=int, required=True)
+    parser.add_argument("--watch-pid", type=int)
+    parser.add_argument("--self-test", action="store_true")
     options = parser.parse_args()
+    if options.self_test:
+        sys.exit(run_self_test(options.cmux))
+    if options.socket is None or options.watch_pid is None:
+        parser.error("--socket and --watch-pid are required")
     broker = Broker(options.cmux)
     try:
         broker.prove_lock()

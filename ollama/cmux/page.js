@@ -155,11 +155,62 @@ async function __cc_lock_only() {
   return { allowed: session.allowedDomains() };
 }
 
+async function __ccTryOpen(url) {
+  try {
+    const tab = await tabs.open(url, { background: true });
+    if (tab && tab.close) {
+      await tab.close();
+    }
+    return "reached";
+  } catch (error) {
+    return "blocked";
+  }
+}
+
+async function __ccTryGoto(url) {
+  try {
+    await page.goto(url);
+    return "reached";
+  } catch (error) {
+    return "blocked";
+  }
+}
+
+async function __ccLocalText(url) {
+  const tab = await tabs.open(url, { background: true });
+  tabs.use(tab);
+  await page.waitForLoadState("load").catch(() => {});
+  return page.evaluate(() => document.body.innerText);
+}
+
+async function __cc_selftest(request) {
+  await __cc_lock();
+  const home = await tabs.open("about:blank", { background: true });
+  tabs.use(home);
+  const fetched = await page.evaluate(() =>
+    fetch("https://example.com/").then(
+      () => "reached",
+      () => "blocked",
+    ),
+  );
+  const opened = await __ccTryOpen("https://example.com/");
+  const navigated = await __ccTryGoto("https://example.com/");
+  const local = await __ccLocalText(request.localUrl);
+  return {
+    fetch: fetched,
+    open: opened,
+    goto: navigated,
+    allowed: session.allowedDomains(),
+    local: local,
+  };
+}
+
 var __CC_OPS = {
   lock: __cc_lock_only,
   open: __cc_open,
   snapshot: __cc_snapshot,
   act: __cc_act,
+  selftest: __cc_selftest,
 };
 
 async function __cc_run(request) {

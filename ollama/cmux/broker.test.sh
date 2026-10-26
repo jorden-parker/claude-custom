@@ -216,6 +216,25 @@ check_eq "a broker whose browser is not locked to localhost exits 1" 1 "$?"
 check_not "it never creates its socket when the lock is not proven" test -e "$socket"
 check_that "it says the browser could not be locked" grep -q "could not lock the browser to localhost" "$tmp/lock-err"
 
+selftest_reply() {
+  set_reply "\"{\\\"fetch\\\":\\\"$1\\\",\\\"open\\\":\\\"blocked\\\",\\\"goto\\\":\\\"blocked\\\",\\\"allowed\\\":[\\\"localhost\\\",\\\"127.0.0.1\\\",\\\"[::1]\\\"],\\\"local\\\":\\\"claude-ollama browser-check page\\\"}\""
+}
+
+selftest_reply blocked
+python3 "$broker" --self-test --cmux "$tmp/cmux" > "$tmp/selftest.out" 2>&1
+check_eq "browser-check exits 0 when every check passes" 0 "$?"
+check_that "browser-check reports the blocked fetch" grep -qxF "ok: fetch to example.com blocked" "$tmp/selftest.out"
+check_that "browser-check reports the localhost page loads" grep -qxF "ok: localhost page loads through the proxy bypass" "$tmp/selftest.out"
+check_that "browser-check reports passed" grep -qxF "browser-check: passed" "$tmp/selftest.out"
+check_that "the self-test runs one selftest request that carries a localhost page" \
+  contains "$(cat "$tmp/stdin.last")" 'await __cc_run({"op": "selftest", "localUrl": "http://127.0.0.1:'
+
+selftest_reply reached
+python3 "$broker" --self-test --cmux "$tmp/cmux" > "$tmp/selftest.out" 2>&1
+check_eq "browser-check exits 1 when a check fails" 1 "$?"
+check_that "browser-check names the failed check" grep -qxF "FAIL: fetch to example.com blocked" "$tmp/selftest.out"
+check_that "browser-check reports failed" grep -qxF "browser-check: FAILED" "$tmp/selftest.out"
+
 if command -v node >/dev/null 2>&1; then
   check_that "page.js is valid JavaScript" node --check "$here/page.js"
 fi

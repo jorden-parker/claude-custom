@@ -96,6 +96,8 @@ before changing how any file gets applied.
 - Validate JSON after editing: `make check-json`
 - Launch the work harness: `claude-ollama [27b|35b] [claude args...]` (27b is
   the default size; `--help` lists sizes)
+- `claude-ollama browser-check` proves the session browser can't leave localhost
+  (needs a cmux terminal; prints `browser-check: passed`).
 - Check the work harness: `claude-ollama doctor [size]` (exit 1 on a missing
   model, hook, context mismatch or server env var; needs `jq`) and
   `claude-ollama --print-config [size]` (resolved values, no launch). Follow the

@@ -716,12 +716,22 @@ case "${1:-}" in
     echo "prepare [size]: pull or import the size's model and stop, without starting claude"
     echo "speed-check: check thinking is off and bench the GGUF sizes against the MLX ones, then print a verdict"
     echo "thinking-check: check thinking is off on the MLX sizes and print PASS or FAIL"
+    echo "browser-check: prove the session browser stays on localhost (run from a cmux terminal)"
     exit 0 ;;
 esac
+
+run_browser_check() {
+  if [ -z "${CMUX_SOCKET_PATH:-}" ] || ! command -v cmux >/dev/null 2>&1; then
+    echo "claude-ollama browser-check: run this from a cmux terminal" >&2
+    exit 1
+  fi
+  exec python3 "$repo_dir/ollama/cmux/broker.py" --self-test --cmux "$(command -v cmux)"
+}
 
 mode=launch
 case "${1:-}" in
   doctor) mode=doctor; shift ;;
+  browser-check) mode=browser-check; shift ;;
   --print-config) mode=print-config; shift ;;
   logs) mode=logs; shift ;;
   review) mode=review; shift ;;
@@ -735,6 +745,7 @@ esac
 [ "$mode" != logs ] || follow_logs "$@"
 [ "$mode" != reviews ] || serve_reviews "$@"
 [ "$mode" != github-token ] || setup_github_tokens "$@"
+[ "$mode" != browser-check ] || run_browser_check
 
 if ! command -v jq >/dev/null 2>&1; then
   echo "claude-ollama: jq is required (brew install jq)" >&2
