@@ -320,18 +320,21 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   policy: the session sees a placeholder that the proxy swaps back only on
   requests to github.com), and `ollama/sandbox-entry` turns it into an
   `http.https://github.com/.extraHeader` through `GIT_CONFIG_*`. Git's own
-  credential helpers can't be masked: they encode the token themselves.
-  `allowLocalBinding` is on because Ollama on localhost is reached directly, not
-  through the proxy, which also opens every other local port. `allowMachLookup`
-  lets the session reach the `com.apple.pasteboard.1` Mach service, which Claude
-  Code's osascript image paste needs; it also lets the session read and write
-  the clipboard. The session never reaches the cmux socket, which would let it
-  type into terminals outside the sandbox. With `CLAUDE_OLLAMA_CMUX=1` (and
-  `$CMUX_SOCKET_PATH` an absolute path to a socket) the launcher starts
-  `ollama/cmux/broker.py` outside the sandbox on
-  `<session config>/cmux-broker.sock`, the policy's only `allowUnixSockets`
-  entry (also in `denyWrite`), and `ollama/sandbox-entry` puts
-  `ollama/cmux/bin/cmux` (the client) first on PATH. The broker runs only
+  credential helpers can't be masked: they encode the token themselves. For
+  `gh`, it reads a read-only token from `claude-ollama-github-read` and exports
+  it as `GH_TOKEN`, masked and swapped back only on requests to `api.github.com`
+  (an outer `GH_TOKEN`/`GITHUB_TOKEN` is unset); `ollama/sandbox-entry` points
+  `GH_CONFIG_DIR` into the session dir. `allowLocalBinding` is on because Ollama
+  on localhost is reached directly, not through the proxy, which also opens
+  every other local port. `allowMachLookup` lets the session reach the
+  `com.apple.pasteboard.1` Mach service, which Claude Code's osascript image
+  paste needs; it also lets the session read and write the clipboard. The
+  session never reaches the cmux socket, which would let it type into terminals
+  outside the sandbox. With `CLAUDE_OLLAMA_CMUX=1` (and `$CMUX_SOCKET_PATH` an
+  absolute path to a socket) the launcher starts `ollama/cmux/broker.py` outside
+  the sandbox on `<session config>/cmux-broker.sock`, the policy's only
+  `allowUnixSockets` entry (also in `denyWrite`), and `ollama/sandbox-entry`
+  puts `ollama/cmux/bin/cmux` (the client) first on PATH. The broker runs only
   `cmux browser` commands: `open` on a loopback URL in the `claude-ollama`
   profile, then an allowlist of verbs on surfaces the session opened, with no
   host-file verbs or retargeting flags; `screenshot --out` lands in the broker's

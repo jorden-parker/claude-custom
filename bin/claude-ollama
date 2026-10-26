@@ -6,7 +6,7 @@ profile_dir="$repo_dir/ollama"
 go_dir="$repo_dir/go"
 picker_binary="$go_dir/cmd/model-picker/model-picker"
 default_size=27b
-tools="Bash,Read,Edit,Write,Skill"
+tools="Bash,Read,Edit,Write,Skill,TaskStop"
 embedding_model="${CODE_SEARCH_MODEL:-qwen3-embedding:0.6b}"
 ollama_url="${OLLAMA_HOST:-http://localhost:11434}"
 case "$ollama_url" in http://*|https://*) ;; *) ollama_url="http://$ollama_url" ;; esac
@@ -16,6 +16,7 @@ sandbox_runtime="$HOME/.local/share/claude-custom/sandbox-runtime/node_modules/.
 session_config_dir="$HOME/.claude-ollama"
 sandbox_policy="$session_config_dir/sandbox-policy.json"
 github_keychain_item=claude-ollama-github
+github_read_keychain_item=claude-ollama-github-read
 raw_terminal_mode=(-brkint -icrnl -inpck -istrip -ixon cs8 -echo -icanon -iexten -isig min 1 time 0)
 saved_terminal_mode=""
 
@@ -292,6 +293,10 @@ github_token() {
   security find-generic-password -s "$github_keychain_item" -w 2>/dev/null
 }
 
+github_read_token() {
+  security find-generic-password -s "$github_read_keychain_item" -w 2>/dev/null
+}
+
 github_basic_auth() {
   local token
   token="$(github_token)" || return 0
@@ -465,6 +470,14 @@ check_github_token() {
   fi
 }
 
+check_github_read_token() {
+  if github_read_token >/dev/null; then
+    report ok "read-only GitHub token in the keychain item $github_read_keychain_item"
+  else
+    report warn "no read-only GitHub token in the keychain item $github_read_keychain_item (gh from the session will fail; see docs/ollama.md)"
+  fi
+}
+
 doctor() {
   local status=0
   report ok "jq on PATH"
@@ -477,6 +490,7 @@ doctor() {
   check_server_env || status=1
   check_sandbox_runtime || status=1
   check_github_token
+  check_github_read_token
   check_model_allowed
   exit "$status"
 }
@@ -643,7 +657,7 @@ warm_embedding_model
 warm_search_index
 warm_model
 
-unset ANTHROPIC_API_KEY ANTHROPIC_MODEL CLAUDE_OLLAMA_CMUX_BROKER
+unset ANTHROPIC_API_KEY ANTHROPIC_MODEL CLAUDE_OLLAMA_CMUX_BROKER GH_TOKEN GITHUB_TOKEN
 export CLAUDE_CUSTOM_HOME="$repo_dir"
 prepare_session_config
 start_cmux_broker
@@ -652,6 +666,11 @@ export CLAUDE_CONFIG_DIR="$session_config_dir"
 export CLAUDE_CODE_TMPDIR="$session_config_dir/tmp"
 GH_BASIC="$(github_basic_auth)"
 export GH_BASIC
+if GH_TOKEN="$(github_read_token)"; then
+  export GH_TOKEN
+else
+  unset GH_TOKEN
+fi
 run_in_raw_terminal "$sandbox_runtime" -s "$sandbox_policy" -- "$profile_dir/sandbox-entry" claude \
   --settings "$settings_file" \
   --system-prompt-file "$profile_dir/system-prompt.md" \

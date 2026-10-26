@@ -178,9 +178,9 @@ without it (`claude-custom install` installs it). The policy is
   files, `/private/tmp` or this repo. Auto-update is off inside the session.
 - Reads: everything except credentials (`~/.ssh`, `~/.aws`, `~/.config/gh`,
   `~/.npmrc`, keychains) and your normal `~/.claude`.
-- Network: `github.com`, `registry.npmjs.org` (for `npx fallow` and installs)
-  and localhost. Localhost is open on every port, because Ollama is reached
-  directly rather than through the proxy.
+- Network: `github.com`, `api.github.com` (for `gh`), `registry.npmjs.org` (for
+  `npx fallow` and installs) and localhost. Localhost is open on every port,
+  because Ollama is reached directly rather than through the proxy.
 
 Every Bash command still asks first, and so do `git commit` and `git push`.
 `git-push-guard.py` refuses force pushes, remote deletes, `--mirror`, `--prune`
@@ -197,6 +197,17 @@ The session never sees the token: it gets a placeholder, which the sandbox's
 proxy swaps for the real value only on requests to `github.com`. Without the
 item, `doctor` warns and pushes fail; commits still work. Remotes must use
 HTTPS.
+
+For `gh` (viewing PRs, issues, runs), store a second fine-grained token with
+read-only permissions (Contents, Pull requests, Issues, Actions: read):
+
+```sh
+security add-generic-password -s claude-ollama-github-read -a "$USER" -w
+```
+
+The session gets it as a masked `GH_TOKEN`, swapped back only on requests to
+`api.github.com`; the token's own permissions are what keep `gh` read-only. A
+`GH_TOKEN` or `GITHUB_TOKEN` from your shell never reaches the session.
 
 `bin/ollama-models` manages the installed models:
 

@@ -16,7 +16,7 @@
     "denyWrite": []
   },
   "network": {
-    "allowedDomains": ["github.com", "registry.npmjs.org"],
+    "allowedDomains": ["github.com", "api.github.com", "registry.npmjs.org"],
     "deniedDomains": [],
     "allowLocalBinding": true,
     "allowMachLookup": ["com.apple.pasteboard.1"],
@@ -30,6 +30,11 @@
         "name": "GH_BASIC",
         "mode": "mask",
         "injectHosts": ["github.com"]
+      },
+      {
+        "name": "GH_TOKEN",
+        "mode": "mask",
+        "injectHosts": ["api.github.com"]
       }
     ]
   }

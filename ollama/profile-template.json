@@ -47,7 +47,6 @@
       "SendMessage",
       "SendUserFile",
       "ShareOnboardingGuide",
-      "TaskStop",
       "WebFetch",
       "WebSearch",
       "Workflow",
