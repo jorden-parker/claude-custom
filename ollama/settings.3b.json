@@ -1,0 +1,191 @@
+{
+  "model": "granite4.2-3b-cc",
+  "availableModels": ["granite4.2-3b-cc"],
+  "apiKeyHelper": "",
+  "disableClaudeAiConnectors": true,
+  "disableBundledSkills": true,
+  "autoMemoryEnabled": false,
+  "includeGitInstructions": false,
+  "promptSuggestionEnabled": false,
+  "bashOutputMaxChars": 12000,
+  "env": {
+    "ANTHROPIC_BASE_URL": "http://localhost:11434",
+    "ANTHROPIC_AUTH_TOKEN": "ollama",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "granite4.2-3b-cc",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "granite4.2-3b-cc",
+    "ANTHROPIC_DEFAULT_FABLE_MODEL": "granite4.2-3b-cc",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "granite4.2-3b-cc",
+    "CLAUDE_CODE_MAX_CONTEXT_TOKENS": "32768",
+    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "88",
+    "CLAUDE_CODE_MAX_OUTPUT_TOKENS": "8192",
+    "CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS": "4000",
+    "MAX_MCP_OUTPUT_TOKENS": "2000",
+    "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "1",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "CLAUDE_CODE_ATTRIBUTION_HEADER": "0",
+    "CLAUDE_CODE_TOTAL_TOKENS_REMINDER": "off",
+    "CLAUDE_CODE_EXTRA_BODY": "{\"thinking\":{\"type\":\"disabled\"}}",
+    "CLAUDE_STREAM_IDLE_TIMEOUT_MS": "1800000",
+    "API_TIMEOUT_MS": "1800000"
+  },
+  "permissions": {
+    "deny": [
+      "Read(**/dist/**)",
+      "Read(**/.next/**)",
+      "Read(**/coverage/**)",
+      "Read(**/*.min.js)",
+      "Read(**/*.map)",
+      "Agent",
+      "Artifact",
+      "CronCreate",
+      "CronDelete",
+      "CronList",
+      "EnterWorktree",
+      "ExitWorktree",
+      "ListAgents",
+      "NotebookEdit",
+      "PushNotification",
+      "RemoteTrigger",
+      "ReportFindings",
+      "ScheduleWakeup",
+      "SendFeedback",
+      "SendMessage",
+      "SendUserFile",
+      "ShareOnboardingGuide",
+      "WebFetch",
+      "WebSearch",
+      "Workflow",
+      "Glob",
+      "Grep"
+    ],
+    "defaultMode": "default",
+    "disableAutoMode": "disable",
+    "ask": ["Bash", "Bash(git commit *)", "Bash(git push *)"],
+    "allow": [
+      "mcp__code-search__semantic_search",
+      "mcp__repo",
+      "mcp__dev__dev_status",
+      "mcp__dev__dev_logs",
+      "mcp__dev__dev_errors",
+      "mcp__dev__page_check",
+      "mcp__dev__page_snapshot",
+      "mcp__dev__page_act"
+    ]
+  },
+  "sandbox": {
+    "enabled": false
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/bash-output-guard.py"
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/fallow-command-guard.sh",
+            "timeout": 180
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/read-range-guard.py"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/git-push-guard.py"
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/dev-server-guard.py"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|mcp__code-search__semantic_search",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/tool-nudge.py"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/edit-check.py",
+            "timeout": 120
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/stop-verify.py"
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/fallow-after-edit.sh",
+            "timeout": 120
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/bash-output-trim.py"
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/fallow-mark-preview.sh",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -z \"$CLAUDE_TOOL_TELEMETRY\" ] || \"$CLAUDE_CUSTOM_HOME\"/shared/hooks/tool-telemetry.py"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/stop-verify.py",
+            "timeout": 600
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/tool-nudge.py"
+          }
+        ]
+      }
+    ]
+  }
+}

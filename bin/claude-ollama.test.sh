@@ -403,7 +403,7 @@ check_that "claude-ollama creates from a base that matches its pin" grep -qxF "c
 new_sandbox
 run_capture "$repo/bin/claude-ollama" --help
 check_eq "claude-ollama help exit status" 0 "$?"
-check_that "claude-ollama help lists sizes" grep -qxF "sizes: 27b-gguf 27b 35b-coding 35b-gguf 35b" "$sandbox/out"
+check_that "claude-ollama help lists sizes" grep -qxF "sizes: 27b-gguf 27b 35b-coding 35b-gguf 35b 3b" "$sandbox/out"
 check_not "claude-ollama help does not launch claude" grep -q '^ARGS:' "$sandbox/out"
 check_that "claude-ollama help names speed-check" grep -q '^speed-check: ' "$sandbox/out"
 check_that "claude-ollama help names thinking-check" grep -q '^thinking-check: ' "$sandbox/out"
@@ -424,7 +424,7 @@ run_capture "$sandbox/repo/bin/claude-ollama" 9b -p hi
 check_that "claude-ollama accepts a newly configured size" grep -qF -- "--settings $sandbox/repo/ollama/settings.9b.json" "$sandbox/out"
 check_not "claude-ollama does not pass a configured size to claude" grep -qF -- "Write 9b" "$sandbox/out"
 run_capture "$sandbox/repo/bin/claude-ollama" --help
-check_that "claude-ollama help lists sizes from config" grep -qxF "sizes: 27b-gguf 27b 35b-coding 35b-gguf 35b 9b" "$sandbox/out"
+check_that "claude-ollama help lists sizes from config" grep -qxF "sizes: 27b-gguf 27b 35b-coding 35b-gguf 35b 3b 9b" "$sandbox/out"
 
 cat > "$sandbox/stubbin/go" <<'STUB'
 #!/bin/sh
