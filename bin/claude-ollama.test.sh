@@ -1016,7 +1016,7 @@ check_eq "a fetch list allows the listed domains through the proxy" '["github.co
 check_eq "a fetch list tunnels the listed domains without decrypting them" '["registry.npmjs.org","docs.python.org","pkg.go.dev"]' "$(jq -c .network.tlsTerminate.excludeDomains "$sandbox/policy.json")"
 check_that "the session cannot rewrite the derived settings" policy_lists denyWrite "$fetch_settings_file"
 check_that "an invalid fetch line is ignored with a message" grep -qxF "claude-ollama: ignoring fetch domain 'bad_host' (expected a hostname like docs.python.org)" "$sandbox/err"
-check_eq "a fetch list allows WebFetch for exactly the listed hosts" '["mcp__code-search__semantic_search","WebFetch(domain:docs.python.org)","WebFetch(domain:pkg.go.dev)"]' "$(jq -c .permissions.allow "$fetch_settings_file")"
+check_eq "a fetch list allows WebFetch for exactly the listed hosts" '["mcp__code-search__semantic_search","mcp__repo","WebFetch(domain:docs.python.org)","WebFetch(domain:pkg.go.dev)"]' "$(jq -c .permissions.allow "$fetch_settings_file")"
 check_that "the derived settings lift the bare WebFetch deny" jq -e '.permissions.deny | index("WebFetch") == null' "$fetch_settings_file"
 check_that "the derived settings keep WebSearch denied" jq -e '.permissions.deny | index("WebSearch") != null' "$fetch_settings_file"
 check_eq "the derived settings deny loopback hosts for WebFetch" '["WebFetch(domain:localhost)","WebFetch(domain:127.0.0.1)","WebFetch(domain:0.0.0.0)","WebFetch(domain:[::1])"]' "$(jq -c '[.permissions.deny[] | select(startswith("WebFetch("))]' "$fetch_settings_file")"
