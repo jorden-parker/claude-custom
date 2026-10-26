@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { doctorSummary, parseDoctorLine } from "./doctor-checks";
+import { checksFromLines, doctorSummary, parseDoctorLine } from "./doctor-checks";
 
 describe("parseDoctorLine", () => {
   it("reads an ok check", () => {
@@ -43,5 +43,21 @@ describe("doctorSummary", () => {
 
   it("gives zero counts for no checks", () => {
     expect(doctorSummary([])).toEqual({ ok: 0, warn: 0, fail: 0 });
+  });
+});
+
+describe("checksFromLines", () => {
+  it("splits check lines from the other lines, keeping both in order", () => {
+    expect(checksFromLines(["ok   jq on PATH", "Checking models...", "fail digest NAME is X"])).toEqual({
+      checks: [
+        { level: "ok", text: "jq on PATH" },
+        { level: "fail", text: "digest NAME is X" },
+      ],
+      other: ["Checking models..."],
+    });
+  });
+
+  it("gives empty lists for no lines", () => {
+    expect(checksFromLines([])).toEqual({ checks: [], other: [] });
   });
 });

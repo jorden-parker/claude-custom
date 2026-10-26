@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { logLevel } from "./log-line";
+import { logFrame, logLevel } from "./log-line";
 
 const LINE = (level: string) =>
   `time=2026-10-21T20:00:00.000+01:00 level=${level} source=server.go:1 msg="loaded model"`;
@@ -16,5 +16,15 @@ describe("logLevel", () => {
     expect(logLevel(LINE("TRACE"))).toBeNull();
     expect(logLevel("plain text without a level")).toBeNull();
     expect(logLevel("")).toBeNull();
+  });
+});
+
+describe("logFrame", () => {
+  it("frames a line with its text and level as JSON", () => {
+    expect(logFrame(3, LINE("WARN"))).toBe(`id: 3\ndata: ${JSON.stringify({ text: LINE("WARN"), level: "warn" })}\n\n`);
+  });
+
+  it("frames a line with no known level as a null level", () => {
+    expect(logFrame(4, "plain")).toBe('id: 4\ndata: {"text":"plain","level":null}\n\n');
   });
 });

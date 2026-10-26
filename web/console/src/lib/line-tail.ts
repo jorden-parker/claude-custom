@@ -5,6 +5,7 @@ const KEEP_ALIVE_INTERVAL_MS = 15_000;
 const KEEP_ALIVE_FRAME = ": keep-alive\n\n";
 const NEWLINE_BYTE = 0x0a;
 const NO_BYTES = Buffer.alloc(0);
+const TAIL_WINDOW_BYTES = 65_536;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
@@ -12,6 +13,7 @@ export type LineTailOptions = {
   skipLines: number;
   isEnd: (line: string) => boolean;
   frame: (lineNumber: number, line: string) => string | null;
+  startOffset?: "start" | "end-64k";
 };
 
 export function serverSentFrame(lineNumber: number, line: string): string {
@@ -21,11 +23,13 @@ export function serverSentFrame(lineNumber: number, line: string): string {
 export function streamLines(
   file: string,
   signal: AbortSignal,
-  { skipLines, isEnd, frame }: LineTailOptions,
+  { skipLines, isEnd, frame, startOffset = "start" }: LineTailOptions,
 ): ReadableStream<Uint8Array> {
   let linesSeen = 0;
   let byteOffset = 0;
   let partialLine = NO_BYTES;
+  let started = false;
+  let dropNextLine = false;
   let closed = false;
   let pollTimer: ReturnType<typeof setTimeout> | undefined;
   let keepAliveTimer: ReturnType<typeof setInterval> | undefined;
@@ -62,6 +66,18 @@ export function streamLines(
       };
 
       const pumpNewLines = async () => {
+        if (!started) {
+          started = true;
+          if (startOffset === "end-64k") {
+            byteOffset = Math.max(0, (await fileSize(file)) - TAIL_WINDOW_BYTES);
+            dropNextLine = byteOffset > 0;
+          }
+        }
+        if ((await fileSize(file)) < byteOffset) {
+          byteOffset = 0;
+          partialLine = NO_BYTES;
+          dropNextLine = false;
+        }
         const appended = await readAppendedBytes(file, byteOffset);
         byteOffset += appended.length;
         partialLine = Buffer.concat([partialLine, appended]);
@@ -69,10 +85,14 @@ export function streamLines(
         while (newlineAt !== -1) {
           const line = decoder.decode(partialLine.subarray(0, newlineAt));
           partialLine = partialLine.subarray(newlineAt + 1);
-          linesSeen += 1;
-          if (linesSeen > skipLines && sendLine(linesSeen, line)) {
-            close();
-            return;
+          if (dropNextLine) {
+            dropNextLine = false;
+          } else {
+            linesSeen += 1;
+            if (linesSeen > skipLines && sendLine(linesSeen, line)) {
+              close();
+              return;
+            }
           }
           newlineAt = partialLine.indexOf(NEWLINE_BYTE);
         }
@@ -94,6 +114,14 @@ export function streamLines(
       stop();
     },
   });
+}
+
+async function fileSize(file: string): Promise<number> {
+  try {
+    return (await fs.stat(file)).size;
+  } catch {
+    return 0;
+  }
 }
 
 async function readAppendedBytes(file: string, offset: number): Promise<Buffer> {

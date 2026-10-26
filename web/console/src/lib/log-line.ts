@@ -16,3 +16,10 @@ export function logLevel(text: string): LogLevel | null {
   }
   return levelNames[match[1]];
 }
+
+export type LogFrame = { text: string; level: LogLevel | null };
+
+export function logFrame(lineNumber: number, line: string): string {
+  const data = JSON.stringify({ text: line, level: logLevel(line) });
+  return `id: ${lineNumber}\ndata: ${data}\n\n`;
+}
