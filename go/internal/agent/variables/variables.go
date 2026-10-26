@@ -38,6 +38,31 @@ func Summary(name string) string {
 	return ""
 }
 
+const maxValueBytes = 256
+
+func ParseAssignment(text string) (string, string, error) {
+	name, value, ok := strings.Cut(text, "=")
+	if !ok {
+		return "", "", fmt.Errorf("expected NAME=value, got %q", text)
+	}
+	if !isKnown(name) {
+		return "", "", fmt.Errorf("unknown variable %q", name)
+	}
+	if strings.ContainsAny(value, "\n\x00") {
+		return "", "", fmt.Errorf("%s: value has a newline or NUL", name)
+	}
+	if len(value) > maxValueBytes {
+		return "", "", fmt.Errorf("%s: value is longer than %d bytes", name, maxValueBytes)
+	}
+	return name, value, nil
+}
+
+func isKnown(name string) bool {
+	return slices.ContainsFunc(Known, func(variable Variable) bool {
+		return variable.Name == name
+	})
+}
+
 func Names(envs ...map[string]string) []string {
 	names := make([]string, 0, len(Known))
 	extras := map[string]bool{}

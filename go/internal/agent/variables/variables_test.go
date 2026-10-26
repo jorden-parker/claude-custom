@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -81,5 +82,35 @@ func TestWithServerEnvStartsFromNoAgent(t *testing.T) {
 	env, changed := WithServerEnv(nil, map[string]string{"OLLAMA_KEEP_ALIVE": "30m"})
 	if env["OLLAMA_KEEP_ALIVE"] != "30m" || len(changed) != 1 {
 		t.Fatalf("got %v, %v", env, changed)
+	}
+}
+
+func TestParseAssignmentSplitsNameAndValue(t *testing.T) {
+	name, value, err := ParseAssignment("OLLAMA_KEEP_ALIVE=30m")
+	if err != nil || name != "OLLAMA_KEEP_ALIVE" || value != "30m" {
+		t.Fatalf("got %q, %q, %v", name, value, err)
+	}
+}
+
+func TestParseAssignmentRejects(t *testing.T) {
+	longValue := "OLLAMA_KEEP_ALIVE=" + strings.Repeat("x", 257)
+	cases := map[string]string{
+		"no equals sign":   "OLLAMA_KEEP_ALIVE",
+		"unknown name":     "OLLAMA_NOPE=1",
+		"newline in value": "OLLAMA_KEEP_ALIVE=1\n2",
+		"nul in value":     "OLLAMA_KEEP_ALIVE=1\x002",
+		"value too long":   longValue,
+	}
+	for label, text := range cases {
+		if _, _, err := ParseAssignment(text); err == nil {
+			t.Fatalf("%s: expected an error for %q", label, text)
+		}
+	}
+}
+
+func TestParseAssignmentAcceptsValueAtLimit(t *testing.T) {
+	text := "OLLAMA_KEEP_ALIVE=" + strings.Repeat("x", 256)
+	if _, _, err := ParseAssignment(text); err != nil {
+		t.Fatalf("got %v", err)
 	}
 }
