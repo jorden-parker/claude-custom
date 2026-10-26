@@ -349,6 +349,8 @@ chmod +x "$sandbox/stubbin/speed-check"
 CLAUDE_OLLAMA_SPEED_CHECK="$sandbox/stubbin/speed-check" run_capture "$repo/bin/claude-ollama" speed-check --flag
 check_that "claude-ollama speed-check runs the speed check with its arguments" grep -qxF "speed-check args: --flag" "$sandbox/out"
 check_not "claude-ollama speed-check does not launch claude" grep -q '^ARGS:' "$sandbox/out"
+CLAUDE_OLLAMA_SPEED_CHECK="$sandbox/stubbin/speed-check" run_capture "$repo/bin/claude-ollama" thinking-check
+check_that "claude-ollama thinking-check runs the speed check's thinking-only mode" grep -qxF "speed-check args: --thinking-only" "$sandbox/out"
 new_sandbox
 STUB_OLLAMA_NUM_CTX=16384 run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "claude-ollama recreates a model with a stale num_ctx" grep -qE '^create qwen3.8-27b-cc -f ' "$sandbox/ollama.log"
@@ -386,6 +388,7 @@ check_eq "claude-ollama help exit status" 0 "$?"
 check_that "claude-ollama help lists sizes" grep -qxF "sizes: 27b-gguf 27b 35b-coding 35b-gguf 35b" "$sandbox/out"
 check_not "claude-ollama help does not launch claude" grep -q '^ARGS:' "$sandbox/out"
 check_that "claude-ollama help names speed-check" grep -q '^speed-check: ' "$sandbox/out"
+check_that "claude-ollama help names thinking-check" grep -q '^thinking-check: ' "$sandbox/out"
 check_that "claude-ollama help names prepare" grep -q '^prepare \[size\]: ' "$sandbox/out"
 run_capture "$repo/bin/claude-ollama" 28b -p hi </dev/null
 check_that "claude-ollama unknown size without a tty falls back to 27b" grep -qF -- "$ollama_settings" "$sandbox/out"

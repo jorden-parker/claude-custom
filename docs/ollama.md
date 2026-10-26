@@ -49,7 +49,8 @@ Two GGUF sizes, `27b-gguf` (Qwen3.8 27B) and `35b-gguf` (Qwen3.6 35B-A3B), use
 Unsloth's Q4_K_XL files from Hugging Face for comparison with the MLX sizes.
 `claude-ollama speed-check` imports them and compares them with the MLX sizes
 (see `docs/backend-bench.md`), and `claude-ollama prepare SIZE` pulls or imports
-one size without starting `claude`.
+one size without starting `claude`. `claude-ollama thinking-check` checks that
+thinking is off on the MLX sizes and prints PASS or FAIL.
 
 `claude-custom install` creates the `-cc` models from `ollama/Modelfile.<size>`
 once the base models are pulled. `claude-ollama` also does this itself for

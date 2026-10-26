@@ -700,6 +700,7 @@ case "${1:-}" in
     echo "github-token [read|push]: create a GitHub token in the browser and store it in the keychain (both without a kind)"
     echo "prepare [size]: pull or import the size's model and stop, without starting claude"
     echo "speed-check: check thinking is off and bench the GGUF sizes against the MLX ones, then print a verdict"
+    echo "thinking-check: check thinking is off on the MLX sizes and print PASS or FAIL"
     exit 0 ;;
 esac
 
@@ -713,6 +714,7 @@ case "${1:-}" in
   github-token) mode=github-token; shift ;;
   prepare) mode=prepare; shift ;;
   speed-check) exec "${CLAUDE_OLLAMA_SPEED_CHECK:-$repo_dir/bin/speed-check}" "${@:2}" ;;
+  thinking-check) exec "${CLAUDE_OLLAMA_SPEED_CHECK:-$repo_dir/bin/speed-check}" --thinking-only ;;
 esac
 
 [ "$mode" != logs ] || follow_logs "$@"

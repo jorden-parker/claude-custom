@@ -97,9 +97,11 @@ run_check() {
   : > "$CALLS"
   env PATH="$stubs:$PATH" HOME="$run_dir/home" \
     SPEED_CHECK_LAUNCHER="$stubs/launcher" SPEED_CHECK_BENCH="$stubs/bench" SPEED_CHECK_PROBE="$stubs/probe" \
-    "$@" "$check_script" > "$run_dir/out" 2> "$run_dir/err"
+    "$@" "$check_script" $check_args > "$run_dir/out" 2> "$run_dir/err"
   status=$?
 }
+
+check_args=""
 
 has() { grep -qF -- "$1" "$run_dir/$2"; }
 
@@ -159,6 +161,20 @@ grep -q '^probe ' "$CALLS" || fail "a failed thinking check still runs the probe
 run_check STUB_SLOW_GGUF=1
 has "27b: GGUF is not better" out || fail "a slower GGUF is not better"
 has "warm TTFT" out || fail "a slower GGUF names the TTFT condition"
+
+check_args="--thinking-only"
+run_check STUB_ON_BATTERY=1
+[ "$status" -eq 0 ] || fail "a thinking-only run exits 0 when thinking is off (got $status)"
+has "Plan 066 (thinking off): PASS" out || fail "a thinking-only run prints the thinking verdict"
+grep -q '^launcher prepare 27b$' "$CALLS" || fail "a thinking-only run prepares the 27b"
+grep -q '^launcher prepare 27b-gguf' "$CALLS" && fail "a thinking-only run skips the GGUF sizes"
+grep -q -- '--tool-trials 5' "$CALLS" && fail "a thinking-only run skips the speed bench"
+grep -q '^probe ' "$CALLS" && fail "a thinking-only run skips the cache probe"
+has "Paste this block" out && fail "a thinking-only run prints no paste block"
+
+run_check STUB_NO_THINKING=1
+[ "$status" -eq 1 ] || fail "a thinking-only run exits 1 when the check fails"
+has "Plan 066 (thinking off): FAIL" out || fail "a failed thinking-only run says FAIL"
 
 if [ "$failures" -eq 0 ]; then
   echo "all passed"

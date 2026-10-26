@@ -69,6 +69,8 @@ before changing how any file gets applied.
   paste block; `CLAUDE_OLLAMA_SPEED_CHECK` and `SPEED_CHECK_LAUNCHER`/`_BENCH`/
   `_PROBE` override the scripts in tests; tests: `bin/speed-check.test.sh`.
   `claude-ollama prepare [size]` pulls or imports one size and exits
+  `claude-ollama thinking-check` (`bin/speed-check --thinking-only`) runs only
+  the thinking check on the MLX sizes and exits 1 when it fails
 - Messages bench:
   `bin/messages-bench --model M [--base-url URL] [--thinking omit|claude-code|disabled]`
   times any `/v1/messages` server (cold/warm TTFT, prefill, decode, tool calls);
