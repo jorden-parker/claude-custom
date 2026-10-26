@@ -83,8 +83,6 @@ const speedCheck: ConsoleCommand = {
   argv: (params, repoDir) => (hasExactKeys(params, []) ? [`${repoDir}/bin/claude-ollama`, "speed-check"] : null),
 };
 
-export const CONSOLE_COMMANDS: readonly ConsoleCommand[] = [doctor, review, serverSet, serverApply, speedCheck];
-
 export const CONSOLE_QUERIES = {
   printConfig: {
     argv: (params, repoDir) => {
@@ -103,6 +101,49 @@ export const CONSOLE_QUERIES = {
     },
   },
 } satisfies Record<string, ConsoleQuery>;
+
+const ASSIGNMENT_LIMIT = 40;
+const ASSIGNMENT_PATTERN = /^[A-Za-z][A-Za-z0-9]{0,63}=(default|deny|(allow|ask)(,off)?)$/;
+
+const toolsSet: ConsoleCommand = {
+  name: "tools-set",
+  label: (params) => `Tool permissions (${assignmentsOf(params.assignments)?.length ?? 0} changes)`,
+  argv: (params, repoDir) => {
+    const assignments = hasExactKeys(params, ["assignments"]) ? assignmentsOf(params.assignments) : null;
+    if (assignments === null) {
+      return null;
+    }
+    const setFlags = assignments.flatMap((assignment) => ["-set", assignment]);
+    return [`${repoDir}/bin/claude-tools`, ...setFlags, ...toolsSettingsScope()];
+  },
+};
+
+export const CONSOLE_COMMANDS: readonly ConsoleCommand[] = [
+  doctor,
+  review,
+  serverSet,
+  serverApply,
+  speedCheck,
+  toolsSet,
+];
+
+export function toolsReportArgv(repoDir: string): string[] {
+  return [`${repoDir}/bin/claude-tools`, "-json", ...toolsSettingsScope()];
+}
+
+function toolsSettingsScope(): string[] {
+  const override = process.env.CONSOLE_TOOLS_SETTINGS;
+  return override ? ["-settings", override] : ["user"];
+}
+
+function assignmentsOf(text: string | undefined): string[] | null {
+  if (text === undefined) {
+    return null;
+  }
+  const items = text.split(";");
+  const valid = items.length <= ASSIGNMENT_LIMIT && items.every((item) => ASSIGNMENT_PATTERN.test(item));
+  return valid ? items : null;
+}
 
 export function findCommand(name: string): ConsoleCommand | undefined {
   return CONSOLE_COMMANDS.find((command) => command.name === name);

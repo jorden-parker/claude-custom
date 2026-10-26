@@ -11,4 +11,5 @@ export const CONSOLE_SECTIONS: readonly ConsoleSection[] = [
   { href: "/logs", title: "Logs", summary: "Ollama server log, live" },
   { href: "/server", title: "Server", summary: "Ollama server settings and reload" },
   { href: "/speed-check", title: "Speed check", summary: "MLX vs GGUF verdicts, live and past" },
+  { href: "/tools", title: "Tools", summary: "Allow, ask or deny each tool in your user settings" },
 ];

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CONSOLE_COMMANDS, CONSOLE_QUERIES, findCommand } from "./console-commands";
+import { CONSOLE_COMMANDS, CONSOLE_QUERIES, findCommand, toolsReportArgv } from "./console-commands";
 
 describe("console commands", () => {
   let repo: string;
@@ -11,6 +11,8 @@ describe("console commands", () => {
   const serverApply = () => findCommand("server-apply");
   const speedCheck = () => findCommand("speed-check");
   const agent = () => `${repo}/bin/ollama-agent`;
+  const toolsSet = () => findCommand("tools-set");
+  const BIN = () => `${repo}/bin/claude-tools`;
 
   beforeEach(() => {
     repo = fs.mkdtempSync(path.join(os.tmpdir(), "console-commands-"));
@@ -20,6 +22,7 @@ describe("console commands", () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     fs.rmSync(repo, { recursive: true, force: true });
   });
 
@@ -30,6 +33,7 @@ describe("console commands", () => {
       "server-set",
       "server-apply",
       "speed-check",
+      "tools-set",
     ]);
   });
 
@@ -165,6 +169,61 @@ describe("console commands", () => {
 
   it("returns undefined for an unknown command", () => {
     expect(findCommand("pull")).toBeUndefined();
+  });
+
+  it("builds one -set per assignment with the user scope last", () => {
+    expect(toolsSet()?.argv({ assignments: "WebFetch=deny;Bash=allow,off" }, repo)).toEqual([
+      BIN(),
+      "-set",
+      "WebFetch=deny",
+      "-set",
+      "Bash=allow,off",
+      "user",
+    ]);
+  });
+
+  it("passes the settings override as the scope when CONSOLE_TOOLS_SETTINGS is set", () => {
+    vi.stubEnv("CONSOLE_TOOLS_SETTINGS", "/tmp/fixture/settings.json");
+    expect(toolsSet()?.argv({ assignments: "Read=ask" }, repo)).toEqual([
+      BIN(),
+      "-set",
+      "Read=ask",
+      "-settings",
+      "/tmp/fixture/settings.json",
+    ]);
+  });
+
+  it("labels tools-set with its number of changes", () => {
+    expect(toolsSet()?.label({ assignments: "Read=ask;Bash=deny" })).toBe("Tool permissions (2 changes)");
+  });
+
+  it("accepts the forty-item limit and refuses forty-one", () => {
+    const forty = Array.from({ length: 40 }, (_, index) => `Tool${index}=deny`).join(";");
+    expect(toolsSet()?.argv({ assignments: forty }, repo)).not.toBeNull();
+    expect(toolsSet()?.argv({ assignments: `${forty};Extra=deny` }, repo)).toBeNull();
+  });
+
+  it("refuses a name with parentheses, a scoped rule, or a name joined by a semicolon", () => {
+    expect(toolsSet()?.argv({ assignments: "Bash(git log *)=deny" }, repo)).toBeNull();
+    expect(toolsSet()?.argv({ assignments: "Bash;WebFetch=deny" }, repo)).toBeNull();
+    expect(toolsSet()?.argv({ assignments: "Bash" }, repo)).toBeNull();
+  });
+
+  it("refuses an unknown permission or off with deny or default", () => {
+    expect(toolsSet()?.argv({ assignments: "Bash=maybe" }, repo)).toBeNull();
+    expect(toolsSet()?.argv({ assignments: "Bash=deny,off" }, repo)).toBeNull();
+    expect(toolsSet()?.argv({ assignments: "Bash=default,off" }, repo)).toBeNull();
+  });
+
+  it("refuses an empty or missing assignments value", () => {
+    expect(toolsSet()?.argv({ assignments: "" }, repo)).toBeNull();
+    expect(toolsSet()?.argv({}, repo)).toBeNull();
+  });
+
+  it("builds the report argv with the user scope and the override", () => {
+    expect(toolsReportArgv(repo)).toEqual([BIN(), "-json", "user"]);
+    vi.stubEnv("CONSOLE_TOOLS_SETTINGS", "/tmp/fixture/settings.json");
+    expect(toolsReportArgv(repo)).toEqual([BIN(), "-json", "-settings", "/tmp/fixture/settings.json"]);
   });
 });
 
