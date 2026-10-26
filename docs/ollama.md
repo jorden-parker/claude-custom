@@ -456,6 +456,15 @@ lists the last 20 bench runs. The telemetry card shows `tool-telemetry-report`;
 it stays off until `CLAUDE_TOOL_TELEMETRY` is set, for sessions and for
 `claude-ollama ui`.
 
+#### Testing the console
+
+`make smoke-console` (or `bin/console-smoke --port 8790`) starts the console on
+a temp state dir and checks every page, the token gate and the same-origin rule,
+then prints `all passed`. It starts no run and no model.
+`bin/console-smoke --keep` leaves the console running and prints its link for a
+look in the browser; the `kill` line it prints stops it. `make test` runs only
+the script's stub test, because the real check needs a built console.
+
 #### Models
 
 `/models` lists every configured size with its model, base and a status

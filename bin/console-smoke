@@ -1,0 +1,244 @@
+#!/usr/bin/env bash
+set -u
+repo="$(cd "$(dirname "$0")/.." && pwd -P)"
+launcher="${CONSOLE_SMOKE_LAUNCHER:-$repo/bin/claude-ollama}"
+app_dir="$repo/web/console/src/app"
+port=8790
+keep=""
+failures=0
+server_pid=""
+scratch=""
+token=""
+curl_config=""
+keeping=""
+
+parse_args() {
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --port)
+        port="${2:-}"
+        shift 2 || shift
+        ;;
+      --keep)
+        keep=1
+        shift
+        ;;
+      *)
+        echo "console-smoke: unknown argument: $1" >&2
+        exit 2
+        ;;
+    esac
+  done
+  case "$port" in
+    ''|*[!0-9]*)
+      echo "console-smoke: --port needs a number" >&2
+      exit 2
+      ;;
+  esac
+}
+
+refuse_busy_port() {
+  if nc -z 127.0.0.1 "$port" 2>/dev/null; then
+    echo "console-smoke: port $port is already in use; pick another with --port N" >&2
+    exit 2
+  fi
+}
+
+prepare_scratch() {
+  scratch="$(mktemp -d)" || exit 1
+  export CLAUDE_CONSOLE_STATE_DIR="$scratch/console-state"
+  export PR_REVIEW_LOG_DIR="$scratch/reviews"
+  export XDG_CONFIG_HOME="$scratch/xdg-config"
+  export CONSOLE_TOOLS_SETTINGS="$scratch/tools-settings.json"
+  mkdir -p "$XDG_CONFIG_HOME"
+  printf '{}\n' > "$CONSOLE_TOOLS_SETTINGS"
+}
+
+server_alive() {
+  local state
+  state="$(ps -o stat= -p "$server_pid" 2>/dev/null)"
+  case "$state" in
+    ''|Z*) return 1 ;;
+  esac
+  return 0
+}
+
+start_console() {
+  set -m
+  "$launcher" ui --port "$port" < /dev/null > "$scratch/launcher.log" 2>&1 &
+  server_pid=$!
+  set +m
+}
+
+wait_for_console() {
+  local token_file="$CLAUDE_CONSOLE_STATE_DIR/tokens/$port" waited=0
+  while [ "$waited" -lt 180 ]; do
+    if ! server_alive; then
+      echo "FAIL: console exited before it answered"
+      return 1
+    fi
+    if [ -s "$token_file" ]; then
+      token="$(cat "$token_file")"
+      if nc -z 127.0.0.1 "$port" 2>/dev/null; then
+        return 0
+      fi
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  echo "FAIL: console did not answer within 180 s"
+  return 1
+}
+
+show_log_tail() {
+  if [ -n "$token" ]; then
+    tail -n 30 "$scratch/launcher.log" | sed "s|$token|<token>|g"
+  else
+    tail -n 30 "$scratch/launcher.log"
+  fi
+}
+
+write_curl_config() {
+  curl_config="$scratch/curl.conf"
+  (umask 077; printf 'header = "Cookie: console_token=%s"\n' "$token" > "$curl_config")
+}
+
+fetch_status() {
+  curl -s -K "$curl_config" -o "$scratch/body" -w '%{http_code}' --max-time 120 "http://127.0.0.1:$port$1" 2>/dev/null
+}
+
+report_ok() {
+  echo "ok $1"
+}
+
+report_fail() {
+  echo "FAIL: $1"
+  failures=$((failures + 1))
+}
+
+check_token_gate() {
+  local status
+  status="$(curl -s -o /dev/null -w '%{http_code}' --max-time 60 "http://127.0.0.1:$port/" 2>/dev/null)"
+  if [ "$status" = 401 ]; then
+    report_ok "token gate"
+  else
+    report_fail "token gate (status $status, want 401)"
+  fi
+}
+
+check_origin_guard() {
+  local status
+  status="$(curl -s -o /dev/null -w '%{http_code}' --max-time 60 -X POST \
+    -H 'Origin: http://evil.example' -H 'Content-Type: application/json' --data '{}' \
+    "http://127.0.0.1:$port/api/runs" 2>/dev/null)"
+  if [ "$status" = 403 ]; then
+    report_ok "origin guard"
+  else
+    report_fail "origin guard (status $status, want 403)"
+  fi
+}
+
+check_page() {
+  local route="$1" status
+  status="$(fetch_status "$route")"
+  if [ "$status" = 200 ]; then
+    report_ok "page $route"
+  else
+    report_fail "page $route (status $status)"
+  fi
+}
+
+check_pages() {
+  local file route
+  while IFS= read -r file; do
+    route="${file#"$app_dir"}"
+    route="${route%/page.tsx}"
+    [ -n "$route" ] || route=/
+    case "$route" in
+      *\[*) echo "skip $route (needs a real id)" ;;
+      *) check_page "$route" ;;
+    esac
+  done < <(find "$app_dir" -name page.tsx | sort)
+}
+
+check_api() {
+  local api_path="$1" status
+  status="$(fetch_status "$api_path")"
+  if [ "$status" = 200 ] && jq -e . "$scratch/body" >/dev/null 2>&1; then
+    report_ok "api $api_path"
+  else
+    report_fail "api $api_path (status $status)"
+  fi
+}
+
+check_apis() {
+  local api_path
+  while IFS= read -r api_path; do
+    check_api "$api_path"
+  done <<'APIS'
+/api/project
+/api/sizes
+/api/config?size=27b
+/api/models
+/api/history
+/api/runs
+/api/reviews
+/api/tools
+/api/telemetry
+/api/speed-reports
+/api/server
+/api/server/ping
+/api/logs/path
+APIS
+}
+
+keep_console() {
+  keeping=1
+  echo "console kept running: http://127.0.0.1:$port/?token=$token"
+  echo "stop it with: kill -TERM -- -$server_pid (scratch dir: $scratch)"
+}
+
+finish() {
+  if [ "$failures" -ne 0 ]; then
+    echo "$failures failed"
+    return 1
+  fi
+  echo "all passed"
+  if [ -n "$keep" ]; then
+    keep_console
+  fi
+}
+
+stop_console() {
+  if [ -n "$server_pid" ]; then
+    kill -TERM -- "-$server_pid" 2>/dev/null
+    wait "$server_pid" 2>/dev/null
+  fi
+}
+
+cleanup() {
+  if [ -z "$keeping" ]; then
+    stop_console
+    [ -z "$scratch" ] || rm -rf "$scratch"
+  fi
+}
+
+main() {
+  parse_args "$@"
+  refuse_busy_port
+  prepare_scratch
+  start_console
+  if ! wait_for_console; then
+    show_log_tail
+    exit 1
+  fi
+  write_curl_config
+  check_token_gate
+  check_origin_guard
+  check_pages
+  check_apis
+  finish
+}
+
+trap cleanup EXIT
+main "$@"
