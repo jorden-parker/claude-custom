@@ -22,6 +22,7 @@ describe("startRun", () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     fs.rmSync(repo, { recursive: true, force: true });
     fs.rmSync(runsDirectory, { recursive: true, force: true });
   });
@@ -56,7 +57,16 @@ describe("startRun", () => {
       `${repo}/bin/claude-ollama`,
       "doctor",
       "27b",
-    ]);
+    ], undefined);
+  });
+
+  it("runs a review in the project folder", async () => {
+    vi.stubEnv("CONSOLE_PROJECT_DIR", repo);
+
+    const result = await startRun("review", { size: "27b", pr: "12" }, depsWith());
+
+    expect(result).toEqual({ ok: true, id: "20261026-101500-review-3fa9" });
+    expect(spawnDetached.mock.calls[0]?.[2]).toBe(repo);
   });
 
   it("refuses an unknown command without starting anything", async () => {

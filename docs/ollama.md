@@ -347,3 +347,10 @@ running job. Every run is kept in `$CLAUDE_CONSOLE_STATE_DIR/runs` (default
 `bin/console-run`; a run whose runner died shows as lost. Run logs are kept
 until you delete them: nothing removes them. Only one run of a command runs at a
 time.
+
+The Reviews page starts a review too: its New review form takes a configured
+size and a PR number (digits only), runs `claude-ollama review` as a run, and
+links to the review once the log names it. It reviews the repository of the
+folder `claude-ollama ui` was started from (shown on the form), so start the
+console from the project you mean. The form never passes `--post`, so it never
+posts comments to GitHub.

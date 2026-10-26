@@ -1,9 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { useEffect, useReducer, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { parseRunEvent } from "@/lib/run-event";
 import { elapsedSeconds, formatElapsed, reduceRunMessage, statusOf } from "@/lib/run-display";
@@ -31,6 +32,7 @@ export function RunView({ id }: RunViewProps) {
         label={labelOf(state)}
         status={status}
         seconds={elapsedSeconds(state, now)}
+        reviewId={state.reviewId}
       />
       {state.stage === null ? null : <StageBar stage={state.stage} />}
       <ProgressLines progress={state.progress} />
@@ -59,7 +61,19 @@ function labelOf(state: RunState): string {
   return state.header === null ? "" : state.header.label;
 }
 
-function RunHeader({ id, label, status, seconds }: { id: string; label: string; status: RunStatus; seconds: number }) {
+function RunHeader({
+  id,
+  label,
+  status,
+  seconds,
+  reviewId,
+}: {
+  id: string;
+  label: string;
+  status: RunStatus;
+  seconds: number;
+  reviewId: string | null;
+}) {
   return (
     <header className="flex flex-wrap items-center gap-3">
       <h1 className="min-w-0 break-words text-xl font-semibold">{label || id}</h1>
@@ -72,6 +86,11 @@ function RunHeader({ id, label, status, seconds }: { id: string; label: string; 
           Cancel
         </Button>
       ) : null}
+      {reviewId === null ? null : (
+        <Link className={buttonVariants({ variant: "outline", size: "sm" })} href={`/reviews/${encodeURIComponent(reviewId)}`}>
+          Open review
+        </Link>
+      )}
     </header>
   );
 }

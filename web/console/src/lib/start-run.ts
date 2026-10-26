@@ -23,7 +23,7 @@ export type StartDeps = {
   runsDir: string;
   now: () => Date;
   randomHex: () => string;
-  spawnDetached: (command: string, args: string[]) => void;
+  spawnDetached: (command: string, args: string[], cwd: string | undefined) => void;
   listRuns: () => RunSummary[];
   waitForFile: (file: string) => Promise<boolean>;
 };
@@ -71,7 +71,7 @@ export async function startRun(
     command.label(params),
     "--",
     ...argv,
-  ]);
+  ], command.cwd?.());
   if (!(await deps.waitForFile(file))) {
     return { ok: false, status: 500, message: "The run did not start" };
   }
@@ -108,8 +108,8 @@ export function cancelDeps(): CancelDeps {
   return { runsDir: runsDir(), isAlive: isProcessAlive, kill: (pid, signal) => process.kill(pid, signal) };
 }
 
-function spawnRunnerDetached(command: string, args: string[]): void {
-  const child = spawn(command, args, { detached: true, stdio: "ignore" });
+function spawnRunnerDetached(command: string, args: string[], cwd: string | undefined): void {
+  const child = spawn(command, args, { detached: true, stdio: "ignore", cwd });
   child.on("error", () => undefined);
   child.unref();
 }

@@ -74,6 +74,19 @@ describe("applyRunEvent", () => {
     expect(state.lines.at(-1)?.text).toBe(`row ${MAX_LINES + 2}`);
   });
 
+  it("links the run to the review whose log it announces", () => {
+    const state = apply(
+      initialRunState,
+      line("log /Users/jorden/.local/share/claude-custom/reviews/20261026-101500-pr-12-ab12.jsonl"),
+    );
+    expect(state.reviewId).toBe("20261026-101500-pr-12-ab12");
+  });
+
+  it("keeps no review link when no line names a review log", () => {
+    const state = apply(initialRunState, line("log somewhere/else.txt"));
+    expect(state.reviewId).toBeNull();
+  });
+
   it("keeps the latest time seen", () => {
     const state = [line("a", "stdout", 4), line("b", "stdout", 2)].reduce((state, event) => apply(state, event), initialRunState);
     expect(state.seconds).toBe(4);
