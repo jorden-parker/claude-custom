@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import type { CommandParams } from "@/lib/console-commands";
+import { postRun } from "@/lib/post-run";
 
 type StartRunButtonProps = {
   command: string;
@@ -30,23 +31,17 @@ export function StartRunButton({
   const start = async () => {
     setPending(true);
     setMessage(null);
-    const response = await fetch("/api/runs", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ command, params }),
-    });
-    if (response.status === 201) {
-      const { id } = (await response.json()) as { id: string };
+    const result = await postRun(command, params);
+    if (result.ok) {
       if (stay) {
-        onStarted?.(id);
+        onStarted?.(result.id);
         setPending(false);
         return;
       }
-      router.push(`/runs/${encodeURIComponent(id)}`);
+      router.push(`/runs/${encodeURIComponent(result.id)}`);
       return;
     }
-    const { message: reason } = (await response.json()) as { message: string };
-    setMessage(reason);
+    setMessage(result.message);
     setPending(false);
   };
 

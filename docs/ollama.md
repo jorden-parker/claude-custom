@@ -399,14 +399,29 @@ block. A failed run is listed with a link to its run page, which shows the
 
 #### Benchmarks
 
-`/benchmarks` runs the four local measurements from fixed choices: messages-bench
-(TTFT, prefill, decode and tool calls, with the thinking mode and prefix length
-offered in the form), the prompt-cache probe, and the review eval scorecard, each for a
-configured size, plus bench-off runs of one server and model. Each card notes that it
-uses the model now, so stop other sessions first for clean numbers. The bench-off page
-embeds `$BENCH_RESULTS/bench-off.html` (default `~/bench-results`) in a sandbox that
-allows scripts only, and shows the install, download and run commands for the terminal
-when no report exists yet. The console never runs `backend-bench-off install`,
-`download` or `all`. History lists the last 20 bench runs. The telemetry card shows
-`tool-telemetry-report`; it stays off until `CLAUDE_TOOL_TELEMETRY` is set, for sessions
-and for `claude-ollama ui`.
+`/benchmarks` runs the four local measurements from fixed choices:
+messages-bench (TTFT, prefill, decode and tool calls, with the thinking mode and
+prefix length offered in the form), the prompt-cache probe, and the review eval
+scorecard, each for a configured size, plus bench-off runs of one server and
+model. Each card notes that it uses the model now, so stop other sessions first
+for clean numbers. The bench-off page embeds `$BENCH_RESULTS/bench-off.html`
+(default `~/bench-results`) in a sandbox that allows scripts only, and shows the
+install, download and run commands for the terminal when no report exists yet.
+The console never runs `backend-bench-off install`, `download` or `all`. History
+lists the last 20 bench runs. The telemetry card shows `tool-telemetry-report`;
+it stays off until `CLAUDE_TOOL_TELEMETRY` is set, for sessions and for
+`claude-ollama ui`.
+
+#### Models
+
+`/models` lists every configured size with its model, base and a status
+(installed, missing or mismatch against the pin), then each installed model with
+its class, size on disk and whether Ollama has it loaded. It refreshes every 5
+seconds and shows an Ollama-not-running banner when the server does not answer.
+Prepare starts `claude-ollama prepare SIZE` as a run and shows its progress bar;
+a missing size can take many gigabytes to download. Remove unused models opens a
+panel that lists exactly the third-party and orphan models it would remove, with
+their total size, and starts `ollama-models prune --yes --only NAME...` only
+after you press Remove these. The page only previews: the script re-checks each
+name when it removes it, so a model that stopped being prunable is skipped.
+Pinning stays in the terminal.

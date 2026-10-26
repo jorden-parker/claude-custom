@@ -23,6 +23,10 @@ type Assignment = { name: string; value: string };
 
 const MAX_ASSIGNMENTS = 8;
 
+const NAME_PATTERN = /^[A-Za-z0-9._:/-]{1,128}$/;
+
+const MAX_PRUNE_NAMES = 50;
+
 function isConfiguredSizeOnly(params: CommandParams, repoDir: string): boolean {
   return hasExactKeys(params, ["size"]) && configuredSizes(repoDir).includes(params.size);
 }
@@ -35,14 +39,49 @@ function configuredModel(params: CommandParams, repoDir: string): string | null 
   return configuredSizes(repoDir).includes(params.size) ? modelForSize(repoDir, params.size) : null;
 }
 
-const doctor: ConsoleCommand = {
-  name: "doctor",
-  label: (params) => `Doctor (${params.size})`,
-  argv: (params, repoDir) => {
+function sizeArgv(subcommand: string) {
+  return (params: CommandParams, repoDir: string): string[] | null => {
     if (!isConfiguredSizeOnly(params, repoDir)) {
       return null;
     }
-    return [`${repoDir}/bin/claude-ollama`, "doctor", params.size];
+    return [`${repoDir}/bin/claude-ollama`, subcommand, params.size];
+  };
+}
+
+const doctor: ConsoleCommand = {
+  name: "doctor",
+  label: (params) => `Doctor (${params.size})`,
+  argv: sizeArgv("doctor"),
+};
+
+const prepare: ConsoleCommand = {
+  name: "prepare",
+  label: (params) => `Prepare ${params.size}`,
+  argv: sizeArgv("prepare"),
+};
+
+function pruneNames(params: CommandParams): string[] | null {
+  if (!hasExactKeys(params, ["names"])) {
+    return null;
+  }
+  const names = params.names.split(",");
+  const valid =
+    names.length <= MAX_PRUNE_NAMES && names.every((name) => NAME_PATTERN.test(name) && !name.startsWith("-"));
+  return valid ? names : null;
+}
+
+const prune: ConsoleCommand = {
+  name: "prune",
+  label: (params) => {
+    const count = pruneNames(params)?.length ?? 0;
+    return `Prune ${count} ${count === 1 ? "model" : "models"}`;
+  },
+  argv: (params, repoDir) => {
+    const names = pruneNames(params);
+    if (names === null) {
+      return null;
+    }
+    return [`${repoDir}/bin/ollama-models`, "prune", "--yes", "--only", ...names];
   },
 };
 
@@ -204,6 +243,8 @@ const benchOffReport: ConsoleCommand = {
 
 export const CONSOLE_COMMANDS: readonly ConsoleCommand[] = [
   doctor,
+  prepare,
+  prune,
   review,
   serverSet,
   serverApply,

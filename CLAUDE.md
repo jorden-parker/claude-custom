@@ -52,9 +52,11 @@ before changing how any file gets applied.
   `bin/claude-ollama` and the `claude-custom ollama|tools` subcommands)
 - Model manager: `bin/ollama-models list|prune [--yes]|pin NAME[:TAG]` marks
   installed models (pinned, mismatch, profile, orphan, third-party, other),
-  removes third-party and orphan `-cc` models after asking, and writes a
-  registry manifest sha256 to `ollama/model-digests.json`; tests:
-  `bin/ollama-models.test.sh` (stub `ollama`, stub `curl`)
+  removes third-party and orphan `-cc` models after asking
+  (`prune --yes --only NAME...` removes just the named models that are still
+  prunable, for the console's Models page), and writes a registry manifest
+  sha256 to `ollama/model-digests.json`; tests: `bin/ollama-models.test.sh`
+  (stub `ollama`, stub `curl`)
 - Config check: `bin/check-config` (prints `all passed`; static checks that the
   `ollama/` and `personal/` config files agree with each other)
 - Profile generator: `bin/ollama-profiles` renders `ollama/settings.<size>.json`
