@@ -367,42 +367,57 @@ def check_header(header, file_size):
 
 
 def template_keyvalues(keyvalues):
-    return [
-        kv
-        for kv in keyvalues
-        if (kv.key == TEMPLATE_KEY or kv.key.startswith(TEMPLATE_PREFIX)) and isinstance(kv.value, str)
+    return [kv for kv in keyvalues if kv.key == TEMPLATE_KEY or kv.key.startswith(TEMPLATE_PREFIX)]
+
+
+def template_suffix(key):
+    if key == TEMPLATE_KEY:
+        return ""
+    return re.sub(r"[^A-Za-z0-9_-]", "_", key[len(TEMPLATE_PREFIX):]) or "unnamed"
+
+
+def template_failures(keyvalues):
+    templates = template_keyvalues(keyvalues)
+    failures = [
+        f"{kv.key} is {TYPE_NAMES[kv.type_id]}, not a string" for kv in templates if not isinstance(kv.value, str)
     ]
+    groups = {}
+    for kv in templates:
+        groups.setdefault(template_suffix(kv.key).casefold(), []).append(kv.key)
+    failures.extend(f"{' and '.join(keys)} would write the same template file" for keys in groups.values() if len(keys) > 1)
+    return failures
 
 
 def template_warnings(keyvalues):
     warnings = []
     for kv in template_keyvalues(keyvalues):
+        if not isinstance(kv.value, str):
+            continue
         matches = sorted({match.group(0) for match in TEMPLATE_WARNING.finditer(kv.value)})
         warnings.extend(f"{kv.key} contains {match!r}" for match in matches)
     return warnings
 
 
-def template_target(template_out, key):
+def template_path(template_out, key):
     if key == TEMPLATE_KEY:
         return Path(template_out)
-    suffix = re.sub(r"[^A-Za-z0-9_-]", "_", key[len(TEMPLATE_PREFIX):]) or "unnamed"
-    return Path(f"{template_out}.{suffix}")
+    return Path(f"{template_out}.{template_suffix(key)}")
 
 
 def write_templates(keyvalues, template_out):
     if find_value(keyvalues, TEMPLATE_KEY) is None:
         return [f"no {TEMPLATE_KEY} to write to {template_out}"]
-    failures = []
-    written = {}
-    for kv in template_keyvalues(keyvalues):
-        target = template_target(template_out, kv.key)
-        if target in written:
-            failures.append(f"{kv.key} and {written[target]} both write {target}")
-            continue
-        written[target] = kv.key
-        with open(target, "w", encoding="utf-8", newline="") as handle:
-            handle.write(kv.value)
-    return failures
+    targets = [(template_path(template_out, kv.key), kv.value) for kv in template_keyvalues(keyvalues)]
+    existing = [str(path) for path, _ in targets if path.exists()]
+    if existing:
+        return [f"{path} already exists; not overwriting" for path in existing]
+    for path, text in targets:
+        try:
+            with open(path, "x", encoding="utf-8", newline="") as handle:
+                handle.write(text)
+        except FileExistsError:
+            return [f"{path} already exists; not overwriting"]
+    return []
 
 
 def printable(text):
@@ -473,8 +488,8 @@ def main(argv):
     except Malformed as error:
         emit(f"FAIL: {error}")
         return EXIT_FAILED
-    failures = check_header(header, file_size)
-    if args.template_out is not None:
+    failures = check_header(header, file_size) + template_failures(header.keyvalues)
+    if args.template_out is not None and not failures:
         failures.extend(write_templates(header.keyvalues, args.template_out))
     for failure in failures:
         emit(f"FAIL: {failure}")

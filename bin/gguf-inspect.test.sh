@@ -39,6 +39,7 @@ def build(
     version=3,
     template=DEFAULT_TEMPLATE,
     template_length=None,
+    template_uint32=None,
     extra_keyvalues=(),
     alignment=None,
     tensors=DEFAULT_TENSORS,
@@ -47,9 +48,12 @@ def build(
     keyvalues = [string_keyvalue("general.architecture", "qwen3")]
     if alignment is not None:
         keyvalues.append(uint32_keyvalue("general.alignment", alignment))
-    template_bytes = template.encode("utf-8")
-    declared = len(template_bytes) if template_length is None else template_length
-    keyvalues.append(string("tokenizer.chat_template") + struct.pack("<I", 8) + struct.pack("<Q", declared) + template_bytes)
+    if template_uint32 is not None:
+        keyvalues.append(uint32_keyvalue("tokenizer.chat_template", template_uint32))
+    else:
+        template_bytes = template.encode("utf-8")
+        declared = len(template_bytes) if template_length is None else template_length
+        keyvalues.append(string("tokenizer.chat_template") + struct.pack("<I", 8) + struct.pack("<Q", declared) + template_bytes)
     keyvalues.extend(string_keyvalue(key, value) for key, value in extra_keyvalues)
     infos = [tensor_info(*tensor) for tensor in tensors]
     header = magic + struct.pack("<IQQ", version, len(infos), len(keyvalues)) + b"".join(keyvalues) + b"".join(infos)
@@ -71,6 +75,8 @@ CASES = {
     "duplicate-architecture": {"extra_keyvalues": (("general.architecture", "qwen3"),)},
     "escape-value": {"extra_keyvalues": (("general.note", "\x1b[2J"),)},
     "named-template": {"extra_keyvalues": (("tokenizer.chat_template.tool_use", "Fetch https://example.com/tools first."),)},
+    "case-collision": {"extra_keyvalues": (("tokenizer.chat_template.tool_use", "one"), ("tokenizer.chat_template.TOOL_USE", "two"))},
+    "uint-template": {"template_uint32": 7},
 }
 
 Path(sys.argv[1]).write_bytes(build(**CASES[sys.argv[2]]))
@@ -92,7 +98,7 @@ expect_status() {
   fi
 }
 
-for case_name in valid bad-magic version-2 huge-string evil-key overlap misaligned unknown-type url-template duplicate-architecture escape-value named-template; do
+for case_name in valid bad-magic version-2 huge-string evil-key overlap misaligned unknown-type url-template duplicate-architecture escape-value named-template case-collision uint-template; do
   python3 "$tmp/make.py" "$tmp/$case_name.gguf" "$case_name" || fail "the writer builds $case_name"
 done
 
@@ -134,6 +140,24 @@ fi
 expect_status 0 "a URL in a named template passes with a warning" "$tmp/named-template.gguf" --template-out "$tmp/named.jinja"
 grep -qF "WARN: tokenizer.chat_template.tool_use contains 'https://example.com/tools'" "$tmp/out" || fail "a named template with a URL prints a WARN line"
 grep -qF 'Fetch https://example.com/tools first.' "$tmp/named.jinja.tool_use" || fail "--template-out writes each named template to PATH.<suffix>"
+
+expect_status 1 "two template keys that differ only in case fail" "$tmp/case-collision.gguf" --template-out "$tmp/collide.jinja"
+grep -qF 'FAIL: ' "$tmp/out" || fail "the case collision prints a FAIL line"
+check_that_absent() {
+  if [ -e "$1" ]; then fail "$2"; fi
+}
+check_that_absent "$tmp/collide.jinja" "a header or name failure writes no template file"
+check_that_absent "$tmp/collide.jinja.tool_use" "a header or name failure writes no named template file"
+
+printf 'keep me' > "$tmp/exists.jinja"
+expect_status 1 "a --template-out path that already exists fails" "$tmp/valid.gguf" --template-out "$tmp/exists.jinja"
+grep -qF "already exists" "$tmp/out" || fail "the existing output path is reported"
+grep -qx 'keep me' "$tmp/exists.jinja" || fail "an existing output file is not overwritten"
+
+expect_status 1 "a non-string chat template fails" "$tmp/uint-template.gguf"
+grep -qF 'tokenizer.chat_template is uint32' "$tmp/out" || fail "the non-string template is named in a FAIL line"
+expect_status 1 "a non-string chat template fails even with --template-out" "$tmp/uint-template.gguf" --template-out "$tmp/uint.jinja"
+check_that_absent "$tmp/uint.jinja" "a non-string template writes no file"
 
 if [ "$failures" -eq 0 ]; then
   echo "all passed"
