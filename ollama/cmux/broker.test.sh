@@ -3,11 +3,12 @@ set -u
 umask 022
 here="$(cd "$(dirname "$0")" && pwd)"
 broker="$here/broker.py"
-client="$here/bin/cmux"
 tmp="$(cd "$(mktemp -d)" && pwd -P)"
 failures=0
 broker_pid=""
 session_pid=""
+socket="$tmp/broker.sock"
+export BROKER_TEST_DIR="$tmp"
 
 stop_broker() {
   [ -n "$broker_pid" ] && kill "$broker_pid" 2>/dev/null && wait "$broker_pid" 2>/dev/null
@@ -49,30 +50,57 @@ check_eq() {
   fi
 }
 
-cat > "$tmp/cmux" <<EOF
+contains() {
+  case "$1" in
+    *"$2"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+cat > "$tmp/cmux" <<'SH'
 #!/bin/sh
-echo "\$*" >> "$tmp/cmux.log"
-case "\$*" in
-  "browser profiles list") cat "$tmp/profiles" ;;
-  "--json --id-format both browser open"*) echo '{"surface_ref":"surface:7","surface_id":"AAAA-7"}' ;;
-  *screenshot*)
-    while [ "\$#" -gt 0 ]; do
-      [ "\$1" = --out ] && printf 'PNGDATA' > "\$2" && echo "\$2" > "$tmp/screenshot-path"
-      shift
-    done
+echo "$*" >> "$BROKER_TEST_DIR/cmux.log"
+pwd >> "$BROKER_TEST_DIR/cwd.log"
+case "$*" in
+  "browser repl "*)
+    cat > "$BROKER_TEST_DIR/stdin.last"
+    cat "$BROKER_TEST_DIR/reply"
+    exit "$(cat "$BROKER_TEST_DIR/status" 2>/dev/null || echo 0)"
     ;;
-  *"get url") echo "http://localhost:3000/" ;;
-  *) echo "ran" ;;
+  *)
+    echo "unexpected: $*" >&2
+    exit 1
+    ;;
 esac
-EOF
+SH
 chmod +x "$tmp/cmux"
-printf 'Default\tDefault\t52B4 (default)\n' > "$tmp/profiles"
+
+cat > "$tmp/ask.py" <<'PY'
+import socket
+import sys
+
+with socket.socket(socket.AF_UNIX) as connection:
+    connection.connect(sys.argv[1])
+    connection.sendall(sys.argv[2].encode() + b"\n")
+    data = b""
+    while True:
+        chunk = connection.recv(65536)
+        if not chunk:
+            break
+        data += chunk
+print(data.decode().strip())
+PY
+
+set_reply() {
+  printf '%s\n' "$1" > "$tmp/reply"
+  printf '%s\n' "${2:-0}" > "$tmp/status"
+}
 
 start_broker() {
   : > "$tmp/cmux.log"
+  : > "$tmp/cwd.log"
   sleep 600 &
   session_pid=$!
-  socket="$tmp/broker.sock"
   python3 "$broker" --socket "$socket" --cmux "$tmp/cmux" --watch-pid "$session_pid" &
   broker_pid=$!
   for _ in $(seq 50); do
@@ -83,79 +111,86 @@ start_broker() {
   exit 1
 }
 
-run_client() {
-  (cd "$tmp/work" && CLAUDE_OLLAMA_CMUX_BROKER="$socket" "$client" "$@") >"$tmp/out" 2>"$tmp/err"
+ask() {
+  python3 "$tmp/ask.py" "$socket" "$1"
 }
 
 logged() {
-  grep -qxF -- "$1" "$tmp/cmux.log"
+  grep -qF -- "$1" "$tmp/cmux.log"
 }
 
-ran_only_setup() {
-  [ "$(grep -cv '^browser profiles ' "$tmp/cmux.log")" = 0 ]
+ok_reply() {
+  printf '%s\n' '"{\"url\":\"http://localhost:3000/\",\"errors\":[],\"console\":[],\"surface\":null}"' '[ok | 5ms]'
 }
 
-mkdir -p "$tmp/work"
+set_reply "$(ok_reply)"
 start_broker
 
-check_that "the broker adds the claude-ollama browser profile when it is missing" logged "browser profiles add claude-ollama"
-
-run_client browser open http://localhost:3000
-check_eq "open on a loopback URL succeeds" 0 "$?"
-check_that "open uses the claude-ollama profile without taking focus" \
-  logged "--json --id-format both browser open http://localhost:3000/ --profile claude-ollama --focus false"
-check_that "open prints the new surface" grep -qF '"surface_ref":"surface:7"' "$tmp/out"
-
-run_client browser --surface surface:7 get url
-check_eq "a surface the session opened answers" 0 "$?"
-check_that "the broker targets that surface by its permanent id" logged "browser --surface AAAA-7 get url"
-check_that "the broker passes cmux's output back" grep -qxF "http://localhost:3000/" "$tmp/out"
-
-run_client browser AAAA-7 snapshot --interactive
-check_that "a surface can be named by its id and as the first argument" logged "browser --surface AAAA-7 snapshot --interactive"
-
-run_client --json browser surface:7 click e1
-check_that "the global --json flag passes through" logged "--json browser --surface AAAA-7 click e1"
-
-run_client browser surface:7 goto http://127.0.0.1:8765/
-check_that "goto on a loopback URL passes" logged "browser --surface AAAA-7 goto http://127.0.0.1:8765/"
-run_client browser surface:7 goto 'HTTP://LOCALHOST.:3000/a?b=1#c'
-check_that "goto passes cmux the URL as the broker parsed it" logged "browser --surface AAAA-7 goto http://localhost:3000/a?b=1#c"
+check_that "a request without a page object is refused with the page-only message" \
+  contains "$(ask '{"args":["browser","open","http://localhost:3000"]}')" "this broker takes only page requests"
+check_that "a request with an extra top-level key is refused" \
+  contains "$(ask '{"page":{"op":"snapshot"},"args":["x"]}')" "this broker takes only page requests"
+check_that "an unknown op is refused" \
+  contains "$(ask '{"page":{"op":"eval","code":"1"}}')" "unknown op"
+check_that "an unknown key on a page request is refused" \
+  contains "$(ask '{"page":{"op":"snapshot","code":"1"}}')" "unknown keys: code"
+check_that "an unknown action is refused" \
+  contains "$(ask '{"page":{"op":"act","action":"eval","target":"e1"}}')" "action"
+check_that "a non-string target is refused" \
+  contains "$(ask '{"page":{"op":"act","action":"click","target":5}}')" "target must be text"
+check_that "a target over 1000 characters is refused" \
+  contains "$(ask "{\"page\":{\"op\":\"act\",\"action\":\"click\",\"target\":\"$(printf 'x%.0s' $(seq 1001))\"}}")" "at most 1000 characters"
 
 : > "$tmp/cmux.log"
-refused() {
-  : > "$tmp/cmux.log"
-  run_client "$@"
-  local status=$?
-  [ "$status" = 1 ] && ran_only_setup && grep -q "cmux broker:" "$tmp/err"
+refused_url() {
+  local reply
+  reply="$(ask "{\"page\":{\"op\":\"open\",\"url\":$1}}")"
+  contains "$reply" '"ok": false' && ! grep -q 'browser repl' "$tmp/cmux.log"
 }
-check_that "open on a remote URL is refused" refused browser open https://example.com
-check_that "a URL that hides a remote host behind userinfo is refused" refused browser open http://localhost@example.com/
-check_that "open on a file URL is refused" refused browser open file:///etc/passwd
-check_that "a --focus value other than true or false is refused" refused browser open http://localhost:3000 --focus --workspace=workspace:2
-check_that "a backslash that browsers read as a path separator is refused" refused browser open 'http://example.com\@localhost/'
-check_that "a URL with a space is refused" refused browser open 'http://localhost /x'
-check_that "goto with a backslash URL is refused" refused browser surface:7 goto 'http://example.com\@127.0.0.1/'
-check_that "open into another workspace is refused" refused browser open http://localhost:3000 --workspace workspace:2
-check_that "a surface the session did not open is refused" refused browser --surface surface:1 get url
-check_that "goto on a remote URL is refused" refused browser surface:7 goto https://example.com
-check_that "navigate on a remote URL is refused" refused browser surface:7 navigate https://example.com
-check_that "uploading host files is refused" refused browser surface:7 set-input-files --selector input --file /etc/passwd
-check_that "saving browser state to a host path is refused" refused browser surface:7 state save /tmp/state.json
-check_that "reading cookies is refused" refused browser surface:7 cookies get
-check_that "downloads are refused" refused browser surface:7 download wait --path /tmp/x
-check_that "retargeting a command at another surface is refused" refused browser surface:7 get url --surface surface:1
-check_that "retargeting with --flag=value is refused" refused browser surface:7 get url --surface=surface:1
-check_that "sending keys to terminals is refused" refused send "echo hi"
-check_that "reading the workspace tree is refused" refused tree --all --json
-check_that "a screenshot without --out is refused" refused browser surface:7 screenshot
-check_that "an empty command is refused" refused
+check_that "open on a remote URL is refused" refused_url '"https://example.com/"'
+check_that "open with userinfo that hides a remote host is refused" refused_url '"http://localhost@example.com/"'
+check_that "open on a file URL is refused" refused_url '"file:///etc/passwd"'
+check_that "open with a backslash is refused" refused_url '"http://example.com\\@localhost/"'
+check_that "open with a space is refused" refused_url '"http://localhost /x"'
+check_that "open with a non-text URL is refused" refused_url '5'
 
-run_client browser surface:7 screenshot --out shots/page.png
-check_eq "a screenshot with --out succeeds" 0 "$?"
-check_eq "the client writes the screenshot inside the session's folder" PNGDATA "$(cat "$tmp/work/shots/page.png" 2>/dev/null)"
-check_not "cmux never writes the session's chosen path" grep -qF "$tmp/work" "$tmp/screenshot-path"
-check_not "the broker removes its temporary screenshot" test -e "$(cat "$tmp/screenshot-path")"
+reply="$(ask '{"page":{"op":"open","url":"HTTP://LOCALHOST.:3000/a?b=1#c"}}')"
+check_that "open on a loopback URL succeeds" contains "$reply" '"ok": true'
+check_that "the URL reaches the program canonicalized" \
+  contains "$(cat "$tmp/stdin.last")" 'await __cc_run({"op": "open", "url": "http://localhost:3000/a?b=1#c"})'
+check_that "open returns the page result from the browser" contains "$reply" '"url": "http://localhost:3000/"'
+
+reply="$(ask '{"page":{"op":"act","action":"fill","target":"zq-target-7","text":"zq-text-9"}}')"
+check_that "act returns ok on success" contains "$reply" '"ok": true'
+check_not "the target never reaches the command line" grep -q 'zq-target-7' "$tmp/cmux.log"
+check_not "the text never reaches the command line" grep -q 'zq-text-9' "$tmp/cmux.log"
+check_that "the target reaches the program as JSON" contains "$(cat "$tmp/stdin.last")" '"zq-target-7"'
+check_that "the text reaches the program as JSON" contains "$(cat "$tmp/stdin.last")" '"zq-text-9"'
+check_that "the program is page.js followed by the one run line" \
+  contains "$(tail -n 1 "$tmp/stdin.last")" 'await __cc_run({"op": "act", "action": "fill", "target": "zq-target-7", "text": "zq-text-9"})'
+check_that "the program defines the locked hosts" grep -qF '__CC_ALLOWED' "$tmp/stdin.last"
+check_that "the program locks the session" grep -qF 'lock: true' "$tmp/stdin.last"
+
+check_that "cmux runs the repl on a claude-ollama session with the fixed timeout and stdin program" \
+  grep -Eq '^browser repl --session claude-ollama-[0-9a-f]{16} --timeout 60000 --eval -$' "$tmp/cmux.log"
+check_that "cmux never runs from the repository" test "$(tail -n 1 "$tmp/cwd.log")" != "$here"
+
+set_reply "$(printf '%s\n' 'boom at line 3' '[error | 2ms]')" 1
+reply="$(ask '{"page":{"op":"snapshot"}}')"
+check_that "a failing REPL call is ok false with its output" contains "$reply" "boom at line 3"
+
+set_reply "$(printf 'noise-%02d\n' $(seq 1 25))" 1
+reply="$(ask '{"page":{"op":"snapshot"}}')"
+check_that "a failing REPL call keeps the last 20 output lines" contains "$reply" "noise-25"
+check_not "and drops the lines before them" contains "$reply" "noise-05"
+
+set_reply "$(printf '%s\n' 'no result here' '[ok | 1ms]')" 0
+reply="$(ask '{"page":{"op":"snapshot"}}')"
+check_that "a call with no result line is ok false" contains "$reply" '"ok": false'
+
+set_reply "$(ok_reply)"
+reply="$(ask '{"page":{"op":"snapshot"}}')"
+check_that "snapshot returns the program's result" contains "$reply" '"url": "http://localhost:3000/"'
 
 kill "$session_pid" && wait "$session_pid" 2>/dev/null
 for _ in $(seq 50); do
@@ -166,14 +201,9 @@ check_not "the broker exits when the session ends" kill -0 "$broker_pid" 2>/dev/
 check_not "the broker removes its socket when it exits" test -e "$socket"
 stop_broker
 
-printf 'Default\tDefault\t52B4 (default)\nclaude-ollama\tclaude-ollama\tBBBB\n' > "$tmp/profiles"
-start_broker
-check_not "the broker keeps an existing claude-ollama profile" logged "browser profiles add claude-ollama"
-stop_broker
-
-CLAUDE_OLLAMA_CMUX_BROKER="$tmp/missing.sock" "$client" browser open http://localhost:3000 >/dev/null 2>"$tmp/err"
-check_eq "the client fails when the broker is not running" 1 "$?"
-check_that "the client says the broker is unreachable" grep -q "cmux broker: not running" "$tmp/err"
+if command -v node >/dev/null 2>&1; then
+  check_that "page.js is valid JavaScript" node --check "$here/page.js"
+fi
 
 if [ "$failures" -eq 0 ]; then
   echo "all passed"
