@@ -30,7 +30,8 @@ MAX_STACK_LINES = 5
 MAX_APP_DIRS = 20
 MAX_OUTPUT_CHARS = 20000
 BROWSER_WAIT_MS = 15000
-SCRIPT_NAME = re.compile(r"^[A-Za-z0-9:_.-]{1,64}$")
+SCRIPT_PATTERN = re.compile(r"^dev:[A-Za-z0-9_.-]{1,48}$")
+START_SCRIPT_NAMES = {"dev", "start"}
 LOCAL_URL = re.compile(r"https?://(?:localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0):(\d+)\S*")
 ANSI_CODES = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 ERROR_LINE = re.compile(r"error|warn|⨯|failed|unhandled|exception|cannot |EADDRINUSE|ELIFECYCLE", re.IGNORECASE)
@@ -39,7 +40,7 @@ PORT_FLAG = re.compile(r"(?:-p|--port)[ =](\d+)")
 FRAMEWORK_PORTS = {"next": 3000, "vite": 5173}
 LOCKFILES = [("pnpm-lock.yaml", "pnpm"), ("yarn.lock", "yarn"), ("bun.lockb", "bun"), ("bun.lock", "bun")]
 OUTSIDE_REPOSITORY = "paths must stay inside the repository"
-SCRIPT_RULE = "script names use letters, digits, and : _ . - (at most 64)"
+SCRIPT_RULE = "dev_start runs only dev, start or dev:* scripts"
 PATH_RULE = "path must start with a single /"
 CMUX_OFF = "the cmux browser is off; relaunch claude-ollama with CLAUDE_OLLAMA_CMUX=1. dev_errors still works."
 NO_SERVER = "no dev server answers for {}; call dev_status"
@@ -124,10 +125,24 @@ STARTED = {}
 BROWSER = {"surface": None}
 
 
+def is_inside_root(path):
+    resolved = os.path.realpath(path)
+    root = os.path.realpath(ROOT)
+    return resolved == root or resolved.startswith(root + os.sep)
+
+
 def project_dir(arguments):
     text = arguments.text("dir") or "."
     inside_repository(text)
-    return str(PurePath(text))
+    dir_text = str(PurePath(text))
+    if not is_inside_root(ROOT / dir_text):
+        raise ToolError(OUTSIDE_REPOSITORY)
+    return dir_text
+
+
+def require_app_dir(dir_text):
+    if dir_text not in app_dirs():
+        raise ToolError(f"{dir_text} is not an app dir; dev_status lists them")
 
 
 def require_directory(dir_text):
@@ -193,9 +208,14 @@ def read_lock(dir_text):
         data = json.loads((ROOT / dir_text / ".next" / "dev" / "lock").read_text())
     except (OSError, ValueError):
         return None
-    if not isinstance(data, dict) or not isinstance(data.get("appUrl"), str):
+    return data if isinstance(data, dict) else None
+
+
+def lock_port(lock):
+    port = lock.get("port")
+    if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
         return None
-    return data
+    return port
 
 
 def clean_lines(log_path):
@@ -222,9 +242,10 @@ def dir_candidates(dir_text):
         if url is not None:
             found.append(Candidate(url, "started this session", server.process.pid))
     lock = read_lock(dir_text)
-    if lock is not None:
+    lock_number = lock_port(lock) if lock is not None else None
+    if lock_number is not None:
         pid = lock.get("pid")
-        found.append(Candidate(lock["appUrl"], ".next/dev/lock", pid if isinstance(pid, int) else None))
+        found.append(Candidate(f"http://localhost:{lock_number}", ".next/dev/lock", pid if isinstance(pid, int) else None))
     script = dev_script_text(dir_text)
     port = script_port(script)
     if port is not None:
@@ -360,11 +381,16 @@ def ready_text(url, server, lines):
     return "\n".join([text, *errors])
 
 
+def is_allowed_script(script):
+    return script in START_SCRIPT_NAMES or SCRIPT_PATTERN.match(script) is not None
+
+
 def dev_start(arguments):
     dir_text = project_dir(arguments)
     script = arguments.text("script") or "dev"
-    if not SCRIPT_NAME.match(script):
+    if not is_allowed_script(script):
         raise ToolError(SCRIPT_RULE)
+    require_app_dir(dir_text)
     require_directory(dir_text)
     if script not in package_scripts(dir_text):
         raise ToolError(f'no script "{script}" in {dir_text}/package.json')

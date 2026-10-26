@@ -54,7 +54,7 @@ section() {
 
 mkdir -p "$tmp/project/app" "$tmp/bin" "$tmp/state"
 printf '{"name":"root","private":true}\n' > "$tmp/project/package.json"
-printf '{"name":"app","scripts":{"dev":"fake-server","build":"next build"}}\n' > "$tmp/project/app/package.json"
+printf '{"name":"app","scripts":{"dev":"fake-server","dev:web":"fake-server","build":"next build"}}\n' > "$tmp/project/app/package.json"
 git -C "$tmp/project" init -q
 git -C "$tmp/project" add -A
 git -C "$tmp/project" -c user.name=test -c user.email=test@example.test commit -qm init
@@ -62,9 +62,9 @@ git -C "$tmp/project" -c user.name=test -c user.email=test@example.test commit -
 cat > "$tmp/bin/npm" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$DEV_TEST_DIR/npm.log"
-if [ "$*" = "run dev" ]; then
-  exec python3 "$DEV_TEST_DIR/fake-next.py"
-fi
+case "$*" in
+  "run dev" | "run dev:"*) exec python3 "$DEV_TEST_DIR/fake-next.py" ;;
+esac
 exit 1
 SH
 
@@ -249,9 +249,15 @@ check "dev_start refuses a dir outside the repository" \
 check "dev_start refuses an absolute dir" \
   error_with "$(call dev_start '{"dir":"/tmp"}')" "inside the repository"
 check "dev_start refuses a script name with shell characters" \
-  error_with "$(call dev_start '{"dir":"app","script":"build; rm -rf ~"}')" "letters"
-check "dev_start refuses a script missing from package.json" \
-  error_with "$(call dev_start '{"dir":"app","script":"nope"}')" 'no script "nope"'
+  error_with "$(call dev_start '{"dir":"app","script":"build; rm -rf ~"}')" "dev_start runs only dev, start or dev:*"
+check "dev_start refuses a script that is not dev, start or dev:*" \
+  error_with "$(call dev_start '{"dir":"app","script":"build"}')" "dev_start runs only dev, start or dev:*"
+check "dev_start refuses a dev:* script missing from package.json" \
+  error_with "$(call dev_start '{"dir":"app","script":"dev:missing"}')" 'no script "dev:missing"'
+: > "$tmp/npm.log"
+check "a refused script never reaches npm" [ ! -s "$tmp/npm.log" ]
+check "dev_start accepts a dev:* script that exists" \
+  contains "$(call dev_start '{"dir":"app","script":"dev:web"}')" "ready at"
 check "dev_start refuses unknown arguments" \
   [ "$(call dev_start '{"dir":"app","oops":1}')" = "ERROR unknown arguments: oops" ]
 
@@ -284,6 +290,45 @@ check "page_check rejects a path without a leading slash" \
   error_with "$(BROKER=x call page_check '{"dir":"app","path":"settings"}')" "path must start with a single /"
 check "page_check rejects a protocol-relative path" \
   error_with "$(BROKER=x call page_check '{"dir":"app","path":"//evil.test/x"}')" "path must start with a single /"
+
+start_fake_next() {
+  local before
+  before="$(wc -l < "$tmp/ports.log" | tr -d ' ')"
+  (cd "$tmp/project/app" && exec python3 "$tmp/fake-next.py") >/dev/null 2>&1 &
+  fake_pid=$!
+  for _ in $(seq 1 40); do
+    [ "$(wc -l < "$tmp/ports.log" | tr -d ' ')" -gt "$before" ] && break
+    sleep 0.25
+  done
+  fake_port="$(tail -n 1 "$tmp/ports.log")"
+}
+
+stop_fake_next() {
+  kill "$fake_pid" 2>/dev/null
+  wait "$fake_pid" 2>/dev/null
+}
+
+start_fake_next
+printf '{"pid":%s,"port":%s,"hostname":"localhost","appUrl":"http://evil.test:1/","startedAt":0}' "$fake_pid" "$fake_port" > "$tmp/project/app/.next/dev/lock"
+lock_status="$(call dev_status '{"dir":"app"}')"
+check "a lock's port is used and its appUrl is ignored" contains "$lock_status" "http://localhost:$fake_port answers"
+check "and the lock's appUrl host is never reported" lacks "$lock_status" "evil.test"
+printf '{"pid":%s,"port":"%s","hostname":"localhost","appUrl":"http://localhost:%s/","startedAt":0}' "$fake_pid" "$fake_port" "$fake_port" > "$tmp/project/app/.next/dev/lock"
+check "a lock whose port is a string is ignored" contains "$(call dev_status '{"dir":"app"}')" "no dev server answers"
+stop_fake_next
+
+mkdir -p "$tmp/project/scratch"
+printf '{"name":"scratch","scripts":{"dev":"fake-server"}}\n' > "$tmp/project/scratch/package.json"
+check "dev_start refuses a package.json that is not an app dir in git" \
+  contains "$(call dev_start '{"dir":"scratch"}')" "scratch is not an app dir"
+
+mkdir -p "$tmp/elsewhere"
+printf '{"name":"linked","scripts":{"dev":"fake-server"}}\n' > "$tmp/elsewhere/package.json"
+ln -s "$tmp/elsewhere" "$tmp/project/linked"
+check "dev_status refuses a dir that is a symlink out of the repository" \
+  error_with "$(call dev_status '{"dir":"linked"}')" "inside the repository"
+check "dev_start refuses a dir that is a symlink out of the repository" \
+  error_with "$(call dev_start '{"dir":"linked"}')" "inside the repository"
 
 if [ "$failures" -eq 0 ]; then
   echo "all passed"
