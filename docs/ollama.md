@@ -45,6 +45,9 @@ are stale. To add a size, add an entry to `sizes.json`, run
 `bin/ollama-profiles`, and commit. The picker and `--help` pick up a new size
 without any script change.
 
+Two GGUF sizes, `27b-gguf` (Qwen3.8 27B) and `35b-gguf` (Qwen3.6 35B-A3B), use
+Unsloth's Q4_K_XL files from Hugging Face for comparison with the MLX sizes.
+
 `claude-custom install` creates the `-cc` models from `ollama/Modelfile.<size>`
 once the base models are pulled. `claude-ollama` also does this itself for
 either size: when the `-cc` model is missing, it pulls the base model and
@@ -168,6 +171,16 @@ sha256 of its registry manifest in `ollama/model-digests.json`. After pulling a
 base, and before each launch, `claude-ollama` compares the digest Ollama reports
 in `/api/tags` with the pin and exits 1 on a mismatch; `doctor` prints
 `ok   digest NAME matches its pin` or a `fail` line.
+
+The two GGUF sizes come from Unsloth on Hugging Face. Each is pinned twice: its
+file's sha256 in `model-digests.json` and a repo commit in `sizes.json`. The
+first launch of that size downloads the file (about 17.6 GB or 22.4 GB, plus
+Ollama's copy while importing), checks the sha256, runs `bin/gguf-inspect` on
+the header, imports with Ollama's own renderer and parser (the file's chat
+template is not used), and deletes the download. Changing a pin means repeating
+a review: run `bin/gguf-inspect` on the new file's header and diff its chat
+template against upstream's. These sizes have no vision: the projector file is
+not used, so image paste does not work on them.
 
 ### The session sandbox
 

@@ -57,6 +57,9 @@ before changing how any file gets applied.
   (`make check-profiles`) fails when they are stale (it compares JSON by
   content, so it needs no Prettier; writing the files needs `pnpm install`);
   tests: `bin/ollama-profiles.test.sh`
+- GGUF inspector: `bin/gguf-inspect FILE [--file-size N] [--template-out PATH]`
+  checks a GGUF header with strict bounds before Ollama parses it (never reads
+  tensor data); tests: `bin/gguf-inspect.test.sh`
 - Cache probe: `bin/ollama-cache-probe [27b|35b|MODEL] [--prefix-tokens N]`
   measures prompt-cache reuse on a live Ollama; its tests are
   `bin/ollama-cache-probe.test.sh` (stub server, no real Ollama)
@@ -103,10 +106,11 @@ before changing how any file gets applied.
   size means one `sizes.json` entry, then `bin/ollama-profiles`; never hand-edit
   the rendered files. Every `base` (plus the default embedding model) must be an
   Ollama library model (no `/` in the name) with a manifest sha256 in
-  `ollama/model-digests.json`; `bin/check-config` checks both.
-  `bin/claude-ollama` checks `/api/tags` against the pin after pulling a base
-  and before each launch, exits 1 on a mismatch, and `doctor` reports it. A pin
-  is the sha256 of the registry manifest
+  `ollama/model-digests.json`, or a `./weights/<file>.gguf` from an
+  `unsloth/*-GGUF` repo at a pinned commit whose file sha256 is the pin;
+  `bin/check-config` checks both. `bin/claude-ollama` checks `/api/tags` against
+  the pin after pulling a base and before each launch, exits 1 on a mismatch,
+  and `doctor` reports it. A pin is the sha256 of the registry manifest
   (`https://registry.ollama.ai/v2/library/NAME/manifests/TAG`).
 - Go module `go/` (all three apps; `go/cmd/model-picker/`,
   `go/cmd/claude-tools/`, `go/cmd/ollama-agent/`): `cd go && go test ./...`. One

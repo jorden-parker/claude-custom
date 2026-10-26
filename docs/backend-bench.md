@@ -169,6 +169,31 @@ vllm-mlx, vllm-mlx with MTP, that passes on every model it could be judged on,
 else "Stay on Ollama". Before switching, confirm with a real Claude Code session
 of about 20 tool-using turns on the winner, with no malformed tool calls.
 
+## Ollama MLX vs Unsloth GGUF
+
+The `27b-gguf` and `35b-gguf` sizes run the same models as the MLX sizes, from
+Unsloth's Q4_K_XL GGUF files. Compare each pair on the work laptop with the same
+bench, one pair back to back, quitting other `claude-ollama` sessions first and
+plugging in:
+
+```sh
+claude-ollama 27b-gguf -p 'reply ok'
+claude-ollama 35b-gguf -p 'reply ok'
+ollama show --modelfile qwen3.8-27b-gguf-cc | grep -E '^(RENDERER|PARSER|PARAMETER)'
+for m in qwen3.8-27b-cc qwen3.8-27b-gguf-cc qwen3.6-35b-cc qwen3.6-35b-gguf-cc; do
+  bin/messages-bench --model "$m" --thinking disabled --tool-trials 5
+done
+bin/ollama-cache-probe 27b && bin/ollama-cache-probe 27b-gguf
+```
+
+A GGUF size is better for its model when, at the 60k prefix, its warm TTFT is
+lower than the MLX size's, its warm decode t/s is at least 90% of MLX's, its
+tool calls are 5/5, and its cache-probe verdict says the cache is reused. The
+owner may make a GGUF size the default in a separate change. If none is better,
+keep the sizes as options or remove them. The `ollama show --modelfile` lines
+must show `RENDERER` and `PARSER`; without them Ollama would use the file's own
+template, and the size must not be used.
+
 ## oMLX facts (fill in when oMLX wins)
 
 - Server URL and port the Homebrew service listens on: TODO
