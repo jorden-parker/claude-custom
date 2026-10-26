@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { SUGGESTED_HOSTS, isValidHost, normalizeHost } from "@/lib/fetch-domains";
+import { SUGGESTED_HOSTS, isValidHost, normalizeHost } from "@/lib/fetch-domain-rules";
 
 type FetchDomainState = {
   path: string;

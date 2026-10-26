@@ -174,7 +174,7 @@ check_eq "tool-telemetry counts the same line limit that bash-output-trim applie
 
 check_eq "the console's fetch-domain pattern equals the launcher's" \
   "$(sed -n "s/^fetch_domain_pattern='\(.*\)'\$/\1/p" "$repo/bin/claude-ollama")" \
-  "$(sed -n 's|^export const FETCH_DOMAIN_PATTERN = /\(.*\)/;$|\1|p' "$repo/web/console/src/lib/fetch-domains.ts")"
+  "$(sed -n 's|^export const FETCH_DOMAIN_PATTERN = /\(.*\)/;$|\1|p' "$repo/web/console/src/lib/fetch-domain-rules.ts")"
 
 agent="$repo/shared/agents/pr-review.md"
 agent_frontmatter() {

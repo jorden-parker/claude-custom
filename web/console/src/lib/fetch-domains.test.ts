@@ -5,15 +5,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   FETCH_DOMAIN_PATTERN,
   SUGGESTED_HOSTS,
-  fetchDomainsPath,
   isValidHost,
   normalizeHost,
   parseDomains,
   planDomains,
-  readDomains,
-  readDomainsText,
-  writeDomainsText,
-} from "./fetch-domains";
+} from "./fetch-domain-rules";
+import { fetchDomainsPath, readDomains, readDomainsText, writeDomainsText } from "./fetch-domains";
 
 describe("isValidHost", () => {
   it.each(["docs.python.org", "go.dev", "a-b.example.co", "x1.y2.z3"])("accepts %s", (host) => {

@@ -1,15 +1,7 @@
 import { connection, NextResponse } from "next/server";
 import { recordChange } from "@/lib/history";
-import {
-  MAX_FETCH_HOSTS,
-  SUGGESTED_HOSTS,
-  fetchDomainsPath,
-  planDomains,
-  readDomains,
-  type DomainPlan,
-  readDomainsText,
-  writeDomainsText,
-} from "@/lib/fetch-domains";
+import { MAX_FETCH_HOSTS, SUGGESTED_HOSTS, planDomains, type DomainPlan } from "@/lib/fetch-domain-rules";
+import { fetchDomainsPath, readDomains, readDomainsText, writeDomainsText } from "@/lib/fetch-domains";
 
 const JSON_CONTENT_TYPE = "application/json";
 const HISTORY_KIND = "fetch-domains";
