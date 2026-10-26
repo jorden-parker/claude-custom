@@ -75,6 +75,8 @@ case "$*" in
   "--json browser open "*) echo '{"surface_id":"S-1","surface_ref":"surface:1"}' ;;
   *"errors list"*) echo "TypeError: x is undefined" ;;
   *"console list"*) echo "[warn] If you do not provide a visible label, you must specify an aria-label or aria-labelledby attribute for accessibility" ;;
+  *" snapshot "*) printf '%s\n' '- button "Save" [ref=e1]' '- textbox "Name" [ref=e2]' ;;
+  *" get url") echo "http://localhost:1/settings" ;;
 esac
 exit 0
 SH
@@ -204,8 +206,8 @@ session() {
   run_in_project python3 "$tmp/session.py" "$server" "$@" > "$out"
 }
 
-check "tools/list lists the six dev tools" \
-  [ "$(call list)" = "dev_status dev_start dev_logs dev_errors dev_stop page_check" ]
+check "tools/list lists the eight dev tools" \
+  [ "$(call list)" = "dev_status dev_start dev_logs dev_errors dev_stop page_check page_snapshot page_act" ]
 
 status="$(call dev_status '{}')"
 check "dev_status with nothing running says no dev server answers, naming the app dir" \
@@ -285,6 +287,37 @@ check "and the Next.js error from get_errors" contains "$page" "Hydration failed
 check "the first page_check opens the page in the cmux browser" \
   [ "$(head -n 1 "$tmp/cmux.log")" = "--json browser open http://localhost:$browser_port/settings" ]
 check "a later page_check navigates the same surface and does not open again" navigated_once "$browser_port"
+
+check "page_snapshot before any page_check says to call page_check first" \
+  error_with "$(BROKER=x call page_snapshot '{}')" "call page_check first"
+check "page_act before any page_check says to call page_check first" \
+  error_with "$(BROKER=x call page_act '{"action":"click","target":"e1"}')" "call page_check first"
+check "page_check names the surface it uses" contains "$page" "Surface: S-1"
+
+: > "$tmp/cmux.log"
+act_out="$tmp/session-act.out"
+BROKER="$tmp/fake.sock" session "$act_out" \
+  '["dev_start",{"dir":"app"}]' \
+  '["page_check",{"dir":"app","path":"/settings"}]' \
+  '["page_snapshot",{}]' \
+  '["page_act",{"action":"fill","target":"e2","text":"Ada"}]' \
+  '["page_act",{"action":"press","text":"Enter"}]'
+snapshot="$(section page_snapshot "$act_out")"
+check "page_snapshot lists elements with refs" contains "$snapshot" "[ref=e1]"
+fill="$(section page_act "$act_out")"
+check "page_act fill runs on the page's surface by ref" \
+  grep -qF -- "browser --surface S-1 fill e2 Ada" "$tmp/cmux.log"
+check "page_act reports browser errors, console and elements" \
+  [ "$(printf '%s\n' "$fill" | grep -c -e '^Browser errors:' -e '^Console:' -e '^Elements:')" -ge 3 ]
+check "page_act press sends the key" grep -qF -- "browser --surface S-1 press Enter" "$tmp/cmux.log"
+check "page_act click without a target is refused" \
+  error_with "$(BROKER=x call page_act '{"action":"click"}')" "target is required"
+check "page_act refuses a target that looks like a flag" \
+  error_with "$(BROKER=x call page_act '{"action":"click","target":"--surface x"}')" "must not start with -"
+check "page_act refuses text that looks like a flag" \
+  error_with "$(BROKER=x call page_act '{"action":"fill","target":"e2","text":"--surface x"}')" "must not start with --"
+check "page_act has no eval action" \
+  error_with "$(BROKER=x call page_act '{"action":"eval","target":"x"}')" "action must be one of"
 
 check "page_check rejects a path without a leading slash" \
   error_with "$(BROKER=x call page_check '{"dir":"app","path":"settings"}')" "path must start with a single /"

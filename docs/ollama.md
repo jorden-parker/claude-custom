@@ -252,14 +252,16 @@ To compare Ollama with other servers, see [backend-bench](backend-bench.md).
 
 ### Dev servers and the browser
 
-The `dev` MCP server gives the session six tools: `dev_status` (which dev
+The `dev` MCP server gives the session eight tools: `dev_status` (which dev
 servers answer, at which URL and pid), `dev_start` (runs a `dev` or `start`
 script in the background and returns its real URL), `dev_logs` (the server's
 output, optionally only errors with their stacks), `dev_errors` (Next.js 16+
 `get_errors`, or the log's errors otherwise), `dev_stop` and `page_check` (opens
 or reloads a page in the cmux browser and returns its browser errors, console
-warnings and Next.js errors). `dev_start` and `dev_stop` ask before they run;
-the others do not. Servers a session starts stop when it ends. The server reads
+warnings and Next.js errors), `page_snapshot` (the open page's elements with
+refs) and `page_act` (click, fill, type, press, select, check or scroll one ref,
+then the errors it caused). `dev_start` and `dev_stop` ask before they run; the
+others do not. Servers a session starts stop when it ends. The server reads
 `.next/dev/lock` for its port and `/_next/mcp` on Next.js 16+; other frameworks
 get log errors only. `page_check` needs the cmux browser, which is on by default
 when claude-ollama runs in a cmux terminal; `CLAUDE_OLLAMA_CMUX=0` turns it off.

@@ -154,7 +154,7 @@ allows_repo_tools() {
 }
 
 allows_read_only_dev_tools() {
-  jq -e '.permissions.allow as $allowed | all(["mcp__dev__dev_status", "mcp__dev__dev_logs", "mcp__dev__dev_errors", "mcp__dev__page_check"][]; . as $tool | any($allowed[]; . == $tool))' "$1" >/dev/null
+  jq -e '.permissions.allow as $allowed | all(["mcp__dev__dev_status", "mcp__dev__dev_logs", "mcp__dev__dev_errors", "mcp__dev__page_check", "mcp__dev__page_snapshot", "mcp__dev__page_act"][]; . as $tool | any($allowed[]; . == $tool))' "$1" >/dev/null
 }
 
 asks_before_dev_start() {

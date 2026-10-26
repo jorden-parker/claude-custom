@@ -97,6 +97,12 @@ class Arguments:
             raise ToolError(f"{name} must be text")
         return value
 
+    def choice(self, name, options):
+        value = self.values.get(name)
+        if not isinstance(value, str) or value not in options:
+            raise ToolError(f"{name} must be one of {', '.join(sorted(options))}")
+        return value
+
     def whole_number(self, name, default, maximum):
         value = self.values.get(name, default)
         if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= maximum:
@@ -122,7 +128,9 @@ def git_root():
 
 ROOT = git_root()
 STARTED = {}
-BROWSER = {"surface": None}
+BROWSER = {"surface": None, "origin": None}
+PAGE_ACTIONS = {"click", "dblclick", "hover", "focus", "fill", "type", "press", "select", "check", "uncheck", "scroll"}
+DEFAULT_SCROLL_PIXELS = "600"
 
 
 def is_inside_root(path):
@@ -538,6 +546,30 @@ def valid_path(path):
     return path.startswith("/") and not path.startswith("//") and "://" not in path
 
 
+def read_page_state(surface, origin):
+    errors = run_cmux("browser", "--surface", surface, "errors", "list").stdout.rstrip("\n")
+    console = run_cmux("browser", "--surface", surface, "console", "list").stdout.rstrip("\n")
+    next_text = next_errors(origin) or NOT_NEXT
+    return [
+        "Browser errors:",
+        errors or "(none)",
+        "Console:",
+        console or "(none)",
+        "Next.js:",
+        next_text,
+    ]
+
+
+def current_page():
+    if BROWSER["surface"] is None:
+        raise ToolError("call page_check first")
+    return BROWSER["surface"], BROWSER["origin"]
+
+
+def page_elements(surface):
+    return run_cmux("browser", "--surface", surface, "snapshot", "--interactive", "--compact").stdout.rstrip("\n")
+
+
 def page_check(arguments):
     dir_text = project_dir(arguments)
     path = arguments.text("path") or "/"
@@ -550,22 +582,75 @@ def page_check(arguments):
         raise ToolError(NO_SERVER.format(dir_text))
     url = candidate.url + path
     surface = browser_surface_for(url)
+    BROWSER["origin"] = candidate.url
     run_cmux("browser", "--surface", surface, "wait", "--load-state", "complete", "--timeout-ms", str(BROWSER_WAIT_MS))
     time.sleep(SETTLE_SECONDS)
-    errors = run_cmux("browser", "--surface", surface, "errors", "list").stdout.rstrip("\n")
-    console = run_cmux("browser", "--surface", surface, "console", "list").stdout.rstrip("\n")
-    next_text = next_errors(candidate.url) or NOT_NEXT
-    return "\n".join(
-        [
-            f"Page: {url}",
-            "Browser errors:",
-            errors or "(none)",
-            "Console:",
-            console or "(none)",
-            "Next.js:",
-            next_text,
-        ]
-    )
+    return "\n".join([f"Page: {url}", f"Surface: {surface}", *read_page_state(surface, candidate.url)])
+
+
+def page_snapshot(arguments):
+    surface, _origin = current_page()
+    return page_elements(surface)
+
+
+def checked_target(target):
+    if not target:
+        raise ToolError("target is required for this action (a ref like e3, or a CSS selector)")
+    if target.startswith("-"):
+        raise ToolError("target must not start with -")
+    return target
+
+
+def checked_text(text):
+    if text is not None and text.startswith("--"):
+        raise ToolError("text must not start with --")
+    return text
+
+
+def required_text(text, meaning):
+    if not text:
+        raise ToolError(f"text is required: {meaning}")
+    return checked_text(text)
+
+
+def scroll_words(target, text):
+    pixels = DEFAULT_SCROLL_PIXELS if text is None else text
+    if not pixels.isdigit():
+        raise ToolError("text must be a whole number of pixels for scroll")
+    words = ["scroll", "--dy", pixels]
+    if target:
+        words += ["--selector", checked_target(target)]
+    return words
+
+
+def action_words(action, target, text):
+    if action == "press":
+        return ["press", required_text(text, "the key, e.g. Enter")]
+    if action == "scroll":
+        return scroll_words(target, text)
+    words = [action, checked_target(target)]
+    if action in ("type", "select"):
+        words.append(required_text(text, "the text or value"))
+    elif action == "fill" and text is not None:
+        words.append(checked_text(text))
+    return words
+
+
+def page_act(arguments):
+    action = arguments.choice("action", PAGE_ACTIONS)
+    words = action_words(action, arguments.text("target"), arguments.text("text"))
+    surface, origin = current_page()
+    run_cmux("browser", "--surface", surface, "console", "clear")
+    run_cmux("browser", "--surface", surface, "errors", "clear")
+    run_cmux("browser", "--surface", surface, *words)
+    try:
+        run_cmux("browser", "--surface", surface, "wait", "--load-state", "complete", "--timeout-ms", "10000")
+    except ToolError:
+        pass
+    time.sleep(SETTLE_SECONDS)
+    url_now = run_cmux("browser", "--surface", surface, "get", "url").stdout.strip()
+    state = read_page_state(surface, origin)
+    return "\n".join([f"URL now: {url_now}", *state, "Elements:", page_elements(surface)])
 
 
 def truncated(text):
@@ -609,6 +694,20 @@ TOOLS = [
         "Open or reload a page of the running dev server in the cmux browser and return its browser errors, console warnings and Next.js errors. Run after every UI change.",
         {**DIR_PROPERTY, "path": text_property("Page path starting with a single / (default /)")},
     ),
+    tool(
+        "page_snapshot",
+        "Interactive elements of the open page with refs (e1, e2…) to use in page_act. Refs change after the page changes; snapshot again.",
+    ),
+    tool(
+        "page_act",
+        "Click, fill, type, press, select, check or scroll on the open page (target by ref from page_snapshot), then return the errors and console messages it caused and the new elements.",
+        {
+            "action": {"type": "string", "enum": sorted(PAGE_ACTIONS), "description": "What to do"},
+            "target": text_property("Element ref such as e3, or a CSS selector (not for press)"),
+            "text": text_property("Text to type or fill, the value to select, the key to press, or scroll pixels"),
+        },
+        ["action"],
+    ),
 ]
 TOOL_HANDLERS = {
     "dev_status": (dev_status, ("dir",)),
@@ -617,6 +716,8 @@ TOOL_HANDLERS = {
     "dev_errors": (dev_errors, ("dir",)),
     "dev_stop": (dev_stop, ("dir",)),
     "page_check": (page_check, ("dir", "path")),
+    "page_snapshot": (page_snapshot, ()),
+    "page_act": (page_act, ("action", "target", "text")),
 }
 
 
