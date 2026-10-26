@@ -32,29 +32,54 @@ describe("/api/history/[id]/restore", () => {
   });
 
   it("answers 404 for an unknown id", async () => {
-    const response = await POST(new Request("http://127.0.0.1/"), context(UNKNOWN_ID));
+    const response = await POST(
+      new Request("http://127.0.0.1/"),
+      context(UNKNOWN_ID),
+    );
     expect(response.status).toBe(404);
   });
 
   it("answers 409 with the reason when the change had no before", async () => {
-    recordChange({ kind: "settings", path: target, before: null, after: "{}", source: "terminal" });
+    recordChange({
+      kind: "settings",
+      path: target,
+      before: null,
+      after: "{}",
+      source: "terminal",
+    });
     const [entry] = listHistory();
 
-    const response = await POST(new Request("http://127.0.0.1/"), context(entry.id));
+    const response = await POST(
+      new Request("http://127.0.0.1/"),
+      context(entry.id),
+    );
 
     expect(response.status).toBe(409);
-    expect(((await response.json()) as { message: string }).message).toContain("didn't exist");
+    expect(((await response.json()) as { message: string }).message).toContain(
+      "didn't exist",
+    );
   });
 
   it("restores the before bytes and answers the new entry", async () => {
     fs.writeFileSync(target, '{"deny":["WebFetch"]}');
-    recordChange({ kind: "settings", path: target, before: "{}", after: '{"deny":["WebFetch"]}', source: "console" });
+    recordChange({
+      kind: "settings",
+      path: target,
+      before: "{}",
+      after: '{"deny":["WebFetch"]}',
+      source: "console",
+    });
     const [entry] = listHistory();
 
-    const response = await POST(new Request("http://127.0.0.1/"), context(entry.id));
+    const response = await POST(
+      new Request("http://127.0.0.1/"),
+      context(entry.id),
+    );
 
     expect(response.status).toBe(200);
-    expect(((await response.json()) as { entry: { source: string } }).entry.source).toBe("console-restore");
+    expect(
+      ((await response.json()) as { entry: { source: string } }).entry.source,
+    ).toBe("console-restore");
     expect(fs.readFileSync(target, "utf8")).toBe("{}");
   });
 });

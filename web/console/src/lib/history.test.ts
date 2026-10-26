@@ -134,7 +134,10 @@ describe("history", () => {
 
     const result = restoreChange(change.id);
 
-    expect(result).toEqual({ ok: true, entry: expect.objectContaining({ source: "console-restore" }) });
+    expect(result).toEqual({
+      ok: true,
+      entry: expect.objectContaining({ source: "console-restore" }),
+    });
     expect(fs.readFileSync(settingsPath(), "utf8")).toBe("{}");
     expect(listHistory()).toHaveLength(2);
     expect(mode(settingsPath())).toBe(0o600);
@@ -175,7 +178,13 @@ describe("history", () => {
   });
 
   it("refuses a restore whose path is not absolute", () => {
-    const change = recordChange({ kind: "settings", path: "relative.json", before: "old", after: "new", source: "console" });
+    const change = recordChange({
+      kind: "settings",
+      path: "relative.json",
+      before: "old",
+      after: "new",
+      source: "console",
+    });
     expect(restoreChange(change!.id)).toEqual({
       ok: false,
       status: 409,

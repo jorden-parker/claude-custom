@@ -9,7 +9,10 @@ export async function POST(_request: Request, context: RouteContext) {
   try {
     const result = restoreChange(id);
     if (!result.ok) {
-      return NextResponse.json({ message: result.message }, { status: result.status });
+      return NextResponse.json(
+        { message: result.message },
+        { status: result.status },
+      );
     }
     return NextResponse.json({ entry: result.entry });
   } catch (error) {

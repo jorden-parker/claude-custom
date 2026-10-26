@@ -8,7 +8,10 @@ export async function GET(_request: Request, context: RouteContext) {
   const { id } = await context.params;
   const change = loadChange(id);
   if (change === null) {
-    return NextResponse.json({ message: "no such history entry" }, { status: 404 });
+    return NextResponse.json(
+      { message: "no such history entry" },
+      { status: 404 },
+    );
   }
   return NextResponse.json(change);
 }

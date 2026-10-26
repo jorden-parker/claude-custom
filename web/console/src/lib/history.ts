@@ -92,7 +92,9 @@ export function restoreChange(id: string): RestoreResult {
   }
   const { entry, before } = change;
   if (before === null) {
-    return refused("the file didn't exist before this change, so there is no version to restore");
+    return refused(
+      "the file didn't exist before this change, so there is no version to restore",
+    );
   }
   const problem = restoreProblem(entry.path);
   if (problem !== null) {
@@ -135,7 +137,10 @@ function readCurrent(target: string): { bytes: string | null; mode: number } {
 }
 
 function writeAtomically(target: string, data: string, mode: number): void {
-  const temp = path.join(path.dirname(target), `.restore-${crypto.randomBytes(4).toString("hex")}.tmp`);
+  const temp = path.join(
+    path.dirname(target),
+    `.restore-${crypto.randomBytes(4).toString("hex")}.tmp`,
+  );
   try {
     fs.writeFileSync(temp, data, { flag: "wx", mode });
     fs.chmodSync(temp, mode);
@@ -160,7 +165,10 @@ function readIndex(): HistoryEntry[] {
 function parseEntry(line: string): HistoryEntry[] {
   try {
     const value = JSON.parse(line) as Partial<HistoryEntry>;
-    const valid = typeof value.id === "string" && ID_PATTERN.test(value.id) && typeof value.after === "string";
+    const valid =
+      typeof value.id === "string" &&
+      ID_PATTERN.test(value.id) &&
+      typeof value.after === "string";
     return valid ? [value as HistoryEntry] : [];
   } catch {
     return [];
@@ -172,7 +180,11 @@ function readData(name: string): string {
 }
 
 function newEntry(change: NewChange, now: Date): HistoryEntry {
-  const stamp = now.toISOString().slice(0, 19).replace(/[-:]/g, "").replace("T", "-");
+  const stamp = now
+    .toISOString()
+    .slice(0, 19)
+    .replace(/[-:]/g, "")
+    .replace("T", "-");
   const id = `${stamp}-${change.kind}-${crypto.randomBytes(2).toString("hex")}`;
   return {
     id,

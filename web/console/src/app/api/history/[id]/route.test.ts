@@ -30,16 +30,28 @@ describe("/api/history/[id]", () => {
   });
 
   it("answers 404 for an unknown id", async () => {
-    const response = await GET(new Request("http://127.0.0.1/"), context(UNKNOWN_ID));
+    const response = await GET(
+      new Request("http://127.0.0.1/"),
+      context(UNKNOWN_ID),
+    );
     expect(response.status).toBe(404);
   });
 
   it("answers the entry with its before and after bytes", async () => {
     const target = path.join(stateDir, "settings.json");
-    recordChange({ kind: "settings", path: target, before: "{}", after: '{"deny":["WebFetch"]}', source: "console" });
+    recordChange({
+      kind: "settings",
+      path: target,
+      before: "{}",
+      after: '{"deny":["WebFetch"]}',
+      source: "console",
+    });
     const [entry] = listHistory();
 
-    const response = await GET(new Request("http://127.0.0.1/"), context(entry.id));
+    const response = await GET(
+      new Request("http://127.0.0.1/"),
+      context(entry.id),
+    );
 
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({

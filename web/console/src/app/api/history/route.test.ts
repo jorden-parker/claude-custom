@@ -30,12 +30,27 @@ describe("/api/history", () => {
 
   it("lists the recorded changes newest first", async () => {
     const target = path.join(stateDir, "settings.json");
-    recordChange({ kind: "settings", path: target, before: null, after: "one", source: "terminal" });
-    recordChange({ kind: "settings", path: target, before: "one", after: "two", source: "console" });
+    recordChange({
+      kind: "settings",
+      path: target,
+      before: null,
+      after: "one",
+      source: "terminal",
+    });
+    recordChange({
+      kind: "settings",
+      path: target,
+      before: "one",
+      after: "two",
+      source: "console",
+    });
 
     const response = await GET();
     const body = (await response.json()) as { entries: { source: string }[] };
 
-    expect(body.entries.map((entry) => entry.source)).toEqual(["console", "terminal"]);
+    expect(body.entries.map((entry) => entry.source)).toEqual([
+      "console",
+      "terminal",
+    ]);
   });
 });

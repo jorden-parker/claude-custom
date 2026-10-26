@@ -17,7 +17,9 @@ export function HistoryView() {
   useEffect(() => {
     const loadEntries = async () => {
       const response = await fetch("/api/history", { cache: "no-store" });
-      setEntries(((await response.json()) as { entries: HistoryEntry[] }).entries);
+      setEntries(
+        ((await response.json()) as { entries: HistoryEntry[] }).entries,
+      );
     };
     void loadEntries();
   }, [reloads]);
@@ -27,7 +29,9 @@ export function HistoryView() {
       return;
     }
     const loadDetail = async () => {
-      const response = await fetch(`/api/history/${selectedId}`, { cache: "no-store" });
+      const response = await fetch(`/api/history/${selectedId}`, {
+        cache: "no-store",
+      });
       if (response.ok) {
         setDetail((await response.json()) as HistoryChange);
       }
@@ -42,7 +46,8 @@ export function HistoryView() {
     return <EmptyHistory />;
   }
 
-  const shown = detail !== null && detail.entry.id === selectedId ? detail : null;
+  const shown =
+    detail !== null && detail.entry.id === selectedId ? detail : null;
 
   const selectEntry = (id: string) => {
     setSelectedId(id);
@@ -52,8 +57,13 @@ export function HistoryView() {
 
   const restore = async (id: string) => {
     setConfirming(false);
-    const response = await fetch(`/api/history/${id}/restore`, { method: "POST" });
-    const body = (await response.json()) as { entry?: HistoryEntry | null; message?: string };
+    const response = await fetch(`/api/history/${id}/restore`, {
+      method: "POST",
+    });
+    const body = (await response.json()) as {
+      entry?: HistoryEntry | null;
+      message?: string;
+    };
     if (!response.ok) {
       setMessage(body.message ?? "Restore failed");
       return;
@@ -65,10 +75,17 @@ export function HistoryView() {
 
   return (
     <section className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)]">
-      <HistoryList entries={entries} selectedId={selectedId} highlightId={highlightId} onSelect={selectEntry} />
+      <HistoryList
+        entries={entries}
+        selectedId={selectedId}
+        highlightId={highlightId}
+        onSelect={selectEntry}
+      />
       <div className="flex flex-col gap-3">
         {shown === null ? (
-          <p className="text-sm text-muted-foreground">Select a change to see its diff.</p>
+          <p className="text-sm text-muted-foreground">
+            Select a change to see its diff.
+          </p>
         ) : (
           <ChangeDetail
             change={shown}
@@ -97,7 +114,8 @@ function HistoryList({
 }) {
   const [kind, setKind] = useState("all");
   const kinds = [...new Set(entries.map((entry) => entry.kind))];
-  const visible = kind === "all" ? entries : entries.filter((entry) => entry.kind === kind);
+  const visible =
+    kind === "all" ? entries : entries.filter((entry) => entry.kind === kind);
   return (
     <div className="flex flex-col gap-3">
       <label className="flex items-center gap-2 text-sm">
@@ -130,7 +148,9 @@ function HistoryList({
                 <span className="rounded border px-1">{entry.kind}</span>
                 <span className="text-muted-foreground">{entry.source}</span>
                 <span>{formatTime(entry.at)}</span>
-                {entry.id === highlightId ? <span className="font-medium text-green-700">new</span> : null}
+                {entry.id === highlightId ? (
+                  <span className="font-medium text-green-700">new</span>
+                ) : null}
               </span>
               <span className="break-all font-mono text-xs">{entry.path}</span>
             </button>
@@ -167,20 +187,31 @@ function ChangeDetail({
       </div>
       <DiffView before={before} after={after} />
       {confirming ? (
-        <RestoreConfirm kind={entry.kind} path={entry.path} onConfirm={onConfirm} onCancel={onCancel} />
+        <RestoreConfirm
+          kind={entry.kind}
+          path={entry.path}
+          onConfirm={onConfirm}
+          onCancel={onCancel}
+        />
       ) : (
         <div>
           <Button
             variant="outline"
             onClick={onAsk}
             disabled={before === null}
-            title={before === null ? "This change created the file, so there is no earlier version" : undefined}
+            title={
+              before === null
+                ? "This change created the file, so there is no earlier version"
+                : undefined
+            }
           >
             Restore this version
           </Button>
         </div>
       )}
-      {message === null ? null : <p className="text-sm text-red-700 dark:text-red-400">{message}</p>}
+      {message === null ? null : (
+        <p className="text-sm text-red-700 dark:text-red-400">{message}</p>
+      )}
     </div>
   );
 }
@@ -200,7 +231,9 @@ function RestoreConfirm({
     <div className="flex flex-col gap-2 rounded-md border p-3 text-sm">
       <p>Restore {path} to the version before this change?</p>
       {kind === "launch-agent" ? (
-        <p className="text-muted-foreground">Then use Apply on the Server page to reload Ollama.</p>
+        <p className="text-muted-foreground">
+          Then use Apply on the Server page to reload Ollama.
+        </p>
       ) : null}
       <div className="flex gap-2">
         <Button onClick={onConfirm}>Confirm restore</Button>
@@ -245,8 +278,9 @@ function EmptyHistory() {
     <div className="flex flex-col gap-2 text-sm">
       <p>No changes recorded yet.</p>
       <p className="text-muted-foreground">
-        Changes made by claude-tools, ollama-agent and the console show up here. Recording is on by default; set
-        CLAUDE_CUSTOM_HISTORY=off in the environment to turn it off.
+        Changes made by claude-tools, ollama-agent and the console show up here.
+        Recording is on by default; set CLAUDE_CUSTOM_HISTORY=off in the
+        environment to turn it off.
       </p>
     </div>
   );
