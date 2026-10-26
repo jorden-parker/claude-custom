@@ -376,13 +376,16 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   `CLAUDE_OLLAMA_CMUX=0` turns it off. The launcher starts
   `ollama/cmux/broker.py` outside the sandbox on
   `<session config>/cmux-broker.sock`, an `allowUnixSockets` entry (also in
-  `denyWrite`); the session has no cmux client. The broker runs only
-  `cmux browser` commands: `open` on a loopback URL in the `claude-ollama`
-  profile, then an allowlist of verbs on surfaces the session opened, with no
-  host-file verbs or retargeting flags; `screenshot --out` lands in the broker's
-  temp dir and the client writes the file inside the sandbox. It exits when the
-  launcher's process does. The browser's own network is not limited by the
-  policy, so page JavaScript (`eval`) can still reach any host. Tests:
+  `denyWrite`); the session has no cmux command. The broker drives one cmux
+  browser REPL session (`cmux browser repl`) that it locks to `localhost`,
+  `127.0.0.1` and `[::1]` (navigations, new tabs, `fetch`, subresources and
+  websockets, through `session.allowedDomains(..., { lock: true })`). It routes
+  the REPL's browser through a closed proxy so the pages never use the user's
+  own profile. It takes only structured page requests (`open`, `snapshot`,
+  `act`), never JavaScript or raw cmux argv, and proves the lock before it
+  creates its socket. `claude-ollama browser-check` is the live proof on a real
+  machine. It exits when the launcher's process does. Not covered by WebKit
+  content rules: WebRTC (STUN/TURN) and DNS prefetch. Tests:
   `ollama/cmux/broker.test.sh` (stub `cmux`).
 - There is no side model: each Ollama profile sets
   `ANTHROPIC_DEFAULT_HAIKU_MODEL` to its own main model, has no `modelOverrides`
@@ -404,10 +407,11 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   port flag and `/_next/mcp` (Next.js 16+), and the session's own log; it never
   trusts a lock's URL. It stops only the servers its session started. The
   read-only tools are allowed by full name (`mcp__dev__dev_status`, `dev_logs`,
-  `dev_errors`, `page_check`); `dev_start` and `dev_stop` still ask, and no bare
-  `mcp__dev` may be allowed. `shared/hooks/dev-server-guard.py` (Ollama-only,
-  PreToolUse on Bash) denies `pnpm dev`-style starts and points the model at
-  `dev_start`.
+  `dev_errors`, `page_check`, `page_snapshot`, `page_act`; the page tools call
+  the cmux broker through `CLAUDE_OLLAMA_CMUX_BROKER`, never a `cmux` command);
+  `dev_start` and `dev_stop` still ask, and no bare `mcp__dev` may be allowed.
+  `shared/hooks/dev-server-guard.py` (Ollama-only, PreToolUse on Bash) denies
+  `pnpm dev`-style starts and points the model at `dev_start`.
 - `shared/mcp/repo-tools.py` is the `repo` MCP server the Ollama profiles start
   beside code-search and allow without a prompt (`mcp__repo` in
   `permissions.allow`; `bin/check-config` checks it and that
