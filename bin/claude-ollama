@@ -16,6 +16,8 @@ gguf_inspect="${CLAUDE_OLLAMA_GGUF_INSPECT:-$repo_dir/bin/gguf-inspect}"
 sandbox_runtime="$HOME/.local/share/claude-custom/sandbox-runtime/node_modules/.bin/srt"
 session_config_dir="$HOME/.claude-ollama"
 sandbox_policy="$session_config_dir/sandbox-policy.json"
+review_log_dir="${PR_REVIEW_LOG_DIR:-$HOME/.local/share/claude-custom/reviews}"
+console_state_dir="${CLAUDE_CONSOLE_STATE_DIR:-$HOME/.local/share/claude-custom/console}"
 github_keychain_item=claude-ollama-github
 github_read_keychain_item=claude-ollama-github-read
 raw_terminal_mode=(-brkint -icrnl -inpck -istrip -ixon cs8 -echo -icanon -iexten -isig min 1 time 0)
@@ -317,6 +319,7 @@ write_sandbox_policy() {
   local protected_policy_path="$sandbox_policy"
   jq --arg repo "$repo_dir" --arg config "$session_config_dir" --arg policy "$protected_policy_path" --arg git "$(git_common_dir)" \
     --arg items "$(item_replacement_dir)" --arg root "$(project_root)" --arg cmux_broker "${cmux_broker_socket:-}" --arg gh_broker "${gh_broker_socket:-}" \
+    --arg reviews "$review_log_dir" --arg console_state "$console_state_dir" \
     --argjson config_sources '["CLAUDE.md", "skills", "settings.json", "settings.local.json", "commands", "agents", "plugins", "rules", "output-styles", "keybindings.json", ".config.json"]' '
     ($git | if . == "" then [] else [.] end) as $git_dirs
     | ($items | if . == "" then [] else [.] end) as $item_dirs
@@ -324,6 +327,7 @@ write_sandbox_policy() {
     | .filesystem.denyWrite += [$repo, $policy, {path: "\($root)/.claude", literal: true}, "\($root)/**/.claude", "\($root)/**/.claude/**"]
         + [$config_sources[] as $source | "\($config)/\($source)"]
         + [$git_dirs[] | "\(.)/hooks", "\(.)/config"]
+    | .filesystem.denyRead += [$reviews, $console_state]
     | ([$cmux_broker, $gh_broker] | map(select(. != ""))) as $broker_sockets
     | if $broker_sockets == [] then . else .network.allowUnixSockets = $broker_sockets | .filesystem.denyWrite += $broker_sockets end
   ' "$profile_dir/sandbox.json" > "$sandbox_policy"
@@ -634,8 +638,8 @@ follow_logs() {
   exec tail -n "$lines" -F "$path"
 }
 
-remove_web_url() {
-  rm -f "${web_url_file:-}"
+remove_console_files() {
+  rm -f "${web_url_file:-}" "$console_state_dir/token"
 }
 
 reviews_build_needed() {
@@ -645,7 +649,7 @@ reviews_build_needed() {
 }
 
 serve_console() {
-  local command_name="$1" label="$2" page="$3" port=8765 web_dir log_dir url page_url token
+  local command_name="$1" label="$2" page="$3" port=8765 web_dir url page_url token
   shift 3
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -676,16 +680,16 @@ serve_console() {
   if reviews_build_needed "$web_dir"; then
     pnpm --dir "$web_dir" build || exit 1
   fi
-  log_dir="${PR_REVIEW_LOG_DIR:-$HOME/.local/share/claude-custom/reviews}"
   token="$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')"
   url="http://127.0.0.1:$port/?token=$token"
   page_url="http://127.0.0.1:$port$page?token=$token"
-  mkdir -p "$log_dir"
-  web_url_file="$log_dir/.web-url"
+  mkdir -p "$review_log_dir"
+  web_url_file="$review_log_dir/.web-url"
   (umask 077; rm -f "$web_url_file"; printf '%s\n' "$url" > "$web_url_file")
-  trap remove_web_url EXIT INT TERM
+  (umask 077; mkdir -p "$console_state_dir"; chmod 700 "$console_state_dir"; rm -f "$console_state_dir/token"; printf '%s\n' "$token" > "$console_state_dir/token")
+  trap remove_console_files EXIT INT TERM
   echo "claude-ollama: $label at $page_url"
-  PR_REVIEW_TOKEN="$token" pnpm --dir "$web_dir" exec next start -H 127.0.0.1 -p "$port"
+  CONSOLE_TOKEN_FILE="$console_state_dir/token" pnpm --dir "$web_dir" exec next start -H 127.0.0.1 -p "$port"
   exit 0
 }
 

@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { proxy } from "./proxy";
@@ -5,20 +8,26 @@ import { proxy } from "./proxy";
 const TOKEN = "3f9a0c1d2e4b5a6978869504a3b2c1d0e9f8a7b6c5d4e3f2";
 const PAGE = "http://127.0.0.1:8765/reviews/20261021-174512-pr-7";
 
+let tokenDir: string;
+
 function requestFor(url: string, cookie?: string, host = "127.0.0.1:8765"): NextRequest {
   const headers: Record<string, string> = { host };
   if (cookie !== undefined) {
-    headers.cookie = `pr_review_token=${cookie}`;
+    headers.cookie = `console_token=${cookie}`;
   }
   return new NextRequest(url, { headers });
 }
 
 beforeEach(() => {
-  vi.stubEnv("PR_REVIEW_TOKEN", TOKEN);
+  tokenDir = fs.mkdtempSync(path.join(os.tmpdir(), "console-"));
+  const tokenFile = path.join(tokenDir, "token");
+  fs.writeFileSync(tokenFile, `${TOKEN}\n`);
+  vi.stubEnv("CONSOLE_TOKEN_FILE", tokenFile);
 });
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  fs.rmSync(tokenDir, { recursive: true, force: true });
 });
 
 describe("proxy token gate", () => {
@@ -40,7 +49,7 @@ describe("proxy token gate", () => {
 
   it("sets an HttpOnly SameSite=Strict cookie when the tokened link is accepted", () => {
     const cookie = proxy(requestFor(`${PAGE}?token=${TOKEN}`)).headers.get("set-cookie") ?? "";
-    expect(cookie).toContain(`pr_review_token=${TOKEN}`);
+    expect(cookie).toContain(`console_token=${TOKEN}`);
     expect(cookie).toMatch(/HttpOnly/i);
     expect(cookie).toMatch(/SameSite=strict/i);
   });
@@ -54,8 +63,14 @@ describe("proxy token gate", () => {
     expect(proxy(requestFor(PAGE, "not-the-token")).status).toBe(401);
   });
 
-  it("refuses every request when PR_REVIEW_TOKEN is unset", () => {
-    delete process.env.PR_REVIEW_TOKEN;
+  it("refuses every request when CONSOLE_TOKEN_FILE is unset", () => {
+    delete process.env.CONSOLE_TOKEN_FILE;
+    expect(proxy(requestFor(`${PAGE}?token=${TOKEN}`)).status).toBe(401);
+    expect(proxy(requestFor(PAGE, TOKEN)).status).toBe(401);
+  });
+
+  it("refuses every request when the token file is missing", () => {
+    vi.stubEnv("CONSOLE_TOKEN_FILE", path.join(tokenDir, "missing"));
     expect(proxy(requestFor(`${PAGE}?token=${TOKEN}`)).status).toBe(401);
     expect(proxy(requestFor(PAGE, TOKEN)).status).toBe(401);
   });

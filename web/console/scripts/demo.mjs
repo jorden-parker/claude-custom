@@ -12,6 +12,7 @@ const STOPPED_LOG = "20261020-120000-pr-43.jsonl";
 const STOPPED_AGE_MS = 20 * 60 * 1000;
 const LIVE_LOG_SUFFIX = "-pr-44.jsonl";
 const SECONDS_TO_MS = 1000;
+const TOKEN_FILE_NAME = "console-token";
 
 const args = process.argv.slice(2);
 const serve = args.includes("--serve");
@@ -40,6 +41,12 @@ function makeDemoDir() {
   return dir;
 }
 
+function writeTokenFile(dir) {
+  const file = path.join(dir, TOKEN_FILE_NAME);
+  fs.writeFileSync(file, `${token}\n`, { mode: 0o600 });
+  return file;
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -60,10 +67,10 @@ async function replayLive(dir) {
   }
 }
 
-function startServer(dir) {
+function startServer(dir, tokenFile) {
   const server = spawn(path.join(appDir, "node_modules/.bin/next"), ["start", "-H", "127.0.0.1", "-p", port], {
     cwd: appDir,
-    env: { ...process.env, PR_REVIEW_LOG_DIR: dir, PR_REVIEW_TOKEN: token },
+    env: { ...process.env, PR_REVIEW_LOG_DIR: dir, CONSOLE_TOKEN_FILE: tokenFile },
     stdio: "inherit",
   });
   process.on("exit", () => server.kill());
@@ -74,11 +81,12 @@ function startServer(dir) {
 
 const dir = makeDemoDir();
 console.log(dir);
+const tokenFile = writeTokenFile(dir);
 const replay = replayLive(dir).catch((error) => console.error(error));
 
 if (serve) {
   console.log(`serving on http://127.0.0.1:${port}/?token=${token}`);
-  const server = startServer(dir);
+  const server = startServer(dir, tokenFile);
   await new Promise((resolve) => server.once("exit", resolve));
 } else {
   await replay;

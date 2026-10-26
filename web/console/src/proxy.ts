@@ -1,15 +1,16 @@
 import { timingSafeEqual } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { NextResponse, type NextRequest } from "next/server";
 import { isLoopbackHost } from "@/lib/host-guard";
 
 const TOKEN_PARAM = "token";
-const TOKEN_COOKIE = "pr_review_token";
+const TOKEN_COOKIE = "console_token";
 
 export function proxy(request: NextRequest) {
   if (!isLoopbackHost(request.headers.get("host"))) {
     return new NextResponse("Forbidden", { status: 403 });
   }
-  const expected = process.env.PR_REVIEW_TOKEN ?? "";
+  const expected = expectedToken();
   if (expected === "") {
     return unauthorized();
   }
@@ -20,6 +21,18 @@ export function proxy(request: NextRequest) {
     return NextResponse.next();
   }
   return unauthorized();
+}
+
+function expectedToken(): string {
+  const file = process.env.CONSOLE_TOKEN_FILE;
+  if (!file) {
+    return "";
+  }
+  try {
+    return readFileSync(file, "utf8").trim();
+  } catch {
+    return "";
+  }
 }
 
 function linkCarriesToken(request: NextRequest, expected: string): boolean {

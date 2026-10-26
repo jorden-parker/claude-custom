@@ -3,19 +3,25 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with
 
 ## Access token
 
-Every route is behind the token gate in `src/proxy.ts`. A request is served only
-when it carries the value of `PR_REVIEW_TOKEN`, either as the `token` query
-parameter (the gate then sets an `HttpOnly`, `SameSite=Strict` cookie and
-redirects to the same page without the parameter) or as that cookie. With
-`PR_REVIEW_TOKEN` unset, every request gets `401`.
+Every route is behind the token gate in `src/proxy.ts`. The gate reads the token
+from the file named by `CONSOLE_TOKEN_FILE`. A request is served only when it
+carries that token, either as the `token` query parameter (the gate then sets an
+`HttpOnly`, `SameSite=Strict` cookie named `console_token` and redirects to the
+same page without the parameter) or as that cookie. With `CONSOLE_TOKEN_FILE`
+unset, or the file missing, every request gets `401`.
 
-- `claude-ollama reviews` makes a new token on every launch and prints the
-  tokened link.
-- `pnpm demo --serve` makes its own token and prints its tokened link.
-- `pnpm dev` and `pnpm start` need the variable exported first:
+- `claude-ollama ui` and `claude-ollama reviews` make a new token on every
+  launch, keep it in `$CLAUDE_CONSOLE_STATE_DIR/token` (default
+  `~/.local/share/claude-custom/console/token`, mode `0600`, in a folder the
+  `claude-ollama` sandbox cannot read), and print the tokened link.
+- `pnpm demo --serve` makes its own token in a `0600` file in its demo folder
+  and prints its tokened link.
+- `pnpm dev` and `pnpm start` need the file written and the variable exported
+  first:
 
 ```bash
-export PR_REVIEW_TOKEN="$(openssl rand -hex 24)"
+umask 077; openssl rand -hex 24 > /tmp/console-token
+export CONSOLE_TOKEN_FILE=/tmp/console-token
 pnpm dev
 ```
 

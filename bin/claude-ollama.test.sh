@@ -613,6 +613,7 @@ check_not "doctor does not apply server.env" grep -sqxF -- "-apply" "$sandbox/ag
 
 export PNPM_LOG="$sandbox/pnpm.log"
 export PR_REVIEW_LOG_DIR="$sandbox/reviews"
+export CLAUDE_CONSOLE_STATE_DIR="$sandbox/console"
 web="$sandbox/web"
 mkdir -p "$web/src"
 printf '{}\n' > "$web/package.json"
@@ -629,6 +630,10 @@ case "$3" in
     cat "$PR_REVIEW_LOG_DIR/.web-url" >> "$PNPM_LOG" 2>/dev/null || true
     ls -l "$PR_REVIEW_LOG_DIR/.web-url" 2>/dev/null | cut -c1-10 >> "$PNPM_LOG"
     echo "TOKEN: ${PR_REVIEW_TOKEN:-unset}" >> "$PNPM_LOG"
+    echo "TOKEN_FILE: ${CONSOLE_TOKEN_FILE:-unset}" >> "$PNPM_LOG"
+    echo "TOKEN_FILE_MODE: $(ls -l "$CONSOLE_TOKEN_FILE" 2>/dev/null | cut -c1-10)" >> "$PNPM_LOG"
+    echo "TOKEN_FILE_CONTENTS: $(cat "$CONSOLE_TOKEN_FILE" 2>/dev/null)" >> "$PNPM_LOG"
+    echo "STATE_MODE: $(ls -ld "$(dirname "$CONSOLE_TOKEN_FILE")" 2>/dev/null | cut -c1-10)" >> "$PNPM_LOG"
     ;;
 esac
 EOF
@@ -642,10 +647,15 @@ check_that "reviews builds when BUILD_ID is missing" grep -qxF -- "PNPM: --dir $
 check_that "reviews serves on loopback at the port" grep -qxF -- "PNPM: --dir $web exec next start -H 127.0.0.1 -p 9000" "$PNPM_LOG"
 token="$(sed -n 's#^http://127\.0\.0\.1:9000/?token=##p' "$PNPM_LOG")"
 check_that "reviews writes a tokened .web-url while serving" grep -qxE 'http://127\.0\.0\.1:9000/\?token=[0-9a-f]{48}' "$PNPM_LOG"
-check_that "reviews gives the server the token in .web-url" grep -qxF "TOKEN: $token" "$PNPM_LOG"
 check_that ".web-url is owner-only while serving" grep -qxF -- "-rw-------" "$PNPM_LOG"
 check_that "reviews prints its tokened URL" grep -qxF "claude-ollama: reviews at http://127.0.0.1:9000/reviews?token=$token" "$sandbox/out"
 check_not "reviews removes .web-url after it exits" test -e "$PR_REVIEW_LOG_DIR/.web-url"
+check_that "reviews hands the server the console token file" grep -qxF -- "TOKEN_FILE: $CLAUDE_CONSOLE_STATE_DIR/token" "$PNPM_LOG"
+check_that "the console token file is owner-only" grep -qxF -- "TOKEN_FILE_MODE: -rw-------" "$PNPM_LOG"
+check_that "the console token folder is owner-only" grep -qxF -- "STATE_MODE: drwx------" "$PNPM_LOG"
+check_that "the console token file holds the token from .web-url" grep -qxF -- "TOKEN_FILE_CONTENTS: $token" "$PNPM_LOG"
+check_that "the server gets no token in its environment" grep -qxF -- "TOKEN: unset" "$PNPM_LOG"
+check_not "reviews removes the console token file after it exits" test -e "$CLAUDE_CONSOLE_STATE_DIR/token"
 rm -f "$PNPM_LOG"
 run_capture "$repo/bin/claude-ollama" ui --port 9000
 check_that "ui serves the console on loopback at the port" grep -qxF -- "PNPM: --dir $web exec next start -H 127.0.0.1 -p 9000" "$PNPM_LOG"
@@ -672,7 +682,7 @@ rm -f "$sandbox/stubbin/pnpm"
 run_capture "$repo/bin/claude-ollama" reviews
 check_eq "reviews without pnpm exits 1" 1 "$?"
 check_that "reviews without pnpm says how to install it" grep -qxF "claude-ollama: pnpm is required for the reviews page (brew install pnpm)" "$sandbox/err"
-unset CLAUDE_OLLAMA_WEB_DIR PR_REVIEW_LOG_DIR PNPM_LOG
+unset CLAUDE_OLLAMA_WEB_DIR PR_REVIEW_LOG_DIR CLAUDE_CONSOLE_STATE_DIR PNPM_LOG
 run_capture "$repo/bin/claude-ollama" --help
 check_that "claude-ollama help lists reviews" grep -qF -- "reviews [--port N]: serve live and past reviews at http://127.0.0.1:8765/" "$sandbox/out"
 check_that "claude-ollama help lists ui" grep -qF -- "ui [--port N]: serve the console (runs, health, logs, models, reviews) at http://127.0.0.1:8765/" "$sandbox/out"
@@ -682,6 +692,8 @@ policy_lists() {
 }
 
 new_sandbox
+export PR_REVIEW_LOG_DIR="$sandbox/reviews"
+export CLAUDE_CONSOLE_STATE_DIR="$sandbox/console"
 session_config="$HOME/.claude-ollama"
 run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "claude-ollama runs claude inside sandbox-runtime" \
@@ -693,6 +705,14 @@ check_that "the sandbox never rewrites its own policy" policy_lists denyWrite "$
 home_in_policy='~'
 check_that "the sandbox hides SSH keys" policy_lists denyRead "$home_in_policy/.ssh"
 check_that "the sandbox hides the normal Claude config" policy_lists denyRead "$home_in_policy/.claude"
+check_that "the sandbox hides the reviews and their console link" policy_lists denyRead "$PR_REVIEW_LOG_DIR"
+check_that "the sandbox hides the console token" policy_lists denyRead "$CLAUDE_CONSOLE_STATE_DIR"
+unset PR_REVIEW_LOG_DIR CLAUDE_CONSOLE_STATE_DIR
+run_capture "$repo/bin/claude-ollama" 27b -p hi
+default_console_folders_denied() {
+  policy_lists denyRead "$HOME/.local/share/claude-custom/reviews" && policy_lists denyRead "$HOME/.local/share/claude-custom/console"
+}
+check_that "the sandbox hides the default reviews and console folders" default_console_folders_denied
 check_eq "claude-ollama gives the session its own Claude config" "$session_config" "$(cat "$sandbox/config-dir-env")"
 check_eq "a new session config skips first-run setup" true "$(jq -r .hasCompletedOnboarding "$session_config/.claude.json")"
 check_eq "the session keeps its temp files in its own config" "$session_config/tmp" "$(cat "$sandbox/tmpdir-env")"
