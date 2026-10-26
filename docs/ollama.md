@@ -250,6 +250,20 @@ Running it again replaces the stored token.
 
 To compare Ollama with other servers, see [backend-bench](backend-bench.md).
 
+### Dev servers and the browser
+
+The `dev` MCP server gives the session six tools: `dev_status` (which dev
+servers answer, at which URL and pid), `dev_start` (runs a `dev` or `start`
+script in the background and returns its real URL), `dev_logs` (the server's
+output, optionally only errors with their stacks), `dev_errors` (Next.js 16+
+`get_errors`, or the log's errors otherwise), `dev_stop` and `page_check` (opens
+or reloads a page in the cmux browser and returns its browser errors, console
+warnings and Next.js errors). `dev_start` and `dev_stop` ask before they run;
+the others do not. Servers a session starts stop when it ends. The server reads
+`.next/dev/lock` for its port and `/_next/mcp` on Next.js 16+; other frameworks
+get log errors only. `page_check` needs `CLAUDE_OLLAMA_CMUX=1`. In claude-ollama
+sessions the Bash guard denies `pnpm dev` and similar starts, and only there.
+
 ### Reviewing a pull request locally
 
 `claude-ollama review [size] PR [--post] [--json]` reviews a GitHub pull request

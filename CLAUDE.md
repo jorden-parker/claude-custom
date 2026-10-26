@@ -89,6 +89,8 @@ before changing how any file gets applied.
 - Repo tools MCP server: `shared/mcp/repo-tools.py`; its tests are
   `shared/mcp/repo-tools.test.sh` (fake broker, temp git repo). Both servers
   share the JSON-RPC loop in `shared/mcp/mcp_stdio.py`.
+- Dev server MCP server: `shared/mcp/dev-server.py`; its tests are
+  `shared/mcp/dev-server.test.sh` (stub npm, fake Next server, stub cmux).
 - Feed the hook one command by hand:
   `printf '{"tool_input":{"command":"git log"}}' | shared/hooks/bash-output-guard.py`
 - Validate JSON after editing: `make check-json`
@@ -394,6 +396,15 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   `go/cmd/model-picker` (which renders on stderr and prints the chosen size on
   stdout); without one it uses 27b. A first arg that is neither a size nor a
   flag is dropped so it doesn't reach `claude` as a prompt.
+- `shared/mcp/dev-server.py` is the `dev` MCP server the Ollama profiles start
+  beside `repo`. It reads `.next/dev/lock` (only its port), the dev script's
+  port flag and `/_next/mcp` (Next.js 16+), and the session's own log; it never
+  trusts a lock's URL. It stops only the servers its session started. The
+  read-only tools are allowed by full name (`mcp__dev__dev_status`, `dev_logs`,
+  `dev_errors`, `page_check`); `dev_start` and `dev_stop` still ask, and no bare
+  `mcp__dev` may be allowed. `shared/hooks/dev-server-guard.py` (Ollama-only,
+  PreToolUse on Bash) denies `pnpm dev`-style starts and points the model at
+  `dev_start`.
 - `shared/mcp/repo-tools.py` is the `repo` MCP server the Ollama profiles start
   beside code-search and allow without a prompt (`mcp__repo` in
   `permissions.allow`; `bin/check-config` checks it and that
