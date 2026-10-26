@@ -162,6 +162,7 @@ asks_before_dev_start() {
 }
 
 check_that "CLAUDE.local.md tells the model to use the repo tools" grep -qF 'mcp__repo__' "$repo/ollama/CLAUDE.local.md"
+check_that "CLAUDE.local.md tells the model to use the dev tools" grep -qF 'mcp__dev__dev_status' "$repo/ollama/CLAUDE.local.md"
 
 for settings in "$repo"/ollama/settings.*.json; do
   check_that "${settings##*/} allows semantic_search" allows_semantic_search "$settings"

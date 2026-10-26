@@ -12,3 +12,7 @@
 - Bound shell output: `| head -50`, tests quiet or failures only.
 - Smallest edit that works; never rewrite a whole file.
 - Reply in 10 lines or fewer unless asked for code.
+- Dev servers: mcp__dev__dev_status first and use the URL it returns; never
+  guess a port. Start one with mcp__dev__dev_start, not Bash `pnpm dev`.
+- After a UI change, run mcp__dev__page_check on the page and fix every error
+  and warning it lists; mcp__dev__dev_errors shows build and server errors.
