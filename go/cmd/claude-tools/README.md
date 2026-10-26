@@ -25,6 +25,30 @@ later. Tests: `cd go && go test ./...`.
 
 Changes take effect in Claude Code from the next request; no restart needed.
 
+## Scripted use: `-json` and `-set`
+
+`-json` prints the file's state for every tool in the cached list as JSON, then
+exits. Each row has `name`, `description`, `promptsByDefault`, `permission`
+(`default|allow|ask|deny`) and `disabled`. It needs the cached list, so open the
+TUI and sync once first. Without it, the command exits 1 with
+`no tool catalog yet; open claude-tools once and sync`.
+
+`-set NAME=PERM[,off]` sets one bare tool rule and saves the file, using the same
+rules as the TUI. `PERM` is `default`, `allow`, `ask` or `deny`. `,off` is valid
+only with allow or ask, and keeps a deny rule beside it, like the TUI's disable.
+The flag repeats. Every assignment is checked before anything is written. An
+unknown tool or permission exits 1 and leaves the file unchanged. A save prints
+`saved <path>`.
+
+```sh
+claude-tools -settings path/to.json -set WebFetch=deny -set Read=ask,off
+claude-tools -json user
+```
+
+Put the flags before the scope argument: `claude-tools -set WebFetch=deny user`.
+The flag parser stops at the first positional argument, so `claude-tools user
+-set ...` is a usage error (exit 2). `-json` with `-set` is also a usage error.
+
 ## Keybinds
 
 | Key             | Action                                          |
