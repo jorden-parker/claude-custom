@@ -60,10 +60,11 @@ before changing how any file gets applied.
 - Cache probe: `bin/ollama-cache-probe [27b|35b|MODEL] [--prefix-tokens N]`
   measures prompt-cache reuse on a live Ollama; its tests are
   `bin/ollama-cache-probe.test.sh` (stub server, no real Ollama)
-- Messages bench: `bin/messages-bench --model M [--base-url URL]` times any
-  `/v1/messages` server (cold/warm TTFT, prefill, decode, tool calls); runbook
-  and results in `docs/backend-bench.md`; tests: `bin/messages-bench.test.sh`
-  (stub server)
+- Messages bench:
+  `bin/messages-bench --model M [--base-url URL] [--thinking omit|claude-code|disabled]`
+  times any `/v1/messages` server (cold/warm TTFT, prefill, decode, tool calls);
+  runbook and results in `docs/backend-bench.md`; tests:
+  `bin/messages-bench.test.sh` (stub server)
 - Bench-off: `bin/backend-bench-off install|download|all` benches Ollama, oMLX
   and vllm-mlx, each with MTP off (stock MLX weights) and on (`oQ4e` MTP
   weights), model by model, and streams each run's JSONL into one side-by-side
@@ -250,14 +251,15 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   Claude Code's own Bash sandbox off (`sandbox.enabled: false`: macOS refuses a
   second sandbox inside the first). They ask before every Bash command, commit
   and push (`permissions.ask`); `bin/check-config` checks both and the policy's
-  network, masked token and read and write lists.
-  `shared/hooks/git-push-guard.py` (Ollama-only, PreToolUse on Bash) denies
-  force pushes, remote deletes, `--mirror`, `--prune`, `-c alias.*` and pushes
-  to `main` or `master`. The personal overlay also denies unused tools by bare
-  name (`Artifact`, `Workflow`, `ScheduleWakeup`, `SendFeedback` and the
-  deferred ones), since a bare deny removes the tool's schema from the request;
-  `bin/check-config` fails when an Ollama profile lacks one of those bare
-  denies.
+  network, masked token and read and write lists. The profiles also set
+  `CLAUDE_CODE_EXTRA_BODY` to `{"thinking":{"type":"disabled"}}` so Ollama skips
+  reasoning; `bin/check-config` checks it. `shared/hooks/git-push-guard.py`
+  (Ollama-only, PreToolUse on Bash) denies force pushes, remote deletes,
+  `--mirror`, `--prune`, `-c alias.*` and pushes to `main` or `master`. The
+  personal overlay also denies unused tools by bare name (`Artifact`,
+  `Workflow`, `ScheduleWakeup`, `SendFeedback` and the deferred ones), since a
+  bare deny removes the tool's schema from the request; `bin/check-config` fails
+  when an Ollama profile lacks one of those bare denies.
 - `bin/claude-ollama` resolves its own symlink to find `ollama/`. It unsets
   `ANTHROPIC_API_KEY`, passes `--settings ollama/settings.<size>.json`,
   `--system-prompt-file ollama/system-prompt.md` (replacing Claude Code's

@@ -11,6 +11,9 @@ streaming endpoint, the same one Claude Code uses, and reports:
 - prefill rate (input tokens per second of TTFT) and decode rate (output tokens
   per second after the first token).
 - whether tool calls come back as parseable `tool_use` blocks.
+- `--thinking omit|claude-code|disabled` picks the thinking fields sent: the
+  `think` column counts thinking characters, and `text s` is the TTFT of the
+  first text token. The bench-off keeps the default `omit`.
 
 The numbers include HTTP and SSE overhead on purpose. Run it against the server
 Claude Code will really use:

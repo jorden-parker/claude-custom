@@ -59,6 +59,12 @@ until it has been called in the turn, and allows them once it has, even if it
 errored. The profiles map no Claude ID to the main model: Claude Code names the
 model after the ID that maps to it, so the banner would say Haiku or Sonnet.
 
+Claude Code asks for adaptive thinking at high effort. Ollama only understands
+enabled or disabled, so it would reason at high effort on every turn. The
+profiles set `CLAUDE_CODE_EXTRA_BODY` to `{"thinking":{"type":"disabled"}}`,
+which Ollama reads first. To measure it, run
+`bin/messages-bench --thinking claude-code|disabled`.
+
 Plain `claude` stays on the personal setup. The profile only exists for that
 launch.
 
