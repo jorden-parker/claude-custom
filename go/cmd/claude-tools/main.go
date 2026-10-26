@@ -53,7 +53,13 @@ func run() error {
 	flag.Var(&sets, "set", "set NAME=default|allow|ask|deny[,off] and save the file (repeatable)")
 	flag.Usage = printUsage
 	flag.Parse()
-	if flag.NArg() > 1 || (*jsonFlag && len(sets) > 0) {
+	settingsSet := false
+	flag.Visit(func(setFlag *flag.Flag) {
+		if setFlag.Name == "settings" {
+			settingsSet = true
+		}
+	})
+	if flag.NArg() > 1 || (*jsonFlag && len(sets) > 0) || conflictingTarget(settingsSet, flag.Arg(0)) {
 		printUsage()
 		os.Exit(2)
 	}
@@ -141,6 +147,10 @@ func toolNames(tools []catalog.Tool) []string {
 		names = append(names, tool.Name)
 	}
 	return names
+}
+
+func conflictingTarget(settingsSet bool, scopeArg string) bool {
+	return settingsSet && scopeArg != ""
 }
 
 func settingsFiles(settingsFlag, scopeArg string) ([]settings.File, string, error) {
