@@ -13,6 +13,7 @@ tests_for() {
     *.test.sh) printf '%s\n' "$1" ;;
     bin/claude-custom) printf '%s\n' personal/install.test.sh bin/claude-ollama.test.sh ;;
     ollama/cmux/*) printf '%s\n' ollama/cmux/broker.test.sh bin/claude-ollama.test.sh ;;
+    ollama/gh/*) printf '%s\n' ollama/gh/broker.test.sh bin/claude-ollama.test.sh ;;
     bin/claude-tools | bin/ollama-agent | ollama/*) printf '%s\n' bin/claude-ollama.test.sh ;;
     personal/* | shared/settings/* | shared/agents/*) printf '%s\n' personal/install.test.sh ;;
     shared/hooks/fallow-lib.sh | shared/hooks/fallow-test-lib.sh) printf '%s\n' shared/hooks/fallow-*.test.sh ;;

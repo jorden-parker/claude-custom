@@ -178,9 +178,9 @@ without it (`claude-custom install` installs it). The policy is
   files, `/private/tmp` or this repo. Auto-update is off inside the session.
 - Reads: everything except credentials (`~/.ssh`, `~/.aws`, `~/.config/gh`,
   `~/.npmrc`, keychains) and your normal `~/.claude`.
-- Network: `github.com`, `api.github.com` (for `gh`), `registry.npmjs.org` (for
-  `npx fallow` and installs) and localhost. Localhost is open on every port,
-  because Ollama is reached directly rather than through the proxy.
+- Network: `github.com`, `registry.npmjs.org` (for `npx fallow` and installs)
+  and localhost. Localhost is open on every port, because Ollama is reached
+  directly rather than through the proxy.
 
 Every Bash command still asks first, and so do `git commit` and `git push`.
 `git-push-guard.py` refuses force pushes, remote deletes, `--mirror`, `--prune`
@@ -203,9 +203,15 @@ Running it again replaces the stored token.
   requests to `github.com`. Without it, `doctor` warns and pushes fail; commits
   still work. Remotes must use HTTPS.
 - `read` (keychain item `claude-ollama-github-read`; Contents, Pull requests,
-  Issues and Actions: read) lets `gh` view PRs, issues and runs. The session
-  gets it as a masked `GH_TOKEN`, swapped back only on requests to
-  `api.github.com`; the token's own permissions are what keep `gh` read-only. A
+  Issues and Actions: read) lets `gh` view PRs, issues and runs. The token never
+  enters the sandbox: `gh` in the session is a client for a broker that runs
+  your real `gh` outside it, from an empty folder with `GH_REPO` set to the
+  project's `origin`. The broker runs only read commands (`pr`
+  `list/view/diff/checks/status`, `issue list/view/status`,
+  `run`/`workflow`/`release` `list/view`, `repo view`, `search`, and `gh api` as
+  GET on REST paths), never `--web`, and only on github.com (no URLs or
+  `HOST/OWNER/REPO`). Pass a PR number to `pr view`: the broker can't see your
+  current branch. Without the token or `gh`, the session has no `gh`. A
   `GH_TOKEN` or `GITHUB_TOKEN` from your shell never reaches the session.
 
 `bin/ollama-models` manages the installed models:

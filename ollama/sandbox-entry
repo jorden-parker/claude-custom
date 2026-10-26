@@ -7,12 +7,15 @@ export XDG_DATA_HOME="$session_dir/data"
 export npm_config_cache="$session_dir/npm"
 export GOCACHE="$session_dir/go-build"
 export GOMODCACHE="$session_dir/go-mod"
-export GH_CONFIG_DIR="$session_dir/gh"
 export EDIT_CHECK_CACHE_DIR="$session_dir/cache/claude-custom/edit-check"
 export STOP_VERIFY_STATE_DIR="$session_dir/cache/claude-custom/edited-files"
 export DISABLE_AUTOUPDATER=1
 if [ -n "${CLAUDE_OLLAMA_CMUX_BROKER:-}" ]; then
   PATH="$(cd "$(dirname "$0")" && pwd)/cmux/bin:$PATH"
+  export PATH
+fi
+if [ -n "${CLAUDE_OLLAMA_GH_BROKER:-}" ]; then
+  PATH="$(cd "$(dirname "$0")" && pwd)/gh/bin:$PATH"
   export PATH
 fi
 if [ -n "${GH_BASIC:-}" ]; then

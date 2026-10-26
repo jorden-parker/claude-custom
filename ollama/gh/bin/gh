@@ -1,0 +1,27 @@
+#!/usr/bin/env python3
+import json
+import os
+import socket
+import sys
+
+
+def ask_broker(socket_path, request):
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+        try:
+            connection.connect(socket_path)
+        except OSError:
+            sys.exit("gh broker: not running; run claude-ollama github-token read, then relaunch")
+        connection.sendall(json.dumps(request).encode() + b"\n")
+        with connection.makefile("rb") as replies:
+            return json.loads(replies.readline())
+
+
+def main():
+    reply = ask_broker(os.environ.get("CLAUDE_OLLAMA_GH_BROKER", ""), {"args": sys.argv[1:]})
+    sys.stdout.write(reply.get("stdout", ""))
+    sys.stderr.write(reply.get("stderr", ""))
+    sys.exit(reply.get("exit", 1))
+
+
+if __name__ == "__main__":
+    main()

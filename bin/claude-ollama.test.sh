@@ -53,7 +53,7 @@ pinned_tags() {
 }
 
 new_sandbox() {
-  sandbox="$(cd "$(mktemp -d)" && pwd -P)"
+  sandbox="$(cd "$(mktemp -d "${1:-${TMPDIR:-/tmp}}/claude-ollama-test.XXXXXX")" && pwd -P)"
   sandboxes="$sandboxes $sandbox"
   export HOME="$sandbox/home"
   mkdir -p "$HOME" "$sandbox/stubbin"
@@ -72,6 +72,13 @@ echo "\${CLAUDE_CONFIG_DIR-unset}" > "$sandbox/config-dir-env"
 echo "\${CLAUDE_CODE_TMPDIR-unset}" > "$sandbox/tmpdir-env"
 echo "\${GIT_CONFIG_COUNT-unset} \${GIT_CONFIG_KEY_0-unset} \${GIT_CONFIG_VALUE_0-unset}" > "$sandbox/git-config-env"
 env > "$sandbox/claude-env"
+if [ -n "\${STUB_RUN_GH:-}" ]; then
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+    [ -S "\$CLAUDE_OLLAMA_GH_BROKER" ] && break
+    sleep 0.2
+  done
+  gh pr list > "$sandbox/session-gh.out" 2>&1
+fi
 EOF
   install_sandbox_runtime_stub
   cat > "$sandbox/stubbin/getconf" <<EOF
@@ -715,9 +722,27 @@ check_eq "a keychain GitHub token reaches git as a ready-encoded header" \
   "1 http.https://github.com/.extraHeader Authorization: Basic $(printf 'x-access-token:secret' | base64)" \
   "$(cat "$sandbox/git-config-env")"
 
+cat > "$sandbox/stubbin/gh" <<EOF
+#!/bin/sh
+echo "\$* \${GH_TOKEN-unset} \${GH_REPO-unset}" >> "$sandbox/gh.log"
+EOF
+chmod +x "$sandbox/stubbin/gh"
 STUB_GITHUB_READ_TOKEN=readsecret run_capture "$repo/bin/claude-ollama" 27b -p hi
-check_eq "a keychain read-only GitHub token reaches gh" readsecret "$(session_env GH_TOKEN)"
-check_eq "gh keeps its config in the session dir" "$session_config/gh" "$(session_env GH_CONFIG_DIR)"
+gh_socket="$session_config/gh-broker.sock"
+check_eq "a read-only GitHub token allows only the gh broker's socket" "[\"$gh_socket\"]" "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
+check_that "the session cannot replace the gh broker's socket" policy_lists denyWrite "$gh_socket"
+check_that "the session's gh is the broker client" test "$(session_env PATH | cut -d: -f1)" = "$repo/ollama/gh/bin"
+check_eq "the session never holds the read-only token" "" "$(session_env GH_TOKEN)"
+run_capture env CLAUDE_OLLAMA_CMUX=1 CMUX_SOCKET_PATH="$cmux_socket" STUB_GITHUB_READ_TOKEN=readsecret "$repo/bin/claude-ollama" 27b -p hi
+check_eq "with cmux too the session reaches both brokers" "[\"$session_config/cmux-broker.sock\",\"$gh_socket\"]" \
+  "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
+run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_eq "without a read-only token the session gets no gh broker" "" "$(session_env CLAUDE_OLLAMA_GH_BROKER)"
+rm "$sandbox/stubbin/gh"
+STUB_GITHUB_READ_TOKEN=readsecret run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_eq "without gh installed the session gets no gh broker" "" "$(session_env CLAUDE_OLLAMA_GH_BROKER)"
+run_capture env CLAUDE_OLLAMA_GH_BROKER=/tmp/elsewhere.sock "$repo/bin/claude-ollama" 27b -p hi
+check_eq "an inherited gh broker address never reaches the session" "" "$(session_env CLAUDE_OLLAMA_GH_BROKER)"
 GH_TOKEN=outer GITHUB_TOKEN=outer run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_not "a GH_TOKEN from the outer shell never reaches the session" grep -q '^GH_TOKEN=' "$sandbox/claude-env"
 check_not "nor a GITHUB_TOKEN" grep -q '^GITHUB_TOKEN=' "$sandbox/claude-env"
@@ -792,6 +817,21 @@ check_eq "github-token rejects an unknown kind" 2 "$?"
 check_that "and names the kinds" grep -qxF "usage: claude-ollama github-token [read|push]" "$sandbox/err"
 run_capture "$repo/bin/claude-ollama" --help
 check_that "help lists github-token" grep -qF "github-token [read|push]:" "$sandbox/out"
+
+short_unix_socket_parent=/tmp
+new_sandbox "$short_unix_socket_parent"
+cat > "$sandbox/stubbin/gh" <<EOF
+#!/bin/sh
+echo "\$* \${GH_TOKEN-unset} \${GH_REPO-unset}" >> "$sandbox/gh.log"
+EOF
+chmod +x "$sandbox/stubbin/gh"
+gh_project="$sandbox/gh-project"
+git init -q "$gh_project"
+git -C "$gh_project" remote add origin git@github.com:owner/project.git
+ln -sf "$(command -pv python3)" "$sandbox/stubbin/python3"
+(cd "$gh_project" && CLAUDE_OLLAMA_NO_INDEX=1 STUB_GITHUB_READ_TOKEN=readsecret STUB_RUN_GH=1 run_capture "$repo/bin/claude-ollama" 27b -p hi)
+check_eq "gh from the session runs outside it, through the broker, with the read-only token and the project's repo" \
+  "pr list readsecret owner/project" "$(cat "$sandbox/gh.log" 2>/dev/null)"
 
 if [ "$failures" -eq 0 ]; then
   echo "all passed"
