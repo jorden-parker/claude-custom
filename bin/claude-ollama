@@ -648,7 +648,7 @@ follow_logs() {
 }
 
 remove_console_files() {
-  rm -f "${web_url_file:-}" "$console_state_dir/token"
+  rm -f "${web_url_file:-}" "${console_token_file:-}"
 }
 
 reviews_build_needed() {
@@ -696,10 +696,11 @@ serve_console() {
   mkdir -p "$review_log_dir"
   web_url_file="$review_log_dir/.web-url"
   (umask 077; rm -f "$web_url_file"; printf '%s\n' "$url" > "$web_url_file")
-  (umask 077; mkdir -p "$console_state_dir"; chmod 700 "$console_state_dir"; rm -f "$console_state_dir/token"; printf '%s\n' "$token" > "$console_state_dir/token")
+  console_token_file="$console_state_dir/tokens/$port"
+  (umask 077; mkdir -p "$console_state_dir"; chmod 700 "$console_state_dir"; rm -f "$console_state_dir/token"; mkdir -p "$console_state_dir/tokens"; chmod 700 "$console_state_dir/tokens"; rm -f "$console_token_file"; printf '%s\n' "$token" > "$console_token_file")
   trap remove_console_files EXIT INT TERM
   echo "claude-ollama: $label at $page_url"
-  CONSOLE_TOKEN_FILE="$console_state_dir/token" CLAUDE_CUSTOM_HOME="$repo_dir" CLAUDE_CONSOLE_STATE_DIR="$console_state_dir" CONSOLE_PROJECT_DIR="$project_dir" \
+  CONSOLE_TOKEN_FILE="$console_token_file" CLAUDE_CUSTOM_HOME="$repo_dir" CLAUDE_CONSOLE_STATE_DIR="$console_state_dir" CONSOLE_PROJECT_DIR="$project_dir" \
     pnpm --dir "$web_dir" exec next start -H 127.0.0.1 -p "$port"
   exit 0
 }
