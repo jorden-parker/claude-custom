@@ -2,7 +2,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { benchOffReportFile, hasBenchOffReport, readBenchOffReport } from "./bench-off-report";
+import {
+  BENCH_OFF_REPORT_HEADERS,
+  benchOffReportFile,
+  hasBenchOffReport,
+  readBenchOffReport,
+} from "./bench-off-report";
 
 describe("bench-off report file", () => {
   let results: string;
@@ -51,5 +56,12 @@ describe("bench-off report existence", () => {
 
   it("is false while no report exists", () => {
     expect(hasBenchOffReport({ BENCH_RESULTS: results })).toBe(false);
+  });
+});
+
+describe("bench-off report headers", () => {
+  it("serves HTML under a script-only sandbox", () => {
+    expect(BENCH_OFF_REPORT_HEADERS["Content-Type"]).toContain("text/html");
+    expect(BENCH_OFF_REPORT_HEADERS["Content-Security-Policy"]).toBe("sandbox allow-scripts");
   });
 });

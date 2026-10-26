@@ -4,6 +4,11 @@ import path from "node:path";
 
 const REPORT_NAME = "bench-off.html";
 
+export const BENCH_OFF_REPORT_HEADERS = {
+  "Content-Type": "text/html; charset=utf-8",
+  "Content-Security-Policy": "sandbox allow-scripts",
+};
+
 export function benchOffReportFile(env: Record<string, string | undefined>): string {
   const resultsDir = env.BENCH_RESULTS || path.join(os.homedir(), "bench-results");
   return path.join(resultsDir, REPORT_NAME);
