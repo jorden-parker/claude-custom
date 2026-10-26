@@ -53,6 +53,9 @@ for settings in "$repo"/ollama/settings.*.json; do
     "$(jq -r '[.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS, .env.API_TIMEOUT_MS] | join(" ")' "$settings")"
   check_eq "${settings##*/} keeps the prompt prefix stable so Ollama reuses its cache" "0 off" \
     "$(jq -r '[.env.CLAUDE_CODE_ATTRIBUTION_HEADER, .env.CLAUDE_CODE_TOTAL_TOKENS_REMINDER] | join(" ")' "$settings")"
+  check_eq "${settings##*/} asks Ollama for no thinking, since Claude Code's adaptive thinking reaches Ollama as effort high" \
+    '{"thinking":{"type":"disabled"}}' \
+    "$(jq -r .env.CLAUDE_CODE_EXTRA_BODY "$settings" | jq -c .)"
   check_eq "${settings##*/} leaves Bash to the session sandbox, which a second sandbox cannot nest in" false \
     "$(jq -r .sandbox.enabled "$settings")"
   check_eq "${settings##*/} starts in default mode with auto mode off, since its classifier would call Ollama for a Claude model" "default disable" \
