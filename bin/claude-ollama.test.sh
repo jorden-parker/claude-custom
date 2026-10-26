@@ -488,6 +488,14 @@ printf '<plist><dict>\n  <key>Label</key><string>local.ollama</string>\n  <key>S
 rm -f "$sandbox/tail.log"
 HOMEBREW_PREFIX="$sandbox/brew" run_capture "$repo/bin/claude-ollama" logs
 check_that "logs prefers the LaunchAgent log" grep -qxF -- "-n 50 -F $sandbox/agent-ollama.log" "$sandbox/tail.log"
+rm -f "$sandbox/tail.log"
+run_capture "$repo/bin/claude-ollama" logs --path
+check_eq "logs --path exit status" 0 "$?"
+check_that "logs --path prints only the chosen log path" test "$(cat "$sandbox/out")" = "$sandbox/agent-ollama.log"
+check_not "logs --path does not tail the log" test -e "$sandbox/tail.log"
+HOME="$sandbox/bare-home" HOMEBREW_PREFIX="$sandbox/brew-none" run_capture "$repo/bin/claude-ollama" logs --path
+check_eq "logs --path without a log file exits 1" 1 "$?"
+check_that "logs --path without a log file says so" grep -q 'no Ollama log found' "$sandbox/err"
 new_sandbox
 cat > "$sandbox/stubbin/pr-review-local" <<EOF
 #!/bin/sh
@@ -518,7 +526,7 @@ run_capture "$repo/bin/claude-ollama" review 9 </dev/null
 check_that "review without a size uses the default" grep -q 'REVIEW: --model qwen3.8-27b-cc ' "$sandbox/out"
 unset CLAUDE_OLLAMA_REVIEWER
 run_capture "$repo/bin/claude-ollama" --help
-check_that "claude-ollama help lists logs" grep -q '^logs \[-n LINES\]' "$sandbox/out"
+check_that "claude-ollama help lists logs" grep -q '^logs \[-n LINES|--path\]: ' "$sandbox/out"
 
 new_sandbox
 STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2" run_capture "$repo/bin/claude-ollama" doctor 27b
