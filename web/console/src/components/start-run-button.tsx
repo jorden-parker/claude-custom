@@ -10,9 +10,17 @@ type StartRunButtonProps = {
   command: string;
   params: CommandParams;
   children: ReactNode;
+  stay?: boolean;
+  onStarted?: (id: string) => void;
 };
 
-export function StartRunButton({ command, params, children }: StartRunButtonProps) {
+export function StartRunButton({
+  command,
+  params,
+  children,
+  stay = false,
+  onStarted,
+}: StartRunButtonProps) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -27,6 +35,11 @@ export function StartRunButton({ command, params, children }: StartRunButtonProp
     });
     if (response.status === 201) {
       const { id } = (await response.json()) as { id: string };
+      if (stay) {
+        onStarted?.(id);
+        setPending(false);
+        return;
+      }
       router.push(`/runs/${encodeURIComponent(id)}`);
       return;
     }
