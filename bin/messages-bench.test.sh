@@ -25,20 +25,28 @@ def sse(kind, **fields):
     return f"event: {kind}\ndata: {json.dumps(payload)}\n\n".encode("utf-8")
 
 
-def text_events():
-    yield sse("content_block_start", index=0, content_block={"type": "text", "text": ""})
+def thinking_events(index, text):
+    half = len(text) // 2
+    yield sse("content_block_start", index=index, content_block={"type": "thinking", "thinking": ""})
+    for piece in (text[:half], text[half:]):
+        yield sse("content_block_delta", index=index, delta={"type": "thinking_delta", "thinking": piece})
+    yield sse("content_block_stop", index=index)
+
+
+def text_events(index):
+    yield sse("content_block_start", index=index, content_block={"type": "text", "text": ""})
     for word in ("one", "two", "three"):
-        yield sse("content_block_delta", index=0, delta={"type": "text_delta", "text": word})
+        yield sse("content_block_delta", index=index, delta={"type": "text_delta", "text": word})
 
 
-def tool_events():
+def tool_events(index):
     block = {"type": "tool_use", "id": "toolu_stub", "name": "read_file", "input": {}}
-    yield sse("content_block_start", index=0, content_block=block)
+    yield sse("content_block_start", index=index, content_block=block)
     pieces = ['{"path": ', '"README.md"}']
     if config.get("bad_tool_json"):
         pieces = pieces[:1]
     for piece in pieces:
-        yield sse("content_block_delta", index=0, delta={"type": "input_json_delta", "partial_json": piece})
+        yield sse("content_block_delta", index=index, delta={"type": "input_json_delta", "partial_json": piece})
 
 
 def reply_events(body):
@@ -49,9 +57,14 @@ def reply_events(body):
     }
     yield sse("message_start", message={"id": "msg_stub", "role": "assistant", "usage": usage})
     yield sse("ping")
-    blocks = tool_events() if body.get("tools") else text_events()
+    index = 0
+    thinking_text = config.get("thinking_text")
+    if thinking_text and body.get("thinking") != {"type": "disabled"}:
+        yield from thinking_events(index, thinking_text)
+        index = 1
+    blocks = tool_events(index) if body.get("tools") else text_events(index)
     yield from blocks
-    yield sse("content_block_stop", index=0)
+    yield sse("content_block_stop", index=index)
     yield sse("message_delta", delta={"stop_reason": "end_turn"}, usage={"output_tokens": 3})
     yield sse("message_stop")
 
@@ -176,6 +189,34 @@ def jsonl_shape(path, runs, trials):
         fail(f"tool_calls line reported {lines[-1].get('trials')} trials")
 
 
+def thinking_omitted(path):
+    for request in requests_in(path):
+        if "thinking" in request["body"] or "output_config" in request["body"]:
+            fail("a request sent thinking or output_config")
+
+
+def thinking_shape(path, kind):
+    for request in requests_in(path):
+        body = request["body"]
+        if body.get("thinking") != {"type": kind}:
+            fail(f"a request sent thinking {body.get('thinking')!r}, expected type {kind}")
+        if body.get("output_config") != {"effort": "high"}:
+            fail(f"a request sent output_config {body.get('output_config')!r}")
+
+
+def thinking_measured(path, chars):
+    runs = [json.loads(line) for line in Path(path).read_text().splitlines()]
+    runs = [run for run in runs if run.get("type") == "run"]
+    if not runs:
+        fail("jsonl has no run lines")
+    for run in runs:
+        if run.get("thinking_chars") != chars:
+            fail(f"run counted {run.get('thinking_chars')} thinking characters, expected {chars}")
+        text_ttft = run.get("text_ttft_seconds")
+        if text_ttft is None or text_ttft < run["ttft_seconds"]:
+            fail(f"run text_ttft_seconds {text_ttft!r} is before ttft_seconds {run['ttft_seconds']!r}")
+
+
 command, arguments = sys.argv[1], sys.argv[2:]
 if command == "requests-ok":
     requests_ok(arguments[0], arguments[1])
@@ -193,6 +234,12 @@ elif command == "temperature-zero":
     temperature_zero(arguments[0])
 elif command == "jsonl-shape":
     jsonl_shape(arguments[0], int(arguments[1]), int(arguments[2]))
+elif command == "thinking-omitted":
+    thinking_omitted(arguments[0])
+elif command == "thinking-shape":
+    thinking_shape(arguments[0], arguments[1])
+elif command == "thinking-measured":
+    thinking_measured(arguments[0], int(arguments[1]))
 PY
 
 start_stub() {
@@ -252,6 +299,27 @@ fi
 python3 "$tmp/inspect.py" same-start "$log" 1 2 || fail "warm request shares the cold prefix and differs in the question"
 python3 "$tmp/inspect.py" max-tokens "$log" 3 2048 || fail "tool trial requests max_tokens 2048 under default flags"
 python3 "$tmp/inspect.py" temperature-zero "$log" || fail "every request sends temperature 0 so servers decode the same way"
+python3 "$tmp/inspect.py" thinking-omitted "$log" || fail "the default run sends no thinking or output_config, so bench-off results stay comparable"
+
+start_stub "$healthy" || exit 1
+bench_run --model stub --prefix-tokens 2000 --tool-trials 1 --thinking claude-code > "$run_dir/stdout" 2> "$run_dir/stderr" || fail "--thinking claude-code exits 0"
+python3 "$tmp/inspect.py" thinking-shape "$run_dir/requests.log" adaptive || fail "--thinking claude-code sends adaptive thinking at high effort"
+
+start_stub "$healthy" || exit 1
+bench_run --model stub --prefix-tokens 2000 --tool-trials 1 --thinking disabled > "$run_dir/stdout" 2> "$run_dir/stderr" || fail "--thinking disabled exits 0"
+python3 "$tmp/inspect.py" thinking-shape "$run_dir/requests.log" disabled || fail "--thinking disabled sends disabled thinking at high effort"
+
+thinking_stub='{"input_tokens": 2000, "cache_read_input_tokens": 1500, "bad_tool_json": false, "thinking_text": "abcdefgh"}'
+start_stub "$thinking_stub" || exit 1
+bench_run --model stub --prefix-tokens 2000 --tool-trials 0 --thinking claude-code --jsonl > "$run_dir/report.jsonl" 2> "$run_dir/stderr" || fail "--thinking claude-code --jsonl exits 0 against a thinking stub"
+python3 "$tmp/inspect.py" thinking-measured "$run_dir/report.jsonl" 8 || fail "--jsonl counts 8 thinking characters and reports a text TTFT after the thinking TTFT"
+
+start_stub "$thinking_stub" || exit 1
+bench_run --model stub --prefix-tokens 2000 --tool-trials 0 --thinking disabled --jsonl > "$run_dir/report.jsonl" 2> "$run_dir/stderr" || fail "--thinking disabled --jsonl exits 0 against a thinking stub"
+python3 "$tmp/inspect.py" thinking-measured "$run_dir/report.jsonl" 0 || fail "a disabled-thinking stub counts 0 thinking characters"
+
+bench_run --model stub --thinking maybe > /dev/null 2> "$tmp/maybe.err"
+[ $? -eq 2 ] || fail "--thinking maybe exits 2"
 
 start_stub "$healthy" || exit 1
 if ! bench_run --model stub --prefix-tokens 2000 3000 --tool-trials 2 --jsonl > "$run_dir/report.jsonl" 2> "$run_dir/stderr"; then

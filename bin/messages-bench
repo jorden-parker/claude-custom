@@ -36,7 +36,17 @@ TOOL_DEFINITION = {
         "required": ["path"],
     },
 }
-ROW_FORMAT = "{prefix:<8} {scenario:<8} {input:>8} {cached:>8} {ttft:>8} {prefill:>10} {decode:>10}"
+THINKING_OMIT = "omit"
+THINKING_CLAUDE_CODE = "claude-code"
+THINKING_DISABLED = "disabled"
+THINKING_FIELDS = {
+    THINKING_OMIT: {},
+    THINKING_CLAUDE_CODE: {"thinking": {"type": "adaptive"}, "output_config": {"effort": "high"}},
+    THINKING_DISABLED: {"thinking": {"type": "disabled"}, "output_config": {"effort": "high"}},
+}
+ROW_FORMAT = (
+    "{prefix:<8} {scenario:<8} {input:>8} {cached:>8} {ttft:>8} {prefill:>10} {decode:>10} {think:>8} {text:>8}"
+)
 HEADER_CELLS = {
     "prefix": "prefix",
     "scenario": "scenario",
@@ -45,6 +55,8 @@ HEADER_CELLS = {
     "ttft": "ttft s",
     "prefill": "prefill t/s",
     "decode": "decode t/s",
+    "think": "think",
+    "text": "text s",
 }
 
 
@@ -57,6 +69,8 @@ class Stream:
     input_tokens: int = 0
     cache_read_tokens: int | None = None
     first_delta_seconds: float | None = None
+    first_text_seconds: float | None = None
+    thinking_chars: int = 0
     last_event_seconds: float = 0.0
     output_tokens: int = 0
     tool_name: str | None = None
@@ -74,6 +88,8 @@ class Run:
     decode_seconds: float
     prefill_tokens_per_second: float
     decode_tokens_per_second: float | None
+    thinking_chars: int
+    text_ttft_seconds: float | None
 
 
 def positive_int(text):
@@ -100,7 +116,13 @@ def parse_args(argv):
     parser.add_argument("--prefix-tokens", nargs="+", type=positive_int, default=DEFAULT_PREFIX_TOKENS)
     parser.add_argument("--max-tokens", type=positive_int, default=DEFAULT_MAX_TOKENS)
     parser.add_argument("--tool-trials", type=non_negative_int, default=DEFAULT_TOOL_TRIALS)
-    output = parser.add_mutually_exclusive_group()
+    parser.add_argument(
+        "--thinking",
+        choices=list(THINKING_FIELDS),
+        default=THINKING_OMIT,
+        help="thinking fields to send: omit (default, what the bench-off uses), claude-code (what Claude Code sends), disabled (what a claude-ollama session sends)",
+    )
+    output =parser.add_mutually_exclusive_group()
     output.add_argument("--json", action="store_true")
     output.add_argument("--jsonl", action="store_true")
     return parser.parse_args(argv)
@@ -120,7 +142,7 @@ def build_prefix(prefix_tokens, run_marker):
     return text[:wanted]
 
 
-def build_body(model, max_tokens, text, tools=None):
+def build_body(model, max_tokens, text, thinking, tools=None):
     body = {
         "model": model,
         "max_tokens": max_tokens,
@@ -128,6 +150,7 @@ def build_body(model, max_tokens, text, tools=None):
         "stream": True,
         "messages": [{"role": "user", "content": text}],
     }
+    body.update(THINKING_FIELDS[thinking])
     if tools:
         body["tools"] = tools
     return body
@@ -177,7 +200,12 @@ def record_block_start(stream, block):
 def record_delta(stream, delta, seconds):
     if stream.first_delta_seconds is None:
         stream.first_delta_seconds = seconds
-    if delta.get("type") == "input_json_delta":
+    kind = delta.get("type")
+    if kind == "thinking_delta":
+        stream.thinking_chars += len(delta.get("thinking", ""))
+    elif kind in ("text_delta", "input_json_delta") and stream.first_text_seconds is None:
+        stream.first_text_seconds = seconds
+    if kind == "input_json_delta":
         stream.tool_json_pieces.append(delta.get("partial_json", ""))
 
 
@@ -245,11 +273,13 @@ def make_run(stream, prefix_tokens, scenario, prompt):
         decode_seconds=decode_seconds,
         prefill_tokens_per_second=input_tokens / ttft,
         decode_tokens_per_second=rate(stream.output_tokens, decode_seconds),
+        thinking_chars=stream.thinking_chars,
+        text_ttft_seconds=stream.first_text_seconds,
     )
 
 
 def measure_run(config, prefix_tokens, scenario, prompt):
-    body = build_body(config.model, config.max_tokens, prompt)
+    body = build_body(config.model, config.max_tokens, prompt, config.thinking)
     return make_run(stream_message(config, body), prefix_tokens, scenario, prompt)
 
 
@@ -265,7 +295,7 @@ def tool_call_parsed(stream):
 
 def run_tool_trial(config):
     max_tokens = max(config.max_tokens, TOOL_MAX_TOKENS)
-    body = build_body(config.model, max_tokens, TOOL_QUESTION, tools=[TOOL_DEFINITION])
+    body = build_body(config.model, max_tokens, TOOL_QUESTION, config.thinking, tools=[TOOL_DEFINITION])
     return tool_call_parsed(stream_message(config, body))
 
 
@@ -333,6 +363,8 @@ def format_row(run):
         ttft=f"{run['ttft_seconds']:.2f}",
         prefill=f"{run['prefill_tokens_per_second']:.1f}",
         decode=cell(run["decode_tokens_per_second"], "{:.1f}"),
+        think=run["thinking_chars"],
+        text=cell(run["text_ttft_seconds"], "{:.2f}"),
     )
 
 
