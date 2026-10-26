@@ -187,6 +187,7 @@ start_stub "$table_config"
 json_output="$(probe_output --json 27b 2>/dev/null)"
 check "json output has seven scenarios, basis and hit percent" json_check "$json_output" "len(data['scenarios']) == 7 and data['hit_basis'] == 'token_count' and data['scenarios'][2]['hit_percent'] == 96.0"
 check "json marks the growing chat total as estimated" json_check "$json_output" "data['scenarios'][1]['prompt_tokens_estimated'] is True and data['scenarios'][1]['prompt_tokens'] == 1024"
+check "json says whether the same prefix reused the cache" json_check "$json_output" "data['cache_reused'] is True"
 
 start_stub '{"tags": ["qwen3.8-27b-cc"], "responses": [[1000, 2.0], [60, 0.12], [40, 0.08], [250, 0.5], [1000, 2.0], [1000, 2.0], [5, 0.01], [40, 0.08]]}'
 no_side_table="$(probe_output 27b 2>/dev/null)"

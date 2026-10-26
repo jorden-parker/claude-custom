@@ -128,7 +128,7 @@ while [ \$# -gt 0 ]; do
   shift
 done
 case "\$arguments" in *api/tags*) cat "$sandbox/tags.json" ;; esac
-case "\$arguments" in *huggingface.co*) printf 'stub weights' > "\$output" ;; esac
+case "\$arguments" in *huggingface.co*) printf 'stub weights' > "\$output"; exit "\${STUB_HF_CURL_EXIT:-0}" ;; esac
 exit "\${STUB_CURL_EXIT:-0}"
 EOF
   cat > "$sandbox/stubbin/shasum" <<'EOF'
@@ -327,6 +327,29 @@ new_sandbox
 run_capture "$repo/bin/claude-ollama" 27b-gguf -p hi
 check_not "claude-ollama 27b-gguf does not download when the model is installed" grep -qF huggingface.co "$sandbox/curl.log"
 new_sandbox
+STUB_HF_CURL_EXIT=18 STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" 27b-gguf -p hi
+check_eq "claude-ollama 27b-gguf exits 1 when the download breaks off" 1 "$?"
+check_that "claude-ollama 27b-gguf asks curl to resume a partial download" grep -qF -- "-C -" "$sandbox/curl.log"
+check_that "claude-ollama 27b-gguf keeps a broken-off download so the next run resumes it" test -e "$repo/ollama/weights/Qwen3.8-27B-UD-Q4_K_XL.gguf.part"
+check_not "claude-ollama 27b-gguf does not create after a broken-off download" grep -sq '^create ' "$sandbox/ollama.log"
+rm -f "$repo/ollama/weights/Qwen3.8-27B-UD-Q4_K_XL.gguf.part"
+new_sandbox
+STUB_SHASUM_DIGEST=3f227079003add2511437e5b1e94812e363385225bf6a9b47b0054a72bc8b01e STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" prepare 27b-gguf
+check_eq "claude-ollama prepare exits 0 after importing" 0 "$?"
+check_that "claude-ollama prepare creates a missing model" grep -qxF "create qwen3.8-27b-gguf-cc -f Modelfile.27b-gguf" "$sandbox/ollama.log"
+check_not "claude-ollama prepare does not launch claude" grep -q '^ARGS:' "$sandbox/out"
+new_sandbox
+run_capture "$repo/bin/claude-ollama" prepare 27b
+check_eq "claude-ollama prepare exits 0 when the model is installed" 0 "$?"
+check_not "claude-ollama prepare leaves an installed model alone" grep -sq '^create ' "$sandbox/ollama.log"
+check_not "claude-ollama prepare of an installed model does not launch claude" grep -q '^ARGS:' "$sandbox/out"
+new_sandbox
+printf '#!/bin/sh\necho "speed-check args: $*"\n' > "$sandbox/stubbin/speed-check"
+chmod +x "$sandbox/stubbin/speed-check"
+CLAUDE_OLLAMA_SPEED_CHECK="$sandbox/stubbin/speed-check" run_capture "$repo/bin/claude-ollama" speed-check --flag
+check_that "claude-ollama speed-check runs the speed check with its arguments" grep -qxF "speed-check args: --flag" "$sandbox/out"
+check_not "claude-ollama speed-check does not launch claude" grep -q '^ARGS:' "$sandbox/out"
+new_sandbox
 STUB_OLLAMA_NUM_CTX=16384 run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "claude-ollama recreates a model with a stale num_ctx" grep -qE '^create qwen3.8-27b-cc -f ' "$sandbox/ollama.log"
 check_that "the recreated model builds on the installed one" grep -qxF "modelfile: FROM qwen3.8-27b-cc" "$sandbox/ollama.log"
@@ -362,6 +385,8 @@ run_capture "$repo/bin/claude-ollama" --help
 check_eq "claude-ollama help exit status" 0 "$?"
 check_that "claude-ollama help lists sizes" grep -qxF "sizes: 27b-gguf 27b 35b-coding 35b-gguf 35b" "$sandbox/out"
 check_not "claude-ollama help does not launch claude" grep -q '^ARGS:' "$sandbox/out"
+check_that "claude-ollama help names speed-check" grep -q '^speed-check: ' "$sandbox/out"
+check_that "claude-ollama help names prepare" grep -q '^prepare \[size\]: ' "$sandbox/out"
 run_capture "$repo/bin/claude-ollama" 28b -p hi </dev/null
 check_that "claude-ollama unknown size without a tty falls back to 27b" grep -qF -- "$ollama_settings" "$sandbox/out"
 check_not "claude-ollama drops an unknown size" grep -qF "28b" "$sandbox/out"

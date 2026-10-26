@@ -63,6 +63,12 @@ before changing how any file gets applied.
 - Cache probe: `bin/ollama-cache-probe [27b|35b|MODEL] [--prefix-tokens N]`
   measures prompt-cache reuse on a live Ollama; its tests are
   `bin/ollama-cache-probe.test.sh` (stub server, no real Ollama)
+- Speed check: `claude-ollama speed-check` (`bin/speed-check`) checks power,
+  disk and Ollama, prepares the four MLX and GGUF sizes, then runs the thinking
+  check, the paired benches and the cache probes, and prints a verdict and a
+  paste block; `CLAUDE_OLLAMA_SPEED_CHECK` and `SPEED_CHECK_LAUNCHER`/`_BENCH`/
+  `_PROBE` override the scripts in tests; tests: `bin/speed-check.test.sh`.
+  `claude-ollama prepare [size]` pulls or imports one size and exits
 - Messages bench:
   `bin/messages-bench --model M [--base-url URL] [--thinking omit|claude-code|disabled]`
   times any `/v1/messages` server (cold/warm TTFT, prefill, decode, tool calls);

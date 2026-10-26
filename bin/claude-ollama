@@ -152,7 +152,7 @@ import_gguf() {
   mkdir -p "$profile_dir/weights"
   echo "claude-ollama: downloading $repo/$name (pinned $revision)" >&2
   if ! curl -fL --retry 3 -C - -o "$part" "https://huggingface.co/$repo/resolve/$revision/$name"; then
-    rm -f "$part"
+    echo "claude-ollama: the download of $name stopped; run the same command again to resume it" >&2
     return 1
   fi
   actual="$(shasum -a 256 "$part" | cut -d' ' -f1)"
@@ -698,6 +698,8 @@ case "${1:-}" in
     echo "review [size] PR [--post]: review a pull request with the size's model, one file per request"
     echo "reviews [--port N]: serve live and past reviews at http://127.0.0.1:8765/"
     echo "github-token [read|push]: create a GitHub token in the browser and store it in the keychain (both without a kind)"
+    echo "prepare [size]: pull or import the size's model and stop, without starting claude"
+    echo "speed-check: check thinking is off and bench the GGUF sizes against the MLX ones, then print a verdict"
     exit 0 ;;
 esac
 
@@ -709,6 +711,8 @@ case "${1:-}" in
   review) mode=review; shift ;;
   reviews) mode=reviews; shift ;;
   github-token) mode=github-token; shift ;;
+  prepare) mode=prepare; shift ;;
+  speed-check) exec "${CLAUDE_OLLAMA_SPEED_CHECK:-$repo_dir/bin/speed-check}" "${@:2}" ;;
 esac
 
 [ "$mode" != logs ] || follow_logs "$@"
@@ -756,6 +760,7 @@ case "$mode" in
   print-config) print_config; exit 0 ;;
   doctor) doctor ;;
   review) run_review "$review_target" "$@" ;;
+  prepare) ensure_model; exit 0 ;;
 esac
 
 require_sandbox_runtime

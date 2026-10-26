@@ -418,6 +418,7 @@ def json_report(args, probe, loaded: list[str], basis, rows):
         "loaded_models": loaded,
         "hit_basis": basis,
         "scenarios": rows,
+        "cache_reused": is_reused(row_named(rows, "Same prefix")),
     }
 
 

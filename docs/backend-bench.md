@@ -172,19 +172,24 @@ of about 20 tool-using turns on the winner, with no malformed tool calls.
 ## Ollama MLX vs Unsloth GGUF
 
 The `27b-gguf` and `35b-gguf` sizes run the same models as the MLX sizes, from
-Unsloth's Q4_K_XL GGUF files. Compare each pair on the work laptop with the same
-bench, one pair back to back, quitting other `claude-ollama` sessions first and
-plugging in:
+Unsloth's Q4_K_XL GGUF files. Compare them on the work laptop with one command,
+plugged in and with no other `claude-ollama` session open:
 
 ```sh
-claude-ollama 27b-gguf -p 'reply ok'
-claude-ollama 35b-gguf -p 'reply ok'
-ollama show --modelfile qwen3.8-27b-gguf-cc | grep -E '^(RENDERER|PARSER|PARAMETER)'
-for m in qwen3.8-27b-cc qwen3.8-27b-gguf-cc qwen3.6-35b-cc qwen3.6-35b-gguf-cc; do
-  bin/messages-bench --model "$m" --thinking disabled --tool-trials 5
-done
-bin/ollama-cache-probe 27b && bin/ollama-cache-probe 27b-gguf
+git pull && claude-ollama speed-check
 ```
+
+It stops with a one-line fix when Ollama is down, the laptop is on battery or in
+Low Power Mode, another session runs, or a GGUF import lacks 45 GB of disk, and
+it is safe to rerun: imported models and an interrupted download are kept. In
+order, it runs `claude-ollama prepare` for the four sizes, checks each GGUF
+model's `ollama show --modelfile` for `RENDERER` and `PARSER`, runs the plan 066
+thinking check (`bin/messages-bench --prefix-tokens 2000 --tool-trials 3` with
+`--thinking claude-code`, then `disabled`, on both MLX models), benches each
+pair back to back with `--thinking disabled --tool-trials 5`, and runs
+`bin/ollama-cache-probe SIZE --json` on all four sizes. It saves everything to
+`~/bench-results/speed-check-YYYYmmdd-HHMM.json` and prints a verdict, a `Next:`
+line and a block to paste back to Claude.
 
 A GGUF size is better for its model when, at the 60k prefix, its warm TTFT is
 lower than the MLX size's, its warm decode t/s is at least 90% of MLX's, its
