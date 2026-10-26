@@ -36,7 +36,7 @@ export function modelsDeps(): ModelsDeps {
   };
 }
 
-export function ollamaUrl(): string {
+function ollamaUrl(): string {
   const host = process.env.OLLAMA_HOST ?? "";
   if (host === "") {
     return DEFAULT_OLLAMA_URL;

@@ -2,8 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { StartRunButton } from "@/components/start-run-button";
-
-export const PR_NUMBER_PATTERN = /^[1-9][0-9]{0,6}$/;
+import { PR_NUMBER_PATTERN } from "@/lib/pr-number";
 
 type ProjectInfo = { dir: string | null };
 
@@ -99,7 +98,9 @@ export function NewReviewFields({ sizes, size, pr, projectDir, onSizeChange, onP
           Start review
         </StartRunButton>
       </div>
-      {pr === "" || prValid ? null : <p className="text-sm text-red-700 dark:text-red-400">Enter a PR number, such as 12.</p>}
+      {pr === "" || prValid ? null : (
+        <p className="text-sm text-red-700 dark:text-red-400">Enter a PR number, such as 12.</p>
+      )}
     </section>
   );
 }

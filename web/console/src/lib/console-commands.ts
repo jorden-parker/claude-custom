@@ -2,6 +2,7 @@ import fs from "node:fs";
 import { BENCH_OFF_MODELS, BENCH_OFF_SERVERS, PREFIX_TOKENS, THINKING_MODES } from "./bench-choices";
 import { configuredSizes } from "./sizes";
 import { modelForSize } from "./size-models";
+import { PR_NUMBER_PATTERN } from "./pr-number";
 import { validServerValue } from "./server-vars";
 
 export type CommandParams = Record<string, string>;
@@ -12,8 +13,6 @@ export type ConsoleCommand = {
   argv: (params: CommandParams, repoDir: string) => string[] | null;
   cwd?: () => string | undefined;
 };
-
-const PR_NUMBER_PATTERN = /^[1-9][0-9]{0,6}$/;
 
 export type ConsoleQuery = {
   argv: (params: CommandParams, repoDir: string) => string[] | null;
