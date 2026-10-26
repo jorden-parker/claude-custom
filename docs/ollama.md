@@ -186,28 +186,27 @@ Every Bash command still asks first, and so do `git commit` and `git push`.
 `git-push-guard.py` refuses force pushes, remote deletes, `--mirror`, `--prune`
 and pushes to `main` or `master`.
 
-To push from a session, store a fine-grained GitHub token (Contents: write and
-Pull requests: write, on the repos you choose) in the keychain:
+Sessions use two fine-grained GitHub tokens from the keychain. Set both up with:
 
 ```sh
-security add-generic-password -s claude-ollama-github -a "$USER" -w
+claude-ollama github-token        # both; or github-token read|push for one
 ```
 
-The session never sees the token: it gets a placeholder, which the sandbox's
-proxy swaps for the real value only on requests to `github.com`. Without the
-item, `doctor` warns and pushes fail; commits still work. Remotes must use
-HTTPS.
+For each token it opens GitHub's new-token page with the name, a 90-day expiry
+and the permissions filled in. You choose the repositories and generate it, then
+paste it at the hidden `security` prompt (it never appears in a command line).
+Running it again replaces the stored token.
 
-For `gh` (viewing PRs, issues, runs), store a second fine-grained token with
-read-only permissions (Contents, Pull requests, Issues, Actions: read):
-
-```sh
-security add-generic-password -s claude-ollama-github-read -a "$USER" -w
-```
-
-The session gets it as a masked `GH_TOKEN`, swapped back only on requests to
-`api.github.com`; the token's own permissions are what keep `gh` read-only. A
-`GH_TOKEN` or `GITHUB_TOKEN` from your shell never reaches the session.
+- `push` (keychain item `claude-ollama-github`; Contents and Pull requests:
+  write) lets `git push` work. The session never sees the token: it gets a
+  placeholder, which the sandbox's proxy swaps for the real value only on
+  requests to `github.com`. Without it, `doctor` warns and pushes fail; commits
+  still work. Remotes must use HTTPS.
+- `read` (keychain item `claude-ollama-github-read`; Contents, Pull requests,
+  Issues and Actions: read) lets `gh` view PRs, issues and runs. The session
+  gets it as a masked `GH_TOKEN`, swapped back only on requests to
+  `api.github.com`; the token's own permissions are what keep `gh` read-only. A
+  `GH_TOKEN` or `GITHUB_TOKEN` from your shell never reaches the session.
 
 `bin/ollama-models` manages the installed models:
 

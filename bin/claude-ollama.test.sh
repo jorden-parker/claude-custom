@@ -81,6 +81,10 @@ EOF
   chmod +x "$sandbox/stubbin/getconf"
   cat > "$sandbox/stubbin/security" <<'EOF'
 #!/bin/sh
+if [ "$1" = add-generic-password ]; then
+  echo "$*" >> "$(dirname "$0")/../security.log"
+  exit "${STUB_SECURITY_ADD_STATUS:-0}"
+fi
 case "$*" in
   *claude-ollama-github-read*) token="${STUB_GITHUB_READ_TOKEN:-}" ;;
   *) token="${STUB_GITHUB_TOKEN:-}" ;;
@@ -89,6 +93,11 @@ esac
 printf '%s\n' "$token"
 EOF
   chmod +x "$sandbox/stubbin/security"
+  cat > "$sandbox/stubbin/open" <<EOF
+#!/bin/sh
+echo "\$*" >> "$sandbox/open.log"
+EOF
+  chmod +x "$sandbox/stubbin/open"
   cat > "$sandbox/stubbin/ollama" <<EOF
 #!/bin/sh
 echo "\$*" >> "$sandbox/ollama.log"
@@ -746,16 +755,43 @@ check_not "claude-ollama never runs claude unsandboxed" grep -q "^ARGS:" "$sandb
 run_capture "$repo/bin/claude-ollama" doctor 27b
 check_that "doctor reports a missing sandbox-runtime" grep -qxF "fail sandbox-runtime missing (run claude-custom install)" "$sandbox/out"
 check_that "doctor warns when no GitHub token is stored" \
-  grep -qxF "warn no GitHub token in the keychain item claude-ollama-github (git push from the session will fail; see docs/ollama.md)" "$sandbox/out"
+  grep -qxF "warn no GitHub token in the keychain item claude-ollama-github (git push from the session will fail; run claude-ollama github-token push)" "$sandbox/out"
 install_sandbox_runtime_stub
 STUB_GITHUB_TOKEN=secret run_capture "$repo/bin/claude-ollama" doctor 27b
 check_that "doctor reports sandbox-runtime" grep -qxF "ok   sandbox-runtime installed" "$sandbox/out"
 check_that "doctor reports a stored GitHub token" grep -qxF "ok   GitHub token in the keychain item claude-ollama-github" "$sandbox/out"
 check_that "doctor warns when no read-only GitHub token is stored" \
-  grep -qxF "warn no read-only GitHub token in the keychain item claude-ollama-github-read (gh from the session will fail; see docs/ollama.md)" "$sandbox/out"
+  grep -qxF "warn no read-only GitHub token in the keychain item claude-ollama-github-read (gh from the session will fail; run claude-ollama github-token read)" "$sandbox/out"
 STUB_GITHUB_READ_TOKEN=readsecret run_capture "$repo/bin/claude-ollama" doctor 27b
 check_that "doctor reports a stored read-only GitHub token" \
   grep -qxF "ok   read-only GitHub token in the keychain item claude-ollama-github-read" "$sandbox/out"
+
+run_capture "$repo/bin/claude-ollama" github-token read
+check_eq "github-token read exits 0" 0 "$?"
+check_that "github-token read opens a pre-filled read-only token page" grep -qxF \
+  "https://github.com/settings/personal-access-tokens/new?name=claude-ollama-read&description=Read-only+gh+in+claude-ollama+sessions&expires_in=90&metadata=read&contents=read&pull_requests=read&issues=read&actions=read" \
+  "$sandbox/open.log"
+check_that "github-token read stores the pasted token in the read keychain item, prompting so it never lands in argv" \
+  grep -qxF "add-generic-password -U -s claude-ollama-github-read -a $USER -w" "$sandbox/security.log"
+rm -f "$sandbox/open.log" "$sandbox/security.log"
+run_capture "$repo/bin/claude-ollama" github-token push
+check_that "github-token push opens a pre-filled push token page" grep -qxF \
+  "https://github.com/settings/personal-access-tokens/new?name=claude-ollama-push&description=git+push+from+claude-ollama+sessions&expires_in=90&metadata=read&contents=write&pull_requests=write" \
+  "$sandbox/open.log"
+check_that "github-token push stores the token in the push keychain item" \
+  grep -qxF "add-generic-password -U -s claude-ollama-github -a $USER -w" "$sandbox/security.log"
+rm -f "$sandbox/open.log" "$sandbox/security.log"
+run_capture "$repo/bin/claude-ollama" github-token
+check_eq "github-token with no kind sets up both tokens" \
+  "add-generic-password -U -s claude-ollama-github-read -a $USER -w
+add-generic-password -U -s claude-ollama-github -a $USER -w" "$(cat "$sandbox/security.log")"
+STUB_SECURITY_ADD_STATUS=1 run_capture "$repo/bin/claude-ollama" github-token read
+check_eq "github-token exits 1 when the keychain refuses the token" 1 "$?"
+run_capture "$repo/bin/claude-ollama" github-token admin
+check_eq "github-token rejects an unknown kind" 2 "$?"
+check_that "and names the kinds" grep -qxF "usage: claude-ollama github-token [read|push]" "$sandbox/err"
+run_capture "$repo/bin/claude-ollama" --help
+check_that "help lists github-token" grep -qF "github-token [read|push]:" "$sandbox/out"
 
 if [ "$failures" -eq 0 ]; then
   echo "all passed"

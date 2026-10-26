@@ -84,6 +84,10 @@ before changing how any file gets applied.
   `claude-ollama --print-config [size]` (resolved values, no launch). Follow the
   server log: `claude-ollama logs [-n LINES]` (LaunchAgent plist path, else the
   Homebrew log, else the app log)
+- GitHub tokens: `claude-ollama github-token [read|push]` (both without a kind)
+  opens a pre-filled fine-grained token page and stores the pasted token with
+  `security add-generic-password -U ... -w`, which prompts, so it never lands in
+  argv.
 - Reviews page: `claude-ollama reviews [--port N]` serves `web/pr-review`
   (Next.js with AI Elements) at `http://127.0.0.1:8765/`, built on first run
   with pnpm. Its tests run with `make test-web`.
