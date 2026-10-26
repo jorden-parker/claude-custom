@@ -1,7 +1,8 @@
 "use client";
 
 import { Loader2 } from "lucide-react";
-import { useEffect, useReducer, useRef, useState } from "react";
+import { useEffect, useReducer, useState } from "react";
+import { useFollowScroll } from "@/components/use-follow-scroll";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -13,7 +14,6 @@ import { runStatusLabel, runStatusTextClass } from "@/lib/run-status-style";
 
 const TICK_MS = 1000;
 const STATUS_POLL_MS = 2000;
-const FOLLOW_THRESHOLD_PX = 8;
 
 type RunViewProps = { id: string };
 
@@ -40,7 +40,7 @@ export function RunView({ id }: RunViewProps) {
   );
 }
 
-function useRunStream(id: string): RunState {
+export function useRunStream(id: string): RunState {
   const [state, dispatch] = useReducer(reduceRunMessage, initialRunState);
   useEffect(() => {
     const source = new EventSource(`/api/runs/${encodeURIComponent(id)}/events`);
@@ -77,22 +77,12 @@ function RunHeader({ id, label, status, seconds }: { id: string; label: string; 
 }
 
 function OutputBox({ lines }: { lines: RunState["lines"] }) {
-  const outputRef = useRef<HTMLDivElement>(null);
-  const followRef = useRef(true);
-
-  useEffect(() => {
-    const output = outputRef.current;
-    if (output && followRef.current) {
-      output.scrollTop = output.scrollHeight;
-    }
-  }, [lines.length]);
+  const { outputRef, onScroll } = useFollowScroll<HTMLDivElement>(lines.length);
 
   return (
     <div
       ref={outputRef}
-      onScroll={(event) => {
-        followRef.current = isAtBottom(event.currentTarget);
-      }}
+      onScroll={onScroll}
       className="max-h-[60vh] overflow-auto rounded-lg bg-muted/40 p-3 font-mono text-xs"
     >
       {lines.map((line, index) => (
@@ -102,10 +92,6 @@ function OutputBox({ lines }: { lines: RunState["lines"] }) {
       ))}
     </div>
   );
-}
-
-function isAtBottom(box: HTMLDivElement): boolean {
-  return box.scrollHeight - box.scrollTop - box.clientHeight < FOLLOW_THRESHOLD_PX;
 }
 
 function lineClass(stream: RunState["lines"][number]["stream"]): string {

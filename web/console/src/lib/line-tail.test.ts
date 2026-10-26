@@ -91,4 +91,39 @@ describe("streamLines", () => {
     const text = await readUntil(reader, (received) => received.includes("data: last"));
     expect(text).toBe("id: 3\ndata: last\n\n");
   });
+
+  it("starts 64 KiB from the end and drops the partial line it lands in", async () => {
+    await fs.writeFile(file, `early-line\n${"a".repeat(70_000)}\ntail-line\n`);
+    const reader = streamLines(file, controller.signal, {
+      skipLines: 0,
+      isEnd: isNotEnd,
+      frame: frameOf,
+      startOffset: "end-64k",
+    }).getReader();
+    const text = await readUntil(reader, (received) => received.includes("data: tail-line"));
+    expect(text).toContain("data: tail-line");
+    expect(text).not.toContain("early-line");
+    expect(text).not.toContain("aaaa");
+  });
+
+  it("reads a short file from its start when it starts from the end", async () => {
+    await fs.writeFile(file, "first\nsecond\n");
+    const reader = streamLines(file, controller.signal, {
+      skipLines: 0,
+      isEnd: isNotEnd,
+      frame: frameOf,
+      startOffset: "end-64k",
+    }).getReader();
+    const text = await readUntil(reader, (received) => received.includes("data: second"));
+    expect(text).toBe("id: 1\ndata: first\n\nid: 2\ndata: second\n\n");
+  });
+
+  it("starts from the top again when the file is truncated", async () => {
+    await fs.writeFile(file, "one\ntwo\n");
+    const reader = streamLines(file, controller.signal, { skipLines: 0, isEnd: isNotEnd, frame: frameOf }).getReader();
+    await readUntil(reader, (received) => received.includes("data: two"));
+    await fs.writeFile(file, "new\n");
+    const text = await readUntil(reader, (received) => received.includes("data: new"));
+    expect(text).toContain("data: new");
+  });
 });

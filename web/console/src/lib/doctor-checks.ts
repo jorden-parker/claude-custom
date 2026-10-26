@@ -19,3 +19,18 @@ export function doctorSummary(checks: readonly DoctorCheck[]): DoctorSummary {
   }
   return summary;
 }
+
+export type DoctorOutput = { checks: DoctorCheck[]; other: string[] };
+
+export function checksFromLines(lines: readonly string[]): DoctorOutput {
+  const output: DoctorOutput = { checks: [], other: [] };
+  for (const line of lines) {
+    const check = parseDoctorLine(line);
+    if (check === null) {
+      output.other.push(line);
+    } else {
+      output.checks.push(check);
+    }
+  }
+  return output;
+}

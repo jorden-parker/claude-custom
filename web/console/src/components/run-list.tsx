@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import { useRunSummaries } from "@/components/use-run-summaries";
 import { formatLocalTime, formatRelative } from "@/lib/format-time";
 import type { RunSummary } from "@/lib/run-log";
 import { runStatusDotClass, runStatusLabel, runStatusTextClass } from "@/lib/run-status-style";
@@ -11,21 +11,7 @@ import { runStatusDotClass, runStatusLabel, runStatusTextClass } from "@/lib/run
 const POLL_INTERVAL_MS = 2000;
 
 export function RunList() {
-  const [runs, setRuns] = useState<RunSummary[] | null>(null);
-  const [now, setNow] = useState(0);
-
-  useEffect(() => {
-    const load = async () => {
-      const response = await fetch("/api/runs", { cache: "no-store" });
-      if (response.ok) {
-        setRuns((await response.json()) as RunSummary[]);
-        setNow(Date.now());
-      }
-    };
-    void load();
-    const timer = setInterval(load, POLL_INTERVAL_MS);
-    return () => clearInterval(timer);
-  }, []);
+  const { runs, now } = useRunSummaries(POLL_INTERVAL_MS);
 
   if (runs === null) {
     return <p className="text-sm text-muted-foreground">Loading runs...</p>;

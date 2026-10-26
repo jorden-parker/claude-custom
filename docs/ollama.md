@@ -347,3 +347,20 @@ running job. Every run is kept in `$CLAUDE_CONSOLE_STATE_DIR/runs` (default
 `bin/console-run`; a run whose runner died shows as lost. Run logs are kept
 until you delete them: nothing removes them. Only one run of a command runs at a
 time.
+
+#### Health, Config and Logs
+
+`/health` reads the same checks as `claude-ollama doctor` for the size you pick:
+a checklist that fills in row by row, with a summary such as "19 ok · 2 warn · 4
+fail", and the last ten doctor runs for that size, linked to `/runs`. Its
+settings card shows `claude-ollama --print-config` for the size, with the
+`command` value and a copy button. Both only read; "Run checks" starts a doctor
+run as `/runs` does.
+
+`/logs` follows the Ollama server log live. The path comes from
+`claude-ollama logs --path` (LaunchAgent plist, else the Homebrew log, else
+`~/.ollama/logs/server.log`). Lines are coloured by level (error red, warn
+amber, debug muted), can be filtered by substring, and can be paused and resumed
+(while paused, new lines are counted). The view keeps the last 5000 lines. It
+starts from the last 64 KiB of the file and restarts from the top when the file
+shrinks. The page only reads the log and never takes a path from the request.
