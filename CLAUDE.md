@@ -20,7 +20,10 @@ four parts:
   3.8 27b or Qwen 3.6 35b. The overlay only applies to that launch.
   `go/cmd/model-picker/` is a Go/Bubble Tea menu for choosing the size.
 - **Tools TUI** (`go/cmd/claude-tools/`): a Go/Bubble Tea app that edits the
-  bare-tool-name permission rules in a Claude Code settings file.
+  bare-tool-name permission rules in a Claude Code settings file. `-json` prints
+  the rules and `-set NAME=perm[,off]` saves them without the TUI (scope last).
+  The console's `/tools` page drives both: `GET /api/tools` reads `-json`, and
+  the Save button runs `tools-set` (`-set` per change) against the user file.
 - **Agent TUI** (`go/cmd/ollama-agent/`): a Go/Bubble Tea app that edits the
   `OLLAMA_*` variables in a `local.ollama` LaunchAgent and reloads it, since
   launchd never reads `~/.zshenv`.
