@@ -20,21 +20,29 @@ READ_COMMANDS = {
     "search": {"issues", "prs", "repos", "commits", "code"},
 }
 BROWSER_FLAGS = {"--web", "-w"}
-REFUSED_API_FLAGS = {"--raw-field", "--field", "--input", "--hostname"}
-SHORT_FIELD_FLAGS = {"-f", "-F"}
+REPO_FLAGS = {"--repo", "-R"}
+API_SHORT_FLAGS = {"-q": "--jq", "-t": "--template", "-H": "--header", "-X": "--method", "-i": "--include"}
+API_SWITCHES = {"--paginate", "--slurp", "--include", "--silent", "--verbose"}
+API_VALUE_FLAGS = {"--jq", "--template", "--cache", "--header", "--method"}
 
 
 class Refused(Exception):
     pass
 
 
-def flag_name(arg):
-    return arg.split("=", 1)[0]
+def joins_short_flags(arg):
+    return arg.startswith("-") and not arg.startswith("--") and len(arg) > 2
+
+
+def require_separate_short_flags(args):
+    for arg in args:
+        if joins_short_flags(arg):
+            raise Refused(f"{arg} is not allowed: give each short flag on its own")
 
 
 def require_no_browser(args):
     for arg in args:
-        if flag_name(arg) in BROWSER_FLAGS:
+        if arg.partition("=")[0] in BROWSER_FLAGS:
             raise Refused(f"{arg} would open a browser outside the sandbox")
 
 
@@ -42,11 +50,19 @@ def names_a_host(arg):
     return "://" in arg or arg.startswith("//")
 
 
+def following(args, at):
+    return args[at + 1] if at + 1 < len(args) else ""
+
+
 def repo_values(args):
-    values = [flag_value(args, at, "--repo", "-R") for at in range(len(args))]
-    if args[:2] == ["repo", "view"] and len(args) > 2 and not args[2].startswith("-"):
-        values.append(args[2])
-    return [value for value in values if value is not None]
+    values = []
+    for at, arg in enumerate(args):
+        name, joined, value = arg.partition("=")
+        if name in REPO_FLAGS:
+            values.append(value if joined else following(args, at))
+    if args[:2] == ["repo", "view"]:
+        values += [arg for arg in args[2:] if not arg.startswith("-")]
+    return values
 
 
 def require_github_only(args):
@@ -58,38 +74,36 @@ def require_github_only(args):
             raise Refused(f"{repo} is not allowed: name a repo as OWNER/NAME on github.com")
 
 
-def flag_value(args, at, long_flag, short_flag):
-    arg = args[at]
-    if arg in (long_flag, short_flag):
-        return args[at + 1] if at + 1 < len(args) else ""
-    if arg.startswith(f"{long_flag}="):
-        return arg.split("=", 1)[1]
-    if arg.startswith(short_flag):
-        return arg[len(short_flag) :].removeprefix("=")
-    return None
-
-
-def refused_api_flag(arg):
-    return flag_name(arg) in REFUSED_API_FLAGS or arg[:2] in SHORT_FIELD_FLAGS
+def require_read_only_api_value(flag, value):
+    if flag == "--method" and value.upper() != "GET":
+        raise Refused(f"api --method {value} is not allowed: only GET")
+    if flag == "--header" and not value.lower().startswith("accept:"):
+        raise Refused("api headers other than Accept are not allowed")
 
 
 def require_read_only_api(args):
-    for at, arg in enumerate(args):
-        if refused_api_flag(arg):
-            raise Refused(f"api {arg} is not allowed: the session may only read")
-        method = flag_value(args, at, "--method", "-X")
-        if method is not None and method.upper() != "GET":
-            raise Refused(f"api {method or 'without a method'} is not allowed: only GET")
-        header = flag_value(args, at, "--header", "-H")
-        if header is not None and not header.lower().startswith("accept:"):
-            raise Refused("api headers other than Accept are not allowed")
+    at = 0
+    while at < len(args):
+        arg = args[at]
         if arg == "graphql":
             raise Refused("api graphql is not allowed: only REST paths on github.com")
+        if arg.startswith("-"):
+            name, joined, value = arg.partition("=")
+            flag = API_SHORT_FLAGS.get(name, name)
+            if flag in API_VALUE_FLAGS:
+                if not joined:
+                    value = following(args, at)
+                    at += 1
+                require_read_only_api_value(flag, value)
+            elif flag not in API_SWITCHES:
+                raise Refused(f"api {arg} is not allowed: the session may only read")
+        at += 1
 
 
 def require_read_command(args):
     if not args:
         raise Refused("a gh command is required")
+    require_separate_short_flags(args)
     require_no_browser(args)
     require_github_only(args)
     if args[0] == "api":
@@ -104,7 +118,16 @@ class Broker:
     def __init__(self, gh, repo, workdir):
         self.gh = gh
         self.workdir = workdir
-        self.env = {**os.environ, "GH_PROMPT_DISABLED": "1", "GH_PAGER": "cat", "GH_NO_UPDATE_NOTIFIER": "1"}
+        config_dir = Path(workdir, "gh-config")
+        config_dir.mkdir()
+        self.env = {
+            **os.environ,
+            "GH_HOST": "github.com",
+            "GH_CONFIG_DIR": str(config_dir),
+            "GH_PROMPT_DISABLED": "1",
+            "GH_PAGER": "cat",
+            "GH_NO_UPDATE_NOTIFIER": "1",
+        }
         self.env.pop("GITHUB_TOKEN", None)
         if repo:
             self.env["GH_REPO"] = repo

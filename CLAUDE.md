@@ -333,10 +333,13 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   token as `GH_TOKEN` and `GH_REPO` from the project's GitHub `origin`.
   `ollama/sandbox-entry` puts `ollama/gh/bin/gh` (the client) first on PATH. The
   broker runs only an allowlist of read subcommands, plus `gh api` as GET on
-  REST paths (no fields, `--input`, `--hostname`, non-Accept headers, `graphql`
-  or full URLs), never `--web`, a URL or a host-qualified repo (the broker's
-  network is unrestricted), from an empty temp dir so `gh` reads no git config
-  the session wrote. The session never holds `GH_TOKEN` (an outer
+  REST paths with only `--jq`, `--template`, `--cache`, Accept headers and
+  output switches (no `graphql`). It refuses joined short flags (`-iXPOST`,
+  `-cw`), since gh splits them where the broker would not, `--web`, URLs and
+  host-qualified repos (the broker's network is unrestricted). gh runs from an
+  empty temp dir, so it reads no git config the session wrote, with
+  `GH_HOST=github.com` and an empty `GH_CONFIG_DIR`, so none of your saved
+  logins are reachable. The session never holds `GH_TOKEN` (an outer
   `GH_TOKEN`/`GITHUB_TOKEN` is unset). Tests: `ollama/gh/broker.test.sh` (stub
   `gh`); the launcher test runs the whole chain from a sandbox under `/tmp`,
   since a Unix socket path must stay under 104 bytes. `allowLocalBinding` is on

@@ -54,6 +54,9 @@ cat > "$tmp/gh" <<EOF
 echo "\$*" >> "$tmp/gh.log"
 echo "\${GH_TOKEN-unset} \${GH_REPO-unset} \${GH_PROMPT_DISABLED-unset} \${GITHUB_TOKEN-unset}" > "$tmp/gh-env"
 pwd -P > "$tmp/gh-cwd"
+echo "\${GH_HOST-unset}" > "$tmp/gh-host"
+echo "\${GH_CONFIG_DIR-unset}" > "$tmp/gh-config-dir"
+ls -A "\${GH_CONFIG_DIR:-/nonexistent}" > "$tmp/gh-config-listing" 2>&1
 echo "listed"
 echo "warning" >&2
 exit 3
@@ -98,6 +101,10 @@ check_eq "gh gets the read-only token and the project's repo, never prompting an
 check_not "gh never runs in the session's folder, so it reads no git config the session wrote" \
   grep -qF "$tmp/work" "$tmp/gh-cwd"
 
+check_eq "gh only ever talks to github.com" github.com "$(cat "$tmp/gh-host")"
+check_not "gh never reads your own gh config and its saved logins" grep -qF "$HOME" "$tmp/gh-config-dir"
+check_eq "gh starts from an empty config" "" "$(cat "$tmp/gh-config-listing")"
+
 run_client pr view 12 --comments
 check_that "pr view passes" logged "pr view 12 --comments"
 run_client pr diff 12
@@ -116,6 +123,8 @@ run_client api -X GET repos/owner/project/issues
 check_that "api with an explicit GET passes" logged "api -X GET repos/owner/project/issues"
 run_client api -H 'Accept: application/vnd.github.diff' repos/owner/project/pulls/1
 check_that "api with an Accept header passes" logged "api -H Accept: application/vnd.github.diff repos/owner/project/pulls/1"
+run_client api --paginate -q '.[].name' repos/owner/project/branches
+check_that "api --paginate with a short --jq passes" logged "api --paginate -q .[].name repos/owner/project/branches"
 
 refused() {
   : > "$tmp/gh.log"
@@ -146,6 +155,12 @@ check_that "api on a full URL is refused" refused api https://example.com/x
 check_that "api to another host is refused" refused api --hostname example.com repos/x/y
 check_that "api with a non-Accept header is refused" refused api -H 'X-HTTP-Method-Override: POST' repos/x/y
 check_that "an empty command is refused" refused
+check_that "api with POST joined into short flags is refused" refused api -iXPOST repos/owner/project/issues
+check_that "api with a field joined into short flags is refused" refused api -pF body=@/etc/passwd repos/x/y
+check_that "api flags outside the allowlist are refused" refused api --unknown repos/x/y
+check_that "the browser flag joined into short flags is refused" refused pr view 12 -cw
+check_that "a joined -R on another host is refused" refused issue list -Revil.example/o/r
+check_that "repo view on another host after other flags is refused" refused repo view --branch main evil.example/o/r
 check_that "a PR URL, which could point gh at any host, is refused" refused pr view https://evil.example/o/r/pull/1
 check_that "a repo on another host is refused" refused issue list -R evil.example/o/r
 check_that "a repo on another host given with --repo= is refused" refused issue list --repo=evil.example/o/r
