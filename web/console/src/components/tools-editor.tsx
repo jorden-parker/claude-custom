@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { StartRunButton } from "@/components/start-run-button";
 import { Button } from "@/components/ui/button";
@@ -87,6 +88,9 @@ export function ToolsEditor() {
       <div className="flex flex-col gap-1 text-sm">
         <p className="font-mono break-all">{report.path}</p>
         <p className="text-muted-foreground">Changes apply to new Claude Code sessions.</p>
+        <Link href="/history" className="underline">
+          History
+        </Link>
       </div>
       {report.tools.length === 0 ? (
         <p className="text-sm text-muted-foreground">No tools in the catalog.</p>

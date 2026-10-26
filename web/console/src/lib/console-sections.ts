@@ -14,4 +14,5 @@ export const CONSOLE_SECTIONS: readonly ConsoleSection[] = [
   { href: "/tools", title: "Tools", summary: "Allow, ask or deny each tool in your user settings" },
   { href: "/benchmarks", title: "Benchmarks", summary: "Benches, bench-off report and tool telemetry" },
   { href: "/models", title: "Models", summary: "Sizes, installed models, prepare and prune" },
+  { href: "/history", title: "History", summary: "Every settings change, with diffs and restore" },
 ];
