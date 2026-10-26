@@ -18,6 +18,14 @@ function requestFor(url: string, cookie?: string, host = "127.0.0.1:8765"): Next
   return new NextRequest(url, { headers });
 }
 
+function writeRequestFor(origin: string | undefined): NextRequest {
+  const headers: Record<string, string> = { host: "127.0.0.1:8765", cookie: `console_token=${TOKEN}` };
+  if (origin !== undefined) {
+    headers.origin = origin;
+  }
+  return new NextRequest("http://127.0.0.1:8765/api/runs", { method: "POST", headers });
+}
+
 beforeEach(() => {
   tokenDir = fs.mkdtempSync(path.join(os.tmpdir(), "console-"));
   const tokenFile = path.join(tokenDir, "token");
@@ -87,5 +95,25 @@ describe("proxy host gate", () => {
 
   it("lets a tokened request addressed to localhost through", () => {
     expect(proxy(requestFor(PAGE, TOKEN, "localhost:8765")).headers.get("x-middleware-next")).toBe("1");
+  });
+});
+
+describe("proxy same-origin rule for writes", () => {
+  it("passes a POST whose origin matches the host and carries the token", () => {
+    const response = proxy(writeRequestFor("http://127.0.0.1:8765"));
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+  });
+
+  it("answers 403 to a POST without an origin", () => {
+    expect(proxy(writeRequestFor(undefined)).status).toBe(403);
+  });
+
+  it("answers 403 to a POST from another origin", () => {
+    expect(proxy(writeRequestFor("http://evil.test")).status).toBe(403);
+  });
+
+  it("lets a GET without an origin through", () => {
+    const response = proxy(requestFor(PAGE, TOKEN));
+    expect(response.headers.get("x-middleware-next")).toBe("1");
   });
 });

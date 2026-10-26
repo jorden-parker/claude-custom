@@ -1,5 +1,5 @@
 import { parseReviewEvent } from "./review-event";
-import { streamLines } from "./line-tail";
+import { serverSentFrame, streamLines } from "./line-tail";
 
 export function parseLastEventId(value: string | null): number {
   return /^[1-9]\d*$/.test(value ?? "") ? Number(value) : 0;
@@ -13,7 +13,7 @@ export function streamReviewEvents(
   return streamLines(file, signal, {
     skipLines,
     isEnd: isEndLine,
-    frame: (lineNumber, line) => `id: ${lineNumber}\ndata: ${line}\n\n`,
+    frame: serverSentFrame,
   });
 }
 

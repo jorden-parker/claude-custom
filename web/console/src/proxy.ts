@@ -5,9 +5,13 @@ import { isLoopbackHost } from "@/lib/host-guard";
 
 const TOKEN_PARAM = "token";
 const TOKEN_COOKIE = "console_token";
+const READ_METHODS = ["GET", "HEAD"];
 
 export function proxy(request: NextRequest) {
   if (!isLoopbackHost(request.headers.get("host"))) {
+    return new NextResponse("Forbidden", { status: 403 });
+  }
+  if (!isSameOriginWrite(request)) {
     return new NextResponse("Forbidden", { status: 403 });
   }
   const expected = expectedToken();
@@ -21,6 +25,13 @@ export function proxy(request: NextRequest) {
     return NextResponse.next();
   }
   return unauthorized();
+}
+
+function isSameOriginWrite(request: NextRequest): boolean {
+  if (READ_METHODS.includes(request.method)) {
+    return true;
+  }
+  return request.headers.get("origin") === `http://${request.headers.get("host")}`;
 }
 
 function expectedToken(): string {

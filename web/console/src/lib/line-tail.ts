@@ -14,6 +14,10 @@ export type LineTailOptions = {
   frame: (lineNumber: number, line: string) => string | null;
 };
 
+export function serverSentFrame(lineNumber: number, line: string): string {
+  return `id: ${lineNumber}\ndata: ${line}\n\n`;
+}
+
 export function streamLines(
   file: string,
   signal: AbortSignal,

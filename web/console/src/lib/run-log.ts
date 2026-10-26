@@ -18,7 +18,7 @@ export type RunSummary = {
 const RUN_ID_PATTERN = /^[0-9]{8}-[0-9]{6}-[a-z][a-z-]*-[0-9a-f]{4}$/;
 const RUN_FILE_SUFFIX = ".jsonl";
 
-function runsDir(): string {
+export function runsDir(): string {
   const stateDir =
     process.env.CLAUDE_CONSOLE_STATE_DIR ||
     path.join(os.homedir(), ".local/share/claude-custom/console");
@@ -35,15 +35,22 @@ export function newRunId(command: string, now: Date, randomHex: string): string 
 }
 
 export function resolveRunFile(id: string): string | null {
+  return resolveRunFileIn(runsDir(), id);
+}
+
+export function resolveRunFileIn(directory: string, id: string): string | null {
   if (!isRunId(id)) {
     return null;
   }
-  const directory = runsDir();
   const file = path.resolve(directory, `${id}${RUN_FILE_SUFFIX}`);
   if (path.dirname(file) !== path.resolve(directory)) {
     return null;
   }
   return fs.existsSync(file) ? file : null;
+}
+
+export function isRunEndLine(line: string): boolean {
+  return parseRunEvent(line)?.kind === "end";
 }
 
 export function parseRunEvents(text: string): RunEvent[] {
@@ -82,7 +89,7 @@ export function runStatus(events: RunEvent[], isAlive: (pid: number) => boolean)
   return typeof pid === "number" && isAlive(pid) ? "running" : "lost";
 }
 
-function isProcessAlive(pid: number): boolean {
+export function isProcessAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
