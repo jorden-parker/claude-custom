@@ -396,3 +396,17 @@ takes a long time; it needs AC power and about 45 GB free) and lists every past
 verdict in `~/bench-results`, newest first, with a button that copies the paste
 block. A failed run is listed with a link to its run page, which shows the
 `speed-check stopped` line. Files that do not parse are skipped.
+
+#### Benchmarks
+
+`/benchmarks` runs the four local measurements from fixed choices: messages-bench
+(TTFT, prefill, decode and tool calls, with the thinking mode and prefix length
+offered in the form), the prompt-cache probe, and the review eval scorecard, each for a
+configured size, plus bench-off runs of one server and model. Each card notes that it
+uses the model now, so stop other sessions first for clean numbers. The bench-off page
+embeds `$BENCH_RESULTS/bench-off.html` (default `~/bench-results`) in a sandbox that
+allows scripts only, and shows the install, download and run commands for the terminal
+when no report exists yet. The console never runs `backend-bench-off install`,
+`download` or `all`. History lists the last 20 bench runs. The telemetry card shows
+`tool-telemetry-report`; it stays off until `CLAUDE_TOOL_TELEMETRY` is set, for sessions
+and for `claude-ollama ui`.

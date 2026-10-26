@@ -1,3 +1,7 @@
+export const THINKING_MODES = ["omit", "claude-code", "disabled"] as const;
+
+export const PREFIX_TOKENS = ["2000", "20000", "60000"] as const;
+
 export const BENCH_OFF_SERVERS = [
   "ollama",
   "ollama-mtp",
