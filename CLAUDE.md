@@ -41,6 +41,8 @@ before changing how any file gets applied.
 - CI: `.github/workflows/verify.yml` runs `make test` on macOS and Ubuntu on
   every push to main and every PR.
 - Installer tests: `personal/install.test.sh` (prints `all passed`)
+- Run log tests: `bin/console-run.test.sh` (prints `all passed`;
+  `make test-console`)
 - Launcher tests: `bin/claude-ollama.test.sh` (prints `all passed`; covers
   `bin/claude-ollama` and the `claude-custom ollama|tools` subcommands)
 - Model manager: `bin/ollama-models list|prune [--yes]|pin NAME[:TAG]` marks
@@ -105,6 +107,17 @@ before changing how any file gets applied.
   Elements) at `http://127.0.0.1:8765/`, built on first run with pnpm. The
   reviews list is at `/reviews`; `claude-ollama reviews [--port N]` runs the
   same server and prints that link. Its tests run with `make test-web`.
+- Run log:
+  `bin/console-run --log FILE --id ID --command NAME --label TEXT -- ARGV...`
+  runs one command and writes a JSONL run log (`start`, `line`, `progress`,
+  `end` events) to `$CLAUDE_CONSOLE_STATE_DIR/runs/<id>.jsonl` (folder 0700,
+  files 0600). Tests: `bin/console-run.test.sh` (`make test-console`). The
+  console starts runs only from the command list in
+  `web/console/src/lib/console-commands.ts`: fixed argv, params checked against
+  the configured sizes, one run per command at a time. Its server gets
+  `CLAUDE_CUSTOM_HOME` and `CLAUDE_CONSOLE_STATE_DIR` from `serve_console`.
+  Every POST to the console must carry an `Origin` equal to its own
+  `http://<host>` (`proxy.ts`), so a cross-site page can't start a run.
 - Launch the tools TUI: `claude-tools [user|project|local|FILE]`. Launch the
   agent TUI: `ollama-agent [-file PLIST] [-ollama BIN]`. All three are also
   `claude-custom ollama|tools|agent [...]`.

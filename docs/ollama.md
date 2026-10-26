@@ -336,3 +336,14 @@ log directory and removes that file when it exits. The console token lives in
 environment; the session's sandbox denies reading both that folder and the
 reviews folder. `pnpm --dir web/console demo --serve` serves fixture reviews
 (every event kind) and a live replay.
+
+#### Runs
+
+`/runs` starts jobs from a fixed list (today: Run doctor for a configured size)
+and streams each one live: a stage bar when the output has `[n/total] title`
+lines, the latest progress line, the output and an end banner. Cancel stops a
+running job. Every run is kept in `$CLAUDE_CONSOLE_STATE_DIR/runs` (default
+`~/.local/share/claude-custom/console/runs`), one JSONL log per run, written by
+`bin/console-run`; a run whose runner died shows as lost. Run logs are kept
+until you delete them: nothing removes them. Only one run of a command runs at a
+time.
