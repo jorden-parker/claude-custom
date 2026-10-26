@@ -84,11 +84,26 @@ pulled_models() {
 is_sha256() {
   [[ "$1" =~ ^[0-9a-f]{64}$ ]]
 }
+is_library_name() {
+  [[ "$1" != */* ]]
+}
+is_pinned_gguf() {
+  local file="${1#./weights/}"
+  [[ "$1" == ./weights/* && "$file" != */* && "$file" == *.gguf ]] || return 1
+  jq -e --arg base "$1" '
+    [.[] | select(.base == $base) | .gguf // empty
+      | select((.repo | test("^unsloth/[A-Za-z0-9._-]+-GGUF$")) and (.revision | test("^[0-9a-f]{40}$")))
+    ] | length > 0' "$repo/ollama/sizes.json" >/dev/null
+}
+is_allowed_base() {
+  is_library_name "$1" || is_pinned_gguf "$1"
+}
 for name in $(pulled_models); do
-  check_that "$name is an Ollama library model" test "${name#*/}" = "$name"
+  check_that "$name is an Ollama library model or a pinned Unsloth GGUF" is_allowed_base "$name"
   check_that "$name has a sha256 pin in model-digests.json" \
     is_sha256 "$(jq -r ".[\"$name\"] // empty" "$digests")"
 done
+check_that ".gitignore keeps downloaded GGUF weights out of git" grep -qx 'ollama/weights/' "$repo/.gitignore"
 
 check_eq "rendered profiles are current" 0 "$("$repo/bin/ollama-profiles" --check >/dev/null 2>&1; echo $?)"
 

@@ -13,3 +13,4 @@ go/cmd/claude-tools/claude-tools
 go/cmd/model-picker/model-picker
 go/cmd/ollama-agent/ollama-agent
 .next/
+ollama/weights/

@@ -13,5 +13,42 @@
     "base": "qwen3.6:35b-a3b-coding-nvfp4",
     "model": "qwen3.6-35b-coding-cc",
     "context": 98304
+  },
+  "27b-gguf": {
+    "base": "./weights/Qwen3.8-27B-UD-Q4_K_XL.gguf",
+    "model": "qwen3.8-27b-gguf-cc",
+    "context": 65536,
+    "renderer": "qwen3.8",
+    "parser": "qwen3.5",
+    "parameters": {
+      "temperature": 1,
+      "top_k": 20,
+      "top_p": 0.95,
+      "min_p": 0,
+      "presence_penalty": 0,
+      "repeat_penalty": 1
+    },
+    "gguf": {
+      "repo": "unsloth/Qwen3.8-27B-GGUF",
+      "revision": "4ca720788d1e01f1bff70c033e0d0028fd02e502"
+    }
+  },
+  "35b-gguf": {
+    "base": "./weights/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf",
+    "model": "qwen3.6-35b-gguf-cc",
+    "context": 98304,
+    "renderer": "qwen3.5",
+    "parameters": {
+      "temperature": 1,
+      "top_k": 20,
+      "top_p": 0.95,
+      "min_p": 0,
+      "presence_penalty": 1.5,
+      "repeat_penalty": 1
+    },
+    "gguf": {
+      "repo": "unsloth/Qwen3.6-35B-A3B-GGUF",
+      "revision": "a483e9e6cbd595906af30beda3187c2663a1118c"
+    }
   }
 }
