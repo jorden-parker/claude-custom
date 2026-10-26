@@ -23,7 +23,9 @@ four parts:
   bare-tool-name permission rules in a Claude Code settings file.
 - **Agent TUI** (`go/cmd/ollama-agent/`): a Go/Bubble Tea app that edits the
   `OLLAMA_*` variables in a `local.ollama` LaunchAgent and reloads it, since
-  launchd never reads `~/.zshenv`.
+  launchd never reads `~/.zshenv`. `-json` prints the variables and conflicts
+  without writing; `-set NAME=VALUE` (repeatable) writes just those and reloads.
+  The console's Server page uses both.
 
 Every file is additive. Nothing here replaces a base config. The layer order is
 in `docs/layers.md` and install/revert steps in `docs/install.md`. Read them
@@ -449,13 +451,14 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   (`go/internal/agent/apply`). `bin/claude-ollama` sends a background warm-up
   `keep_alive` request to `OLLAMA_HOST` (default `localhost:11434`) before
   `exec claude`.
-- `go/internal/agent/` has four packages (`apply` is the `-apply` mode):
+- `go/internal/agent/` has five packages (`apply` is the `-apply` mode):
   `launchd` (renders and reads the plist, saves atomically, builds the
   `launchctl bootout`/`bootstrap` reload command), `variables` (the known
-  `OLLAMA_*` list and the `server.env` parser) and `ui` (the Bubble Tea model;
-  `Config.Reload` is injected so tests never call launchctl). Saving rewrites
-  the whole plist, so hand edits to keys other than `EnvironmentVariables` are
-  lost.
+  `OLLAMA_*` list, the `server.env` parser and `ParseAssignment` for `-set`),
+  `snapshot` (the `-json` view: current, recommended and conflicts) and `ui`
+  (the Bubble Tea model; `Config.Reload` is injected so tests never call
+  launchctl). Saving rewrites the whole plist, so hand edits to keys other than
+  `EnvironmentVariables` are lost.
 - `ollama/CLAUDE.local.md` is the appended system prompt for every size, for
   small local models, not memory files. Keep it terse: the 27b has a 64k
   context, the other sizes 96k. `ollama/sizes.json` is the single source for
