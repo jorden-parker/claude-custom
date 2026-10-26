@@ -413,13 +413,27 @@ update_repo() {
     echo "update: git pull failed; fix the repo state, then run: $repo_dir/bin/claude-custom install" >&2
     exit 1
   fi
-  exec "$repo_dir/bin/claude-custom" install
+  exec "$repo_dir/bin/claude-custom" finish-update
+}
+
+check_browser_lock() {
+  if [ -z "${CMUX_SOCKET_PATH:-}" ]; then
+    echo "run claude-custom update from a cmux terminal to check the browser lock"
+    return
+  fi
+  "$repo_dir/bin/claude-ollama" browser-check || status=1
+}
+
+finish_update() {
+  install_all
+  check_browser_lock
 }
 
 main() {
   case "${1:-install}" in
     install) install_all ;;
     update) update_repo ;;
+    finish-update) finish_update ;;
     uninstall) uninstall_all ;;
     ollama) shift; exec "$repo_dir/bin/claude-ollama" "$@" ;;
     tools) shift; exec "$repo_dir/bin/claude-tools" "$@" ;;

@@ -7,6 +7,7 @@ jq_bin="$(command -v jq)"
 failures=0
 sandboxes=""
 system_tools=""
+unset CMUX_SOCKET_PATH
 remove_sandboxes() {
   local dir
   local PATH=/usr/bin:/bin
@@ -455,6 +456,25 @@ run_capture "$sandbox/clone/bin/claude-custom" update
 check_eq "update exit status" 0 "$?"
 check_eq "update pulled the new commit" "true" "$(tail -n 1 "$sandbox/clone/personal/claude.sh")"
 check_that "update rewrote zshrc block for the clone" grep -qxF "CLAUDE_CUSTOM_HOME='$sandbox/clone'" "$HOME/.zshrc"
+check_that "update outside cmux says where the browser check runs" grep -qF "run claude-custom update from a cmux terminal to check the browser lock" "$sandbox/out"
+
+new_sandbox
+copy_repo "$sandbox/origin"
+git -C "$sandbox/origin" init -q
+git -C "$sandbox/origin" add -A
+git -C "$sandbox/origin" -c user.name=t -c user.email=t@t commit -qm initial
+git clone -q "$sandbox/origin" "$sandbox/clone"
+cat > "$sandbox/origin/bin/claude-ollama" <<EOF
+#!/bin/sh
+echo "\$*" >> "$sandbox/check.log"
+exit "\${STUB_CHECK_EXIT:-0}"
+EOF
+git -C "$sandbox/origin" -c user.name=t -c user.email=t@t commit -qam 'stub claude-ollama'
+CMUX_SOCKET_PATH="$sandbox/cmux.sock" run_capture "$sandbox/clone/bin/claude-custom" update
+check_eq "update in cmux exit status" 0 "$?"
+check_eq "update in cmux runs the browser check with the pulled launcher" "browser-check" "$(cat "$sandbox/check.log")"
+STUB_CHECK_EXIT=1 CMUX_SOCKET_PATH="$sandbox/cmux.sock" run_capture "$sandbox/clone/bin/claude-custom" update
+check_eq "update fails when the browser check fails" 1 "$?"
 
 new_sandbox
 copy_repo "$sandbox/origin"
