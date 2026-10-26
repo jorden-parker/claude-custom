@@ -420,9 +420,11 @@ it stays off until `CLAUDE_TOOL_TELEMETRY` is set, for sessions and for
 its class, size on disk and whether Ollama has it loaded. It refreshes every 5
 seconds and shows an Ollama-not-running banner when the server does not answer.
 Prepare starts `claude-ollama prepare SIZE` as a run and shows its progress bar;
-a missing size can take many gigabytes to download. Remove unused models opens a
-panel that lists exactly the third-party and orphan models it would remove, with
-their total size, and starts `ollama-models prune --yes --only NAME...` only
-after you press Remove these. The page only previews: the script re-checks each
-name when it removes it, so a model that stopped being prunable is skipped.
-Pinning stays in the terminal.
+a missing size can take many gigabytes to download. The "Embedding model" card
+shows the `semantic_search` model's name from `--print-config` and whether
+Ollama has it; its "Set up" button runs `claude-ollama prepare-embedding` the
+same way. Remove unused models opens a panel that lists exactly the third-party
+and orphan models it would remove, with their total size, and starts
+`ollama-models prune --yes --only NAME...` only after you press Remove these.
+The page only previews: the script re-checks each name when it removes it, so a
+model that stopped being prunable is skipped. Pinning stays in the terminal.

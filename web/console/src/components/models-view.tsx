@@ -8,7 +8,7 @@ import { PruneConfirm } from "@/components/prune-confirm";
 import { StartRunButton } from "@/components/start-run-button";
 import { postRun } from "@/lib/post-run";
 import { gigabytes, sizeStateOf, type InstalledModel, type SizeState, type SizeStatus } from "@/lib/model-display";
-import type { ModelsSnapshot } from "@/lib/models";
+import type { EmbeddingStatus, ModelsSnapshot } from "@/lib/models";
 import type { RunSummary } from "@/lib/run-log";
 
 const POLL_MS = 5000;
@@ -30,6 +30,7 @@ export function ModelsView() {
     <div className="flex flex-col gap-8">
       {snapshot?.ollama === "down" ? <OllamaDownBanner /> : null}
       <SizesSection sizes={snapshot?.sizes ?? []} flashing={flashing} />
+      <EmbeddingSection embedding={snapshot?.embedding} />
       <InstalledSection snapshot={snapshot} pruneRunning={pruneRunning} />
     </div>
   );
@@ -51,6 +52,26 @@ function SizesSection({ sizes, flashing }: { sizes: SizeStatus[]; flashing: Set<
           <SizeRow key={size.size} size={size} flashing={flashing.has(size.size)} />
         ))}
       </Table>
+    </Section>
+  );
+}
+
+function EmbeddingSection({ embedding }: { embedding: EmbeddingStatus | undefined }) {
+  if (embedding === undefined) {
+    return null;
+  }
+  const style = embedding.installed ? STATE_STYLE.installed : STATE_STYLE.missing;
+  return (
+    <Section title="Embedding model">
+      <div className="flex flex-wrap items-center gap-3 text-sm">
+        <span className="font-mono text-xs">{embedding.name ?? "unknown"}</span>
+        <Badge className={style}>{embedding.installed ? "installed" : "missing"}</Badge>
+        {embedding.installed || embedding.name === null ? null : (
+          <StartRunButton command="prepare-embedding" params={{}}>
+            Set up
+          </StartRunButton>
+        )}
+      </div>
     </Section>
   );
 }

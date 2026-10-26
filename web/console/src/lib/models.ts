@@ -2,12 +2,15 @@ import path from "node:path";
 import { baseModelForSize, modelForSize } from "./size-models";
 import { configuredSizes, consoleRepoDir } from "./sizes";
 import { runOnce, type RunOnceOptions, type RunOnceResult } from "./run-once";
+import { CONSOLE_QUERIES } from "./console-commands";
+import { parsePrintConfig } from "./print-config";
 
 const DEFAULT_OLLAMA_URL = "http://localhost:11434";
 const PROBE_TIMEOUT_MS = 3000;
 const LIST_OPTIONS: RunOnceOptions = { timeoutMs: 10_000, maxBytes: 1024 * 1024 };
 const PRUNABLE_CLASSES = new Set(["third-party", "orphan"]);
 const LIST_LINE = /^(\S+)\s+(\S+)\s*$/;
+const EMBEDDING_KEY = "embedding model";
 
 type FetchLike = (url: string, init: { signal: AbortSignal }) => Promise<Response>;
 
@@ -20,11 +23,17 @@ export type ModelsDeps = {
 
 import type { InstalledModel, SizeStatus } from "./model-display";
 
+export type EmbeddingStatus = {
+  name: string | null;
+  installed: boolean;
+};
+
 export type ModelsSnapshot = {
   ollama: "up" | "down";
   sizes: SizeStatus[];
   models: InstalledModel[];
   prunable: string[];
+  embedding: EmbeddingStatus;
 };
 
 export function modelsDeps(): ModelsDeps {
@@ -47,11 +56,12 @@ function ollamaUrl(): string {
 export async function modelsSnapshot(deps: ModelsDeps): Promise<ModelsSnapshot> {
   const tags = await getJson(deps, "/api/tags");
   if (tags === null) {
-    return { ollama: "down", sizes: [], models: [], prunable: [] };
+    return { ollama: "down", sizes: [], models: [], prunable: [], embedding: { name: null, installed: false } };
   }
-  const [running, listing] = await Promise.all([
+  const [running, listing, embeddingName] = await Promise.all([
     getJson(deps, "/api/ps"),
     deps.runOnce([path.join(deps.repoDir, "bin", "ollama-models"), "list"], LIST_OPTIONS),
+    embeddingModelName(deps),
   ]);
   const classes = classesFrom(listing.stdout);
   const sizes = bytesByName(tags);
@@ -67,7 +77,24 @@ export async function modelsSnapshot(deps: ModelsDeps): Promise<ModelsSnapshot> 
     sizes: configuredSizes(deps.repoDir).map((size) => sizeStatus(deps.repoDir, size, classes)),
     models,
     prunable: models.filter((model) => PRUNABLE_CLASSES.has(model.class)).map((model) => model.name),
+    embedding: embeddingStatus(embeddingName, sizes),
   };
+}
+
+async function embeddingModelName(deps: ModelsDeps): Promise<string | null> {
+  const [size] = configuredSizes(deps.repoDir);
+  const argv = size === undefined ? null : CONSOLE_QUERIES.printConfig.argv({ size }, deps.repoDir);
+  if (argv === null) {
+    return null;
+  }
+  const result = await deps.runOnce(argv, LIST_OPTIONS);
+  const entry = parsePrintConfig(result.stdout).find((item) => item.key === EMBEDDING_KEY);
+  return entry?.value || null;
+}
+
+function embeddingStatus(name: string | null, installedSizes: Map<string, number>): EmbeddingStatus {
+  const installed = name !== null && (installedSizes.has(name) || installedSizes.has(`${name}:latest`));
+  return { name, installed };
 }
 
 async function getJson(deps: ModelsDeps, route: string): Promise<unknown> {

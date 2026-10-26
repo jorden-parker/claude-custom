@@ -59,6 +59,12 @@ const prepare: ConsoleCommand = {
   argv: sizeArgv("prepare"),
 };
 
+const prepareEmbedding: ConsoleCommand = {
+  name: "prepare-embedding",
+  label: () => "Set up embedding model",
+  argv: (params, repoDir) => (hasExactKeys(params, []) ? [`${repoDir}/bin/claude-ollama`, "prepare-embedding"] : null),
+};
+
 function pruneNames(params: CommandParams): string[] | null {
   if (!hasExactKeys(params, ["names"])) {
     return null;
@@ -243,6 +249,7 @@ const benchOffReport: ConsoleCommand = {
 export const CONSOLE_COMMANDS: readonly ConsoleCommand[] = [
   doctor,
   prepare,
+  prepareEmbedding,
   prune,
   review,
   serverSet,

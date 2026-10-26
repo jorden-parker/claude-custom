@@ -60,7 +60,10 @@ describe("modelsSnapshot", () => {
   it("merges sizes, installed models and prunable names", async () => {
     const snapshot = await modelsSnapshot(deps());
 
-    expect(argvs).toEqual([[`${repo}/bin/ollama-models`, "list"]]);
+    expect(argvs).toEqual([
+      [`${repo}/bin/ollama-models`, "list"],
+      [`${repo}/bin/claude-ollama`, "--print-config", "27b"],
+    ]);
     expect(snapshot.ollama).toBe("up");
     expect(snapshot.sizes).toEqual([
       { size: "27b", model: "qwen3.8-27b-cc", base: "qwen3.8:27b-mlx", installed: true, class: "profile" },
@@ -104,8 +107,50 @@ describe("modelsSnapshot", () => {
   it("reports Ollama as down with empty lists when it does not answer", async () => {
     const snapshot = await modelsSnapshot(deps({ fetch: async () => { throw new TypeError("fetch failed"); } }));
 
-    expect(snapshot).toEqual({ ollama: "down", sizes: [], models: [], prunable: [] });
+    expect(snapshot).toEqual({
+      ollama: "down",
+      sizes: [],
+      models: [],
+      prunable: [],
+      embedding: { name: null, installed: false },
+    });
     expect(argvs).toEqual([]);
+  });
+
+  it("reads the embedding model name from print-config of the first size", async () => {
+    const snapshot = await modelsSnapshot(deps({ runOnce: printConfigRunner("embedding model: test-embed:0.6b\n") }));
+
+    expect(snapshot.embedding).toEqual({ name: "test-embed:0.6b", installed: false });
+  });
+
+  it("marks the embedding model installed when its name is in the tags", async () => {
+    const tags = { models: [{ name: "test-embed:0.6b", size: 1_000_000 }] };
+    const snapshot = await modelsSnapshot(
+      deps({
+        runOnce: printConfigRunner("embedding model: test-embed:0.6b\n"),
+        fetch: fakeFetch({ "/api/tags": tags, "/api/ps": PS }),
+      }),
+    );
+
+    expect(snapshot.embedding).toEqual({ name: "test-embed:0.6b", installed: true });
+  });
+
+  it("matches the embedding model with or without the :latest tag", async () => {
+    const tags = { models: [{ name: "test-embed:latest", size: 1_000_000 }] };
+    const snapshot = await modelsSnapshot(
+      deps({
+        runOnce: printConfigRunner("embedding model: test-embed\n"),
+        fetch: fakeFetch({ "/api/tags": tags, "/api/ps": PS }),
+      }),
+    );
+
+    expect(snapshot.embedding).toEqual({ name: "test-embed", installed: true });
+  });
+
+  it("reports no embedding name when print-config has no embedding line", async () => {
+    const snapshot = await modelsSnapshot(deps({ runOnce: printConfigRunner("model: qwen\n") }));
+
+    expect(snapshot.embedding).toEqual({ name: null, installed: false });
   });
 
   it("asks Ollama with the configured URL", async () => {
@@ -115,6 +160,14 @@ describe("modelsSnapshot", () => {
     expect(urls).toContain("http://127.0.0.1:9999/api/tags");
   });
 });
+
+function printConfigRunner(printConfig: string): ModelsDeps["runOnce"] {
+  return async (argv): Promise<RunOnceResult> => ({
+    code: 0,
+    stdout: argv.includes("--print-config") ? printConfig : LISTING,
+    stderr: "",
+  });
+}
 
 function fakeFetch(routes: Record<string, unknown>, seen: string[] = []): ModelsDeps["fetch"] {
   return async (url) => {

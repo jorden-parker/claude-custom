@@ -8,6 +8,7 @@ describe("console commands", () => {
   let repo: string;
   const doctor = () => findCommand("doctor");
   const prepare = () => findCommand("prepare");
+  const prepareEmbedding = () => findCommand("prepare-embedding");
   const prune = () => findCommand("prune");
   const serverSet = () => findCommand("server-set");
   const serverApply = () => findCommand("server-apply");
@@ -32,6 +33,7 @@ describe("console commands", () => {
     expect(CONSOLE_COMMANDS.map((command) => command.name)).toEqual([
       "doctor",
       "prepare",
+      "prepare-embedding",
       "prune",
       "review",
       "server-set",
@@ -187,6 +189,18 @@ describe("console commands", () => {
   it("refuses to prepare a size that is not configured", () => {
     expect(prepare()?.argv({ size: "35b" }, repo)).toBeNull();
     expect(prepare()?.argv({ size: "27b; rm -rf ~" }, repo)).toBeNull();
+  });
+
+  it("builds the prepare-embedding argv with no parameters", () => {
+    expect(prepareEmbedding()?.argv({}, repo)).toEqual([`${repo}/bin/claude-ollama`, "prepare-embedding"]);
+  });
+
+  it("labels prepare-embedding", () => {
+    expect(prepareEmbedding()?.label({})).toBe("Set up embedding model");
+  });
+
+  it("refuses prepare-embedding with parameters", () => {
+    expect(prepareEmbedding()?.argv({ size: "27b" }, repo)).toBeNull();
   });
 
   it("builds the prune argv with --yes and --only before each name", () => {
