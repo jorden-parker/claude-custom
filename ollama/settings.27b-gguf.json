@@ -61,7 +61,14 @@
     "defaultMode": "default",
     "disableAutoMode": "disable",
     "ask": ["Bash", "Bash(git commit *)", "Bash(git push *)"],
-    "allow": ["mcp__code-search__semantic_search", "mcp__repo"]
+    "allow": [
+      "mcp__code-search__semantic_search",
+      "mcp__repo",
+      "mcp__dev__dev_status",
+      "mcp__dev__dev_logs",
+      "mcp__dev__dev_errors",
+      "mcp__dev__page_check"
+    ]
   },
   "sandbox": {
     "enabled": false
