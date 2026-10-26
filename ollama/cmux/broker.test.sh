@@ -235,6 +235,9 @@ check_eq "browser-check exits 1 when a check fails" 1 "$?"
 check_that "browser-check names the failed check" grep -qxF "FAIL: fetch to example.com blocked" "$tmp/selftest.out"
 check_that "browser-check reports failed" grep -qxF "browser-check: FAILED" "$tmp/selftest.out"
 
+check_that "every tabs.use in page.js is awaited" \
+  test -z "$(grep -n 'tabs.use(' "$here/page.js" | grep -v 'await tabs.use(')"
+
 if command -v node >/dev/null 2>&1; then
   check_that "page.js is valid JavaScript" node --check "$here/page.js"
 fi

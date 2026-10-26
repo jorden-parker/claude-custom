@@ -58,11 +58,11 @@ async function __cc_check_host() {
   }
 }
 
-function __ccNeedTab() {
+async function __ccNeedTab() {
   if (!globalThis.__ccTab) {
     throw new Error("call page_check first");
   }
-  tabs.use(globalThis.__ccTab);
+  await tabs.use(globalThis.__ccTab);
 }
 
 function __ccClearBuffers() {
@@ -110,9 +110,9 @@ async function __cc_open(request) {
   __ccClearBuffers();
   if (!globalThis.__ccTab) {
     globalThis.__ccTab = await tabs.open(request.url, { background: true });
-    tabs.use(globalThis.__ccTab);
+    await tabs.use(globalThis.__ccTab);
   } else {
-    tabs.use(globalThis.__ccTab);
+    await tabs.use(globalThis.__ccTab);
     await page.goto(request.url);
   }
   __ccAttachListeners();
@@ -124,7 +124,7 @@ async function __cc_open(request) {
 
 async function __cc_snapshot() {
   await __cc_lock();
-  __ccNeedTab();
+  await __ccNeedTab();
   const elements = String(await snapshot());
   await __cc_check_host();
   return { elements: elements };
@@ -132,7 +132,7 @@ async function __cc_snapshot() {
 
 async function __cc_act(request) {
   await __cc_lock();
-  __ccNeedTab();
+  await __ccNeedTab();
   __ccClearBuffers();
   if (request.action === "press") {
     await page.keyboard.press(request.text);
@@ -178,7 +178,7 @@ async function __ccTryGoto(url) {
 
 async function __ccLocalText(url) {
   const tab = await tabs.open(url, { background: true });
-  tabs.use(tab);
+  await tabs.use(tab);
   await page.waitForLoadState("load").catch(() => {});
   return page.evaluate(() => document.body.innerText);
 }
@@ -186,7 +186,7 @@ async function __ccLocalText(url) {
 async function __cc_selftest(request) {
   await __cc_lock();
   const home = await tabs.open("about:blank", { background: true });
-  tabs.use(home);
+  await tabs.use(home);
   const fetched = await page.evaluate(() =>
     fetch("https://example.com/").then(
       () => "reached",
