@@ -42,7 +42,7 @@ LOCKFILES = [("pnpm-lock.yaml", "pnpm"), ("yarn.lock", "yarn"), ("bun.lockb", "b
 OUTSIDE_REPOSITORY = "paths must stay inside the repository"
 SCRIPT_RULE = "dev_start runs only dev, start or dev:* scripts"
 PATH_RULE = "path must start with a single /"
-CMUX_OFF = "the cmux browser is off; relaunch claude-ollama with CLAUDE_OLLAMA_CMUX=1. dev_errors still works."
+CMUX_OFF = "the cmux browser is off; launch claude-ollama from a cmux terminal without CLAUDE_OLLAMA_CMUX=0. dev_errors still works."
 NO_SERVER = "no dev server answers for {}; call dev_status"
 NOT_NEXT = "not a Next.js 16+ dev server"
 

@@ -277,7 +277,7 @@ require_plain_project_root() {
 }
 
 cmux_broker_wanted() {
-  [ "${CLAUDE_OLLAMA_CMUX:-}" = 1 ] || return 1
+  [ "${CLAUDE_OLLAMA_CMUX:-}" = 0 ] && return 1
   case "${CMUX_SOCKET_PATH:-}" in
     /*) [ -S "$CMUX_SOCKET_PATH" ] && command -v cmux >/dev/null 2>&1 ;;
     *) return 1 ;;

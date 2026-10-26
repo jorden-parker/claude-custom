@@ -268,8 +268,8 @@ check "servers a session started are gone when it ends" port_refuses "$exit_port
 
 : > "$tmp/cmux.log"
 BROKER='' call page_check '{"dir":"app","path":"/settings"}' > "$tmp/no-broker.out"
-check "page_check without the cmux broker says to relaunch with CLAUDE_OLLAMA_CMUX=1" \
-  error_with "$(cat "$tmp/no-broker.out")" "CLAUDE_OLLAMA_CMUX=1"
+check "page_check without the cmux broker says to launch from a cmux terminal" \
+  error_with "$(cat "$tmp/no-broker.out")" "cmux terminal"
 
 browser_out="$tmp/session-browser.out"
 BROKER="$tmp/fake.sock" session "$browser_out" \

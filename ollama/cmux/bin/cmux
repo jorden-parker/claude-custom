@@ -21,7 +21,7 @@ def ask_broker(socket_path, request):
         try:
             connection.connect(socket_path)
         except OSError:
-            sys.exit("cmux broker: not running; launch claude-ollama with CLAUDE_OLLAMA_CMUX=1")
+            sys.exit("cmux broker: not running; launch claude-ollama from a cmux terminal (CLAUDE_OLLAMA_CMUX=0 turns it off)")
         connection.sendall(json.dumps(request).encode() + b"\n")
         with connection.makefile("rb") as replies:
             return json.loads(replies.readline())

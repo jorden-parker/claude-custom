@@ -261,8 +261,10 @@ or reloads a page in the cmux browser and returns its browser errors, console
 warnings and Next.js errors). `dev_start` and `dev_stop` ask before they run;
 the others do not. Servers a session starts stop when it ends. The server reads
 `.next/dev/lock` for its port and `/_next/mcp` on Next.js 16+; other frameworks
-get log errors only. `page_check` needs `CLAUDE_OLLAMA_CMUX=1`. In claude-ollama
-sessions the Bash guard denies `pnpm dev` and similar starts, and only there.
+get log errors only. `page_check` needs the cmux browser, which is on by default
+when claude-ollama runs in a cmux terminal; `CLAUDE_OLLAMA_CMUX=0` turns it off.
+In claude-ollama sessions the Bash guard denies `pnpm dev` and similar starts,
+and only there.
 
 ### Reviewing a pull request locally
 

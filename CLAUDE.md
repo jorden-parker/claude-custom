@@ -369,18 +369,20 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   the `com.apple.pasteboard.1` Mach service, which Claude Code's osascript image
   paste needs; it also lets the session read and write the clipboard. The
   session never reaches the cmux socket, which would let it type into terminals
-  outside the sandbox. With `CLAUDE_OLLAMA_CMUX=1` (and `$CMUX_SOCKET_PATH` an
-  absolute path to a socket) the launcher starts `ollama/cmux/broker.py` outside
-  the sandbox on `<session config>/cmux-broker.sock`, an `allowUnixSockets`
-  entry (also in `denyWrite`), and `ollama/sandbox-entry` puts
-  `ollama/cmux/bin/cmux` (the client) first on PATH. The broker runs only
-  `cmux browser` commands: `open` on a loopback URL in the `claude-ollama`
-  profile, then an allowlist of verbs on surfaces the session opened, with no
-  host-file verbs or retargeting flags; `screenshot --out` lands in the broker's
-  temp dir and the client writes the file inside the sandbox. It exits when the
-  launcher's process does. The browser's own network is not limited by the
-  policy, so page JavaScript (`eval`) can still reach any host. Tests:
-  `ollama/cmux/broker.test.sh` (stub `cmux`).
+  outside the sandbox. When `$CMUX_SOCKET_PATH` is an absolute path to a socket
+  and `cmux` is on PATH (a cmux terminal), the launcher starts by default, and
+  `CLAUDE_OLLAMA_CMUX=0` turns it off. The launcher starts
+  `ollama/cmux/broker.py` outside the sandbox on
+  `<session config>/cmux-broker.sock`, an `allowUnixSockets` entry (also in
+  `denyWrite`), and `ollama/sandbox-entry` puts `ollama/cmux/bin/cmux` (the
+  client) first on PATH. The broker runs only `cmux browser` commands: `open` on
+  a loopback URL in the `claude-ollama` profile, then an allowlist of verbs on
+  surfaces the session opened, with no host-file verbs or retargeting flags;
+  `screenshot --out` lands in the broker's temp dir and the client writes the
+  file inside the sandbox. It exits when the launcher's process does. The
+  browser's own network is not limited by the policy, so page JavaScript
+  (`eval`) can still reach any host. Tests: `ollama/cmux/broker.test.sh` (stub
+  `cmux`).
 - There is no side model: each Ollama profile sets
   `ANTHROPIC_DEFAULT_HAIKU_MODEL` to its own main model, has no `modelOverrides`
   and no subagent model, and denies `Agent` (it is not in `--tools` either),
