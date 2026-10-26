@@ -117,6 +117,11 @@ before changing how any file gets applied.
   Elements) at `http://127.0.0.1:8765/`, built on first run with pnpm. The
   reviews list is at `/reviews`; `claude-ollama reviews [--port N]` runs the
   same server and prints that link. Its tests run with `make test-web`.
+- Console smoke check: `bin/console-smoke [--port N] [--keep]` starts
+  `claude-ollama ui` on a temp state dir, checks every page, the token gate and
+  the same-origin rule, then prints `all passed` (`make smoke-console`; `--keep`
+  leaves it running with its link). It starts no run or model. Tests:
+  `bin/console-smoke.test.sh` (`make test-smoke`).
 - Run log:
   `bin/console-run --log FILE --id ID --command NAME --label TEXT -- ARGV...`
   runs one command and writes a JSONL run log (`start`, `line`, `progress`,
