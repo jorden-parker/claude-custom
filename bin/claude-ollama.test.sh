@@ -634,6 +634,8 @@ case "$3" in
     echo "TOKEN_FILE_MODE: $(ls -l "$CONSOLE_TOKEN_FILE" 2>/dev/null | cut -c1-10)" >> "$PNPM_LOG"
     echo "TOKEN_FILE_CONTENTS: $(cat "$CONSOLE_TOKEN_FILE" 2>/dev/null)" >> "$PNPM_LOG"
     echo "STATE_MODE: $(ls -ld "$(dirname "$CONSOLE_TOKEN_FILE")" 2>/dev/null | cut -c1-10)" >> "$PNPM_LOG"
+    echo "CUSTOM_HOME: ${CLAUDE_CUSTOM_HOME:-unset}" >> "$PNPM_LOG"
+    echo "RUN_STATE_DIR: ${CLAUDE_CONSOLE_STATE_DIR:-unset}" >> "$PNPM_LOG"
     ;;
 esac
 EOF
@@ -656,6 +658,8 @@ check_that "the console token folder is owner-only" grep -qxF -- "STATE_MODE: dr
 check_that "the console token file holds the token from .web-url" grep -qxF -- "TOKEN_FILE_CONTENTS: $token" "$PNPM_LOG"
 check_that "the server gets no token in its environment" grep -qxF -- "TOKEN: unset" "$PNPM_LOG"
 check_not "reviews removes the console token file after it exits" test -e "$CLAUDE_CONSOLE_STATE_DIR/token"
+check_that "the console server gets the repo as CLAUDE_CUSTOM_HOME" grep -qxF -- "CUSTOM_HOME: $repo" "$PNPM_LOG"
+check_that "the console server gets the console state dir" grep -qxF -- "RUN_STATE_DIR: $CLAUDE_CONSOLE_STATE_DIR" "$PNPM_LOG"
 rm -f "$PNPM_LOG"
 run_capture "$repo/bin/claude-ollama" ui --port 9000
 check_that "ui serves the console on loopback at the port" grep -qxF -- "PNPM: --dir $web exec next start -H 127.0.0.1 -p 9000" "$PNPM_LOG"
