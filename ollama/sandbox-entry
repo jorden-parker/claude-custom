@@ -14,10 +14,6 @@ if [ -n "${CLAUDE_OLLAMA_CMUX_BROKER:-}" ]; then
   PATH="$(cd "$(dirname "$0")" && pwd)/cmux/bin:$PATH"
   export PATH
 fi
-if [ -n "${CLAUDE_OLLAMA_GH_BROKER:-}" ]; then
-  PATH="$(cd "$(dirname "$0")" && pwd)/gh/bin:$PATH"
-  export PATH
-fi
 if [ -n "${GH_BASIC:-}" ]; then
   export GIT_CONFIG_COUNT=1
   export GIT_CONFIG_KEY_0=http.https://github.com/.extraHeader

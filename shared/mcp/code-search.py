@@ -13,6 +13,8 @@ import urllib.request
 from collections import Counter
 from pathlib import Path
 
+from mcp_stdio import serve, tool_result
+
 
 def ollama_url():
     url = os.environ.get("CODE_SEARCH_OLLAMA_URL") or os.environ.get("OLLAMA_HOST") or "http://localhost:11434"
@@ -426,52 +428,6 @@ def call_tool(params):
         return tool_result(str(error), True)
 
 
-def tool_result(text, is_error):
-    return {"content": [{"type": "text", "text": text}], "isError": is_error}
-
-
-def initialize_result(params):
-    return {
-        "protocolVersion": params.get("protocolVersion", "2025-06-18"),
-        "capabilities": {"tools": {}},
-        "serverInfo": {"name": "code-search", "version": "1.0.0"},
-    }
-
-
-HANDLERS = {
-    "initialize": initialize_result,
-    "ping": lambda params: {},
-    "tools/list": lambda params: {"tools": [TOOL]},
-    "tools/call": call_tool,
-}
-
-
-def error_response(message_id, code, text):
-    return {"jsonrpc": "2.0", "id": message_id, "error": {"code": code, "message": text}}
-
-
-def response(message):
-    method = message.get("method")
-    handler = HANDLERS.get(method) if isinstance(method, str) else None
-    if handler is None:
-        return error_response(message.get("id"), -32601, "Method not found")
-    params = message.get("params")
-    if params is not None and not isinstance(params, dict):
-        return error_response(message.get("id"), -32602, "params must be an object")
-    try:
-        return {"jsonrpc": "2.0", "id": message["id"], "result": handler(params or {})}
-    except Exception as error:
-        return error_response(message["id"], -32603, f"{type(error).__name__}: {error}")
-
-
-def parsed_message(line):
-    try:
-        message = json.loads(line)
-    except (ValueError, RecursionError):
-        return None
-    return message if isinstance(message, dict) else None
-
-
 def main():
     if sys.argv[1:] == ["--index"]:
         try:
@@ -480,16 +436,7 @@ def main():
             print(error, file=sys.stderr)
             sys.exit(1)
         return
-    for line in sys.stdin:
-        if not line.strip():
-            continue
-        message = parsed_message(line)
-        if message is not None and "id" in message:
-            try:
-                reply = json.dumps(response(message))
-            except RecursionError:
-                continue
-            print(reply, flush=True)
+    serve("code-search", lambda: [TOOL], call_tool)
 
 
 main()

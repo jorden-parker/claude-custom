@@ -3,7 +3,6 @@ set -u
 umask 022
 here="$(cd "$(dirname "$0")" && pwd)"
 broker="$here/broker.py"
-client="$here/bin/gh"
 tmp="$(cd "$(mktemp -d)" && pwd -P)"
 failures=0
 broker_pid=""
@@ -80,105 +79,101 @@ start_broker() {
   exit 1
 }
 
-run_client() {
-  (cd "$tmp/work" && CLAUDE_OLLAMA_GH_BROKER="$socket" "$client" "$@") >"$tmp/out" 2>"$tmp/err"
+send_line() {
+  python3 - "$socket" "$1" > "$tmp/reply" <<'PY'
+import socket
+import sys
+
+with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+    connection.connect(sys.argv[1])
+    connection.sendall(sys.argv[2].encode() + b"\n")
+    with connection.makefile("r") as replies:
+        print(replies.readline(), end="")
+PY
+}
+
+ask() {
+  local arguments="${2:-}"
+  [ -n "$arguments" ] || arguments='{}'
+  send_line "{\"tool\":\"$1\",\"arguments\":$arguments}"
+}
+
+reply_field() {
+  python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))[sys.argv[2]], end="")' "$tmp/reply" "$1"
 }
 
 logged() {
   grep -qxF -- "$1" "$tmp/gh.log"
 }
 
-mkdir -p "$tmp/work"
+pr_fields="number,title,author,headRefName,isDraft,updatedAt"
+pr_view_fields="number,title,body,state,author,headRefName,baseRefName,url,isDraft,reviewDecision,labels,files,comments,reviews"
+issue_fields="number,title,state,author,labels,updatedAt"
+issue_view_fields="number,title,body,state,author,labels,url,comments"
+run_fields="databaseId,displayTitle,workflowName,headBranch,status,conclusion,createdAt"
+run_view_fields="databaseId,displayTitle,workflowName,headBranch,status,conclusion,url,jobs"
+
 start_broker owner/project
 
-run_client pr list --state open
-check_eq "the client exits with gh's status" 3 "$?"
-check_that "pr list reaches gh with its arguments" logged "pr list --state open"
-check_eq "the client prints gh's stdout" listed "$(cat "$tmp/out")"
-check_eq "and gh's stderr" warning "$(cat "$tmp/err")"
+ask pr_list
+check_eq "the broker passes gh's exit status back" 3 "$(reply_field exit)"
+check_that "pr_list lists open PRs as JSON" logged "pr list --state open --limit 20 --json $pr_fields"
+check_eq "the broker passes gh's stdout back" "listed" "$(reply_field stdout | tr -d '\n')"
+check_eq "and gh's stderr" "warning" "$(reply_field stderr | tr -d '\n')"
 check_eq "gh gets the read-only token and the project's repo, never prompting and no outer GITHUB_TOKEN" \
   "readsecret owner/project 1 unset" "$(cat "$tmp/gh-env")"
-check_not "gh never runs in the session's folder, so it reads no git config the session wrote" \
-  grep -qF "$tmp/work" "$tmp/gh-cwd"
-
 check_eq "gh only ever talks to github.com" github.com "$(cat "$tmp/gh-host")"
 check_not "gh never reads your own gh config and its saved logins" grep -qF "$HOME" "$tmp/gh-config-dir"
 check_eq "gh starts from an empty config" "" "$(cat "$tmp/gh-config-listing")"
+check_not "gh never runs in the session's folder, so it reads no git config the session wrote" \
+  grep -qF "$PWD" "$tmp/gh-cwd"
 
-run_client pr view 12 --comments
-check_that "pr view passes" logged "pr view 12 --comments"
-run_client pr diff 12
-check_that "pr diff passes" logged "pr diff 12"
-run_client pr checks 12
-check_that "pr checks passes" logged "pr checks 12"
-run_client issue view 3 -R other/repo
-check_that "another repo can be named with -R" logged "issue view 3 -R other/repo"
-run_client run view 99 --log
-check_that "run view passes" logged "run view 99 --log"
-run_client search prs --author me
-check_that "search passes" logged "search prs --author me"
-run_client api repos/owner/project/pulls
-check_that "api GET passes" logged "api repos/owner/project/pulls"
-run_client pr list --json number,title
-check_that "--json passes, so the session filters with its own jq" logged "pr list --json number,title"
-run_client api -X GET repos/owner/project/issues
-check_that "api with an explicit GET passes" logged "api -X GET repos/owner/project/issues"
-run_client api -H 'Accept: application/vnd.github.diff' repos/owner/project/pulls/1
-check_that "api with an Accept header passes" logged "api -H Accept: application/vnd.github.diff repos/owner/project/pulls/1"
-run_client api --paginate --include repos/owner/project/branches
-check_that "api output switches pass" logged "api --paginate --include repos/owner/project/branches"
+ask pr_list '{"state":"merged","limit":5,"author":"me","search":"--web in:title"}'
+check_that "pr_list passes text as --flag=value, so a value never becomes a flag" \
+  logged "pr list --state merged --limit 5 --json $pr_fields --author=me --search=--web in:title"
+ask pr_view '{"number":12}'
+check_that "pr_view asks for the PR as JSON" logged "pr view 12 --json $pr_view_fields"
+ask pr_diff '{"number":12}'
+check_that "pr_diff passes" logged "pr diff 12"
+ask pr_diff '{"number":12,"name_only":true}'
+check_that "pr_diff can list only file names" logged "pr diff 12 --name-only"
+ask pr_checks '{"number":12}'
+check_that "pr_checks asks for the checks as JSON" logged "pr checks 12 --json name,state,bucket,workflow,link"
+ask issue_list '{"state":"closed","search":"crash"}'
+check_that "issue_list passes" logged "issue list --state closed --limit 20 --json $issue_fields --search=crash"
+ask issue_view '{"number":3}'
+check_that "issue_view passes" logged "issue view 3 --json $issue_view_fields"
+ask run_list '{"branch":"main","limit":3}'
+check_that "run_list passes" logged "run list --limit 3 --json $run_fields --branch=main"
+ask run_view '{"run_id":99}'
+check_that "run_view asks for the run and its jobs as JSON" logged "run view 99 --json $run_view_fields"
+ask run_view '{"run_id":99,"failed_logs":true}'
+check_that "run_view can fetch the failed steps' logs" logged "run view 99 --log-failed"
 
 refused() {
   : > "$tmp/gh.log"
-  run_client "$@"
-  local status=$?
-  [ "$status" = 1 ] && [ ! -s "$tmp/gh.log" ] && grep -q "gh broker:" "$tmp/err"
+  "$@"
+  [ "$(reply_field exit)" = 1 ] && [ ! -s "$tmp/gh.log" ] && reply_field stderr | grep -q "gh broker:"
 }
-check_that "pr create is refused" refused pr create --title x
-check_that "pr merge is refused" refused pr merge 12
-check_that "pr comment is refused" refused pr comment 12 --body x
-check_that "pr checkout is refused" refused pr checkout 12
-check_that "issue create is refused" refused issue create --title x
-check_that "run rerun is refused" refused run rerun 99
-check_that "run download is refused" refused run download 99
-check_that "repo delete is refused" refused repo delete owner/project
-check_that "auth is refused" refused auth token
-check_that "an extension or alias is refused" refused my-extension
-check_that "opening the browser is refused" refused pr view 12 --web
-check_that "the short browser flag is refused" refused pr view 12 -w
-check_that "api with POST is refused" refused api -X POST repos/owner/project/issues
-check_that "api with a joined POST is refused" refused api -XPOST repos/owner/project/issues
-check_that "api with --method=PATCH is refused" refused api --method=PATCH repos/owner/project
-check_that "api fields, which switch gh to POST, are refused" refused api repos/owner/project/issues -f title=x
-check_that "api typed fields, which read host files with @, are refused" refused api repos/x/y -F body=@/etc/passwd
-check_that "api --input is refused" refused api repos/x/y --input /etc/passwd
-check_that "api graphql, which can run mutations, is refused" refused api graphql -f query=x
-check_that "api on a full URL is refused" refused api https://example.com/x
-check_that "api to another host is refused" refused api --hostname example.com repos/x/y
-check_that "api with a non-Accept header is refused" refused api -H 'X-HTTP-Method-Override: POST' repos/x/y
-check_that "an empty command is refused" refused
-check_that "api --jq, which can read the token from gh's environment, is refused" refused api repos/x/y --jq '$ENV.GH_TOKEN'
-check_that "api -q is refused" refused api repos/x/y -q env
-check_that "--jq on other commands is refused" refused pr list --json title --jq '$ENV'
-check_that "--jq= is refused" refused pr list --json title --jq=env
-check_that "--template is refused" refused pr view 12 --json title --template '{{.title}}'
-check_that "-t is refused" refused issue list --json title -t x
-check_that "api --cache is refused" refused api --cache 1h repos/x/y
-check_that "api with POST joined into short flags is refused" refused api -iXPOST repos/owner/project/issues
-check_that "api with a field joined into short flags is refused" refused api -pF body=@/etc/passwd repos/x/y
-check_that "api flags outside the allowlist are refused" refused api --unknown repos/x/y
-check_that "the browser flag joined into short flags is refused" refused pr view 12 -cw
-check_that "a joined -R on another host is refused" refused issue list -Revil.example/o/r
-check_that "repo view on another host after other flags is refused" refused repo view --branch main evil.example/o/r
-check_that "a PR URL, which could point gh at any host, is refused" refused pr view https://evil.example/o/r/pull/1
-check_that "a repo on another host is refused" refused issue list -R evil.example/o/r
-check_that "a repo on another host given with --repo= is refused" refused issue list --repo=evil.example/o/r
-check_that "repo view on another host is refused" refused repo view evil.example/o/r
-check_that "api on a protocol-relative path is refused" refused api //evil.example/x
+check_that "a tool that is not on the list is refused" refused ask pr_merge '{"number":12}'
+check_that "a request without a tool is refused" refused send_line '{"arguments":{}}'
+check_that "a malformed request is refused" refused send_line 'not json'
+check_that "arguments that are not an object are refused" refused ask pr_list '["--web"]'
+check_that "an argument the tool does not take is refused" refused ask pr_view '{"number":12,"repo":"evil.example/o/r"}'
+check_that "a missing PR number is refused" refused ask pr_view
+check_that "a PR number given as text is refused" refused ask pr_view '{"number":"12 --web"}'
+check_that "a PR number of true is refused" refused ask pr_view '{"number":true}'
+check_that "a negative PR number is refused" refused ask pr_view '{"number":-1}'
+check_that "a state outside the list is refused" refused ask pr_list '{"state":"draft"}'
+check_that "a limit over 100 is refused" refused ask pr_list '{"limit":1000}'
+check_that "a limit of 0 is refused" refused ask issue_list '{"limit":0}'
+check_that "text that is not a string is refused" refused ask pr_list '{"author":["me"]}'
+check_that "text over 256 characters is refused" refused ask issue_list "{\"search\":\"$(printf 'x%.0s' $(seq 300))\"}"
+check_that "a switch that is not a boolean is refused" refused ask pr_diff '{"number":12,"name_only":"yes"}'
 stop_broker
 
 start_broker ""
-run_client pr list
+ask pr_list
 check_eq "without a GitHub origin gh gets no default repo" "readsecret unset 1 unset" "$(cat "$tmp/gh-env")"
 
 kill "$session_pid" && wait "$session_pid" 2>/dev/null
@@ -189,10 +184,6 @@ done
 check_not "the broker exits when the session ends" kill -0 "$broker_pid" 2>/dev/null
 check_not "the broker removes its socket when it exits" test -e "$socket"
 stop_broker
-
-CLAUDE_OLLAMA_GH_BROKER="$tmp/missing.sock" "$client" pr list >/dev/null 2>"$tmp/err"
-check_eq "the client fails when the broker is not running" 1 "$?"
-check_that "the client says how to get one" grep -qF "gh broker: not running; run claude-ollama github-token read" "$tmp/err"
 
 if [ "$failures" -eq 0 ]; then
   echo "all passed"

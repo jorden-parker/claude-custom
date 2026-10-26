@@ -96,6 +96,7 @@ import sys
 import tracemalloc
 
 server, repo = sys.argv[1:3]
+sys.path.insert(0, os.path.dirname(server))
 os.chdir(repo)
 sys.argv = [server, "--index"]
 tracemalloc.start()

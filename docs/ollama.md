@@ -222,18 +222,16 @@ Running it again replaces the stored token.
   requests to `github.com`. Without it, `doctor` warns and pushes fail; commits
   still work. Remotes must use HTTPS.
 - `read` (keychain item `claude-ollama-github-read`; Contents, Pull requests,
-  Issues and Actions: read) lets `gh` view PRs, issues and runs. The token never
-  enters the sandbox: `gh` in the session is a client for a broker that runs
-  your real `gh` outside it, from an empty folder with `GH_REPO` set to the
-  project's `origin`. The broker runs only read commands (`pr`
-  `list/view/diff/checks/status`, `issue list/view/status`,
-  `run`/`workflow`/`release` `list/view`, `repo view`, `search`, and `gh api` as
-  GET on REST paths), never `--web` or `--jq`/`--template` (pipe `--json` output
-  to `jq` instead), with each short flag on its own (`-i -X GET`, not `-iXGET`),
-  and only on github.com (no URLs or `HOST/OWNER/REPO`). Pass a PR number to
-  `pr view`: the broker can't see your current branch. Without the token or
-  `gh`, the session has no `gh`. A `GH_TOKEN` or `GITHUB_TOKEN` from your shell
-  never reaches the session.
+  Issues and Actions: read) lets the model read PRs, issues and CI. The token
+  never enters the sandbox, and the session has no `gh`. The model gets MCP
+  tools instead (`pr_list`, `pr_view`, `pr_diff`, `pr_checks`, `issue_list`,
+  `issue_view`, `run_list`, `run_view`, beside the local `git_status`,
+  `git_diff`, `git_log` and `git_show`). Each GitHub call goes to a broker
+  outside the sandbox, which checks the arguments and runs your real `gh` with
+  fixed flags, from an empty folder, with `GH_REPO` set to the project's
+  `origin` and none of your saved `gh` logins. Without the token or `gh`, only
+  the git tools are listed. A `GH_TOKEN` or `GITHUB_TOKEN` from your shell never
+  reaches the session.
 
 `bin/ollama-models` manages the installed models:
 

@@ -149,8 +149,15 @@ allows_semantic_search() {
   jq -e '.permissions.allow | index("mcp__code-search__semantic_search") != null' "$1" >/dev/null
 }
 
+allows_repo_tools() {
+  jq -e '.permissions.allow | index("mcp__repo") != null' "$1" >/dev/null
+}
+
+check_that "CLAUDE.local.md tells the model to use the repo tools" grep -qF 'mcp__repo__' "$repo/ollama/CLAUDE.local.md"
+
 for settings in "$repo"/ollama/settings.*.json; do
   check_that "${settings##*/} allows semantic_search" allows_semantic_search "$settings"
+  check_that "${settings##*/} allows the read-only repo tools without a prompt" allows_repo_tools "$settings"
 done
 
 gates_text_search() {

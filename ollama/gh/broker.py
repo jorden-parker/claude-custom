@@ -10,116 +10,135 @@ import time
 from pathlib import Path
 
 COMMAND_TIMEOUT_SECONDS = 120
-READ_COMMANDS = {
-    "pr": {"list", "view", "diff", "checks", "status"},
-    "issue": {"list", "view", "status"},
-    "run": {"list", "view"},
-    "workflow": {"list", "view"},
-    "repo": {"view"},
-    "release": {"list", "view"},
-    "search": {"issues", "prs", "repos", "commits", "code"},
-}
-BROWSER_FLAGS = {"--web", "-w"}
-OUTPUT_FILTER_FLAGS = {"--jq", "-q", "--template", "-t"}
-REPO_FLAGS = {"--repo", "-R"}
-API_SHORT_FLAGS = {"-H": "--header", "-X": "--method", "-i": "--include"}
-API_SWITCHES = {"--paginate", "--slurp", "--include", "--silent", "--verbose"}
-API_VALUE_FLAGS = {"--header", "--method"}
+DEFAULT_LIMIT = 20
+MAX_LIMIT = 100
+MAX_TEXT_LENGTH = 256
+PR_FIELDS = "number,title,author,headRefName,isDraft,updatedAt"
+PR_VIEW_FIELDS = (
+    "number,title,body,state,author,headRefName,baseRefName,url,isDraft,reviewDecision,labels,files,comments,reviews"
+)
+PR_CHECK_FIELDS = "name,state,bucket,workflow,link"
+ISSUE_FIELDS = "number,title,state,author,labels,updatedAt"
+ISSUE_VIEW_FIELDS = "number,title,body,state,author,labels,url,comments"
+RUN_FIELDS = "databaseId,displayTitle,workflowName,headBranch,status,conclusion,createdAt"
+RUN_VIEW_FIELDS = "databaseId,displayTitle,workflowName,headBranch,status,conclusion,url,jobs"
 
 
 class Refused(Exception):
     pass
 
 
-def joins_short_flags(arg):
-    return arg.startswith("-") and not arg.startswith("--") and len(arg) > 2
+class Arguments:
+    def __init__(self, values, allowed):
+        if not isinstance(values, dict):
+            raise Refused("arguments must be an object")
+        unknown = set(values) - set(allowed)
+        if unknown:
+            raise Refused(f"unknown arguments: {', '.join(sorted(unknown))}")
+        self.values = values
+
+    def number(self, name, default=None, maximum=None):
+        value = self.values.get(name, default)
+        if value is None:
+            raise Refused(f"{name} is required")
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise Refused(f"{name} must be a positive whole number")
+        if maximum is not None and value > maximum:
+            raise Refused(f"{name} must be at most {maximum}")
+        return str(value)
+
+    def limit(self):
+        return self.number("limit", DEFAULT_LIMIT, MAX_LIMIT)
+
+    def choice(self, name, options):
+        value = self.values.get(name, options[0])
+        if value not in options:
+            raise Refused(f"{name} must be one of {', '.join(options)}")
+        return value
+
+    def switch(self, name):
+        value = self.values.get(name, False)
+        if not isinstance(value, bool):
+            raise Refused(f"{name} must be true or false")
+        return value
+
+    def text_flag(self, name, flag):
+        value = self.values.get(name)
+        if value is None:
+            return []
+        if not isinstance(value, str) or len(value) > MAX_TEXT_LENGTH:
+            raise Refused(f"{name} must be text of at most {MAX_TEXT_LENGTH} characters")
+        return [f"{flag}={value}"]
 
 
-def require_separate_short_flags(args):
-    for arg in args:
-        if joins_short_flags(arg):
-            raise Refused(f"{arg} is not allowed: give each short flag on its own")
+def pr_list(values):
+    args = Arguments(values, {"state", "limit", "author", "search"})
+    state = args.choice("state", ("open", "closed", "merged", "all"))
+    return [
+        *["pr", "list", "--state", state, "--limit", args.limit(), "--json", PR_FIELDS],
+        *args.text_flag("author", "--author"),
+        *args.text_flag("search", "--search"),
+    ]
 
 
-def require_no_browser(args):
-    for arg in args:
-        if arg.partition("=")[0] in BROWSER_FLAGS:
-            raise Refused(f"{arg} would open a browser outside the sandbox")
+def pr_view(values):
+    return ["pr", "view", Arguments(values, {"number"}).number("number"), "--json", PR_VIEW_FIELDS]
 
 
-def require_no_output_filter(args):
-    for arg in args:
-        if arg.partition("=")[0] in OUTPUT_FILTER_FLAGS:
-            raise Refused(f"{arg} is not allowed: gh's filters can read its environment; pipe --json output to jq")
+def pr_diff(values):
+    args = Arguments(values, {"number", "name_only"})
+    return ["pr", "diff", args.number("number"), *(["--name-only"] if args.switch("name_only") else [])]
 
 
-def names_a_host(arg):
-    return "://" in arg or arg.startswith("//")
+def pr_checks(values):
+    return ["pr", "checks", Arguments(values, {"number"}).number("number"), "--json", PR_CHECK_FIELDS]
 
 
-def following(args, at):
-    return args[at + 1] if at + 1 < len(args) else ""
+def issue_list(values):
+    args = Arguments(values, {"state", "limit", "search"})
+    state = args.choice("state", ("open", "closed", "all"))
+    return [
+        *["issue", "list", "--state", state, "--limit", args.limit(), "--json", ISSUE_FIELDS],
+        *args.text_flag("search", "--search"),
+    ]
 
 
-def repo_values(args):
-    values = []
-    for at, arg in enumerate(args):
-        name, joined, value = arg.partition("=")
-        if name in REPO_FLAGS:
-            values.append(value if joined else following(args, at))
-    if args[:2] == ["repo", "view"]:
-        values += [arg for arg in args[2:] if not arg.startswith("-")]
-    return values
+def issue_view(values):
+    return ["issue", "view", Arguments(values, {"number"}).number("number"), "--json", ISSUE_VIEW_FIELDS]
 
 
-def require_github_only(args):
-    for arg in args:
-        if names_a_host(arg):
-            raise Refused(f"{arg} is not allowed: gh may only reach github.com")
-    for repo in repo_values(args):
-        if repo.count("/") > 1:
-            raise Refused(f"{repo} is not allowed: name a repo as OWNER/NAME on github.com")
+def run_list(values):
+    args = Arguments(values, {"limit", "branch"})
+    return ["run", "list", "--limit", args.limit(), "--json", RUN_FIELDS, *args.text_flag("branch", "--branch")]
 
 
-def require_read_only_api_value(flag, value):
-    if flag == "--method" and value.upper() != "GET":
-        raise Refused(f"api --method {value} is not allowed: only GET")
-    if flag == "--header" and not value.lower().startswith("accept:"):
-        raise Refused("api headers other than Accept are not allowed")
+def run_view(values):
+    args = Arguments(values, {"run_id", "failed_logs"})
+    run_id = args.number("run_id")
+    if args.switch("failed_logs"):
+        return ["run", "view", run_id, "--log-failed"]
+    return ["run", "view", run_id, "--json", RUN_VIEW_FIELDS]
 
 
-def require_read_only_api(args):
-    at = 0
-    while at < len(args):
-        arg = args[at]
-        if arg == "graphql":
-            raise Refused("api graphql is not allowed: only REST paths on github.com")
-        if arg.startswith("-"):
-            name, joined, value = arg.partition("=")
-            flag = API_SHORT_FLAGS.get(name, name)
-            if flag in API_VALUE_FLAGS:
-                if not joined:
-                    value = following(args, at)
-                    at += 1
-                require_read_only_api_value(flag, value)
-            elif flag not in API_SWITCHES:
-                raise Refused(f"api {arg} is not allowed: the session may only read")
-        at += 1
+TOOLS = {
+    "pr_list": pr_list,
+    "pr_view": pr_view,
+    "pr_diff": pr_diff,
+    "pr_checks": pr_checks,
+    "issue_list": issue_list,
+    "issue_view": issue_view,
+    "run_list": run_list,
+    "run_view": run_view,
+}
 
 
-def require_read_command(args):
-    if not args:
-        raise Refused("a gh command is required")
-    require_separate_short_flags(args)
-    require_no_browser(args)
-    require_no_output_filter(args)
-    require_github_only(args)
-    if args[0] == "api":
-        require_read_only_api(args[1:])
-        return
-    allowed = READ_COMMANDS.get(args[0], set())
-    if len(args) < 2 or args[1] not in allowed:
-        raise Refused(f"gh {' '.join(args[:2])} is not allowed: only read commands reach GitHub")
+def gh_args(request):
+    if not isinstance(request, dict):
+        raise Refused("malformed request")
+    build = TOOLS.get(request.get("tool"))
+    if build is None:
+        raise Refused(f"{request.get('tool')} is not a GitHub tool this session can use")
+    return build(request.get("arguments", {}))
 
 
 class Broker:
@@ -140,11 +159,10 @@ class Broker:
         if repo:
             self.env["GH_REPO"] = repo
 
-    def handle(self, args):
-        require_read_command(args)
+    def handle(self, request):
         return reply_from(
             subprocess.run(
-                [self.gh, *args],
+                [self.gh, *gh_args(request)],
                 capture_output=True,
                 text=True,
                 cwd=self.workdir,
@@ -165,11 +183,10 @@ def refusal(reason):
 
 def answer(broker, line):
     try:
-        request = json.loads(line)
-        return broker.handle([str(arg) for arg in request.get("args", [])])
+        return broker.handle(json.loads(line))
     except Refused as reason:
         return refusal(str(reason))
-    except (json.JSONDecodeError, AttributeError, TypeError):
+    except (json.JSONDecodeError, UnicodeDecodeError):
         return refusal("malformed request")
     except subprocess.TimeoutExpired:
         return refusal("gh timed out")

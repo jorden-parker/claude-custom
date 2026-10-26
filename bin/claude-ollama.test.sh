@@ -78,7 +78,8 @@ if [ -n "\${STUB_RUN_GH:-}" ]; then
     [ -S "\$CLAUDE_OLLAMA_GH_BROKER" ] && break
     sleep 0.2
   done
-  gh pr list > "$sandbox/session-gh.out" 2>&1
+  printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"pr_list","arguments":{}}}' \
+    | python3 "\$CLAUDE_CUSTOM_HOME/shared/mcp/repo-tools.py" > "$sandbox/session-gh.out" 2>&1
 fi
 EOF
   install_sandbox_runtime_stub
@@ -245,7 +246,7 @@ rm -f "$sandbox/curl.log"
 OLLAMA_HOST=http://box:1 run_capture "$repo/bin/claude-ollama" 35b -p hi
 check_that "claude-ollama warm-up follows OLLAMA_HOST" grep -q 'box:1/api/generate' "$sandbox/curl.log"
 check_not "claude-ollama 35b skips pull when the model exists" grep -sqE '^(pull|create) ' "$sandbox/ollama.log"
-check_that "claude-ollama starts the code-search MCP server" grep -qF -- "--strict-mcp-config --mcp-config {\"mcpServers\":{\"code-search\":{\"command\":\"python3\",\"args\":[\"$repo/shared/mcp/code-search.py\"]}}}" "$sandbox/out"
+check_that "claude-ollama starts the code-search and repo MCP servers" grep -qF -- "--strict-mcp-config --mcp-config {\"mcpServers\":{\"code-search\":{\"command\":\"python3\",\"args\":[\"$repo/shared/mcp/code-search.py\"]},\"repo\":{\"command\":\"python3\",\"args\":[\"$repo/shared/mcp/repo-tools.py\"]}}}" "$sandbox/out"
 rm -f "$sandbox/python.log"
 run_capture "$repo/bin/claude-ollama" 35b -p hi
 sleep 1
@@ -775,7 +776,10 @@ STUB_GITHUB_READ_TOKEN=readsecret run_capture "$repo/bin/claude-ollama" 27b -p h
 gh_socket="$session_config/gh-broker.sock"
 check_eq "a read-only GitHub token allows only the gh broker's socket" "[\"$gh_socket\"]" "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
 check_that "the session cannot replace the gh broker's socket" policy_lists denyWrite "$gh_socket"
-check_that "the session's gh is the broker client" test "$(session_env PATH | cut -d: -f1)" = "$repo/ollama/gh/bin"
+session_path_has_gh_client() {
+  session_env PATH | tr ':' '\n' | grep -qxF "$repo/ollama/gh/bin"
+}
+check_not "the session gets no gh command of its own" session_path_has_gh_client
 check_eq "the session never holds the read-only token" "" "$(session_env GH_TOKEN)"
 run_capture env CLAUDE_OLLAMA_CMUX=1 CMUX_SOCKET_PATH="$cmux_socket" STUB_GITHUB_READ_TOKEN=readsecret "$repo/bin/claude-ollama" 27b -p hi
 check_eq "with cmux too the session reaches both brokers" "[\"$session_config/cmux-broker.sock\",\"$gh_socket\"]" \
@@ -874,8 +878,9 @@ git init -q "$gh_project"
 git -C "$gh_project" remote add origin git@github.com:owner/project.git
 ln -sf "$(command -pv python3)" "$sandbox/stubbin/python3"
 (cd "$gh_project" && CLAUDE_OLLAMA_NO_INDEX=1 STUB_GITHUB_READ_TOKEN=readsecret STUB_RUN_GH=1 run_capture "$repo/bin/claude-ollama" 27b -p hi)
-check_eq "gh from the session runs outside it, through the broker, with the read-only token and the project's repo" \
-  "pr list readsecret owner/project" "$(cat "$sandbox/gh.log" 2>/dev/null)"
+check_eq "the session's pr_list tool runs gh outside it, through the broker, with the read-only token and the project's repo" \
+  "pr list --state open --limit 20 --json number,title,author,headRefName,isDraft,updatedAt readsecret owner/project" \
+  "$(cat "$sandbox/gh.log" 2>/dev/null)"
 
 if [ "$failures" -eq 0 ]; then
   echo "all passed"
