@@ -16,6 +16,9 @@ gguf_inspect="${CLAUDE_OLLAMA_GGUF_INSPECT:-$repo_dir/bin/gguf-inspect}"
 sandbox_runtime="$HOME/.local/share/claude-custom/sandbox-runtime/node_modules/.bin/srt"
 session_config_dir="$HOME/.claude-ollama"
 sandbox_policy="$session_config_dir/sandbox-policy.json"
+fetch_domains_file="${XDG_CONFIG_HOME:-$HOME/.config}/claude-custom/fetch-domains"
+fetch_settings="$session_config_dir/fetch-settings.json"
+fetch_domain_pattern='^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z][a-z0-9-]*[a-z0-9]$'
 review_log_dir="${PR_REVIEW_LOG_DIR:-$HOME/.local/share/claude-custom/reviews}"
 console_state_dir="${CLAUDE_CONSOLE_STATE_DIR:-$HOME/.local/share/claude-custom/console}"
 github_keychain_item=claude-ollama-github
@@ -324,7 +327,8 @@ write_sandbox_policy() {
   local protected_policy_path="$sandbox_policy"
   jq --arg repo "$repo_dir" --arg config "$session_config_dir" --arg policy "$protected_policy_path" --arg git "$(git_common_dir)" \
     --arg items "$(item_replacement_dir)" --arg root "$(project_root)" --arg cmux_broker "${cmux_broker_socket:-}" --arg gh_broker "${gh_broker_socket:-}" \
-    --arg reviews "$review_log_dir" --arg console_state "$console_state_dir" \
+    --arg reviews "$review_log_dir" --arg console_state "$console_state_dir" --arg fetch_settings "$fetch_settings" \
+    --argjson fetch_domains "$(printf '%s' "${launch_fetch_domains:-}" | fetch_domains_json)" \
     --argjson config_sources '["CLAUDE.md", "skills", "settings.json", "settings.local.json", "commands", "agents", "plugins", "rules", "output-styles", "keybindings.json", ".config.json"]' '
     ($git | if . == "" then [] else [.] end) as $git_dirs
     | ($items | if . == "" then [] else [.] end) as $item_dirs
@@ -335,7 +339,61 @@ write_sandbox_policy() {
     | .filesystem.denyRead += [$reviews, $console_state]
     | ([$cmux_broker, $gh_broker] | map(select(. != ""))) as $broker_sockets
     | if $broker_sockets == [] then . else .network.allowUnixSockets = $broker_sockets | .filesystem.denyWrite += $broker_sockets end
+    | if ($fetch_domains | length) == 0 then . else
+        .network.allowedDomains += $fetch_domains
+        | .network.tlsTerminate.excludeDomains += $fetch_domains
+        | .filesystem.denyWrite += [$fetch_settings]
+      end
   ' "$profile_dir/sandbox.json" > "$sandbox_policy"
+}
+
+fetch_domains() {
+  local line domain seen=" "
+  [ -r "$fetch_domains_file" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    domain="$(printf '%s' "$line" | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+    [ -n "$domain" ] || continue
+    if [[ ! "$domain" =~ $fetch_domain_pattern ]]; then
+      echo "claude-ollama: ignoring fetch domain '$domain' (expected a hostname like docs.python.org)" >&2
+      continue
+    fi
+    case "$seen" in *" $domain "*) continue ;; esac
+    seen="$seen$domain "
+    printf '%s\n' "$domain"
+  done < "$fetch_domains_file"
+}
+
+fetch_domains_json() {
+  jq -R . | jq -sc .
+}
+
+fetch_domains_label() {
+  local domains
+  domains="$(printf '%s' "${launch_fetch_domains:-}" | paste -sd' ' -)"
+  echo "${domains:-none}"
+}
+
+write_fetch_settings() {
+  local domains_json target
+  rm -f "$fetch_settings"
+  [ -n "${launch_fetch_domains:-}" ] || return 0
+  domains_json="$(printf '%s' "$launch_fetch_domains" | fetch_domains_json)"
+  target="$(mktemp "$fetch_settings.XXXXXX")"
+  jq --argjson domains "$domains_json" '
+    .permissions.deny = ((.permissions.deny - ["WebFetch"])
+      + ["WebFetch(domain:localhost)", "WebFetch(domain:127.0.0.1)", "WebFetch(domain:0.0.0.0)", "WebFetch(domain:[::1])"])
+    | .permissions.allow += [$domains[] | "WebFetch(domain:\(.))"]
+    | .skipWebFetchPreflight = true
+  ' "$settings_file" > "$target"
+  mv -f "$target" "$fetch_settings"
+}
+
+launch_settings_file() {
+  if [ -n "${launch_fetch_domains:-}" ]; then echo "$fetch_settings"; else echo "$settings_file"; fi
+}
+
+launch_tools() {
+  if [ -n "${launch_fetch_domains:-}" ]; then echo "$tools,WebFetch"; else echo "$tools"; fi
 }
 
 prepare_session_config() {
@@ -424,7 +482,7 @@ github_basic_auth() {
 claude_command() {
   printf '%s -s %s -- %s ' "$sandbox_runtime" "$sandbox_policy" "$profile_dir/sandbox-entry"
   printf 'claude --settings %s --system-prompt-file %s --append-system-prompt-file %s --strict-mcp-config --mcp-config %s --model %s --tools %s' \
-    "$settings_file" "$profile_dir/system-prompt.md" "$profile_dir/CLAUDE.local.md" "$(mcp_config)" "$model" "$tools"
+    "$(launch_settings_file)" "$profile_dir/system-prompt.md" "$profile_dir/CLAUDE.local.md" "$(mcp_config)" "$model" "$(launch_tools)"
 }
 
 print_config() {
@@ -434,8 +492,9 @@ print_config() {
   echo "embedding model: $embedding_model"
   echo "num_ctx: $(modelfile_num_ctx)"
   echo "max context tokens: $(profile_context_tokens)"
-  echo "settings: $settings_file"
-  echo "tools: $tools"
+  echo "settings: $(launch_settings_file)"
+  echo "fetch domains: $(fetch_domains_label)"
+  echo "tools: $(launch_tools)"
   echo "command: $(claude_command)"
 }
 
@@ -580,6 +639,16 @@ check_sandbox_runtime() {
   fi
 }
 
+check_fetch_domains() {
+  local domains
+  domains="$(fetch_domains | paste -sd' ' -)"
+  if [ -n "$domains" ]; then
+    report ok "web fetch on for: $domains"
+  else
+    report ok "web fetch off (no domains in $fetch_domains_file)"
+  fi
+}
+
 check_github_token() {
   if github_token >/dev/null; then
     report ok "GitHub token in the keychain item $github_keychain_item"
@@ -607,6 +676,7 @@ doctor() {
   check_reachable || status=1
   check_server_env || status=1
   check_sandbox_runtime || status=1
+  check_fetch_domains
   check_github_token
   check_github_read_token
   check_model_allowed
@@ -717,6 +787,7 @@ case "${1:-}" in
     echo "ui [--port N]: serve the console (runs, health, logs, models, reviews) at http://127.0.0.1:8765/"
     echo "reviews [--port N]: serve live and past reviews at http://127.0.0.1:8765/"
     echo "github-token [read|push]: create a GitHub token in the browser and store it in the keychain (both without a kind)"
+    echo "fetch domains: list hostnames in ~/.config/claude-custom/fetch-domains to give sessions WebFetch for them"
     echo "prepare [size]: pull or import the size's model and stop, without starting claude"
     echo "prepare-embedding: pull the semantic_search embedding model and stop, without starting claude"
     echo "speed-check: check thinking is off and bench the GGUF sizes against the MLX ones, then print a verdict"
@@ -781,7 +852,7 @@ model="$(jq -r .model "$profile_dir/settings.$size.json")"
 settings_file="$profile_dir/settings.$size.json"
 
 case "$mode" in
-  print-config) print_config; exit 0 ;;
+  print-config) launch_fetch_domains="$(fetch_domains)"; print_config; exit 0 ;;
   doctor) doctor ;;
   review) run_review "$review_target" "$@" ;;
   prepare) ensure_model; exit 0 ;;
@@ -803,17 +874,19 @@ export CLAUDE_CUSTOM_HOME="$repo_dir"
 prepare_session_config
 start_cmux_broker
 start_gh_broker
+launch_fetch_domains="$(fetch_domains)"
+write_fetch_settings
 write_sandbox_policy
 export CLAUDE_CONFIG_DIR="$session_config_dir"
 export CLAUDE_CODE_TMPDIR="$session_config_dir/tmp"
 GH_BASIC="$(github_basic_auth)"
 export GH_BASIC
 run_in_raw_terminal "$sandbox_runtime" -s "$sandbox_policy" -- "$profile_dir/sandbox-entry" claude \
-  --settings "$settings_file" \
+  --settings "$(launch_settings_file)" \
   --system-prompt-file "$profile_dir/system-prompt.md" \
   --append-system-prompt-file "$profile_dir/CLAUDE.local.md" \
   --strict-mcp-config \
   --mcp-config "$(mcp_config)" \
   --model "$model" \
-  --tools "$tools" \
+  --tools "$(launch_tools)" \
   "$@"

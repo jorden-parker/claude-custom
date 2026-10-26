@@ -980,6 +980,77 @@ check_eq "the session's pr_list tool runs gh outside it, through the broker, wit
   "pr list --state open --limit 20 --json number,title,author,headRefName,isDraft,updatedAt readsecret owner/project" \
   "$(cat "$sandbox/gh.log" 2>/dev/null)"
 
+write_fetch_list() {
+  mkdir -p "$(dirname "$fetch_list")"
+  printf '%b' "$1" > "$fetch_list"
+}
+
+new_sandbox
+fetch_list="$HOME/.config/claude-custom/fetch-domains"
+fetch_settings_file="$HOME/.claude-ollama/fetch-settings.json"
+base_allowed_domains='["github.com","registry.npmjs.org"]'
+run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_that "without a fetch list the launch keeps the base tools" grep -qF -- "--tools Bash,Read,Edit,Write,Skill,TaskStop -p hi" "$sandbox/out"
+check_that "without a fetch list the launch keeps the profile settings" grep -qF -- "--settings $repo/ollama/settings.27b.json" "$sandbox/out"
+check_eq "without a fetch list the policy allows only the base domains" "$base_allowed_domains" "$(jq -c .network.allowedDomains "$sandbox/policy.json")"
+check_not "without a fetch list no derived settings are written" test -e "$fetch_settings_file"
+
+new_sandbox
+fetch_list="$HOME/.config/claude-custom/fetch-domains"
+fetch_settings_file="$HOME/.claude-ollama/fetch-settings.json"
+write_fetch_list '  \nlocalhost\n127.0.0.1\n*\nhttps://x.org/\nexample.com:8080\n'
+run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_that "a fetch list with only invalid lines keeps the base tools" grep -qF -- "--tools Bash,Read,Edit,Write,Skill,TaskStop -p hi" "$sandbox/out"
+check_eq "a fetch list with only invalid lines allows only the base domains" "$base_allowed_domains" "$(jq -c .network.allowedDomains "$sandbox/policy.json")"
+check_not "a fetch list with only invalid lines writes no derived settings" test -e "$fetch_settings_file"
+check_that "an invalid fetch line says why it is ignored" grep -qxF "claude-ollama: ignoring fetch domain 'localhost' (expected a hostname like docs.python.org)" "$sandbox/err"
+
+new_sandbox
+fetch_list="$HOME/.config/claude-custom/fetch-domains"
+fetch_settings_file="$HOME/.claude-ollama/fetch-settings.json"
+write_fetch_list '  Docs.Python.org \npkg.go.dev\npkg.go.dev\nbad_host\n'
+run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_that "a fetch list adds WebFetch to the tools" grep -qF -- "--tools Bash,Read,Edit,Write,Skill,TaskStop,WebFetch -p hi" "$sandbox/out"
+check_that "a fetch list passes the derived settings" grep -qF -- "--settings $fetch_settings_file" "$sandbox/out"
+check_eq "a fetch list allows the listed domains through the proxy" '["github.com","registry.npmjs.org","docs.python.org","pkg.go.dev"]' "$(jq -c .network.allowedDomains "$sandbox/policy.json")"
+check_eq "a fetch list tunnels the listed domains without decrypting them" '["registry.npmjs.org","docs.python.org","pkg.go.dev"]' "$(jq -c .network.tlsTerminate.excludeDomains "$sandbox/policy.json")"
+check_that "the session cannot rewrite the derived settings" policy_lists denyWrite "$fetch_settings_file"
+check_that "an invalid fetch line is ignored with a message" grep -qxF "claude-ollama: ignoring fetch domain 'bad_host' (expected a hostname like docs.python.org)" "$sandbox/err"
+check_eq "a fetch list allows WebFetch for exactly the listed hosts" '["mcp__code-search__semantic_search","mcp__repo","WebFetch(domain:docs.python.org)","WebFetch(domain:pkg.go.dev)"]' "$(jq -c .permissions.allow "$fetch_settings_file")"
+check_that "the derived settings lift the bare WebFetch deny" jq -e '.permissions.deny | index("WebFetch") == null' "$fetch_settings_file"
+check_that "the derived settings keep WebSearch denied" jq -e '.permissions.deny | index("WebSearch") != null' "$fetch_settings_file"
+check_eq "the derived settings deny loopback hosts for WebFetch" '["WebFetch(domain:localhost)","WebFetch(domain:127.0.0.1)","WebFetch(domain:0.0.0.0)","WebFetch(domain:[::1])"]' "$(jq -c '[.permissions.deny[] | select(startswith("WebFetch("))]' "$fetch_settings_file")"
+check_eq "the derived settings skip Anthropic's WebFetch preflight" true "$(jq .skipWebFetchPreflight "$fetch_settings_file")"
+check_eq "the derived settings keep the profile model" "$(jq -r .model "$repo/ollama/settings.27b.json")" "$(jq -r .model "$fetch_settings_file")"
+rm -f "$fetch_list"
+run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_not "removing the fetch list removes the derived settings" test -e "$fetch_settings_file"
+check_not "removing the fetch list removes WebFetch from the tools" grep -qF WebFetch "$sandbox/out"
+
+new_sandbox
+mkdir -p "$sandbox/xdg/claude-custom"
+printf 'docs.rs\n' > "$sandbox/xdg/claude-custom/fetch-domains"
+run_capture env XDG_CONFIG_HOME="$sandbox/xdg" "$repo/bin/claude-ollama" 27b -p hi
+check_that "XDG_CONFIG_HOME moves the fetch list" jq -e '.network.allowedDomains | index("docs.rs") != null' "$sandbox/policy.json"
+
+new_sandbox
+fetch_list="$HOME/.config/claude-custom/fetch-domains"
+write_fetch_list 'docs.python.org\n'
+run_capture "$repo/bin/claude-ollama" --print-config 27b
+check_that "print-config lists the fetch domains" grep -qxF "fetch domains: docs.python.org" "$sandbox/out"
+check_that "print-config shows WebFetch in the tools" grep -qxF "tools: Bash,Read,Edit,Write,Skill,TaskStop,WebFetch" "$sandbox/out"
+rm -f "$fetch_list"
+run_capture "$repo/bin/claude-ollama" --print-config 27b
+check_that "print-config says when no fetch domains are listed" grep -qxF "fetch domains: none" "$sandbox/out"
+check_that "print-config keeps the base tools without a fetch list" grep -qxF "tools: Bash,Read,Edit,Write,Skill,TaskStop" "$sandbox/out"
+
+write_fetch_list 'docs.python.org\n'
+run_capture "$repo/bin/claude-ollama" doctor 27b
+check_that "doctor says web fetch is on for the listed domains" grep -qxF "ok   web fetch on for: docs.python.org" "$sandbox/out"
+rm -f "$fetch_list"
+run_capture "$repo/bin/claude-ollama" doctor 27b
+check_that "doctor says web fetch is off without a fetch list" grep -qxF "ok   web fetch off (no domains in $fetch_list)" "$sandbox/out"
+
 if [ "$failures" -eq 0 ]; then
   echo "all passed"
 else
