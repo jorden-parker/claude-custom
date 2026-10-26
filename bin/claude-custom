@@ -300,6 +300,10 @@ refresh_ollama_models() {
     [ -f "$modelfile" ] || continue
     size="${modelfile##*/Modelfile.}"
     base="$(sed -n 's/^FROM //p' "$modelfile")"
+    if [[ "$base" == ./weights/* ]]; then
+      echo "skip: $base is a pinned GGUF; claude-ollama $size downloads and imports it on first launch" >&2
+      continue
+    fi
     name="$(jq -r .model "$repo_dir/ollama/settings.$size.json")"
     if [ -z "$name" ] || [ "$name" = null ]; then
       echo "fail: no model name in ollama/settings.$size.json" >&2
