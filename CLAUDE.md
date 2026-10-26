@@ -392,7 +392,9 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   policy's `allowedDomains` and `tlsTerminate.excludeDomains`, and a derived
   `~/.claude-ollama/fetch-settings.json` (in `denyWrite`) lifts the bare
   `WebFetch` deny, allows exactly those domains, denies loopback hosts and sets
-  `skipWebFetchPreflight`; with no valid line the launch is unchanged.
+  `skipWebFetchPreflight`; with no valid line the launch is unchanged. The
+  console's Fetch domains page (`/fetch-domains`) edits this file; its host
+  pattern must equal the launcher's, which `bin/check-config` checks.
   `allowMachLookup` lets the session reach the `com.apple.pasteboard.1` Mach
   service, which Claude Code's osascript image paste needs; it also lets the
   session read and write the clipboard. The session never reaches the cmux
