@@ -143,6 +143,9 @@ EOF
   pinned_tags > "$sandbox/tags.json"
   cat > "$sandbox/stubbin/python3" <<EOF
 #!/bin/sh
+case "\$1" in
+  *cmux/broker.py) exec /usr/bin/python3 "\$@" ;;
+esac
 echo "\$*" >> "$sandbox/python.log"
 EOF
   cat > "$sandbox/stubbin/ollama-agent" <<EOF
@@ -718,18 +721,6 @@ case "$*" in
 esac
 EOF
 chmod +x "$sandbox/stubbin/cmux"
-cat > "$sandbox/stubbin/real-broker" <<EOF
-#!/bin/sh
-exec /usr/bin/python3 "$repo/ollama/cmux/broker.py" "\$@"
-EOF
-chmod +x "$sandbox/stubbin/real-broker"
-export CLAUDE_OLLAMA_CMUX_BROKER_BIN="$sandbox/stubbin/real-broker"
-cat > "$sandbox/stubbin/unlocked-broker" <<'EOF'
-#!/bin/sh
-echo "cmux broker: could not lock the browser to localhost: stub" >&2
-exit 1
-EOF
-chmod +x "$sandbox/stubbin/unlocked-broker"
 run_capture env CMUX_SOCKET_PATH="$cmux_socket" "$repo/bin/claude-ollama" 27b -p hi
 broker_socket="$session_config/cmux-broker.sock"
 check_eq "inside cmux with no CLAUDE_OLLAMA_CMUX the sandbox allows the broker's socket" "[\"$broker_socket\"]" "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
@@ -739,12 +730,30 @@ run_capture env CLAUDE_OLLAMA_CMUX=1 CMUX_SOCKET_PATH="$cmux_socket" "$repo/bin/
 check_eq "CLAUDE_OLLAMA_CMUX=1 allows only the cmux broker's socket" "[\"$broker_socket\"]" "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
 check_eq "the session finds the cmux broker" "$broker_socket" "$(session_env CLAUDE_OLLAMA_CMUX_BROKER)"
 check_that "the session cannot replace the cmux broker's socket" policy_lists denyWrite "$broker_socket"
-check_that "the session's cmux is the broker client" test "$(session_env PATH | cut -d: -f1)" = "$repo/ollama/cmux/bin"
+check_not "the session has no cmux client on its PATH" grep -qF "$repo/ollama/cmux/" "$sandbox/claude-env"
 run_capture env CMUX_SOCKET_PATH="$sandbox/not-a-socket" "$repo/bin/claude-ollama" 27b -p hi
 check_eq "inside cmux the broker ignores a path that is not a socket" null "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
 run_capture env CMUX_SOCKET_PATH="cmux.sock" "$repo/bin/claude-ollama" 27b -p hi
 check_eq "inside cmux the broker ignores a relative socket path" null "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
-run_capture env CLAUDE_OLLAMA_CMUX_BROKER_BIN="$sandbox/stubbin/unlocked-broker" CMUX_SOCKET_PATH="$cmux_socket" "$repo/bin/claude-ollama" 27b -p hi
+cat > "$sandbox/stubbin/cmux" <<'EOF'
+#!/bin/sh
+case "$*" in
+  "browser repl "*)
+    echo '"{\"allowed\":[\"*\"]}"'
+    echo '[ok | 1ms]'
+    ;;
+esac
+EOF
+run_capture env CMUX_SOCKET_PATH="$cmux_socket" "$repo/bin/claude-ollama" 27b -p hi
+cat > "$sandbox/stubbin/cmux" <<'EOF'
+#!/bin/sh
+case "$*" in
+  "browser repl "*)
+    echo '"{\"allowed\":[\"localhost\",\"127.0.0.1\",\"[::1]\"]}"'
+    echo '[ok | 1ms]'
+    ;;
+esac
+EOF
 check_eq "a broker that cannot lock the browser gives the sandbox no socket" null "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
 check_eq "a broker that cannot lock the browser gives the session no broker address" "" "$(session_env CLAUDE_OLLAMA_CMUX_BROKER)"
 check_that "the launch says how to check the browser" grep -qF "run claude-ollama browser-check" "$sandbox/err"

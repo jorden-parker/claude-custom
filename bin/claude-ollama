@@ -297,7 +297,7 @@ wait_for_socket() {
 start_cmux_broker() {
   cmux_broker_wanted || return 0
   cmux_broker_socket="$session_config_dir/cmux-broker.sock"
-  nohup "${CLAUDE_OLLAMA_CMUX_BROKER_BIN:-$profile_dir/cmux/broker.py}" --socket "$cmux_broker_socket" \
+  nohup "$profile_dir/cmux/broker.py" --socket "$cmux_broker_socket" \
     --cmux "$(command -v cmux)" --watch-pid "$$" >/dev/null 2>&1 &
   if wait_for_socket "$cmux_broker_socket"; then
     export CLAUDE_OLLAMA_CMUX_BROKER="$cmux_broker_socket"
