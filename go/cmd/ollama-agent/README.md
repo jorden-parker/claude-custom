@@ -13,6 +13,8 @@ claude-custom agent           # or: ollama-agent
 ollama-agent -file PATH       # edit another plist (default ~/Library/LaunchAgents/local.ollama.plist)
 ollama-agent -ollama PATH     # binary the agent runs (default: ollama on PATH)
 ollama-agent -apply          # write server.env into the agent and reload it, no menu
+ollama-agent -set NAME=VALUE # write one variable into the agent and reload it, no menu (repeatable)
+ollama-agent -json           # print the agent's variables as JSON and exit
 cd go && go run ./cmd/ollama-agent -server-env ../ollama/server.env
 ```
 
@@ -20,10 +22,22 @@ cd go && go run ./cmd/ollama-agent -server-env ../ollama/server.env
 only when a Go source file is newer than the binary. The launcher passes
 `-server-env ollama/server.env`.
 
-`-apply` sets every `server.env` value in the plist (other variables stay),
-runs `brew services stop ollama` when the Homebrew service is loaded, and
-reloads the agent. It refuses while the Ollama app runs. `claude-ollama` calls
-it before a launch when the running server lacks a `server.env` value.
+`-apply` sets every `server.env` value in the plist (other variables stay), runs
+`brew services stop ollama` when the Homebrew service is loaded, and reloads the
+agent. It refuses while the Ollama app runs. `claude-ollama` calls it before a
+launch when the running server lacks a `server.env` value.
+
+`-set NAME=VALUE` does the same write and reload for just the named variables
+and nothing else in `server.env`. The name must be a built-in variable, and the
+value can't contain a newline or NUL and is at most 256 bytes; anything else
+exits 1 with `unknown variable` or the reason. `-set` can be repeated, and it
+can't be combined with `-apply` (exit 2) or `-json`.
+
+`-json` prints a snapshot to stdout and exits without writing anything. It has
+the plist path, whether the plist exists, every variable (name, summary, current
+value, whether it is set in the plist, and the `server.env` value) and the
+conflicts shown at the top of the menu (an empty list when there are none). Use
+it to read the state from a script or another tool.
 
 ## What it shows
 
@@ -66,5 +80,6 @@ cd go && go test ./internal/agent/...
 
 `internal/agent/launchd` renders and reads the plist and builds the launchctl
 command, `internal/agent/variables` holds the variable list and parses
-`server.env`, and `internal/agent/ui` is the Bubble Tea model. Tests never call
-launchctl.
+`server.env` and `-set` assignments, `internal/agent/snapshot` builds the
+`-json` report, and `internal/agent/ui` is the Bubble Tea model. Tests never
+call launchctl.
