@@ -2,6 +2,8 @@ package main
 
 import (
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/jordenparker/claude-custom/go/internal/teststate"
@@ -29,5 +31,16 @@ func TestConflictingTarget(t *testing.T) {
 				t.Errorf("conflictingTarget(%v, %q) = %v, want %v", tt.settingsSet, tt.scopeArg, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestLoadCatalogReportsFetchErrorWhenNoCatalogExists(t *testing.T) {
+	t.Setenv("CLAUDE_TOOLS_DOCS_URL", "http://127.0.0.1:9/tools-reference.md")
+	path := filepath.Join(t.TempDir(), "tools.json")
+
+	_, err := loadCatalog(path)
+
+	if err == nil || !strings.HasPrefix(err.Error(), "no tool catalog yet; open claude-tools once and sync: ") {
+		t.Fatalf("loadCatalog error = %v, want the no-catalog message with the fetch error", err)
 	}
 }

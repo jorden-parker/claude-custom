@@ -5,10 +5,10 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -19,6 +19,8 @@ import (
 )
 
 var errNoCatalog = errors.New("no tool catalog yet; open claude-tools once and sync")
+
+const catalogMaxAge = 7 * 24 * time.Hour
 
 type assignments []string
 
@@ -134,11 +136,18 @@ func applyAssignments(settingsPath, snapshotPath string, texts []string) error {
 }
 
 func loadCatalog(snapshotPath string) (catalog.Snapshot, error) {
-	snapshot, err := catalog.LoadSnapshot(snapshotPath)
-	if errors.Is(err, fs.ErrNotExist) {
-		return snapshot, errNoCatalog
+	snapshot, err := catalog.Ensure(snapshotPath, docsURL(), catalogMaxAge, time.Now())
+	if err != nil {
+		return snapshot, fmt.Errorf("%w: %v", errNoCatalog, err)
 	}
-	return snapshot, err
+	return snapshot, nil
+}
+
+func docsURL() string {
+	if override := os.Getenv("CLAUDE_TOOLS_DOCS_URL"); override != "" {
+		return override
+	}
+	return catalog.DocsURL
 }
 
 func toolNames(tools []catalog.Tool) []string {
