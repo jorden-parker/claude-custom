@@ -72,7 +72,7 @@ sed 's/"timeout": 600/"timeout": 5/' "$sandbox/personal/settings.tokens.json" > 
 check_eq "check fails on a stale personal overlay" 1 "$(exit_status_of --check)"
 generate >/dev/null
 
-printf '{"27b":{"base":"qwen3.8:27b-mlx","model":"qwen3.8-27b-cc","context":65536},"9b":{"base":"qwen3.5:9b-mlx","model":"qwen3.5-9b-cc","context":2048},"9b-jinja":{"base":"hf.co/example/Qwen3.5-9B-GGUF:Q4_K_M","model":"qwen3.5-9b-jinja-cc","context":2048,"renderer":"qwen3.5"}}\n' > "$profiles/sizes.json"
+printf '{"27b":{"base":"qwen3.8:27b-mlx","model":"qwen3.8-27b-cc","context":65536},"9b":{"base":"qwen3.5:9b-mlx","model":"qwen3.5-9b-cc","context":2048},"9b-jinja":{"base":"hf.co/example/Qwen3.5-9B-GGUF:Q4_K_M","model":"qwen3.5-9b-jinja-cc","context":2048,"renderer":"qwen3.5"},"9b-parser":{"base":"./weights/qwen3.5-9b.gguf","model":"qwen3.5-9b-parser-cc","context":2048,"renderer":"qwen3.8","parser":"qwen3.5"},"9b-tuned":{"base":"qwen3.5:9b-mlx","model":"qwen3.5-9b-tuned-cc","context":2048,"renderer":"qwen3.5","parameters":{"top_k":20,"temperature":1}}}\n' > "$profiles/sizes.json"
 generate >/dev/null
 check_that "render creates a new size" test -f "$profiles/settings.9b.json"
 check_eq "new size has its model" "qwen3.5-9b-cc" "$(jq -r .model "$profiles/settings.9b.json")"
@@ -83,6 +83,16 @@ check_eq "size with a renderer uses Ollama's renderer and parser" "FROM hf.co/ex
 PARAMETER num_ctx 2048
 RENDERER qwen3.5
 PARSER qwen3.5" "$(cat "$profiles/Modelfile.9b-jinja")"
+check_eq "a size with its own parser renders that parser" "FROM ./weights/qwen3.5-9b.gguf
+PARAMETER num_ctx 2048
+RENDERER qwen3.8
+PARSER qwen3.5" "$(cat "$profiles/Modelfile.9b-parser")"
+check_eq "a size's parameters render sorted by key" "FROM qwen3.5:9b-mlx
+PARAMETER num_ctx 2048
+RENDERER qwen3.5
+PARSER qwen3.5
+PARAMETER temperature 1
+PARAMETER top_k 20" "$(cat "$profiles/Modelfile.9b-tuned")"
 check_not "render removes a size no longer listed" test -f "$profiles/settings.35b.json"
 check_eq "check passes after a size is added" 0 "$(exit_status_of --check)"
 

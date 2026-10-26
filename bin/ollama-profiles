@@ -54,12 +54,17 @@ render_personal() {
 }
 
 render_renderer() {
-  jq -r --arg size "$1" '.[$size].renderer // empty | "RENDERER \(.)\nPARSER \(.)"' "$sizes_file"
+  jq -r --arg size "$1" '.[$size] | select(.renderer) | "RENDERER \(.renderer)\nPARSER \(.parser // .renderer)"' "$sizes_file"
+}
+
+render_parameters() {
+  jq -r --arg size "$1" '.[$size].parameters // {} | to_entries | sort_by(.key)[] | "PARAMETER \(.key) \(.value)"' "$sizes_file"
 }
 
 render_modelfile() {
   sed -e "s|{{BASE}}|$(field "$1" base)|" -e "s|{{CONTEXT}}|$(field "$1" context)|" "$modelfile_template"
   render_renderer "$1"
+  render_parameters "$1"
 }
 
 render_all() {
@@ -79,7 +84,11 @@ same_content() {
 }
 
 rendered_matches() {
-  [ -f "$2" ] && same_content "$1" "$2" || { echo "stale: $2" >&2; return 1; }
+  if [ ! -f "$2" ]; then
+    echo "stale: $2" >&2
+    return 1
+  fi
+  same_content "$1" "$2" || { echo "stale: $2" >&2; return 1; }
 }
 
 check_size() {
