@@ -1,0 +1,6 @@
+{
+  "ignoreFindings": ["src/components/ui/**", "src/components/ai-elements/**"],
+  "health": {
+    "ignore": ["src/components/ui/**", "src/components/ai-elements/**"]
+  }
+}

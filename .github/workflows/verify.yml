@@ -29,7 +29,7 @@ jobs:
           cache: pnpm
           cache-dependency-path: |
             pnpm-lock.yaml
-            web/pr-review/pnpm-lock.yaml
+            web/console/pnpm-lock.yaml
 
       - run: pnpm install --frozen-lockfile
 

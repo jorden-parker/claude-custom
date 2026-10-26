@@ -644,8 +644,9 @@ reviews_build_needed() {
   [ -n "$(find "$web_dir/src" "$web_dir/package.json" "$web_dir/pnpm-lock.yaml" "$web_dir"/next.config.* -newer "$build_marker" 2>/dev/null)" ]
 }
 
-serve_reviews() {
-  local port=8765 web_dir log_dir url token
+serve_console() {
+  local command_name="$1" label="$2" page="$3" port=8765 web_dir log_dir url page_url token
+  shift 3
   while [ $# -gt 0 ]; do
     case "$1" in
       --port)
@@ -653,14 +654,14 @@ serve_reviews() {
         shift 2 || shift
         ;;
       *)
-        echo "claude-ollama reviews: unknown argument: $1" >&2
+        echo "claude-ollama $command_name: unknown argument: $1" >&2
         exit 2
         ;;
     esac
   done
   case "$port" in
     ''|*[!0-9]*)
-      echo "claude-ollama reviews: --port needs a number" >&2
+      echo "claude-ollama $command_name: --port needs a number" >&2
       exit 2
       ;;
   esac
@@ -668,7 +669,7 @@ serve_reviews() {
     echo "claude-ollama: pnpm is required for the reviews page (brew install pnpm)" >&2
     exit 1
   fi
-  web_dir="${CLAUDE_OLLAMA_WEB_DIR:-$repo_dir/web/pr-review}"
+  web_dir="${CLAUDE_OLLAMA_WEB_DIR:-$repo_dir/web/console}"
   if [ ! -d "$web_dir/node_modules" ]; then
     pnpm --dir "$web_dir" install --frozen-lockfile || exit 1
   fi
@@ -678,11 +679,12 @@ serve_reviews() {
   log_dir="${PR_REVIEW_LOG_DIR:-$HOME/.local/share/claude-custom/reviews}"
   token="$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')"
   url="http://127.0.0.1:$port/?token=$token"
+  page_url="http://127.0.0.1:$port$page?token=$token"
   mkdir -p "$log_dir"
   web_url_file="$log_dir/.web-url"
   (umask 077; rm -f "$web_url_file"; printf '%s\n' "$url" > "$web_url_file")
   trap remove_web_url EXIT INT TERM
-  echo "claude-ollama: reviews at $url"
+  echo "claude-ollama: $label at $page_url"
   PR_REVIEW_TOKEN="$token" pnpm --dir "$web_dir" exec next start -H 127.0.0.1 -p "$port"
   exit 0
 }
@@ -696,6 +698,7 @@ case "${1:-}" in
     echo "--print-config [size]: print the resolved settings and the claude command"
     echo "logs [-n LINES]: follow the Ollama server log (LaunchAgent, Homebrew service or app)"
     echo "review [size] PR [--post]: review a pull request with the size's model, one file per request"
+    echo "ui [--port N]: serve the console (runs, health, logs, models, reviews) at http://127.0.0.1:8765/"
     echo "reviews [--port N]: serve live and past reviews at http://127.0.0.1:8765/"
     echo "github-token [read|push]: create a GitHub token in the browser and store it in the keychain (both without a kind)"
     echo "prepare [size]: pull or import the size's model and stop, without starting claude"
@@ -709,6 +712,7 @@ case "${1:-}" in
   --print-config) mode=print-config; shift ;;
   logs) mode=logs; shift ;;
   review) mode=review; shift ;;
+  ui) mode=ui; shift ;;
   reviews) mode=reviews; shift ;;
   github-token) mode=github-token; shift ;;
   prepare) mode=prepare; shift ;;
@@ -716,7 +720,8 @@ case "${1:-}" in
 esac
 
 [ "$mode" != logs ] || follow_logs "$@"
-[ "$mode" != reviews ] || serve_reviews "$@"
+[ "$mode" != ui ] || serve_console ui console / "$@"
+[ "$mode" != reviews ] || serve_console reviews reviews /reviews "$@"
 [ "$mode" != github-token ] || setup_github_tokens "$@"
 
 if ! command -v jq >/dev/null 2>&1; then

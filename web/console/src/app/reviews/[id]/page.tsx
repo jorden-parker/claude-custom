@@ -10,7 +10,7 @@ type ReviewPageProps = { params: Promise<{ id: string }> };
 export default function ReviewPage({ params }: ReviewPageProps) {
   return (
     <main className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8">
-      <Link href="/" className="text-sm underline">
+      <Link href="/reviews" className="text-sm underline">
         All reviews
       </Link>
       <Suspense fallback={<p className="text-sm text-muted-foreground">Loading review...</p>}>

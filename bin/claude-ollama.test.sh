@@ -644,8 +644,16 @@ token="$(sed -n 's#^http://127\.0\.0\.1:9000/?token=##p' "$PNPM_LOG")"
 check_that "reviews writes a tokened .web-url while serving" grep -qxE 'http://127\.0\.0\.1:9000/\?token=[0-9a-f]{48}' "$PNPM_LOG"
 check_that "reviews gives the server the token in .web-url" grep -qxF "TOKEN: $token" "$PNPM_LOG"
 check_that ".web-url is owner-only while serving" grep -qxF -- "-rw-------" "$PNPM_LOG"
-check_that "reviews prints its tokened URL" grep -qxF "claude-ollama: reviews at http://127.0.0.1:9000/?token=$token" "$sandbox/out"
+check_that "reviews prints its tokened URL" grep -qxF "claude-ollama: reviews at http://127.0.0.1:9000/reviews?token=$token" "$sandbox/out"
 check_not "reviews removes .web-url after it exits" test -e "$PR_REVIEW_LOG_DIR/.web-url"
+rm -f "$PNPM_LOG"
+run_capture "$repo/bin/claude-ollama" ui --port 9000
+check_that "ui serves the console on loopback at the port" grep -qxF -- "PNPM: --dir $web exec next start -H 127.0.0.1 -p 9000" "$PNPM_LOG"
+check_that "ui prints its tokened console URL" grep -qxE "claude-ollama: console at http://127\.0\.0\.1:9000/\?token=[0-9a-f]{48}" "$sandbox/out"
+check_not "ui removes .web-url after it exits" test -e "$PR_REVIEW_LOG_DIR/.web-url"
+run_capture "$repo/bin/claude-ollama" ui --port abc
+check_eq "ui rejects a port that is not a number" 2 "$?"
+check_that "ui names itself when the port is not a number" grep -qxF "claude-ollama ui: --port needs a number" "$sandbox/err"
 rm -f "$PNPM_LOG"
 run_capture "$repo/bin/claude-ollama" reviews --port 9000
 check_not "each reviews launch gets a new token" grep -qxF "http://127.0.0.1:9000/?token=$token" "$PNPM_LOG"
@@ -667,6 +675,7 @@ check_that "reviews without pnpm says how to install it" grep -qxF "claude-ollam
 unset CLAUDE_OLLAMA_WEB_DIR PR_REVIEW_LOG_DIR PNPM_LOG
 run_capture "$repo/bin/claude-ollama" --help
 check_that "claude-ollama help lists reviews" grep -qF -- "reviews [--port N]: serve live and past reviews at http://127.0.0.1:8765/" "$sandbox/out"
+check_that "claude-ollama help lists ui" grep -qF -- "ui [--port N]: serve the console (runs, health, logs, models, reviews) at http://127.0.0.1:8765/" "$sandbox/out"
 
 policy_lists() {
   jq -e --arg entry "$2" ".filesystem.$1 | index(\$entry) != null" "$sandbox/policy.json" >/dev/null

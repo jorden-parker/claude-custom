@@ -67,7 +67,7 @@ test-go:
 	cd go && go test ./...
 
 test-web:
-	pnpm --dir web/pr-review install --frozen-lockfile && pnpm --dir web/pr-review test && pnpm --dir web/pr-review exec tsc --noEmit
+	pnpm --dir web/console install --frozen-lockfile && pnpm --dir web/console test && pnpm --dir web/console exec tsc --noEmit
 
 check-json:
 	@for file in $(JSON_FILES); do jq . $$file >/dev/null || exit 1; done

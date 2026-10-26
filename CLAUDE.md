@@ -101,9 +101,10 @@ before changing how any file gets applied.
   opens a pre-filled fine-grained token page and stores the pasted token with
   `security add-generic-password -U ... -w`, which prompts, so it never lands in
   argv.
-- Reviews page: `claude-ollama reviews [--port N]` serves `web/pr-review`
-  (Next.js with AI Elements) at `http://127.0.0.1:8765/`, built on first run
-  with pnpm. Its tests run with `make test-web`.
+- Console: `claude-ollama ui [--port N]` serves `web/console` (Next.js with AI
+  Elements) at `http://127.0.0.1:8765/`, built on first run with pnpm. The
+  reviews list is at `/reviews`; `claude-ollama reviews [--port N]` runs the
+  same server and prints that link. Its tests run with `make test-web`.
 - Launch the tools TUI: `claude-tools [user|project|local|FILE]`. Launch the
   agent TUI: `ollama-agent [-file PLIST] [-ollama BIN]`. All three are also
   `claude-custom ollama|tools|agent [...]`.
@@ -477,7 +478,7 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   `Bash(git log *)` are never changed. "Disable" means a bare deny rule. Write
   rules are in `go/cmd/claude-tools/README.md`.
 
-- The log dir is the contract between `bin/pr-review-local` and `web/pr-review`:
+- The log dir is the contract between `bin/pr-review-local` and `web/console`:
   the events route tails the JSONL logs there, the page binds 127.0.0.1 only,
-  and the AI Elements components are vendored in `web/pr-review/src/components`
+  and the AI Elements components are vendored in `web/console/src/components`
   (`ui/` and `ai-elements/`).

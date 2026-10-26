@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "PR reviews",
-  description: "Live and past local PR reviews",
+  title: "claude-ollama console",
+  description: "Configure, run and review the local claude-ollama harness",
 };
 
 export default function RootLayout({
