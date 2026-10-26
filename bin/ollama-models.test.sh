@@ -78,6 +78,26 @@ check "prune confirmed removes the same models" grep -q '^rm qwen3-4b-cc:latest 
 check "prune lists what it will remove" grep -q 'hf.co/empero-ai/Qwen3.8-9B-Distill-GGUF:Q4_K_M' "$sandbox/out"
 rm -f "$sandbox/ollama.log"
 
+"$script" prune --yes --only qwen3-4b-cc:latest >"$sandbox/out" 2>&1
+check "prune --only removes just the named prunable model" test "$(cat "$sandbox/ollama.log")" = "rm qwen3-4b-cc:latest"
+rm -f "$sandbox/ollama.log"
+
+"$script" prune --yes --only qwen3.8:27b-mlx qwen3.8-9b-distill-cc:latest >"$sandbox/out" 2>&1
+check "prune --only skips a pinned model with a skipped line" grep -Fxq 'skipped qwen3.8:27b-mlx (not prunable)' "$sandbox/out"
+check "prune --only still removes the other named prunable model" test "$(cat "$sandbox/ollama.log")" = "rm qwen3.8-9b-distill-cc:latest"
+rm -f "$sandbox/ollama.log"
+
+"$script" prune --yes --only qwen3.8:27b-mlx >"$sandbox/out" 2>&1
+check "prune --only with no prunable name runs no ollama rm" test ! -e "$sandbox/ollama.log"
+check "prune --only with no prunable name exits 0" test "$?" = 0
+
+"$script" prune --only qwen3-4b-cc:latest >/dev/null 2>&1 </dev/null
+check "prune --only without --yes is a usage error" test "$?" = 2
+check "prune --only without --yes runs no ollama rm" test ! -e "$sandbox/ollama.log"
+
+"$script" prune --yes --only >/dev/null 2>&1
+check "prune --yes --only with no names is a usage error" test "$?" = 2
+
 printf '{"models": [{"name": "qwen3-vl:8b-instruct-q4_K_M", "digest": "5555"}]}' >"$sandbox/tags.json"
 "$script" prune --yes >/dev/null
 check "prune with nothing to remove exits 0" test "$?" = 0
