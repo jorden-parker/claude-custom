@@ -201,10 +201,20 @@ def process_alive(pid):
     return True
 
 
+def file_identity(path):
+    try:
+        status = os.stat(path)
+    except FileNotFoundError:
+        return None
+    return status.st_dev, status.st_ino
+
+
 def exit_when_gone(pid, socket_path, cleanup):
+    own_socket = file_identity(socket_path)
     while process_alive(pid):
         time.sleep(0.5)
-    Path(socket_path).unlink(missing_ok=True)
+    if file_identity(socket_path) == own_socket:
+        Path(socket_path).unlink(missing_ok=True)
     cleanup()
     os._exit(0)
 

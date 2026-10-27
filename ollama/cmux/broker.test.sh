@@ -208,6 +208,19 @@ check_not "the broker exits when the session ends" kill -0 "$broker_pid" 2>/dev/
 check_not "the broker removes its socket when it exits" test -e "$socket"
 stop_broker
 
+set_reply '"{\"allowed\":[\"localhost\",\"127.0.0.1\",\"[::1]\"]}"'
+start_broker
+rm -f "$socket"
+python3 -c 'import socket, sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])' "$socket"
+kill "$session_pid" && wait "$session_pid" 2>/dev/null
+for _ in $(seq 50); do
+  kill -0 "$broker_pid" 2>/dev/null || break
+  sleep 0.1
+done
+check_that "an exiting broker leaves the next session's socket in place" test -S "$socket"
+stop_broker
+rm -f "$socket"
+
 : > "$tmp/cmux.log"
 set_reply '"{\"allowed\":[\"*\"]}"'
 rm -f "$socket"

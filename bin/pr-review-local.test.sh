@@ -17,7 +17,8 @@ cat > "$tmp/stub.py" <<'PY'
 import json
 import sys
 import time
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler
+from socketserver import TCPServer
 from pathlib import Path
 
 LOG_PATH, PORT_PATH = sys.argv[1], sys.argv[2]
@@ -126,8 +127,8 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.flush()
 
 
-server = HTTPServer(("127.0.0.1", 0), Handler)
-Path(PORT_PATH).write_text(str(server.server_port))
+server = TCPServer(("127.0.0.1", 0), Handler)
+Path(PORT_PATH).write_text(str(server.server_address[1]))
 server.serve_forever()
 PY
 
