@@ -752,8 +752,9 @@ check_that "ui serves the console on loopback at the port" grep -qxF -- "PNPM: -
 check_that "the console marks its changes with its own source" grep -qxF -- "SOURCE: console" "$PNPM_LOG"
 check_that "ui prints its tokened console URL" grep -qxE "claude-ollama: console at http://127\.0\.0\.1:9000/\?token=[0-9a-f]{48}" "$sandbox/out"
 check_not "ui removes .web-url after it exits" test -e "$PR_REVIEW_LOG_DIR/.web-url"
-(cd "$sandbox" && run_capture "$repo/bin/claude-ollama" ui --port 9000)
-check_that "ui hands the server the folder it was started from" grep -qxF -- "PROJECT: $sandbox" "$PNPM_LOG"
+mkdir -p "$sandbox/started-here"
+(cd "$sandbox/started-here" && run_capture "$repo/bin/claude-ollama" ui --port 9000)
+check_that "ui hands the server the folder it was started from" grep -qxF -- "PROJECT: $sandbox/started-here" "$PNPM_LOG"
 mkdir -p "$CLAUDE_CONSOLE_STATE_DIR/tokens"
 printf 'other-console-token\n' > "$CLAUDE_CONSOLE_STATE_DIR/tokens/8812"
 printf 'legacy-token\n' > "$CLAUDE_CONSOLE_STATE_DIR/token"
@@ -1167,6 +1168,40 @@ check_eq "the session's short runs your short outside it, through the broker, wi
   "search owner:me --state=Done shortsecret" "$(cat "$sandbox/short.log" 2>/dev/null)"
 check_that "and prints what it printed" grep -qxF "story 12" "$sandbox/session-short.out"
 check_that "a short command the broker refuses never runs" grep -qF "short broker: -O is not allowed here" "$sandbox/session-short.out"
+rm "$sandbox/stubbin/short"
+
+mkdir -p "$gh_project/bin"
+for planted in short gh; do
+  printf '#!/bin/sh\necho planted >> "%s/planted.log"\n' "$sandbox" > "$gh_project/bin/$planted"
+  chmod +x "$gh_project/bin/$planted"
+done
+(cd "$gh_project" && PATH="$gh_project/bin:$PATH" CLAUDE_OLLAMA_NO_INDEX=1 STUB_GH_AUTH_TOKEN=readsecret \
+  run_capture "$repo/bin/claude-ollama" 27b -p hi)
+check_eq "a short the session could plant in the project never gets a broker" "" "$(session_env CLAUDE_OLLAMA_SHORTCUT_BROKER)"
+check_not "and neither a planted short nor gh runs outside the sandbox" test -e "$sandbox/planted.log"
+check_that "the session still gets your PATH back inside the sandbox" \
+  sh -c 'printf "%s\n" "$1" | tr ":" "\n" | grep -qxF "$2"' _ "$(session_env PATH)" "$gh_project/bin"
+check_eq "without the launcher's copy of it" "" "$(session_env CLAUDE_OLLAMA_SESSION_PATH)"
+rm "$gh_project/bin/gh" "$gh_project/bin/short"
+ln -s "$gh_project/planted-short" "$sandbox/stubbin/short"
+printf '#!/bin/sh\necho planted >> "%s/planted.log"\n' "$sandbox" > "$gh_project/planted-short"
+chmod +x "$gh_project/planted-short"
+(cd "$gh_project" && CLAUDE_OLLAMA_NO_INDEX=1 run_capture "$repo/bin/claude-ollama" 27b -p hi)
+check_eq "nor a short that links into the project" "" "$(session_env CLAUDE_OLLAMA_SHORTCUT_BROKER)"
+check_not "which never runs" test -e "$sandbox/planted.log"
+check_that "and the launch says why" grep -qF "claude-ollama: not using $sandbox/stubbin/short: the session can write there" "$sandbox/err"
+rm "$sandbox/stubbin/short" "$gh_project/planted-short"
+cat > "$sandbox/stubbin/short" <<EOF
+#!/bin/sh
+echo "\$PATH" > "$sandbox/short-path.log"
+EOF
+chmod +x "$sandbox/stubbin/short"
+(cd "$gh_project" && PATH="$gh_project/bin:./bin:$PATH" CLAUDE_OLLAMA_NO_INDEX=1 STUB_RUN_SHORT=1 \
+  run_capture "$repo/bin/claude-ollama" 27b -p hi)
+check_that "the Shortcut broker starts from a safe short" test -s "$sandbox/short-path.log"
+check_not "and runs it without the project's folders on PATH, so a planted node never runs" \
+  grep -qF "$gh_project" "$sandbox/short-path.log"
+check_not "nor relative ones" grep -qE '(^|:)\./bin(:|$)' "$sandbox/short-path.log"
 rm "$sandbox/stubbin/short"
 
 write_fetch_list() {

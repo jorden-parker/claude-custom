@@ -53,6 +53,10 @@ cat > "$tmp/short" <<EOF
 printf '%s|' "\$@" >> "$tmp/short.log"
 echo >> "$tmp/short.log"
 pwd -P > "$tmp/short-cwd"
+if [ -e "$tmp/leak" ]; then
+  echo "Shortcut-Token: \$SHORTCUT_API_TOKEN"
+  echo "config token cfgsecret-0000 again cfgsecret-0000" >&2
+fi
 echo "story 12"
 echo "warning" >&2
 exit 3
@@ -62,7 +66,9 @@ chmod +x "$tmp/short"
 sleep 600 &
 session_pid=$!
 socket="$tmp/broker.sock"
-python3 "$broker" --socket "$socket" --short "$tmp/short" --watch-pid "$session_pid" &
+mkdir -p "$tmp/home/.config/shortcut-cli"
+printf '{"token":"cfgsecret-0000"}\n' > "$tmp/home/.config/shortcut-cli/config.json"
+HOME="$tmp/home" SHORTCUT_API_TOKEN=envsecret-1111 python3 "$broker" --socket "$socket" --short "$tmp/short" --watch-pid "$session_pid" &
 broker_pid=$!
 for _ in $(seq 50); do
   [ -S "$socket" ] && break
@@ -151,6 +157,13 @@ check_that "a flag missing its value is refused" refused story 12 -s
 check_that "no command is refused" refused
 check_that "argv that is not a list of text is refused" refused_line '{"argv": ["story", 12]}'
 check_that "a request that is not JSON is refused" refused_line 'not json'
+
+touch "$tmp/leak"
+run_short search owner:me
+check_not "the broker never returns the token short was given" grep -q envsecret-1111 "$tmp/reply"
+check_not "nor the token in short's config" grep -q cfgsecret-0000 "$tmp/reply"
+check_that "it says where it cut a token" grep -qF "Shortcut-Token: [Shortcut token removed]" "$tmp/reply"
+rm "$tmp/leak"
 
 mv "$tmp/short" "$tmp/short.moved"
 run_short search owner:me

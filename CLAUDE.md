@@ -393,18 +393,25 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   encode the token themselves. `short` (Shortcut CLI) runs outside the sandbox:
   the launcher starts `ollama/shortcut/broker.py` on
   `<session config>/shortcut-broker.<launcher pid>.sock` (same socket rules as
-  the gh broker) with your `short` (else the pinned one from
-  `ollama/shortcut-cli.package*.json`, installed by `claude-custom install`),
-  your env and an empty temp cwd, so it uses the token it already has. The
-  session's `short` (`ollama/shortcut/bin`, on `PATH` only while the broker
-  runs) runs `shared/mcp/short-shim.py`, which sends its argv; the broker allows
-  only reads and story edits (`COMMANDS` in the broker: no `install`, `api`,
-  `workspace`, deletes, `--open*`, `--git-branch*`, `--from-git`, `--download*`,
-  `--save`) and rebuilds every option as `--long=value`, so no value becomes a
-  flag. The session never holds `SHORTCUT_API_TOKEN` (outer Shortcut and
-  Clubhouse vars are unset), and the policy denies reading every `short` config
-  folder. A masked token would not do: srt swaps the placeholder back in request
-  bodies too, so a session could store it in a story and read it back. Tests:
+  the gh broker) with the pinned `short` (from
+  `ollama/shortcut-cli.package*.json`, installed by `claude-custom install`;
+  else yours from `PATH`), your env and an empty temp cwd, so it uses the token
+  it already has. It cuts that token (env or any `short` config) out of every
+  reply, since a failed request can print its headers. The session's `short`
+  (`ollama/shortcut/bin`, on `PATH` only while the broker runs) runs
+  `shared/mcp/short-shim.py`, which sends its argv; the broker allows only reads
+  and story edits (`COMMANDS` in the broker: no `install`, `api`, `workspace`,
+  deletes, `--open*`, `--git-branch*`, `--from-git`, `--download*`, `--save`)
+  and rebuilds every option as `--long=value`, so no value becomes a flag. The
+  session never holds `SHORTCUT_API_TOKEN` (outer Shortcut and Clubhouse vars
+  are unset), and the policy denies reading every `short` config folder.
+  Everything outside the sandbox runs from a safe `PATH`: the launcher first
+  drops relative entries and folders the session can write (the enclosing repo
+  and session config, then the git dir and item folder), and `trusted_command`
+  refuses a `gh`, `cmux` or `short` that links into one; `sandbox-entry`
+  restores your own `PATH` (`CLAUDE_OLLAMA_SESSION_PATH`) inside the sandbox. A
+  masked token would not do: srt swaps the placeholder back in request bodies
+  too, so a session could store it in a story and read it back. Tests:
   `ollama/shortcut/broker.test.sh` (stub `short`),
   `shared/mcp/short-shim.test.sh` (fake broker). `gh` can't run inside the
   sandbox (Go on macOS resolves `localhost` and checks TLS through system

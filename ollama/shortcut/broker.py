@@ -10,6 +10,8 @@ import time
 from pathlib import Path
 
 COMMAND_TIMEOUT_SECONDS = 120
+TOKEN_VARIABLES = ("SHORTCUT_API_TOKEN", "CLUBHOUSE_API_TOKEN")
+TOKEN_REMOVED = "[Shortcut token removed]"
 SWITCH = "switch"
 VALUE = "value"
 
@@ -155,6 +157,39 @@ def short_args(request):
     return [*command, *rebuilt(argv[len(command) :], COMMANDS[tuple(command)])]
 
 
+def shortcut_config_files():
+    home = Path.home()
+    folders = [
+        Path(os.environ.get("XDG_CONFIG_HOME") or home / ".config") / "shortcut-cli",
+        home / ".config" / "shortcut-cli",
+        home / ".config" / "clubhouse-cli",
+        home / ".clubhouse-cli",
+    ]
+    if os.environ.get("XDG_DATA_HOME"):
+        folders.append(Path(os.environ["XDG_DATA_HOME"]) / ".config" / "shortcut-cli")
+    return [folder / "config.json" for folder in folders]
+
+
+def configured_token(config_file):
+    try:
+        token = json.loads(config_file.read_text()).get("token")
+    except (OSError, ValueError, AttributeError):
+        return ""
+    return token if isinstance(token, str) else ""
+
+
+def known_tokens():
+    tokens = [os.environ.get(name, "") for name in TOKEN_VARIABLES]
+    tokens += [configured_token(config_file) for config_file in shortcut_config_files()]
+    return sorted({token for token in tokens if token}, key=len, reverse=True)
+
+
+def without_tokens(text, tokens):
+    for token in tokens:
+        text = text.replace(token, TOKEN_REMOVED)
+    return text
+
+
 class Broker:
     def __init__(self, short, workdir):
         self.short = short
@@ -175,7 +210,12 @@ class Broker:
 
 
 def reply_from(completed):
-    return {"exit": completed.returncode, "stdout": completed.stdout, "stderr": completed.stderr}
+    tokens = known_tokens()
+    return {
+        "exit": completed.returncode,
+        "stdout": without_tokens(completed.stdout, tokens),
+        "stderr": without_tokens(completed.stderr, tokens),
+    }
 
 
 def refusal(reason):

@@ -10,6 +10,10 @@ export GOMODCACHE="$session_dir/go-mod"
 export EDIT_CHECK_CACHE_DIR="$session_dir/cache/claude-custom/edit-check"
 export STOP_VERIFY_STATE_DIR="$session_dir/cache/claude-custom/edited-files"
 export DISABLE_AUTOUPDATER=1
+if [ -n "${CLAUDE_OLLAMA_SESSION_PATH:-}" ]; then
+  export PATH="$CLAUDE_OLLAMA_SESSION_PATH"
+fi
+unset CLAUDE_OLLAMA_SESSION_PATH
 if [ -n "${CLAUDE_OLLAMA_SHORTCUT_BROKER:-}" ]; then
   export PATH="$CLAUDE_CUSTOM_HOME/ollama/shortcut/bin:$PATH"
 fi

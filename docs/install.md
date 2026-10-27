@@ -37,7 +37,7 @@ straight from `shared/hooks/`), adds an `@` import for
 retired `personal/CLAUDE.tokens.md` import), rebuilds the Ollama models whose
 base model is pulled, and installs the pinned `sandbox-runtime` that
 `claude-ollama` sessions run in, plus a pinned Shortcut CLI (`short`, which the
-session's Shortcut broker runs only when yours isn't on `PATH`), under
+session's Shortcut broker runs in place of yours on `PATH`), under
 `~/.local/share/claude-custom/`. Re-running it is safe.
 `~/.claude/settings.json` is left as is: the overlay loads on top of it via
 `--settings` on every interactive `claude` launch. Scripts, IDE extensions, the
