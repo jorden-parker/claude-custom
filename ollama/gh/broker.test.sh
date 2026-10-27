@@ -169,6 +169,11 @@ check_that "a limit over 100 is refused" refused ask pr_list '{"limit":1000}'
 check_that "a limit of 0 is refused" refused ask issue_list '{"limit":0}'
 check_that "text that is not a string is refused" refused ask pr_list '{"author":["me"]}'
 check_that "text over 256 characters is refused" refused ask issue_list "{\"search\":\"$(printf 'x%.0s' $(seq 300))\"}"
+check_that "a search that names another repo is refused" refused ask pr_list '{"search":"fix repo:other/project"}'
+check_that "as is one that names an org, whatever the case" refused ask issue_list '{"search":"ORG:other"}'
+check_that "or a user, even negated" refused ask issue_list '{"search":"-user:other"}'
+check_that "or an owner inside parentheses" refused ask pr_list '{"search":"(owner:other)"}'
+check_that "an author can't carry a scope qualifier either" refused ask pr_list '{"author":"me repo:other/project"}'
 check_that "a switch that is not a boolean is refused" refused ask pr_diff '{"number":12,"name_only":"yes"}'
 stop_broker
 

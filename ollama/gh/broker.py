@@ -2,6 +2,7 @@
 import argparse
 import json
 import os
+import re
 import socketserver
 import subprocess
 import tempfile
@@ -13,6 +14,7 @@ COMMAND_TIMEOUT_SECONDS = 120
 DEFAULT_LIMIT = 20
 MAX_LIMIT = 100
 MAX_TEXT_LENGTH = 256
+SCOPE_QUALIFIER = re.compile(r"(?:^|[\s(\"-])(?:repo|org|user|owner):", re.IGNORECASE)
 PR_FIELDS = "number,title,author,headRefName,isDraft,updatedAt"
 PR_VIEW_FIELDS = (
     "number,title,body,state,author,headRefName,baseRefName,url,isDraft,reviewDecision,labels,files,comments,reviews"
@@ -68,6 +70,8 @@ class Arguments:
             return []
         if not isinstance(value, str) or len(value) > MAX_TEXT_LENGTH:
             raise Refused(f"{name} must be text of at most {MAX_TEXT_LENGTH} characters")
+        if SCOPE_QUALIFIER.search(value):
+            raise Refused(f"{name} can't name a repo, org, user or owner: it always searches this project's repo")
         return [f"{flag}={value}"]
 
 
