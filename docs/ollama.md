@@ -218,32 +218,33 @@ Every Bash command still asks first, and so do `git commit` and `git push`.
 `git-push-guard.py` refuses force pushes, remote deletes, `--mirror`, `--prune`
 and pushes to `main` or `master`.
 
-Sessions use two fine-grained GitHub tokens from the keychain. Set both up with:
+For `git push`, sessions use a fine-grained GitHub token from the keychain. Set
+it up with:
 
 ```sh
-claude-ollama github-token        # both; or github-token read|push for one
+claude-ollama github-token
 ```
 
-For each token it opens GitHub's new-token page with the name, a 90-day expiry
-and the permissions filled in. You choose the repositories and generate it, then
-paste it at the hidden `security` prompt (it never appears in a command line).
-Running it again replaces the stored token.
+It opens GitHub's new-token page with the name, a 90-day expiry and the
+permissions filled in. You choose the repositories and generate it, then paste
+it at the hidden `security` prompt (it never appears in a command line). Running
+it again replaces the stored token.
 
 - `push` (keychain item `claude-ollama-github`; Contents and Pull requests:
   write) lets `git push` work. The session never sees the token: it gets a
   placeholder, which the sandbox's proxy swaps for the real value only on
   requests to `github.com`. Without it, `doctor` warns and pushes fail; commits
   still work. Remotes must use HTTPS.
-- `read` (keychain item `claude-ollama-github-read`; Contents, Pull requests,
-  Issues and Actions: read) lets the model read PRs, issues and CI. The token
-  never enters the sandbox, and the session has no `gh`. The model gets MCP
-  tools instead (`pr_list`, `pr_view`, `pr_diff`, `pr_checks`, `issue_list`,
+- Reading PRs, issues and CI uses your normal `gh` login
+  (`gh auth token --hostname github.com`), so it reaches every repo you can. The
+  token never enters the sandbox, and the session has no `gh`. The model gets
+  MCP tools instead (`pr_list`, `pr_view`, `pr_diff`, `pr_checks`, `issue_list`,
   `issue_view`, `run_list`, `run_view`, beside the local `git_status`,
   `git_diff`, `git_log` and `git_show`). Each GitHub call goes to a broker
   outside the sandbox, which checks the arguments and runs your real `gh` with
   fixed flags, from an empty folder, with `GH_REPO` set to the project's
-  `origin` and none of your saved `gh` logins. Without the token or `gh`, only
-  the git tools are listed. A `GH_TOKEN` or `GITHUB_TOKEN` from your shell never
+  `origin` and none of your saved `gh` logins. Without a `gh` login, only the
+  git tools are listed. A `GH_TOKEN` or `GITHUB_TOKEN` from your shell never
   reaches the session.
 
 `bin/ollama-models` manages the installed models:

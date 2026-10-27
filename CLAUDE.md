@@ -118,8 +118,8 @@ before changing how any file gets applied.
   `$CLAUDE_CONSOLE_STATE_DIR/launcher.log` (0600, moved to `launcher.log.1` past
   1 MiB); the console's Logs page has Ollama server and Launcher tabs
   (`/api/logs/path` and `/api/logs/events` take `?source=server|launcher`)
-- GitHub tokens: `claude-ollama github-token [read|push]` (both without a kind)
-  opens a pre-filled fine-grained token page and stores the pasted token with
+- GitHub push token: `claude-ollama github-token [push]` opens a pre-filled
+  fine-grained token page and stores the pasted token with
   `security add-generic-password -U ... -w`, which prompts, so it never lands in
   argv.
 - Console: `claude-ollama ui [--port N]` serves `web/console` (Next.js with AI
@@ -392,8 +392,8 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   through `GIT_CONFIG_*`. Git's own credential helpers can't be masked: they
   encode the token themselves. `gh` can't run inside the sandbox (Go on macOS
   resolves `localhost` and checks TLS through system services the sandbox
-  blocks), so with a read-only token in `claude-ollama-github-read` and `gh` on
-  PATH the launcher starts `ollama/gh/broker.py` outside the sandbox on
+  blocks), so with `gh` on PATH and logged in (`gh auth token`, your normal
+  login) the launcher starts `ollama/gh/broker.py` outside the sandbox on
   `<session config>/gh-broker.sock` (in `allowUnixSockets` and `denyWrite`,
   beside the cmux broker's), with the token as `GH_TOKEN` and `GH_REPO` from the
   project's GitHub `origin`. The broker takes only structured requests

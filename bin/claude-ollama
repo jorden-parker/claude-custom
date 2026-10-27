@@ -25,7 +25,6 @@ launcher_log="$console_state_dir/launcher.log"
 launcher_log_max_bytes=1048576
 launcher_log_open=""
 github_keychain_item=claude-ollama-github
-github_read_keychain_item=claude-ollama-github-read
 raw_terminal_mode=(-brkint -icrnl -inpck -istrip -ixon cs8 -echo -icanon -iexten -isig min 1 time 0)
 saved_terminal_mode=""
 
@@ -354,8 +353,8 @@ github_repo_slug() {
 
 start_gh_broker() {
   local token
-  token="$(github_read_token)" || return 0
   command -v gh >/dev/null 2>&1 || return 0
+  token="$(gh_login_token)" || return 0
   gh_broker_socket="$session_config_dir/gh-broker.sock"
   GH_TOKEN="$token" nohup "$profile_dir/gh/broker.py" --socket "$gh_broker_socket" --gh "$(command -v gh)" \
     --repo "$(github_repo_slug)" --watch-pid "$$" >/dev/null 2>&1 &
@@ -473,41 +472,23 @@ github_token() {
   security find-generic-password -s "$github_keychain_item" -w 2>/dev/null
 }
 
-github_read_token() {
-  security find-generic-password -s "$github_read_keychain_item" -w 2>/dev/null
+gh_login_token() {
+  gh auth token --hostname github.com 2>/dev/null
 }
 
-github_token_page() {
-  local new_token_page="https://github.com/settings/personal-access-tokens/new"
-  case "$1" in
-    read) printf '%s?name=claude-ollama-read&description=Read-only+gh+in+claude-ollama+sessions&expires_in=90&metadata=read&contents=read&pull_requests=read&issues=read&actions=read' "$new_token_page" ;;
-    push) printf '%s?name=claude-ollama-push&description=git+push+from+claude-ollama+sessions&expires_in=90&metadata=read&contents=write&pull_requests=write' "$new_token_page" ;;
-  esac
-}
-
-github_token_keychain_item() {
-  case "$1" in
-    read) printf '%s' "$github_read_keychain_item" ;;
-    push) printf '%s' "$github_keychain_item" ;;
-  esac
-}
-
-store_github_token() {
-  local kind="$1" page item
-  page="$(github_token_page "$kind")"
-  item="$(github_token_keychain_item "$kind")"
-  echo "claude-ollama: create the $kind token in your browser, choose its repositories, then paste it below"
+store_push_token() {
+  local page="https://github.com/settings/personal-access-tokens/new?name=claude-ollama-push&description=git+push+from+claude-ollama+sessions&expires_in=90&metadata=read&contents=write&pull_requests=write"
+  echo "claude-ollama: create the push token in your browser, choose its repositories, then paste it below"
   echo "$page"
   open "$page" 2>/dev/null || true
-  security add-generic-password -U -s "$item" -a "$USER" -w || exit 1
-  echo "claude-ollama: stored the $kind token in the keychain item $item"
+  security add-generic-password -U -s "$github_keychain_item" -a "$USER" -w || exit 1
+  echo "claude-ollama: stored the push token in the keychain item $github_keychain_item"
 }
 
 setup_github_tokens() {
   case "${1:-}" in
-    read|push) store_github_token "$1" ;;
-    '') store_github_token read; store_github_token push ;;
-    *) echo "usage: claude-ollama github-token [read|push]" >&2; exit 2 ;;
+    push|'') store_push_token ;;
+    *) echo "usage: claude-ollama github-token [push]" >&2; exit 2 ;;
   esac
   exit 0
 }
@@ -696,11 +677,11 @@ check_github_token() {
   fi
 }
 
-check_github_read_token() {
-  if github_read_token >/dev/null; then
-    report ok "read-only GitHub token in the keychain item $github_read_keychain_item"
+check_gh_login() {
+  if command -v gh >/dev/null 2>&1 && gh_login_token >/dev/null; then
+    report ok "gh logged in to github.com (the session's GitHub tools use it through the broker)"
   else
-    report warn "no read-only GitHub token in the keychain item $github_read_keychain_item (gh from the session will fail; run claude-ollama github-token read)"
+    report warn "gh is not logged in to github.com (the session's GitHub tools will be missing; run gh auth login)"
   fi
 }
 
@@ -717,7 +698,7 @@ doctor() {
   check_sandbox_runtime || status=1
   check_fetch_domains
   check_github_token
-  check_github_read_token
+  check_gh_login
   check_model_allowed
   exit "$status"
 }
@@ -851,7 +832,7 @@ case "${1:-}" in
     echo "review [size] PR [--post]: review a pull request with the size's model, one file per request"
     echo "ui [--port N]: serve the console (runs, health, logs, models, reviews) at http://127.0.0.1:8765/"
     echo "reviews [--port N]: serve live and past reviews at http://127.0.0.1:8765/"
-    echo "github-token [read|push]: create a GitHub token in the browser and store it in the keychain (both without a kind)"
+    echo "github-token [push]: create the git push token in the browser and store it in the keychain"
     echo "fetch domains: list hostnames in ~/.config/claude-custom/fetch-domains to give sessions WebFetch for them"
     echo "prepare [size]: pull or import the size's model and stop, without starting claude"
     echo "prepare-embedding: pull the semantic_search embedding model and stop, without starting claude"

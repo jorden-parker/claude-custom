@@ -16,7 +16,7 @@ MAX_PATHS = 50
 GIT = ["git", "--no-pager", "-c", "color.ui=false", "-c", "core.fsmonitor=false"]
 NO_DIFF_PROGRAMS = ["--no-ext-diff", "--no-textconv"]
 OUTSIDE_REPOSITORY = "paths must stay inside the repository"
-BROKER_MISSING = "the GitHub broker is not running; run claude-ollama github-token read, then relaunch"
+BROKER_MISSING = "the GitHub broker is not running; run gh auth login outside the session, then relaunch"
 
 
 def text_property(description):

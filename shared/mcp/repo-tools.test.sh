@@ -205,7 +205,7 @@ check "git_show needs a revision" contains "$(call git_show)" "ERROR rev is requ
 check "paths must be a list of text" contains "$(call git_diff '{"paths":"notes.txt"}')" "ERROR"
 check "an unknown tool is an error" contains "$(call git_push)" "ERROR"
 check "a GitHub tool without the broker says how to get it" \
-  contains "$(call pr_list)" "ERROR the GitHub broker is not running; run claude-ollama github-token read, then relaunch"
+  contains "$(call pr_list)" "ERROR the GitHub broker is not running; run gh auth login outside the session, then relaunch"
 
 head -c 30000 /dev/zero | tr '\0' x > "$repo/big.txt"
 git -C "$repo" add big.txt

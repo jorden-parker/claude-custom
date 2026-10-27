@@ -95,10 +95,7 @@ if [ "$1" = add-generic-password ]; then
   echo "$*" >> "$(dirname "$0")/../security.log"
   exit "${STUB_SECURITY_ADD_STATUS:-0}"
 fi
-case "$*" in
-  *claude-ollama-github-read*) token="${STUB_GITHUB_READ_TOKEN:-}" ;;
-  *) token="${STUB_GITHUB_TOKEN:-}" ;;
-esac
+token="${STUB_GITHUB_TOKEN:-}"
 [ -n "$token" ] || exit 44
 printf '%s\n' "$token"
 EOF
@@ -254,7 +251,7 @@ check_that "claude-ollama starts the code-search, repo and dev MCP servers" grep
 rm -f "$sandbox/python.log"
 run_capture "$repo/bin/claude-ollama" 35b -p hi
 sleep 1
-check_that "claude-ollama starts the indexer" grep -qxF "$repo/shared/mcp/code-search.py --index" "$sandbox/python.log"
+check_that "claude-ollama starts the indexer tied to its own process" grep -qxE "$repo/shared/mcp/code-search.py --index --watch-pid [0-9]+" "$sandbox/python.log"
 check_that "claude-ollama launches without waiting for the indexer" grep -q '^ARGS:' "$sandbox/out"
 rm -f "$sandbox/python.log"
 run_capture env CLAUDE_OLLAMA_NO_INDEX=1 "$repo/bin/claude-ollama" 35b -p hi
@@ -958,25 +955,30 @@ check_eq "a keychain GitHub token reaches git as a ready-encoded header" \
 
 cat > "$sandbox/stubbin/gh" <<EOF
 #!/bin/sh
+if [ "\$*" = "auth token --hostname github.com" ]; then
+  [ -n "\${STUB_GH_AUTH_TOKEN:-}" ] || exit 1
+  printf '%s\\n' "\$STUB_GH_AUTH_TOKEN"
+  exit 0
+fi
 echo "\$* \${GH_TOKEN-unset} \${GH_REPO-unset}" >> "$sandbox/gh.log"
 EOF
 chmod +x "$sandbox/stubbin/gh"
-STUB_GITHUB_READ_TOKEN=readsecret run_capture "$repo/bin/claude-ollama" 27b -p hi
+STUB_GH_AUTH_TOKEN=readsecret run_capture "$repo/bin/claude-ollama" 27b -p hi
 gh_socket="$session_config/gh-broker.sock"
-check_eq "a read-only GitHub token allows only the gh broker's socket" "[\"$gh_socket\"]" "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
+check_eq "a gh login allows only the gh broker's socket" "[\"$gh_socket\"]" "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
 check_that "the session cannot replace the gh broker's socket" policy_lists denyWrite "$gh_socket"
 session_path_has_gh_client() {
   session_env PATH | tr ':' '\n' | grep -qxF "$repo/ollama/gh/bin"
 }
 check_not "the session gets no gh command of its own" session_path_has_gh_client
-check_eq "the session never holds the read-only token" "" "$(session_env GH_TOKEN)"
-run_capture env CLAUDE_OLLAMA_CMUX=1 CMUX_SOCKET_PATH="$cmux_socket" STUB_GITHUB_READ_TOKEN=readsecret "$repo/bin/claude-ollama" 27b -p hi
+check_eq "the session never holds the gh login's token" "" "$(session_env GH_TOKEN)"
+run_capture env CLAUDE_OLLAMA_CMUX=1 CMUX_SOCKET_PATH="$cmux_socket" STUB_GH_AUTH_TOKEN=readsecret "$repo/bin/claude-ollama" 27b -p hi
 check_eq "with cmux too the session reaches both brokers" "[\"$session_config/cmux-broker.sock\",\"$gh_socket\"]" \
   "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
 run_capture "$repo/bin/claude-ollama" 27b -p hi
-check_eq "without a read-only token the session gets no gh broker" "" "$(session_env CLAUDE_OLLAMA_GH_BROKER)"
+check_eq "without a gh login the session gets no gh broker" "" "$(session_env CLAUDE_OLLAMA_GH_BROKER)"
 rm "$sandbox/stubbin/gh"
-STUB_GITHUB_READ_TOKEN=readsecret run_capture "$repo/bin/claude-ollama" 27b -p hi
+STUB_GH_AUTH_TOKEN=readsecret run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_eq "without gh installed the session gets no gh broker" "" "$(session_env CLAUDE_OLLAMA_GH_BROKER)"
 run_capture env CLAUDE_OLLAMA_GH_BROKER=/tmp/elsewhere.sock "$repo/bin/claude-ollama" 27b -p hi
 check_eq "an inherited gh broker address never reaches the session" "" "$(session_env CLAUDE_OLLAMA_GH_BROKER)"
@@ -1022,20 +1024,18 @@ install_sandbox_runtime_stub
 STUB_GITHUB_TOKEN=secret run_capture "$repo/bin/claude-ollama" doctor 27b
 check_that "doctor reports sandbox-runtime" grep -qxF "ok   sandbox-runtime installed" "$sandbox/out"
 check_that "doctor reports a stored GitHub token" grep -qxF "ok   GitHub token in the keychain item claude-ollama-github" "$sandbox/out"
-check_that "doctor warns when no read-only GitHub token is stored" \
-  grep -qxF "warn no read-only GitHub token in the keychain item claude-ollama-github-read (gh from the session will fail; run claude-ollama github-token read)" "$sandbox/out"
-STUB_GITHUB_READ_TOKEN=readsecret run_capture "$repo/bin/claude-ollama" doctor 27b
-check_that "doctor reports a stored read-only GitHub token" \
-  grep -qxF "ok   read-only GitHub token in the keychain item claude-ollama-github-read" "$sandbox/out"
+check_that "doctor warns when gh is not logged in" \
+  grep -qxF "warn gh is not logged in to github.com (the session's GitHub tools will be missing; run gh auth login)" "$sandbox/out"
+cat > "$sandbox/stubbin/gh" <<'EOF'
+#!/bin/sh
+[ "$*" = "auth token --hostname github.com" ] && [ -n "${STUB_GH_AUTH_TOKEN:-}" ] && echo "$STUB_GH_AUTH_TOKEN"
+EOF
+chmod +x "$sandbox/stubbin/gh"
+STUB_GH_AUTH_TOKEN=readsecret run_capture "$repo/bin/claude-ollama" doctor 27b
+check_that "doctor reports the gh login the GitHub tools use" \
+  grep -qxF "ok   gh logged in to github.com (the session's GitHub tools use it through the broker)" "$sandbox/out"
+rm "$sandbox/stubbin/gh"
 
-run_capture "$repo/bin/claude-ollama" github-token read
-check_eq "github-token read exits 0" 0 "$?"
-check_that "github-token read opens a pre-filled read-only token page" grep -qxF \
-  "https://github.com/settings/personal-access-tokens/new?name=claude-ollama-read&description=Read-only+gh+in+claude-ollama+sessions&expires_in=90&metadata=read&contents=read&pull_requests=read&issues=read&actions=read" \
-  "$sandbox/open.log"
-check_that "github-token read stores the pasted token in the read keychain item, prompting so it never lands in argv" \
-  grep -qxF "add-generic-password -U -s claude-ollama-github-read -a $USER -w" "$sandbox/security.log"
-rm -f "$sandbox/open.log" "$sandbox/security.log"
 run_capture "$repo/bin/claude-ollama" github-token push
 check_that "github-token push opens a pre-filled push token page" grep -qxF \
   "https://github.com/settings/personal-access-tokens/new?name=claude-ollama-push&description=git+push+from+claude-ollama+sessions&expires_in=90&metadata=read&contents=write&pull_requests=write" \
@@ -1044,21 +1044,25 @@ check_that "github-token push stores the token in the push keychain item" \
   grep -qxF "add-generic-password -U -s claude-ollama-github -a $USER -w" "$sandbox/security.log"
 rm -f "$sandbox/open.log" "$sandbox/security.log"
 run_capture "$repo/bin/claude-ollama" github-token
-check_eq "github-token with no kind sets up both tokens" \
-  "add-generic-password -U -s claude-ollama-github-read -a $USER -w
-add-generic-password -U -s claude-ollama-github -a $USER -w" "$(cat "$sandbox/security.log")"
-STUB_SECURITY_ADD_STATUS=1 run_capture "$repo/bin/claude-ollama" github-token read
+check_eq "github-token with no kind sets up the push token" \
+  "add-generic-password -U -s claude-ollama-github -a $USER -w" "$(cat "$sandbox/security.log")"
+STUB_SECURITY_ADD_STATUS=1 run_capture "$repo/bin/claude-ollama" github-token push
 check_eq "github-token exits 1 when the keychain refuses the token" 1 "$?"
-run_capture "$repo/bin/claude-ollama" github-token admin
-check_eq "github-token rejects an unknown kind" 2 "$?"
-check_that "and names the kinds" grep -qxF "usage: claude-ollama github-token [read|push]" "$sandbox/err"
+run_capture "$repo/bin/claude-ollama" github-token read
+check_eq "github-token rejects the retired read kind" 2 "$?"
+check_that "and names the kinds" grep -qxF "usage: claude-ollama github-token [push]" "$sandbox/err"
 run_capture "$repo/bin/claude-ollama" --help
-check_that "help lists github-token" grep -qF "github-token [read|push]:" "$sandbox/out"
+check_that "help lists github-token" grep -qF "github-token [push]:" "$sandbox/out"
 
 short_unix_socket_parent=/tmp
 new_sandbox "$short_unix_socket_parent"
 cat > "$sandbox/stubbin/gh" <<EOF
 #!/bin/sh
+if [ "\$*" = "auth token --hostname github.com" ]; then
+  [ -n "\${STUB_GH_AUTH_TOKEN:-}" ] || exit 1
+  printf '%s\\n' "\$STUB_GH_AUTH_TOKEN"
+  exit 0
+fi
 echo "\$* \${GH_TOKEN-unset} \${GH_REPO-unset}" >> "$sandbox/gh.log"
 EOF
 chmod +x "$sandbox/stubbin/gh"
@@ -1066,8 +1070,8 @@ gh_project="$sandbox/gh-project"
 git init -q "$gh_project"
 git -C "$gh_project" remote add origin git@github.com:owner/project.git
 ln -sf "$(command -pv python3)" "$sandbox/stubbin/python3"
-(cd "$gh_project" && CLAUDE_OLLAMA_NO_INDEX=1 STUB_GITHUB_READ_TOKEN=readsecret STUB_RUN_GH=1 run_capture "$repo/bin/claude-ollama" 27b -p hi)
-check_eq "the session's pr_list tool runs gh outside it, through the broker, with the read-only token and the project's repo" \
+(cd "$gh_project" && CLAUDE_OLLAMA_NO_INDEX=1 STUB_GH_AUTH_TOKEN=readsecret STUB_RUN_GH=1 run_capture "$repo/bin/claude-ollama" 27b -p hi)
+check_eq "the session's pr_list tool runs gh outside it, through the broker, with the gh login's token and the project's repo" \
   "pr list --state open --limit 20 --json number,title,author,headRefName,isDraft,updatedAt readsecret owner/project" \
   "$(cat "$sandbox/gh.log" 2>/dev/null)"
 
