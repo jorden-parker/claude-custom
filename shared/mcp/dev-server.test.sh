@@ -116,6 +116,7 @@ cat > "$tmp/fake-next.py" <<'PY'
 import http.server
 import json
 import os
+import socketserver
 
 ports_log = os.environ["FAKE_PORTS_LOG"]
 SSE_REPLY = 'event: message\ndata: {"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"# Found errors in 1 browser session(s)\\nHydration failed"}]}}\n\n'
@@ -144,7 +145,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         pass
 
 
-server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+server = socketserver.ThreadingTCPServer(("127.0.0.1", 0), Handler)
 port = server.server_address[1]
 os.makedirs(".next/dev", exist_ok=True)
 with open(".next/dev/lock", "w") as lock:
