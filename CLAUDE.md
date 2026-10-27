@@ -400,12 +400,13 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   (`{"tool": "pr_view", "arguments": {"number": 12}}`) for eight tools
   (`pr_list`, `pr_view`, `pr_diff`, `pr_checks`, `issue_list`, `issue_view`,
   `run_list`, `run_view`), checks each argument (known keys only, positive
-  integers, fixed choices, text at most 256 characters with no `repo:`, `org:`,
-  `user:` or `owner:` qualifier) and builds the `gh` command itself with fixed
-  `--json` fields, passing text as `--flag=value` so no value becomes a flag.
-  There is no `gh` in the session: the `repo` MCP server
-  (`shared/mcp/repo-tools.py`, below) is the only client. gh runs from an empty
-  temp dir, so it reads no git config the session wrote, with
+  integers, fixed choices, text at most 256 characters, search qualifiers only
+  from `ALLOWED_QUALIFIERS`, an author only a login or `@me`), refuses
+  everything when the project has no GitHub `origin`, and builds the `gh`
+  command itself with fixed `--json` fields, passing text as `--flag=value` so
+  no value becomes a flag. There is no `gh` in the session: the `repo` MCP
+  server (`shared/mcp/repo-tools.py`, below) is the only client. gh runs from an
+  empty temp dir, so it reads no git config the session wrote, with
   `GH_HOST=github.com` and an empty `GH_CONFIG_DIR`, so none of your saved
   logins are reachable. The session never holds `GH_TOKEN` (an outer
   `GH_TOKEN`/`GITHUB_TOKEN` is unset). Tests: `ollama/gh/broker.test.sh` (stub

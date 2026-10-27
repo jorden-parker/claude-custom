@@ -155,6 +155,12 @@ refused() {
   "$@"
   [ "$(reply_field exit)" = 1 ] && [ ! -s "$tmp/gh.log" ] && reply_field stderr | grep -q "gh broker:"
 }
+
+not_refused() {
+  : > "$tmp/gh.log"
+  "$@"
+  [ -s "$tmp/gh.log" ]
+}
 check_that "a tool that is not on the list is refused" refused ask pr_merge '{"number":12}'
 check_that "a request without a tool is refused" refused send_line '{"arguments":{}}'
 check_that "a malformed request is refused" refused send_line 'not json'
@@ -173,13 +179,16 @@ check_that "a search that names another repo is refused" refused ask pr_list '{"
 check_that "as is one that names an org, whatever the case" refused ask issue_list '{"search":"ORG:other"}'
 check_that "or a user, even negated" refused ask issue_list '{"search":"-user:other"}'
 check_that "or an owner inside parentheses" refused ask pr_list '{"search":"(owner:other)"}'
-check_that "an author can't carry a scope qualifier either" refused ask pr_list '{"author":"me repo:other/project"}'
+check_that "a qualifier hidden after a comma is refused" refused ask pr_list '{"search":"fix,repo:other/project"}'
+check_that "any qualifier off the allowed list is refused" refused ask issue_list '{"search":"enterprise:other"}'
+check_that "allowed qualifiers pass" not_refused ask issue_list '{"search":"is:open label:bug -author:bot in:title"}'
+check_that "an author must be a GitHub login" refused ask pr_list '{"author":"me repo:other/project"}'
+check_that "or @me" not_refused ask pr_list '{"author":"@me"}'
 check_that "a switch that is not a boolean is refused" refused ask pr_diff '{"number":12,"name_only":"yes"}'
 stop_broker
 
 start_broker ""
-ask pr_list
-check_eq "without a GitHub origin gh gets no default repo" "readsecret unset 1 unset" "$(cat "$tmp/gh-env")"
+check_that "without a GitHub origin every request is refused" refused ask pr_list
 
 kill "$session_pid" && wait "$session_pid" 2>/dev/null
 for _ in $(seq 50); do

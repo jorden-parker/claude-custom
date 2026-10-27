@@ -14,7 +14,37 @@ COMMAND_TIMEOUT_SECONDS = 120
 DEFAULT_LIMIT = 20
 MAX_LIMIT = 100
 MAX_TEXT_LENGTH = 256
-SCOPE_QUALIFIER = re.compile(r"(?:^|[\s(\"-])(?:repo|org|user|owner):", re.IGNORECASE)
+SEARCH_QUALIFIER = re.compile(r"([A-Za-z_-]*):")
+ALLOWED_QUALIFIERS = {
+    "is",
+    "in",
+    "label",
+    "author",
+    "assignee",
+    "mentions",
+    "commenter",
+    "involves",
+    "state",
+    "status",
+    "created",
+    "updated",
+    "closed",
+    "merged",
+    "base",
+    "head",
+    "milestone",
+    "no",
+    "draft",
+    "review",
+    "reviewed-by",
+    "review-requested",
+    "type",
+    "linked",
+    "comments",
+    "reactions",
+    "sort",
+}
+GITHUB_LOGIN = re.compile(r"@me|[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})")
 PR_FIELDS = "number,title,author,headRefName,isDraft,updatedAt"
 PR_VIEW_FIELDS = (
     "number,title,body,state,author,headRefName,baseRefName,url,isDraft,reviewDecision,labels,files,comments,reviews"
@@ -64,15 +94,33 @@ class Arguments:
             raise Refused(f"{name} must be true or false")
         return value
 
-    def text_flag(self, name, flag):
+    def text(self, name):
         value = self.values.get(name)
+        if value is not None and (not isinstance(value, str) or len(value) > MAX_TEXT_LENGTH):
+            raise Refused(f"{name} must be text of at most {MAX_TEXT_LENGTH} characters")
+        return value
+
+    def text_flag(self, name, flag):
+        value = self.text(name)
+        return [] if value is None else [f"{flag}={value}"]
+
+    def search_flag(self):
+        value = self.text("search")
         if value is None:
             return []
-        if not isinstance(value, str) or len(value) > MAX_TEXT_LENGTH:
-            raise Refused(f"{name} must be text of at most {MAX_TEXT_LENGTH} characters")
-        if SCOPE_QUALIFIER.search(value):
-            raise Refused(f"{name} can't name a repo, org, user or owner: it always searches this project's repo")
-        return [f"{flag}={value}"]
+        for qualifier in SEARCH_QUALIFIER.findall(value):
+            if qualifier.lstrip("-").lower() not in ALLOWED_QUALIFIERS:
+                allowed = ", ".join(sorted(ALLOWED_QUALIFIERS))
+                raise Refused(f"search can't use the {qualifier}: qualifier; allowed: {allowed}")
+        return [f"--search={value}"]
+
+    def author_flag(self):
+        value = self.text("author")
+        if value is None:
+            return []
+        if not GITHUB_LOGIN.fullmatch(value):
+            raise Refused("author must be a GitHub login or @me")
+        return [f"--author={value}"]
 
 
 def pr_list(values):
@@ -80,8 +128,8 @@ def pr_list(values):
     state = args.choice("state", ("open", "closed", "merged", "all"))
     return [
         *["pr", "list", "--state", state, "--limit", args.limit(), "--json", PR_FIELDS],
-        *args.text_flag("author", "--author"),
-        *args.text_flag("search", "--search"),
+        *args.author_flag(),
+        *args.search_flag(),
     ]
 
 
@@ -103,7 +151,7 @@ def issue_list(values):
     state = args.choice("state", ("open", "closed", "all"))
     return [
         *["issue", "list", "--state", state, "--limit", args.limit(), "--json", ISSUE_FIELDS],
-        *args.text_flag("search", "--search"),
+        *args.search_flag(),
     ]
 
 
@@ -148,6 +196,7 @@ def gh_args(request):
 class Broker:
     def __init__(self, gh, repo, workdir):
         self.gh = gh
+        self.repo = repo
         self.workdir = workdir
         config_dir = Path(workdir, "gh-config")
         config_dir.mkdir()
@@ -160,10 +209,11 @@ class Broker:
             "GH_NO_UPDATE_NOTIFIER": "1",
         }
         self.env.pop("GITHUB_TOKEN", None)
-        if repo:
-            self.env["GH_REPO"] = repo
+        self.env["GH_REPO"] = repo
 
     def handle(self, request):
+        if not self.repo:
+            raise Refused("this project has no GitHub origin, so there is no repo to read")
         return reply_from(
             subprocess.run(
                 [self.gh, *gh_args(request)],
@@ -173,6 +223,7 @@ class Broker:
                 env=self.env,
                 stdin=subprocess.DEVNULL,
                 timeout=COMMAND_TIMEOUT_SECONDS,
+                check=False,
             )
         )
 
@@ -233,9 +284,7 @@ def main():
     options = parser.parse_args()
     with tempfile.TemporaryDirectory() as workdir:
         server = serve(Broker(options.gh, options.repo, workdir), options.socket)
-        threading.Thread(
-            target=exit_when_gone, args=(options.watch_pid, options.socket), daemon=True
-        ).start()
+        threading.Thread(target=exit_when_gone, args=(options.watch_pid, options.socket), daemon=True).start()
         server.serve_forever()
 
 
