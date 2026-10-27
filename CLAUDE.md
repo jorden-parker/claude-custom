@@ -400,11 +400,12 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   (`{"tool": "pr_view", "arguments": {"number": 12}}`) for eight tools
   (`pr_list`, `pr_view`, `pr_diff`, `pr_checks`, `issue_list`, `issue_view`,
   `run_list`, `run_view`), checks each argument (known keys only, positive
-  integers, fixed choices, text at most 256 characters) and builds the `gh`
-  command itself with fixed `--json` fields, passing text as `--flag=value` so
-  no value becomes a flag. There is no `gh` in the session: the `repo` MCP
-  server (`shared/mcp/repo-tools.py`, below) is the only client. gh runs from an
-  empty temp dir, so it reads no git config the session wrote, with
+  integers, fixed choices, text at most 256 characters with no `repo:`, `org:`,
+  `user:` or `owner:` qualifier) and builds the `gh` command itself with fixed
+  `--json` fields, passing text as `--flag=value` so no value becomes a flag.
+  There is no `gh` in the session: the `repo` MCP server
+  (`shared/mcp/repo-tools.py`, below) is the only client. gh runs from an empty
+  temp dir, so it reads no git config the session wrote, with
   `GH_HOST=github.com` and an empty `GH_CONFIG_DIR`, so none of your saved
   logins are reachable. The session never holds `GH_TOKEN` (an outer
   `GH_TOKEN`/`GITHUB_TOKEN` is unset). Tests: `ollama/gh/broker.test.sh` (stub
@@ -483,13 +484,15 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   `GET /api/ps` shows the embedding model loaded, keeps its index in memory and
   reloads `.git/code-search/index.json` when `--index` (the only writer)
   produced a newer one. `claude-ollama` starts `code-search.py --index` in the
-  background on launch (`CLAUDE_OLLAMA_NO_INDEX=1` skips it).
-  `bin/claude-ollama` pulls its model (`CODE_SEARCH_MODEL`, default
-  `qwen3-embedding:0.6b`); the model picker's "Set up embedding model" row pulls
-  it too. The default name appears once in each of `bin/claude-ollama`,
-  `code-search.py` and `go/internal/picker/profiles/embedding.go`, and
-  `bin/check-config` checks they agree. The Ollama profiles allow the tool in
-  `permissions.allow`.
+  background on launch (`CLAUDE_OLLAMA_NO_INDEX=1` skips it) with
+  `--watch-pid $$`, so it stops embedding when the session ends; an `flock` on
+  `.git/code-search/index.lock` keeps it to one indexer per repo, and it saves
+  the vectors it made when it stops early. `bin/claude-ollama` pulls its model
+  (`CODE_SEARCH_MODEL`, default `qwen3-embedding:0.6b`); the model picker's "Set
+  up embedding model" row pulls it too. The default name appears once in each of
+  `bin/claude-ollama`, `code-search.py` and
+  `go/internal/picker/profiles/embedding.go`, and `bin/check-config` checks they
+  agree. The Ollama profiles allow the tool in `permissions.allow`.
 - `ollama/server.env` documents the Ollama server env the profiles expect,
   including `OLLAMA_MAX_LOADED_MODELS`, which `bin/claude-ollama` reads from the
   running server: at 2 or more (the main and embedding models) it exports

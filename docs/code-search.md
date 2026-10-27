@@ -27,11 +27,15 @@ the tool has been called; exact names go through `git grep -n` after that.
   See [docs/ollama.md](ollama.md) for the memory trade-off.
 - Index: `.git/code-search/index.json`, written only by
   `code-search.py --index`, which `claude-ollama` runs in the background on
-  launch (set `CLAUDE_OLLAMA_NO_INDEX=1` to skip). The server keeps the index in
-  memory, re-tokenizes changed files on each search (milliseconds) and reloads
-  the file when a later `--index` run wrote a newer one. Vectors are added only
-  by `--index`, only while the model is loaded; a file changed during a session
-  is searched by words until the next launch.
+  launch (set `CLAUDE_OLLAMA_NO_INDEX=1` to skip). It runs with
+  `--watch-pid <launcher>` and stops embedding when that session ends; one
+  indexer runs per repo (`.git/code-search/index.lock`; a second exits with
+  `index already running`), and vectors made before a stop, a kill or an Ollama
+  error are saved, so the next launch only embeds what is left. The server keeps
+  the index in memory, re-tokenizes changed files on each search (milliseconds)
+  and reloads the file when a later `--index` run wrote a newer one. Vectors are
+  added only by `--index`, only while the model is loaded; a file changed during
+  a session is searched by words until the next launch.
 - `CODE_SEARCH_OLLAMA_URL` and `CODE_SEARCH_MODEL` override the server and
   model. `claude-ollama` and the model picker follow `CODE_SEARCH_MODEL` too.
 - If the pull on launch fails, run `claude-ollama` and pick "Set up embedding

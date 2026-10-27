@@ -49,7 +49,10 @@ class Handler(BaseHTTPRequestHandler):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         with open(log_path, "a") as log:
             log.write(json.dumps({"path": self.path, "model": body["model"], "inputs": len(body["input"]), "keep_alive": body.get("keep_alive")}) + "\n")
-        if body["model"] == "missing-model":
+        if any("BREAK" in text for text in body["input"]):
+            payload = json.dumps({"error": "runner stopped"}).encode()
+            self.send_response(500)
+        elif body["model"] == "missing-model":
             payload = json.dumps({"error": 'model "missing-model" not found, try pulling it first'}).encode()
             self.send_response(404)
         else:
@@ -348,6 +351,44 @@ stub_host="${CODE_SEARCH_OLLAMA_URL#http://}"
 rm -f "$tmp/embed.log"
 (cd "$repo" && env -u CODE_SEARCH_OLLAMA_URL OLLAMA_HOST="$stub_host" CODE_SEARCH_EMBED=1 python3 "$tmp/client.py" "$server" semantic_search '{"query": "filler"}' >/dev/null)
 check "OLLAMA_HOST picks the Ollama server when CODE_SEARCH_OLLAMA_URL is unset" [ -s "$tmp/embed.log" ]
+
+resume="$tmp/resume-repo"
+mkdir -p "$resume"
+git -C "$resume" init -q
+printf 'def first():\n    return 1\n' > "$resume/a.py"
+printf 'BREAK = 2\n' > "$resume/z.py"
+resume_index="$resume/.git/code-search/index.json"
+index_resume_repo() { rm -f "$tmp/embed.log"; (cd "$resume" && CODE_SEARCH_EMBED=1 python3 "$server" --index "$@" >"$tmp/index.out" 2>&1); }
+
+sh -c 'exit 0' &
+gone_pid=$!
+wait "$gone_pid"
+index_resume_repo --watch-pid "$gone_pid"
+check "an indexer whose launcher is gone embeds nothing" [ ! -e "$tmp/embed.log" ]
+check "an indexer whose launcher is gone still writes the word index" contains "$(cat "$resume_index")" '"a.py": {'
+
+index_resume_repo --watch-pid "$$"
+check "an indexer whose launcher is alive embeds" [ -s "$tmp/embed.log" ]
+check "a failed embedding keeps the vectors already made" python3 -c 'import json,sys; files=json.load(open(sys.argv[1]))["files"]; sys.exit(0 if "vector" in files["a.py"]["chunks"][0] else 1)' "$resume_index"
+
+index_resume_repo
+check "a rerun does not embed files that already have vectors" [ "$(embedded_inputs_last_call)" = "1" ]
+
+python3 -c 'import fcntl,sys,time; f=open(sys.argv[1],"a"); fcntl.flock(f,fcntl.LOCK_EX); print("locked",flush=True); time.sleep(30)' "$resume/.git/code-search/index.lock" > "$tmp/lock.out" &
+holder_pid=$!
+while ! grep -q locked "$tmp/lock.out" 2>/dev/null; do sleep 0.05; done
+index_resume_repo
+held_status=$?
+kill "$holder_pid" 2>/dev/null
+wait "$holder_pid" 2>/dev/null
+check "a second indexer exits 0 while one is running" [ "$held_status" -eq 0 ]
+check "a second indexer says one is already running" grep -q 'already running' "$tmp/index.out"
+check "a second indexer embeds nothing" [ ! -e "$tmp/embed.log" ]
+
+printf 'def first():\n    return 3\n' > "$resume/a.py"
+rm -f "$resume/z.py"
+index_resume_repo
+check "a lock left by an indexer that exited does not block the next one" [ -s "$tmp/embed.log" ]
 
 if [ "$failures" -ne 0 ]; then
   echo "$failures failed"

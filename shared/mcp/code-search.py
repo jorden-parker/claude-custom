@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
+import argparse
+import fcntl
 import hashlib
 import heapq
 import json
 import math
 import os
 import re
+import signal
 import subprocess
 import sys
 import tempfile
@@ -364,24 +367,57 @@ def lacks_vectors(entry):
     return any("vector" not in chunk for chunk in entry["chunks"])
 
 
-def embed_missing_vectors(root, files):
+def embed_missing_vectors(root, files, launcher_alive):
     for name, entry in files.items():
         if not lacks_vectors(entry):
             continue
+        if not launcher_alive():
+            return
         text = read_text(root / name)
         if text is not None:
             entry["chunks"] = embedded_chunks(name, text)
 
 
-def build_index():
+def process_alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def launcher_check(pid):
+    return (lambda: True) if pid is None else (lambda: process_alive(pid))
+
+
+def held_index_lock(path):
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    handle = path.with_name("index.lock").open("a")
+    try:
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        handle.close()
+        return None
+    return handle
+
+
+def build_index(launcher_alive):
     root = repo_root()
     path = index_path(root)
-    files = refreshed_index(root, load_index(path))
-    save_index(path, files)
-    if embedding_available():
-        embed_missing_vectors(root, files)
+    lock = held_index_lock(path)
+    if lock is None:
+        return None
+    with lock:
+        files = refreshed_index(root, load_index(path))
         save_index(path, files)
-    return len(files)
+        if embedding_available():
+            try:
+                embed_missing_vectors(root, files, launcher_alive)
+            finally:
+                save_index(path, files)
+        return len(files)
 
 
 def embedding_available():
@@ -428,13 +464,31 @@ def call_tool(params):
         return tool_result(str(error), True)
 
 
+def options(args):
+    parser = argparse.ArgumentParser(prog="code-search.py")
+    parser.add_argument("--index", action="store_true")
+    parser.add_argument("--watch-pid", type=int)
+    return parser.parse_args(args)
+
+
+def stop_indexing(signum, frame):
+    raise SystemExit(128 + signum)
+
+
+def run_index(watch_pid):
+    signal.signal(signal.SIGTERM, stop_indexing)
+    try:
+        count = build_index(launcher_check(watch_pid))
+    except SearchError as error:
+        print(error, file=sys.stderr)
+        sys.exit(1)
+    print("index already running" if count is None else f"indexed {count} files")
+
+
 def main():
-    if sys.argv[1:] == ["--index"]:
-        try:
-            print(f"indexed {build_index()} files")
-        except SearchError as error:
-            print(error, file=sys.stderr)
-            sys.exit(1)
+    chosen = options(sys.argv[1:])
+    if chosen.index:
+        run_index(chosen.watch_pid)
         return
     serve("code-search", lambda: [TOOL], call_tool)
 
