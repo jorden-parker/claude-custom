@@ -350,12 +350,16 @@ stop_stub() {
 
 start_stub() {
   rm -f "$tmp/port"
-  python3 "$tmp/stub.py" "$tmp/requests.log" "$tmp/port" "${1:-0}" &
+  python3 "$tmp/stub.py" "$tmp/requests.log" "$tmp/port" "${1:-0}" 2>"$tmp/stub.err" &
   stub_pid=$!
   for _ in $(seq 200); do
     [ -s "$tmp/port" ] && break
     sleep 0.05
   done
+  if [ ! -s "$tmp/port" ]; then
+    echo "stub server wrote no port in 10s ($(kill -0 "$stub_pid" 2>/dev/null && echo running || echo exited), $(command -v python3)):" >&2
+    tail -n 20 "$tmp/stub.err" >&2
+  fi
   port="$(cat "$tmp/port")"
 }
 
