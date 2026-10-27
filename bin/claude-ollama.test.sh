@@ -655,7 +655,7 @@ cat > "$sandbox/stubbin/pnpm" <<'EOF'
 echo "PNPM: $*" >> "$PNPM_LOG"
 case "$3" in
   build) mkdir -p "$2/.next" && touch "$2/.next/BUILD_ID" ;;
-  install) mkdir -p "$2/node_modules" ;;
+  install) mkdir -p "$2/node_modules" && touch "$2/node_modules/.modules.yaml" ;;
   exec)
     cat "$PR_REVIEW_LOG_DIR/.web-url" >> "$PNPM_LOG" 2>/dev/null || true
     ls -l "$PR_REVIEW_LOG_DIR/.web-url" 2>/dev/null | cut -c1-10 >> "$PNPM_LOG"
@@ -728,6 +728,10 @@ touch -t 202001010300 "$web/.next/BUILD_ID"
 run_capture "$repo/bin/claude-ollama" reviews
 check_not "reviews skips the build when BUILD_ID is newer than every source" grep -qxF -- "PNPM: --dir $web build" "$PNPM_LOG"
 check_not "reviews skips the install when node_modules exists" grep -qxF -- "PNPM: --dir $web install --frozen-lockfile" "$PNPM_LOG"
+rm -f "$PNPM_LOG"
+touch -t 202001010100 "$web/node_modules/.modules.yaml"
+run_capture "$repo/bin/claude-ollama" reviews
+check_that "reviews reinstalls when the lockfile is newer than node_modules" grep -qxF -- "PNPM: --dir $web install --frozen-lockfile" "$PNPM_LOG"
 rm -f "$sandbox/stubbin/pnpm"
 run_capture "$repo/bin/claude-ollama" reviews
 check_eq "reviews without pnpm exits 1" 1 "$?"

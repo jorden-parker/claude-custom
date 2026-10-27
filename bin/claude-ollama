@@ -742,6 +742,12 @@ reviews_build_needed() {
   [ -n "$(find "$web_dir/src" "$web_dir/package.json" "$web_dir/pnpm-lock.yaml" "$web_dir"/next.config.* -newer "$build_marker" 2>/dev/null)" ]
 }
 
+console_install_needed() {
+  local web_dir="$1" install_marker="$1/node_modules/.modules.yaml"
+  [ -f "$install_marker" ] || return 0
+  [ "$web_dir/pnpm-lock.yaml" -nt "$install_marker" ]
+}
+
 serve_console() {
   local command_name="$1" label="$2" page="$3" port=8765 web_dir url page_url token project_dir
   project_dir="$(pwd -P)"
@@ -769,7 +775,7 @@ serve_console() {
     exit 1
   fi
   web_dir="${CLAUDE_OLLAMA_WEB_DIR:-$repo_dir/web/console}"
-  if [ ! -d "$web_dir/node_modules" ]; then
+  if console_install_needed "$web_dir"; then
     pnpm --dir "$web_dir" install --frozen-lockfile || exit 1
   fi
   if reviews_build_needed "$web_dir"; then
