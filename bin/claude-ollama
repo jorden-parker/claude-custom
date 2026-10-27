@@ -77,7 +77,7 @@ base_model() {
 }
 
 modelfile_num_ctx() {
-  sed -n 's/^PARAMETER num_ctx //p' "${1:-$profile_dir/Modelfile.$size}"
+  sed -n 's/^PARAMETER num_ctx //p' "$profile_dir/Modelfile.$size"
 }
 
 installed_num_ctx() {
