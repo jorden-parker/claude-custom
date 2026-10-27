@@ -395,9 +395,11 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   blocks), so with `gh` on PATH and logged in (`gh auth token`, your normal
   login) the launcher starts `ollama/gh/broker.py` outside the sandbox on
   `<session config>/gh-broker.<launcher pid>.sock` (in `allowUnixSockets` and
-  `denyWrite`, beside the cmux broker's), with the token as `GH_TOKEN` and
-  `GH_REPO` from the project's GitHub `origin`. The broker takes only structured
-  requests (`{"tool": "pr_view", "arguments": {"number": 12}}`) for eight tools
+  `denyWrite`, beside the cmux broker's; every policy denies writes to all
+  `gh-broker.*.sock` and `cmux-broker.*.sock` so no session can touch another
+  launch's socket), with the token as `GH_TOKEN` and `GH_REPO` from the
+  project's GitHub `origin`. The broker takes only structured requests
+  (`{"tool": "pr_view", "arguments": {"number": 12}}`) for eight tools
   (`pr_list`, `pr_view`, `pr_diff`, `pr_checks`, `issue_list`, `issue_view`,
   `run_list`, `run_view`), checks each argument (known keys only, positive
   integers, fixed choices, text at most 256 characters, search qualifiers only

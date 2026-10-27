@@ -378,6 +378,7 @@ write_sandbox_policy() {
     | ($items | if . == "" then [] else [.] end) as $item_dirs
     | .filesystem.allowWrite += [$config] + $item_dirs + $git_dirs
     | .filesystem.denyWrite += [$repo, $policy, {path: "\($root)/.claude", literal: true}, "\($root)/**/.claude", "\($root)/**/.claude/**"]
+        + ["\($config)/gh-broker.*.sock", "\($config)/cmux-broker.*.sock"]
         + [$config_sources[] as $source | "\($config)/\($source)"]
         + [$git_dirs[] | "\(.)/hooks", "\(.)/config"]
     | .filesystem.denyRead += [$reviews, $console_state]
