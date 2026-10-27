@@ -3,7 +3,7 @@ import re
 import subprocess
 import sys
 
-from gh_broker_client import BrokerMissing, ask_broker
+from broker_client import BrokerMissing, ask_broker
 
 PREFIX = "gh (claude-ollama): "
 SUPPORTED = (

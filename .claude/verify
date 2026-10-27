@@ -14,7 +14,8 @@ tests_for() {
     bin/claude-custom) printf '%s\n' personal/install.test.sh bin/claude-ollama.test.sh ;;
     ollama/cmux/*) printf '%s\n' ollama/cmux/broker.test.sh bin/claude-ollama.test.sh ;;
     ollama/gh/*) printf '%s\n' ollama/gh/broker.test.sh shared/mcp/gh-shim.test.sh bin/claude-ollama.test.sh ;;
-    shared/mcp/gh_broker_client.py) printf '%s\n' shared/mcp/repo-tools.test.sh shared/mcp/gh-shim.test.sh ;;
+    ollama/shortcut/*) printf '%s\n' ollama/shortcut/broker.test.sh shared/mcp/short-shim.test.sh bin/claude-ollama.test.sh ;;
+    shared/mcp/broker_client.py) printf '%s\n' shared/mcp/repo-tools.test.sh shared/mcp/gh-shim.test.sh shared/mcp/short-shim.test.sh ;;
     shared/mcp/mcp_stdio.py) printf '%s\n' shared/mcp/code-search.test.sh shared/mcp/repo-tools.test.sh shared/mcp/dev-server.test.sh ;;
     bin/claude-tools | bin/ollama-agent | ollama/*) printf '%s\n' bin/claude-ollama.test.sh ;;
     personal/* | shared/settings/* | shared/agents/*) printf '%s\n' personal/install.test.sh ;;

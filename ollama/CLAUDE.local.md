@@ -7,6 +7,8 @@
 - Read git history and GitHub PRs, issues and CI through the mcp__repo__ tools
   (no permission prompt), not Bash `git log`/`git diff`. `gh` in Bash is
   read-only: pr list|view|diff|checks, issue, run, `-R owner/name`.
+- Shortcut stories: `short` in Bash (search, story N, create, epics, iterations;
+  no install, api, --open or --git-branch).
 - If semantic_search errors, don't retry: use `git grep -n`. If the launch said
   the embedding pull failed, tell the user to pick "Set up embedding model" in
   `claude-ollama`.

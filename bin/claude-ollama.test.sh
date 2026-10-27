@@ -85,6 +85,14 @@ if [ -n "\${STUB_RUN_GH:-}" ]; then
     | python3 "\$CLAUDE_CUSTOM_HOME/shared/mcp/repo-tools.py" > "$sandbox/session-gh.out" 2>&1
   gh pr diff 5 --name-only > "$sandbox/session-gh-shim.out" 2>&1
 fi
+if [ -n "\${STUB_RUN_SHORT:-}" ]; then
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+    [ -S "\$CLAUDE_OLLAMA_SHORTCUT_BROKER" ] && break
+    sleep 0.2
+  done
+  short search owner:me -s Done > "$sandbox/session-short.out" 2>&1
+  short story 12 -O >> "$sandbox/session-short.out" 2>&1
+fi
 EOF
   install_sandbox_runtime_stub
   cat > "$sandbox/stubbin/getconf" <<EOF
@@ -145,7 +153,7 @@ EOF
   cat > "$sandbox/stubbin/python3" <<EOF
 #!/bin/sh
 case "\$1" in
-  *cmux/broker.py | *gh/broker.py) exec /usr/bin/python3 "\$@" ;;
+  *cmux/broker.py | *gh/broker.py | *shortcut/broker.py) exec /usr/bin/python3 "\$@" ;;
 esac
 echo "\$*" >> "$sandbox/python.log"
 EOF
@@ -967,6 +975,33 @@ check_eq "a keychain GitHub token reaches git as a ready-encoded header" \
   "1 http.https://github.com/.extraHeader Authorization: Basic $(printf 'x-access-token:secret' | base64)" \
   "$(cat "$sandbox/git-config-env")"
 
+run_capture "$repo/bin/claude-ollama" 27b -p hi
+for shortcut_config in "$HOME/.config/shortcut-cli" "$HOME/.config/clubhouse-cli" "$HOME/.clubhouse-cli"; do
+  check_that "the session can't read short's config at $shortcut_config" policy_lists denyRead "$shortcut_config"
+done
+XDG_CONFIG_HOME="$sandbox/xdg-config" XDG_DATA_HOME="$sandbox/xdg-data" run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_that "nor at its XDG config home" policy_lists denyRead "$sandbox/xdg-config/shortcut-cli"
+check_that "nor under its XDG data home" policy_lists denyRead "$sandbox/xdg-data/.config/shortcut-cli"
+check_that "no session can plant or remove another launch's Shortcut broker socket" policy_lists denyWrite "$session_config/shortcut-broker.*.sock"
+SHORTCUT_API_TOKEN=outer CLUBHOUSE_API_TOKEN=outer SHORTCUT_URL_SLUG=acme run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_not "a Shortcut token from the outer shell never reaches the session" grep -q '^SHORTCUT_API_TOKEN=' "$sandbox/claude-env"
+check_not "nor a Clubhouse one" grep -q '^CLUBHOUSE_API_TOKEN=' "$sandbox/claude-env"
+check_not "nor the workspace" grep -q '^SHORTCUT_URL_SLUG=' "$sandbox/claude-env"
+check_eq "without short the session gets no Shortcut broker" "" "$(session_env CLAUDE_OLLAMA_SHORTCUT_BROKER)"
+session_path_has_short_client() {
+  session_env PATH | tr ':' '\n' | grep -qxF "$repo/ollama/shortcut/bin"
+}
+check_not "nor the short command" session_path_has_short_client
+run_capture env CLAUDE_OLLAMA_SHORTCUT_BROKER=/tmp/elsewhere.sock "$repo/bin/claude-ollama" 27b -p hi
+check_eq "an inherited Shortcut broker address never reaches the session" "" "$(session_env CLAUDE_OLLAMA_SHORTCUT_BROKER)"
+shortcut_bin="$HOME/.local/share/claude-custom/shortcut-cli/node_modules/.bin"
+mkdir -p "$shortcut_bin"
+printf '#!/bin/sh\n' > "$shortcut_bin/short"
+chmod +x "$shortcut_bin/short"
+run_capture "$repo/bin/claude-ollama" doctor 27b
+check_that "doctor reports the pinned Shortcut CLI" grep -qxF "ok   short (Shortcut CLI) found: $shortcut_bin/short" "$sandbox/out"
+rm -r "$HOME/.local/share/claude-custom/shortcut-cli"
+
 cat > "$sandbox/stubbin/gh" <<EOF
 #!/bin/sh
 if [ "\$*" = "auth token --hostname github.com" ]; then
@@ -1044,6 +1079,8 @@ install_sandbox_runtime_stub
 STUB_GITHUB_TOKEN=secret run_capture "$repo/bin/claude-ollama" doctor 27b
 check_that "doctor reports sandbox-runtime" grep -qxF "ok   sandbox-runtime installed" "$sandbox/out"
 check_that "doctor reports a stored GitHub token" grep -qxF "ok   GitHub token in the keychain item claude-ollama-github" "$sandbox/out"
+check_that "doctor warns when the Shortcut CLI is missing" \
+  grep -qxF "warn short (Shortcut CLI) missing (run claude-custom install)" "$sandbox/out"
 check_that "doctor warns when gh is not logged in" \
   grep -qxF "warn gh is not logged in to github.com (the session's GitHub tools will be missing; run gh auth login)" "$sandbox/out"
 cat > "$sandbox/stubbin/gh" <<'EOF'
@@ -1113,6 +1150,24 @@ check_that "an owner/* line allows that owner's repos" grep -qF "readsecret team
   run_capture "$repo/bin/claude-ollama" 27b -p hi)
 check_that "a repo off the list is refused" grep -qF "stranger/secret is not on this machine's gh-repos list" "$sandbox/session-gh.out"
 rm "$gh_repos_list"
+
+cat > "$sandbox/stubbin/short" <<EOF
+#!/bin/sh
+echo "\$* \${SHORTCUT_API_TOKEN-unset}" >> "$sandbox/short.log"
+echo "story 12"
+EOF
+chmod +x "$sandbox/stubbin/short"
+session_config="$HOME/.claude-ollama"
+(cd "$gh_project" && CLAUDE_OLLAMA_NO_INDEX=1 SHORTCUT_API_TOKEN=shortsecret STUB_RUN_SHORT=1 \
+  run_capture "$repo/bin/claude-ollama" 27b -p hi)
+check_that "the Shortcut broker's socket is named for its launch" \
+  broker_socket_is_per_launch shortcut-broker "$(session_env CLAUDE_OLLAMA_SHORTCUT_BROKER)"
+check_that "the session gets the short command" session_path_has_short_client
+check_eq "the session's short runs your short outside it, through the broker, with your token" \
+  "search owner:me --state=Done shortsecret" "$(cat "$sandbox/short.log" 2>/dev/null)"
+check_that "and prints what it printed" grep -qxF "story 12" "$sandbox/session-short.out"
+check_that "a short command the broker refuses never runs" grep -qF "short broker: -O is not allowed here" "$sandbox/session-short.out"
+rm "$sandbox/stubbin/short"
 
 write_fetch_list() {
   mkdir -p "$(dirname "$fetch_list")"

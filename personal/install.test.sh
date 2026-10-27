@@ -516,6 +516,10 @@ run_capture "$sandbox/repo/bin/claude-custom" install
 check_that "install installs the pinned sandbox-runtime from its lockfile" \
   grep -qxF "ci --prefix $runtime_dir --ignore-scripts --no-audit --no-fund" "$sandbox/npm.log"
 check_that "install copies the sandbox-runtime lockfile" cmp -s "$sandbox/repo/ollama/sandbox-runtime.package-lock.json" "$runtime_dir/package-lock.json"
+shortcut_dir="$HOME/.local/share/claude-custom/shortcut-cli"
+check_that "install installs the pinned Shortcut CLI from its lockfile" \
+  grep -qxF "ci --prefix $shortcut_dir --ignore-scripts --no-audit --no-fund" "$sandbox/npm.log"
+check_that "install copies the Shortcut CLI lockfile" cmp -s "$sandbox/repo/ollama/shortcut-cli.package-lock.json" "$shortcut_dir/package-lock.json"
 rm "$sandbox/stubbin/npm"
 
 new_sandbox

@@ -390,15 +390,31 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   placeholder that the proxy swaps back only on requests to github.com), and
   `ollama/sandbox-entry` turns it into an `http.https://github.com/.extraHeader`
   through `GIT_CONFIG_*`. Git's own credential helpers can't be masked: they
-  encode the token themselves. `gh` can't run inside the sandbox (Go on macOS
-  resolves `localhost` and checks TLS through system services the sandbox
-  blocks), so with `gh` on PATH and logged in (`gh auth token`, your normal
-  login) the launcher starts `ollama/gh/broker.py` outside the sandbox on
-  `<session config>/gh-broker.<launcher pid>.sock` (in `allowUnixSockets` and
-  `denyWrite`, beside the cmux broker's; every policy denies writes to all
-  `gh-broker.*.sock` and `cmux-broker.*.sock` so no session can touch another
-  launch's socket), with the token as `GH_TOKEN` and `GH_REPO` from the
-  project's GitHub `origin`. The broker takes only structured requests
+  encode the token themselves. `short` (Shortcut CLI) runs outside the sandbox:
+  the launcher starts `ollama/shortcut/broker.py` on
+  `<session config>/shortcut-broker.<launcher pid>.sock` (same socket rules as
+  the gh broker) with your `short` (else the pinned one from
+  `ollama/shortcut-cli.package*.json`, installed by `claude-custom install`),
+  your env and an empty temp cwd, so it uses the token it already has. The
+  session's `short` (`ollama/shortcut/bin`, on `PATH` only while the broker
+  runs) runs `shared/mcp/short-shim.py`, which sends its argv; the broker allows
+  only reads and story edits (`COMMANDS` in the broker: no `install`, `api`,
+  `workspace`, deletes, `--open*`, `--git-branch*`, `--from-git`, `--download*`,
+  `--save`) and rebuilds every option as `--long=value`, so no value becomes a
+  flag. The session never holds `SHORTCUT_API_TOKEN` (outer Shortcut and
+  Clubhouse vars are unset), and the policy denies reading every `short` config
+  folder. A masked token would not do: srt swaps the placeholder back in request
+  bodies too, so a session could store it in a story and read it back. Tests:
+  `ollama/shortcut/broker.test.sh` (stub `short`),
+  `shared/mcp/short-shim.test.sh` (fake broker). `gh` can't run inside the
+  sandbox (Go on macOS resolves `localhost` and checks TLS through system
+  services the sandbox blocks), so with `gh` on PATH and logged in
+  (`gh auth token`, your normal login) the launcher starts `ollama/gh/broker.py`
+  outside the sandbox on `<session config>/gh-broker.<launcher pid>.sock` (in
+  `allowUnixSockets` and `denyWrite`, beside the cmux broker's; every policy
+  denies writes to all `gh-broker.*.sock` and `cmux-broker.*.sock` so no session
+  can touch another launch's socket), with the token as `GH_TOKEN` and `GH_REPO`
+  from the project's GitHub `origin`. The broker takes only structured requests
   (`{"tool": "pr_view", "arguments": {"number": 12}}`) for nine tools
   (`pr_list`, `pr_view`, `pr_diff`, `pr_checks`, `pr_review_comments`,
   `issue_list`, `issue_view`, `run_list`, `run_view`), checks each argument
@@ -418,8 +434,8 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   `api repos/{owner}/{repo}/pulls/N/comments`, `-R`, PR URLs, `--json`, `--jq`
   run locally with `jq`) into broker requests and refuses the rest (tests:
   `shared/mcp/gh-shim.test.sh`, fake broker). Both share
-  `shared/mcp/gh_broker_client.py`. gh runs from an empty temp dir, so it reads
-  no git config the session wrote, with `GH_HOST=github.com` and an empty
+  `shared/mcp/broker_client.py`. gh runs from an empty temp dir, so it reads no
+  git config the session wrote, with `GH_HOST=github.com` and an empty
   `GH_CONFIG_DIR`, so none of your saved logins are reachable. The session never
   holds `GH_TOKEN` (an outer `GH_TOKEN`/`GITHUB_TOKEN` is unset). Tests:
   `ollama/gh/broker.test.sh` (stub `gh`); the launcher test runs the whole chain

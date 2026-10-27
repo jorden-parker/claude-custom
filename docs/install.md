@@ -36,11 +36,13 @@ straight from `shared/hooks/`), adds an `@` import for
 `shared/preferences/PREFERENCES.md` to `~/.claude/CLAUDE.md` (and removes the
 retired `personal/CLAUDE.tokens.md` import), rebuilds the Ollama models whose
 base model is pulled, and installs the pinned `sandbox-runtime` that
-`claude-ollama` sessions run in under `~/.local/share/claude-custom/`.
-Re-running it is safe. `~/.claude/settings.json` is left as is: the overlay
-loads on top of it via `--settings` on every interactive `claude` launch.
-Scripts, IDE extensions, the desktop app and `claude-ollama` don't get it. Run
-`command claude` to skip it once.
+`claude-ollama` sessions run in, plus a pinned Shortcut CLI (`short`, which the
+session's Shortcut broker runs only when yours isn't on `PATH`), under
+`~/.local/share/claude-custom/`. Re-running it is safe.
+`~/.claude/settings.json` is left as is: the overlay loads on top of it via
+`--settings` on every interactive `claude` launch. Scripts, IDE extensions, the
+desktop app and `claude-ollama` don't get it. Run `command claude` to skip it
+once.
 
 Per repo, when you don't need claude.ai connectors there:
 `cp project/settings.local.json <repo>/.claude/settings.local.json`.

@@ -1,0 +1,7 @@
+{
+  "name": "claude-ollama-shortcut-cli",
+  "private": true,
+  "dependencies": {
+    "@shortcut-cli/shortcut-cli": "5.0.0"
+  }
+}

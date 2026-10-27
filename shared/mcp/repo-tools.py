@@ -3,7 +3,7 @@ import os
 import subprocess
 from pathlib import PurePath
 
-from gh_broker_client import BrokerMissing, ask_broker
+from broker_client import BrokerMissing, ask_broker
 from mcp_stdio import serve, tool_result
 
 GIT_TIMEOUT_SECONDS = 60

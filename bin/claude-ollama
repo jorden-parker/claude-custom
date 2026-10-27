@@ -27,6 +27,7 @@ launcher_log="$console_state_dir/launcher.log"
 launcher_log_max_bytes=1048576
 launcher_log_open=""
 github_keychain_item=claude-ollama-github
+shortcut_cli="$HOME/.local/share/claude-custom/shortcut-cli/node_modules/.bin/short"
 raw_terminal_mode=(-brkint -icrnl -inpck -istrip -ixon cs8 -echo -icanon -iexten -isig min 1 time 0)
 saved_terminal_mode=""
 
@@ -384,22 +385,52 @@ start_gh_broker() {
   fi
 }
 
+shortcut_config_dirs() {
+  printf '%s\n' "${XDG_CONFIG_HOME:-$HOME/.config}/shortcut-cli" "$HOME/.config/shortcut-cli" \
+    "$HOME/.config/clubhouse-cli" "$HOME/.clubhouse-cli"
+  [ -z "${XDG_DATA_HOME:-}" ] || printf '%s\n' "$XDG_DATA_HOME/.config/shortcut-cli"
+}
+
+shortcut_command() {
+  if command -v short 2>/dev/null; then
+    return 0
+  fi
+  [ -x "$shortcut_cli" ] && printf '%s\n' "$shortcut_cli"
+}
+
+start_shortcut_broker() {
+  local short
+  short="$(shortcut_command)" || return 0
+  shortcut_broker_socket="$session_config_dir/shortcut-broker.$$.sock"
+  rm -f "$shortcut_broker_socket"
+  nohup "$profile_dir/shortcut/broker.py" --socket "$shortcut_broker_socket" --short "$short" \
+    --watch-pid "$$" >/dev/null 2>&1 &
+  if wait_for_socket "$shortcut_broker_socket"; then
+    export CLAUDE_OLLAMA_SHORTCUT_BROKER="$shortcut_broker_socket"
+  else
+    shortcut_broker_socket=""
+    echo "claude-ollama: short is off for this session: the Shortcut broker did not start" >&2
+  fi
+}
+
 write_sandbox_policy() {
   local protected_policy_path="$sandbox_policy"
   jq --arg repo "$repo_dir" --arg config "$session_config_dir" --arg policy "$protected_policy_path" --arg git "$(git_common_dir)" \
     --arg items "$(item_replacement_dir)" --arg root "$(project_root)" --arg cmux_broker "${cmux_broker_socket:-}" --arg gh_broker "${gh_broker_socket:-}" \
+    --arg shortcut_broker "${shortcut_broker_socket:-}" \
     --arg reviews "$review_log_dir" --arg console_state "$console_state_dir" --arg fetch_settings "$fetch_settings" \
+    --argjson shortcut_configs "$(shortcut_config_dirs | jq -R . | jq -s 'unique')" \
     --argjson fetch_domains "$(printf '%s' "${launch_fetch_domains:-}" | fetch_domains_json)" \
     --argjson config_sources '["CLAUDE.md", "skills", "settings.json", "settings.local.json", "commands", "agents", "plugins", "rules", "output-styles", "keybindings.json", ".config.json"]' '
     ($git | if . == "" then [] else [.] end) as $git_dirs
     | ($items | if . == "" then [] else [.] end) as $item_dirs
     | .filesystem.allowWrite += [$config] + $item_dirs + $git_dirs
     | .filesystem.denyWrite += [$repo, $policy, {path: "\($root)/.claude", literal: true}, "\($root)/**/.claude", "\($root)/**/.claude/**"]
-        + ["\($config)/gh-broker.*.sock", "\($config)/cmux-broker.*.sock"]
+        + ["\($config)/gh-broker.*.sock", "\($config)/cmux-broker.*.sock", "\($config)/shortcut-broker.*.sock"]
         + [$config_sources[] as $source | "\($config)/\($source)"]
         + [$git_dirs[] | "\(.)/hooks", "\(.)/config"]
-    | .filesystem.denyRead += [$reviews, $console_state]
-    | ([$cmux_broker, $gh_broker] | map(select(. != ""))) as $broker_sockets
+    | .filesystem.denyRead += [$reviews, $console_state] + $shortcut_configs
+    | ([$cmux_broker, $gh_broker, $shortcut_broker] | map(select(. != ""))) as $broker_sockets
     | if $broker_sockets == [] then . else .network.allowUnixSockets = $broker_sockets | .filesystem.denyWrite += $broker_sockets end
     | if ($fetch_domains | length) == 0 then . else
         .network.allowedDomains += $fetch_domains
@@ -693,6 +724,15 @@ check_fetch_domains() {
   fi
 }
 
+check_shortcut() {
+  local short
+  if short="$(shortcut_command)"; then
+    report ok "short (Shortcut CLI) found: $short"
+  else
+    report warn "short (Shortcut CLI) missing (run claude-custom install)"
+  fi
+}
+
 check_github_token() {
   if github_token >/dev/null; then
     report ok "GitHub token in the keychain item $github_keychain_item"
@@ -722,6 +762,7 @@ doctor() {
   check_sandbox_runtime || status=1
   check_fetch_domains
   check_github_token
+  check_shortcut
   check_gh_login
   check_model_allowed
   exit "$status"
@@ -953,11 +994,13 @@ warm_embedding_model
 warm_search_index
 warm_model
 
-unset ANTHROPIC_API_KEY ANTHROPIC_MODEL CLAUDE_OLLAMA_CMUX_BROKER CLAUDE_OLLAMA_GH_BROKER GH_TOKEN GITHUB_TOKEN
+unset ANTHROPIC_API_KEY ANTHROPIC_MODEL CLAUDE_OLLAMA_CMUX_BROKER CLAUDE_OLLAMA_GH_BROKER CLAUDE_OLLAMA_SHORTCUT_BROKER GH_TOKEN GITHUB_TOKEN
 export CLAUDE_CUSTOM_HOME="$repo_dir"
 prepare_session_config
 start_cmux_broker
 start_gh_broker
+start_shortcut_broker
+unset SHORTCUT_API_TOKEN SHORTCUT_URL_SLUG SHORTCUT_MENTION_NAME CLUBHOUSE_API_TOKEN
 launch_fetch_domains="$(fetch_domains)"
 write_fetch_settings
 write_sandbox_policy

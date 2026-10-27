@@ -335,16 +335,21 @@ build_go_apps() {
   (cd "$repo_dir/go" && go build -o cmd/ollama-agent/ollama-agent ./cmd/ollama-agent) || { echo "fail: build ollama-agent" >&2; status=1; }
 }
 
-install_sandbox_runtime() {
-  local target="$HOME/.local/share/claude-custom/sandbox-runtime"
+install_pinned_npm_package() {
+  local target="$HOME/.local/share/claude-custom/$1"
+  mkdir -p "$target"
+  cp "$repo_dir/ollama/$1.package.json" "$target/package.json"
+  cp "$repo_dir/ollama/$1.package-lock.json" "$target/package-lock.json"
+  npm ci --prefix "$target" --ignore-scripts --no-audit --no-fund >/dev/null || { echo "fail: install $1" >&2; status=1; }
+}
+
+install_session_packages() {
   command -v npm >/dev/null 2>&1 || {
     echo "skip: npm not installed; local-model sessions need sandbox-runtime (install Node, then rerun claude-custom install)" >&2
     return 0
   }
-  mkdir -p "$target"
-  cp "$repo_dir/ollama/sandbox-runtime.package.json" "$target/package.json"
-  cp "$repo_dir/ollama/sandbox-runtime.package-lock.json" "$target/package-lock.json"
-  npm ci --prefix "$target" --ignore-scripts --no-audit --no-fund >/dev/null || { echo "fail: install sandbox-runtime" >&2; status=1; }
+  install_pinned_npm_package sandbox-runtime
+  install_pinned_npm_package shortcut-cli
 }
 
 running_ollama_env() {
@@ -387,7 +392,7 @@ install_all() {
   refresh_ollama_models
   build_go_apps
   restart_stale_ollama_server
-  install_sandbox_runtime
+  install_session_packages
   print_activation
 }
 
