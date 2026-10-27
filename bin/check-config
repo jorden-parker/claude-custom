@@ -204,6 +204,13 @@ check_that "pr-review agent names the 250-line Read window" grep -q '250' "$agen
 check_that "pr-review agent posts only a comment review" grep -qF -- '--comment --body-file' "$agent"
 check_that "pr-review agent removes its worktree" grep -qF 'worktree remove --force' "$agent"
 
+for skill_dir in "$repo"/shared/skills/*/; do
+  skill_name="$(basename "$skill_dir")"
+  skill_frontmatter="$(sed -n '2,/^---$/p' "$skill_dir/SKILL.md" | sed '$d')"
+  check_eq "$skill_name skill name matches its folder" "$skill_name" "$(sed -n 's/^name: *//p' <<<"$skill_frontmatter")"
+  check_that "$skill_name skill has a description" test -n "$(sed -n '/^description:/,/^[a-z]*:/p' <<<"$skill_frontmatter" | sed 's/^description://' | tr -d ' \n')"
+done
+
 if [ "$failures" -eq 0 ]; then
   echo "all passed"
 else

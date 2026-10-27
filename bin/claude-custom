@@ -228,6 +228,7 @@ place_links() {
   place_link "$repo_dir/bin/claude-tools" "$HOME/.local/bin/claude-tools"
   place_link "$repo_dir/bin/ollama-agent" "$HOME/.local/bin/ollama-agent"
   place_link "$repo_dir/shared/agents/pr-review.md" "$HOME/.claude/agents/pr-review.md"
+  place_link "$repo_dir/shared/skills/handoff" "$HOME/.claude/skills/handoff"
 }
 
 remove_stale_hook_links() {
@@ -402,6 +403,7 @@ uninstall_all() {
   remove_link "$repo_dir/bin/claude-tools" "$HOME/.local/bin/claude-tools"
   remove_link "$repo_dir/bin/ollama-agent" "$HOME/.local/bin/ollama-agent"
   remove_link "$repo_dir/shared/agents/pr-review.md" "$HOME/.claude/agents/pr-review.md"
+  remove_link "$repo_dir/shared/skills/handoff" "$HOME/.claude/skills/handoff"
   remove_stale_hook_links
   remove_import_lines
   remove_retired_imports

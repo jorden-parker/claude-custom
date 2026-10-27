@@ -119,9 +119,11 @@ before changing how any file gets applied.
   `security add-generic-password -U ... -w`, which prompts, so it never lands in
   argv.
 - Console: `claude-ollama ui [--port N]` serves `web/console` (Next.js with AI
-  Elements) at `http://127.0.0.1:8765/`, built on first run with pnpm. The
-  reviews list is at `/reviews`; `claude-ollama reviews [--port N]` runs the
-  same server and prints that link. Its tests run with `make test-web`.
+  Elements) at `http://127.0.0.1:8765/`, built on first run with pnpm
+  (reinstalled when `pnpm-lock.yaml` is newer than `node_modules/.modules.yaml`,
+  rebuilt when a source is newer than `.next/BUILD_ID`). The reviews list is at
+  `/reviews`; `claude-ollama reviews [--port N]` runs the same server and prints
+  that link. Its tests run with `make test-web`.
 - Console smoke check: `bin/console-smoke [--port N] [--keep]` starts
   `claude-ollama ui` on a temp state dir, checks every page, the token gate and
   the same-origin rule, then prints `all passed` (`make smoke-console`; `--keep`
@@ -244,6 +246,11 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   `claude --agent pr-review`; as a subagent it lands on the forced Haiku model.
   No `model:` key: FORCE ignores it and `--agent` must keep the session model.
   `bin/check-config` checks the frontmatter and the Fallow command.
+- `shared/skills/handoff/SKILL.md` is the `/handoff` skill, which
+  `bin/claude-custom install` links into `~/.claude/skills/` (so `claude-ollama`
+  copies it into its session). `/handoff save` writes a note to
+  `<git common dir>/handoff/` and `/handoff` resumes from the newest one.
+  `bin/check-config` checks each `shared/skills/*` name matches its folder.
 - `bin/pr-review-local --model M [--base-url URL] [--post] [--json] [--color auto|always|never] [--log-dir DIR] [--no-log] [--range BASE..HEAD | PR]`
   reviews a GitHub PR with a local model, or local commits with `--range` (no
   `gh`, no comments or CI, no `--post`): `gh`/`git` gather the PR (no checkout
