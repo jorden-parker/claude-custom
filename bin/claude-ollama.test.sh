@@ -302,7 +302,7 @@ check_that "the launcher log records the hand-off to claude" wait_for_launcher_l
 check_not "the launcher log leaves out claude's own stderr" grep -qF "claude own stderr" "$launcher_log"
 check_that "claude's own stderr still reaches the terminal" grep -qxF "claude own stderr" "$sandbox/err"
 check_that "launcher messages still reach the terminal" grep -qF "claude-ollama: launch 35b" "$sandbox/err"
-check_eq "the launcher log is private" 600 "$(stat -f %Lp "$launcher_log" 2>/dev/null || stat -c %a "$launcher_log")"
+check_eq "the launcher log is private" 600 "$(stat -c %a "$launcher_log" 2>/dev/null || stat -f %Lp "$launcher_log")"
 mkdir -p "$sandbox/glob*root"
 (cd "$sandbox/glob*root" && run_capture "$repo/bin/claude-ollama" 35b -p hi)
 check_that "a failed launch's error lands in the launcher log" wait_for_launcher_log "has glob characters (*?[])"
@@ -864,6 +864,8 @@ case "$*" in
     ;;
 esac
 EOF
+while /usr/bin/pgrep -f "broker.py --socket $broker_socket" >/dev/null; do sleep 0.1; done
+/usr/bin/python3 -c 'import socket, sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])' "$broker_socket"
 run_capture env CMUX_SOCKET_PATH="$cmux_socket" "$repo/bin/claude-ollama" 27b -p hi
 cat > "$sandbox/stubbin/cmux" <<'EOF'
 #!/bin/sh
