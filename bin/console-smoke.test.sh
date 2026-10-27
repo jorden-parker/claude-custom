@@ -19,7 +19,12 @@ check() {
 pid_gone() {
   local pid
   pid="$(cat "$1" 2>/dev/null)"
-  [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null
+  [ -n "$pid" ] || return 1
+  for _ in $(seq 50); do
+    kill -0 "$pid" 2>/dev/null || return 0
+    sleep 0.1
+  done
+  return 1
 }
 
 pid_alive() {
