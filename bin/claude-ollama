@@ -374,6 +374,7 @@ start_gh_broker() {
   command -v gh >/dev/null 2>&1 || return 0
   token="$(gh_login_token)" || return 0
   gh_broker_socket="$session_config_dir/gh-broker.$$.sock"
+  rm -f "$gh_broker_socket"
   while IFS= read -r flag; do allow_flags+=("$flag"); done < <(gh_repo_allow_flags)
   GH_TOKEN="$token" nohup "$profile_dir/gh/broker.py" --socket "$gh_broker_socket" --gh "$(command -v gh)" \
     --repo "$(github_repo_slug)" --watch-pid "$$" ${allow_flags[@]+"${allow_flags[@]}"} >/dev/null 2>&1 &
