@@ -489,6 +489,13 @@ cat > "$sandbox/stubbin/tail" <<EOF
 echo "\$*" >> "$sandbox/tail.log"
 EOF
 chmod +x "$sandbox/stubbin/tail"
+cat > "$sandbox/stubbin/launchctl" <<EOF
+#!/bin/sh
+printf 'PID\tStatus\tLabel\n'
+[ "\$1" = list ] && cat "$sandbox/launchctl-list" 2>/dev/null
+exit 0
+EOF
+chmod +x "$sandbox/stubbin/launchctl"
 HOMEBREW_PREFIX="$sandbox/brew" run_capture "$repo/bin/claude-ollama" logs
 check_eq "logs without a log file exits 1" 1 "$?"
 check_that "logs without a log file says so" grep -q 'no Ollama log found' "$sandbox/err"
@@ -515,6 +522,17 @@ run_capture "$repo/bin/claude-ollama" logs --path
 check_eq "logs --path exit status" 0 "$?"
 check_that "logs --path prints only the chosen log path" test "$(cat "$sandbox/out")" = "$sandbox/agent-ollama.log"
 check_not "logs --path does not tail the log" test -e "$sandbox/tail.log"
+printf -- '-\t1\tlocal.ollama\n4242\t0\tsh.brew.ollama\n' > "$sandbox/launchctl-list"
+HOMEBREW_PREFIX="$sandbox/brew" run_capture "$repo/bin/claude-ollama" logs --path
+check_that "logs --path follows the running Homebrew service over a dead LaunchAgent" test "$(cat "$sandbox/out")" = "$sandbox/brew/var/log/ollama.log"
+printf '<plist><dict>\n  <key>StandardOutPath</key><string>%s</string>\n</dict></plist>\n' "$sandbox/brew-custom.log" > "$HOME/Library/LaunchAgents/sh.brew.ollama.plist"
+: > "$sandbox/brew-custom.log"
+HOMEBREW_PREFIX="$sandbox/brew" run_capture "$repo/bin/claude-ollama" logs --path
+check_that "logs --path reads the running service's own plist" test "$(cat "$sandbox/out")" = "$sandbox/brew-custom.log"
+printf -- '4343\t0\tlocal.ollama\n-\t0\thomebrew.mxcl.ollama\n' > "$sandbox/launchctl-list"
+HOMEBREW_PREFIX="$sandbox/brew" run_capture "$repo/bin/claude-ollama" logs --path
+check_that "logs --path follows the running LaunchAgent" test "$(cat "$sandbox/out")" = "$sandbox/agent-ollama.log"
+rm -f "$sandbox/launchctl-list"
 HOME="$sandbox/bare-home" HOMEBREW_PREFIX="$sandbox/brew-none" run_capture "$repo/bin/claude-ollama" logs --path
 check_eq "logs --path without a log file exits 1" 1 "$?"
 check_that "logs --path without a log file says so" grep -q 'no Ollama log found' "$sandbox/err"

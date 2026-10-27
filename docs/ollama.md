@@ -112,13 +112,13 @@ searches rank by words only. The Homebrew service (`brew services start ollama`)
 uses these paths; add any `server.env` value it lacks with
 `claude-custom agent`:
 
-| What        | Homebrew value                                      |
-| ----------- | --------------------------------------------------- |
-| Binary      | `/opt/homebrew/opt/ollama/bin/ollama`               |
-| Command     | `ollama serve`                                      |
-| Working dir | `/opt/homebrew/var`                                 |
-| Log         | `/opt/homebrew/var/log/ollama.log`                  |
-| Service     | `~/Library/LaunchAgents/homebrew.mxcl.ollama.plist` |
+| What        | Homebrew value                                |
+| ----------- | --------------------------------------------- |
+| Binary      | `/opt/homebrew/opt/ollama/bin/ollama`         |
+| Command     | `ollama serve`                                |
+| Working dir | `/opt/homebrew/var`                           |
+| Log         | `/opt/homebrew/var/log/ollama.log`            |
+| Service     | `~/Library/LaunchAgents/sh.brew.ollama.plist` |
 
 Without Homebrew, start the server with the same settings:
 `env $(cat ollama/server.env) ollama serve`.

@@ -149,13 +149,9 @@ func applyServerEnv(config ui.Config, serverEnv map[string]string) error {
 		ServerEnv:  serverEnv,
 		Reload:     config.Reload,
 		StopBrew:   func() *exec.Cmd { return exec.Command("brew", "services", "stop", "ollama") },
-		BrewLoaded: brewLoaded(os.Getuid()),
+		BrewLoaded: launchd.BrewLoaded(os.Getuid()),
 		AppRunning: appRunning(),
 	}, os.Stdout)
-}
-
-func brewLoaded(uid int) bool {
-	return launchd.ServiceLoaded(uid, launchd.BrewLabel)
 }
 
 func appRunning() bool {
@@ -164,7 +160,7 @@ func appRunning() bool {
 
 func conflicts(uid int) []string {
 	var found []string
-	if brewLoaded(uid) {
+	if launchd.BrewLoaded(uid) {
 		found = append(found, brewConflict)
 	}
 	if appRunning() {

@@ -53,8 +53,8 @@ Each save writes the old and new plist to the change history before it replaces
 the file, so the console's History page can show the diff and restore it.
 
 Warnings at the top name anything else serving on the same port: the Homebrew
-service (`homebrew.mxcl.ollama` loaded) or the Ollama menu-bar app. Stop them
-first, or the agent's server can't bind `11434`.
+service (`sh.brew.ollama` or `homebrew.mxcl.ollama` loaded) or the Ollama
+menu-bar app. Stop them first, or the agent's server can't bind `11434`.
 
 ## Keys
 

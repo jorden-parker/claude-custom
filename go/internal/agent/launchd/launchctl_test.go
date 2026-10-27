@@ -14,7 +14,25 @@ func TestReloadCommandBootsOutThenBootstrapsTheAgent(t *testing.T) {
 }
 
 func TestServiceTargetNamesTheUserDomain(t *testing.T) {
-	if got := ServiceTarget(501, BrewLabel); got != "gui/501/homebrew.mxcl.ollama" {
+	if got := ServiceTarget(501, "sh.brew.ollama"); got != "gui/501/sh.brew.ollama" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+func TestBrewServiceIsFoundUnderEitherHomebrewLabel(t *testing.T) {
+	for _, loaded := range BrewLabels {
+		isLoaded := func(label string) bool { return label == loaded }
+		if !anyLoaded(BrewLabels, isLoaded) {
+			t.Fatalf("%s loaded but not found", loaded)
+		}
+	}
+	if !slices.Contains(BrewLabels, "sh.brew.ollama") || !slices.Contains(BrewLabels, "homebrew.mxcl.ollama") {
+		t.Fatalf("got %v", BrewLabels)
+	}
+}
+
+func TestBrewServiceIsAbsentWhenNoLabelIsLoaded(t *testing.T) {
+	if anyLoaded(BrewLabels, func(string) bool { return false }) {
+		t.Fatal("found a brew service that is not loaded")
 	}
 }

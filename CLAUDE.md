@@ -111,9 +111,9 @@ before changing how any file gets applied.
 - Check the work harness: `claude-ollama doctor [size]` (exit 1 on a missing
   model, hook, context mismatch or server env var; needs `jq`) and
   `claude-ollama --print-config [size]` (resolved values, no launch). Follow the
-  server log: `claude-ollama logs [-n LINES]` (LaunchAgent plist path, else the
-  Homebrew log, else the app log); `claude-ollama logs --path` prints that path
-  instead of following it
+  server log: `claude-ollama logs [-n LINES]` (the running launchd job's log,
+  else the LaunchAgent plist path, else the Homebrew log, else the app log);
+  `claude-ollama logs --path` prints that path instead of following it
 - GitHub tokens: `claude-ollama github-token [read|push]` (both without a kind)
   opens a pre-filled fine-grained token page and stores the pasted token with
   `security add-generic-password -U ... -w`, which prompts, so it never lands in
