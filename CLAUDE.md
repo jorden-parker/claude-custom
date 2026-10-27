@@ -399,26 +399,36 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   `gh-broker.*.sock` and `cmux-broker.*.sock` so no session can touch another
   launch's socket), with the token as `GH_TOKEN` and `GH_REPO` from the
   project's GitHub `origin`. The broker takes only structured requests
-  (`{"tool": "pr_view", "arguments": {"number": 12}}`) for eight tools
-  (`pr_list`, `pr_view`, `pr_diff`, `pr_checks`, `issue_list`, `issue_view`,
-  `run_list`, `run_view`), checks each argument (known keys only, positive
-  integers, fixed choices, text at most 256 characters, search qualifiers only
-  from `ALLOWED_QUALIFIERS`, an author only a login or `@me`), refuses
-  everything when the project has no GitHub `origin`, and builds the `gh`
-  command itself with fixed `--json` fields, passing text as `--flag=value` so
-  no value becomes a flag. There is no `gh` in the session: the `repo` MCP
-  server (`shared/mcp/repo-tools.py`, below) is the only client. gh runs from an
-  empty temp dir, so it reads no git config the session wrote, with
-  `GH_HOST=github.com` and an empty `GH_CONFIG_DIR`, so none of your saved
-  logins are reachable. The session never holds `GH_TOKEN` (an outer
-  `GH_TOKEN`/`GITHUB_TOKEN` is unset). Tests: `ollama/gh/broker.test.sh` (stub
-  `gh`); the launcher test runs the whole chain from a sandbox under `/tmp`,
-  since a Unix socket path must stay under 104 bytes. `allowLocalBinding` is on
-  because Ollama on localhost is reached directly, not through the proxy, which
-  also opens every other local port. Hostnames in
-  `~/.config/claude-custom/fetch-domains` (per machine) are added to the
-  policy's `allowedDomains` and `tlsTerminate.excludeDomains`, and a derived
-  `~/.claude-ollama/fetch-settings.json` (in `denyWrite`) lifts the bare
+  (`{"tool": "pr_view", "arguments": {"number": 12}}`) for nine tools
+  (`pr_list`, `pr_view`, `pr_diff`, `pr_checks`, `pr_review_comments`,
+  `issue_list`, `issue_view`, `run_list`, `run_view`), checks each argument
+  (known keys only, positive integers, fixed choices, text at most 256
+  characters, search qualifiers only from `ALLOWED_QUALIFIERS`, an author only a
+  login or `@me`, `fields` only from each tool's `*_FIELD_CHOICES`, a branch
+  only a branch name), and builds the `gh` command itself, passing text as
+  `--flag=value` so no value becomes a flag. Every tool takes an optional `repo`
+  (`owner/name`): the project's `origin` (the default) or a line of
+  `~/.config/claude-custom/gh-repos` (per machine, `owner/name` or `owner/*`,
+  passed as `--allow-repo`); anything else, or no `repo` without an `origin`, is
+  refused. The `repo` MCP server (`shared/mcp/repo-tools.py`, below) and the
+  session's `gh` command are its only clients: `sandbox-entry` puts
+  `ollama/gh/bin` on `PATH` when the broker runs, and its `gh` runs
+  `shared/mcp/gh-shim.py`, which turns read-only forms
+  (`pr list|view|diff|checks`, `issue list|view`, `run list|view`,
+  `api repos/{owner}/{repo}/pulls/N/comments`, `-R`, PR URLs, `--json`, `--jq`
+  run locally with `jq`) into broker requests and refuses the rest (tests:
+  `shared/mcp/gh-shim.test.sh`, fake broker). Both share
+  `shared/mcp/gh_broker_client.py`. gh runs from an empty temp dir, so it reads
+  no git config the session wrote, with `GH_HOST=github.com` and an empty
+  `GH_CONFIG_DIR`, so none of your saved logins are reachable. The session never
+  holds `GH_TOKEN` (an outer `GH_TOKEN`/`GITHUB_TOKEN` is unset). Tests:
+  `ollama/gh/broker.test.sh` (stub `gh`); the launcher test runs the whole chain
+  from a sandbox under `/tmp`, since a Unix socket path must stay under 104
+  bytes. `allowLocalBinding` is on because Ollama on localhost is reached
+  directly, not through the proxy, which also opens every other local port.
+  Hostnames in `~/.config/claude-custom/fetch-domains` (per machine) are added
+  to the policy's `allowedDomains` and `tlsTerminate.excludeDomains`, and a
+  derived `~/.claude-ollama/fetch-settings.json` (in `denyWrite`) lifts the bare
   `WebFetch` deny, allows exactly those domains, denies loopback hosts and sets
   `skipWebFetchPreflight`; with no valid line the launch is unchanged. The
   console's Fetch domains page (`/fetch-domains`) edits this file; its host
@@ -479,7 +489,7 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   and `GIT_WORK_TREE`), so a `.git` the session plants in a subfolder later,
   with its own config, is never used. Paths must be relative and never climb
   with `..`: two outside paths would make `git diff` compare any files (implicit
-  `--no-index`). The eight GitHub tools are listed only when
+  `--no-index`). The nine GitHub tools are listed only when
   `CLAUDE_OLLAMA_GH_BROKER` is set and go to the broker. Output over 20000
   characters is cut with a note on how to narrow it.
 - `shared/mcp/code-search.py` is the `semantic_search` MCP server (JSON-RPC over

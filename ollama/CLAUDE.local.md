@@ -5,7 +5,8 @@
   `git grep -n NAME | head -30`.
 - Read at most 300 lines per call, with offset and limit.
 - Read git history and GitHub PRs, issues and CI through the mcp__repo__ tools
-  (no permission prompt), not Bash `git log`/`git diff` or `gh`.
+  (no permission prompt), not Bash `git log`/`git diff`. `gh` in Bash is
+  read-only: pr list|view|diff|checks, issue, run, `-R owner/name`.
 - If semantic_search errors, don't retry: use `git grep -n`. If the launch said
   the embedding pull failed, tell the user to pick "Set up embedding model" in
   `claude-ollama`.

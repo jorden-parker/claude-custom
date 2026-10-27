@@ -79,8 +79,11 @@ if [ -n "\${STUB_RUN_GH:-}" ]; then
     [ -S "\$CLAUDE_OLLAMA_GH_BROKER" ] && break
     sleep 0.2
   done
-  printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"pr_list","arguments":{}}}' \
+  gh_args="\${STUB_GH_ARGS:-}"
+  [ -n "\$gh_args" ] || gh_args='{}'
+  printf '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"pr_list","arguments":%s}}\n' "\$gh_args" \
     | python3 "\$CLAUDE_CUSTOM_HOME/shared/mcp/repo-tools.py" > "$sandbox/session-gh.out" 2>&1
+  gh pr diff 5 --name-only > "$sandbox/session-gh-shim.out" 2>&1
 fi
 EOF
   install_sandbox_runtime_stub
@@ -986,13 +989,14 @@ check_that "the session cannot replace the gh broker's socket" policy_lists deny
 session_path_has_gh_client() {
   session_env PATH | tr ':' '\n' | grep -qxF "$repo/ollama/gh/bin"
 }
-check_not "the session gets no gh command of its own" session_path_has_gh_client
+check_that "the session gets the read-only gh command" session_path_has_gh_client
 check_eq "the session never holds the gh login's token" "" "$(session_env GH_TOKEN)"
 run_capture env CLAUDE_OLLAMA_CMUX=1 CMUX_SOCKET_PATH="$cmux_socket" STUB_GH_AUTH_TOKEN=readsecret "$repo/bin/claude-ollama" 27b -p hi
 check_eq "with cmux too the session reaches both brokers" "[\"$(session_env CLAUDE_OLLAMA_CMUX_BROKER)\",\"$(session_env CLAUDE_OLLAMA_GH_BROKER)\"]" \
   "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
 run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_eq "without a gh login the session gets no gh broker" "" "$(session_env CLAUDE_OLLAMA_GH_BROKER)"
+check_not "nor the gh command" session_path_has_gh_client
 rm "$sandbox/stubbin/gh"
 STUB_GH_AUTH_TOKEN=readsecret run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_eq "without gh installed the session gets no gh broker" "" "$(session_env CLAUDE_OLLAMA_GH_BROKER)"
@@ -1089,7 +1093,26 @@ ln -sf "$(command -pv python3)" "$sandbox/stubbin/python3"
 (cd "$gh_project" && CLAUDE_OLLAMA_NO_INDEX=1 STUB_GH_AUTH_TOKEN=readsecret STUB_RUN_GH=1 run_capture "$repo/bin/claude-ollama" 27b -p hi)
 check_eq "the session's pr_list tool runs gh outside it, through the broker, with the gh login's token and the project's repo" \
   "pr list --state open --limit 20 --json number,title,author,headRefName,isDraft,updatedAt readsecret owner/project" \
-  "$(cat "$sandbox/gh.log" 2>/dev/null)"
+  "$(head -n 1 "$sandbox/gh.log" 2>/dev/null)"
+check_eq "the session's gh command reads the diff through the same broker" \
+  "pr diff 5 --name-only readsecret owner/project" "$(sed -n 2p "$sandbox/gh.log" 2>/dev/null)"
+gh_repos_list="$HOME/.config/claude-custom/gh-repos"
+mkdir -p "$(dirname "$gh_repos_list")"
+printf 'friend/tool\n  Team/*  \nnot a repo\n' > "$gh_repos_list"
+: > "$sandbox/gh.log"
+(cd "$gh_project" && CLAUDE_OLLAMA_NO_INDEX=1 STUB_GH_AUTH_TOKEN=readsecret STUB_RUN_GH=1 STUB_GH_ARGS='{"repo":"friend/tool"}' \
+  run_capture "$repo/bin/claude-ollama" 27b -p hi)
+check_that "a repo on the gh-repos list can be read" grep -qF "readsecret friend/tool" "$sandbox/gh.log"
+check_that "a line that is not owner/name or owner/* is ignored with a warning" grep -qF "ignoring gh repo 'not a repo'" "$sandbox/err"
+: > "$sandbox/gh.log"
+(cd "$gh_project" && CLAUDE_OLLAMA_NO_INDEX=1 STUB_GH_AUTH_TOKEN=readsecret STUB_RUN_GH=1 STUB_GH_ARGS='{"repo":"team/anything"}' \
+  run_capture "$repo/bin/claude-ollama" 27b -p hi)
+check_that "an owner/* line allows that owner's repos" grep -qF "readsecret team/anything" "$sandbox/gh.log"
+: > "$sandbox/gh.log"
+(cd "$gh_project" && CLAUDE_OLLAMA_NO_INDEX=1 STUB_GH_AUTH_TOKEN=readsecret STUB_RUN_GH=1 STUB_GH_ARGS='{"repo":"stranger/secret"}' \
+  run_capture "$repo/bin/claude-ollama" 27b -p hi)
+check_that "a repo off the list is refused" grep -qF "stranger/secret is not on this machine's gh-repos list" "$sandbox/session-gh.out"
+rm "$gh_repos_list"
 
 write_fetch_list() {
   mkdir -p "$(dirname "$fetch_list")"

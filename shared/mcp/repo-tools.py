@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
-import json
 import os
-import socket
 import subprocess
 from pathlib import PurePath
 
+from gh_broker_client import BrokerMissing, ask_broker
 from mcp_stdio import serve, tool_result
 
 GIT_TIMEOUT_SECONDS = 60
-BROKER_TIMEOUT_SECONDS = 150
 MAX_OUTPUT_CHARS = 20000
 DEFAULT_LOG_LIMIT = 20
 MAX_LOG_LIMIT = 100
@@ -40,6 +38,8 @@ def tool(name, description, properties=None, required=()):
 
 LIMIT = number_property("How many (default 20, max 100)")
 PR_NUMBER = {"number": number_property("Pull request number")}
+REPO = {"repo": text_property("owner/name; default this project's repo")}
+FIELDS = {"fields": text_property("Comma-separated JSON fields instead of the default set")}
 GIT_TOOLS = [
     tool("git_status", "Current branch and changed files (git status --short --branch)."),
     tool(
@@ -71,35 +71,48 @@ GIT_TOOLS = [
 GITHUB_TOOLS = [
     tool(
         "pr_list",
-        "This repo's GitHub pull requests, as JSON.",
+        "GitHub pull requests, as JSON.",
         {
+            **REPO,
             "state": {"type": "string", "enum": ["open", "closed", "merged", "all"]},
             "limit": LIMIT,
             "author": text_property("Login, or @me"),
             "search": text_property("GitHub search, e.g. 'fix in:title'"),
         },
     ),
-    tool("pr_view", "One pull request with its files, comments and reviews, as JSON.", PR_NUMBER, ["number"]),
+    tool("pr_view", "One pull request with its files, comments and reviews, as JSON.", {**REPO, **PR_NUMBER, **FIELDS}, ["number"]),
     tool(
         "pr_diff",
-        "A pull request's diff.",
-        {**PR_NUMBER, "name_only": switch_property("Only the changed file names")},
-        ["number"],
+        "A pull request's diff, by number or branch.",
+        {
+            **REPO,
+            **PR_NUMBER,
+            "branch": text_property("Head branch, instead of number"),
+            "name_only": switch_property("Only the changed file names"),
+        },
     ),
-    tool("pr_checks", "A pull request's CI checks, as JSON.", PR_NUMBER, ["number"]),
+    tool("pr_checks", "A pull request's CI checks, as JSON.", {**REPO, **PR_NUMBER, **FIELDS}, ["number"]),
+    tool("pr_review_comments", "A pull request's inline review comments, as JSON.", {**REPO, **PR_NUMBER}, ["number"]),
     tool(
         "issue_list",
-        "This repo's GitHub issues, as JSON.",
-        {"state": {"type": "string", "enum": ["open", "closed", "all"]}, "limit": LIMIT, "search": text_property("GitHub search")},
+        "GitHub issues, as JSON.",
+        {
+            **REPO,
+            "state": {"type": "string", "enum": ["open", "closed", "all"]},
+            "limit": LIMIT,
+            "search": text_property("GitHub search"),
+        },
     ),
-    tool("issue_view", "One issue with its comments, as JSON.", {"number": number_property("Issue number")}, ["number"]),
-    tool("run_list", "Recent GitHub Actions runs, as JSON.", {"limit": LIMIT, "branch": text_property("Only this branch")}),
+    tool("issue_view", "One issue with its comments, as JSON.", {**REPO, "number": number_property("Issue number"), **FIELDS}, ["number"]),
+    tool("run_list", "Recent GitHub Actions runs, as JSON.", {**REPO, "limit": LIMIT, "branch": text_property("Only this branch")}),
     tool(
         "run_view",
         "One Actions run and its jobs, as JSON.",
         {
+            **REPO,
             "run_id": number_property("Run ID (databaseId from run_list)"),
             "failed_logs": switch_property("Return the failed steps' logs instead"),
+            **FIELDS,
         },
         ["run_id"],
     ),
@@ -224,16 +237,11 @@ def run_git(command):
     return completed.stdout
 
 
-def ask_broker(name, arguments):
-    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
-        connection.settimeout(BROKER_TIMEOUT_SECONDS)
-        try:
-            connection.connect(os.environ.get("CLAUDE_OLLAMA_GH_BROKER", ""))
-        except OSError:
-            raise ToolError(BROKER_MISSING) from None
-        connection.sendall(json.dumps({"tool": name, "arguments": arguments}).encode() + b"\n")
-        with connection.makefile("rb") as replies:
-            reply = json.loads(replies.readline())
+def run_github_tool(name, arguments):
+    try:
+        reply = ask_broker(name, arguments)
+    except BrokerMissing:
+        raise ToolError(BROKER_MISSING) from None
     if reply.get("exit") != 0 and not reply.get("stdout", "").strip():
         raise ToolError(reply.get("stderr", "").strip() or "gh failed")
     return reply.get("stdout", "") + reply.get("stderr", "")
@@ -243,7 +251,7 @@ def run_tool(name, arguments):
     if name in GIT_COMMANDS:
         return run_git(GIT_COMMANDS[name](arguments))
     if name in GITHUB_TOOL_NAMES:
-        return ask_broker(name, arguments)
+        return run_github_tool(name, arguments)
     raise ToolError(f"unknown tool: {name}")
 
 

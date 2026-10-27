@@ -45,15 +45,36 @@ ALLOWED_QUALIFIERS = {
     "sort",
 }
 GITHUB_LOGIN = re.compile(r"@me|[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})")
+REPOSITORY = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9_][A-Za-z0-9._-]{0,99}")
+BRANCH = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._/-]{0,254}")
 PR_FIELDS = "number,title,author,headRefName,isDraft,updatedAt"
 PR_VIEW_FIELDS = (
     "number,title,body,state,author,headRefName,baseRefName,url,isDraft,reviewDecision,labels,files,comments,reviews"
 )
+PR_VIEW_FIELD_CHOICES = {
+    *PR_VIEW_FIELDS.split(","),
+    "commits",
+    "headRefOid",
+    "baseRefOid",
+    "additions",
+    "deletions",
+    "changedFiles",
+    "createdAt",
+    "updatedAt",
+    "mergedAt",
+    "closed",
+    "assignees",
+    "reviewRequests",
+    "milestone",
+}
 PR_CHECK_FIELDS = "name,state,bucket,workflow,link"
+PR_CHECK_FIELD_CHOICES = {*PR_CHECK_FIELDS.split(","), "description", "event", "startedAt", "completedAt"}
 ISSUE_FIELDS = "number,title,state,author,labels,updatedAt"
 ISSUE_VIEW_FIELDS = "number,title,body,state,author,labels,url,comments"
+ISSUE_VIEW_FIELD_CHOICES = {*ISSUE_VIEW_FIELDS.split(","), "createdAt", "updatedAt", "closedAt", "assignees", "milestone"}
 RUN_FIELDS = "databaseId,displayTitle,workflowName,headBranch,status,conclusion,createdAt"
 RUN_VIEW_FIELDS = "databaseId,displayTitle,workflowName,headBranch,status,conclusion,url,jobs"
+RUN_VIEW_FIELD_CHOICES = {*RUN_VIEW_FIELDS.split(","), "createdAt", "updatedAt", "event", "headSha"}
 
 
 class Refused(Exception):
@@ -64,7 +85,7 @@ class Arguments:
     def __init__(self, values, allowed):
         if not isinstance(values, dict):
             raise Refused("arguments must be an object")
-        unknown = set(values) - set(allowed)
+        unknown = set(values) - set(allowed) - {"repo"}
         if unknown:
             raise Refused(f"unknown arguments: {', '.join(sorted(unknown))}")
         self.values = values
@@ -114,6 +135,25 @@ class Arguments:
                 raise Refused(f"search can't use the {qualifier}: qualifier; allowed: {allowed}")
         return [f"--search={value}"]
 
+    def fields(self, default, choices):
+        value = self.text("fields")
+        if value is None:
+            return default
+        names = value.split(",")
+        if not all(name in choices for name in names):
+            raise Refused(f"fields must be a comma-separated list from: {', '.join(sorted(choices))}")
+        return value
+
+    def pull_request(self):
+        branch = self.text("branch")
+        if branch is None:
+            return self.number("number")
+        if "number" in self.values:
+            raise Refused("give either number or branch, not both")
+        if not BRANCH.fullmatch(branch):
+            raise Refused("branch must be a branch name")
+        return branch
+
     def author_flag(self):
         value = self.text("author")
         if value is None:
@@ -134,16 +174,23 @@ def pr_list(values):
 
 
 def pr_view(values):
-    return ["pr", "view", Arguments(values, {"number"}).number("number"), "--json", PR_VIEW_FIELDS]
+    args = Arguments(values, {"number", "fields"})
+    return ["pr", "view", args.number("number"), "--json", args.fields(PR_VIEW_FIELDS, PR_VIEW_FIELD_CHOICES)]
 
 
 def pr_diff(values):
-    args = Arguments(values, {"number", "name_only"})
-    return ["pr", "diff", args.number("number"), *(["--name-only"] if args.switch("name_only") else [])]
+    args = Arguments(values, {"number", "branch", "name_only"})
+    return ["pr", "diff", args.pull_request(), *(["--name-only"] if args.switch("name_only") else [])]
 
 
 def pr_checks(values):
-    return ["pr", "checks", Arguments(values, {"number"}).number("number"), "--json", PR_CHECK_FIELDS]
+    args = Arguments(values, {"number", "fields"})
+    return ["pr", "checks", args.number("number"), "--json", args.fields(PR_CHECK_FIELDS, PR_CHECK_FIELD_CHOICES)]
+
+
+def pr_review_comments(values):
+    number = Arguments(values, {"number"}).number("number")
+    return ["api", f"repos/{{owner}}/{{repo}}/pulls/{number}/comments", "--paginate"]
 
 
 def issue_list(values):
@@ -156,7 +203,8 @@ def issue_list(values):
 
 
 def issue_view(values):
-    return ["issue", "view", Arguments(values, {"number"}).number("number"), "--json", ISSUE_VIEW_FIELDS]
+    args = Arguments(values, {"number", "fields"})
+    return ["issue", "view", args.number("number"), "--json", args.fields(ISSUE_VIEW_FIELDS, ISSUE_VIEW_FIELD_CHOICES)]
 
 
 def run_list(values):
@@ -165,11 +213,11 @@ def run_list(values):
 
 
 def run_view(values):
-    args = Arguments(values, {"run_id", "failed_logs"})
+    args = Arguments(values, {"run_id", "failed_logs", "fields"})
     run_id = args.number("run_id")
     if args.switch("failed_logs"):
         return ["run", "view", run_id, "--log-failed"]
-    return ["run", "view", run_id, "--json", RUN_VIEW_FIELDS]
+    return ["run", "view", run_id, "--json", args.fields(RUN_VIEW_FIELDS, RUN_VIEW_FIELD_CHOICES)]
 
 
 TOOLS = {
@@ -177,6 +225,7 @@ TOOLS = {
     "pr_view": pr_view,
     "pr_diff": pr_diff,
     "pr_checks": pr_checks,
+    "pr_review_comments": pr_review_comments,
     "issue_list": issue_list,
     "issue_view": issue_view,
     "run_list": run_list,
@@ -193,10 +242,16 @@ def gh_args(request):
     return build(request.get("arguments", {}))
 
 
+def repository_allowed(repository, patterns):
+    owner = repository.split("/")[0]
+    return any(pattern.lower() in (repository.lower(), f"{owner.lower()}/*") for pattern in patterns)
+
+
 class Broker:
-    def __init__(self, gh, repo, workdir):
+    def __init__(self, gh, repo, workdir, allowed_repos=()):
         self.gh = gh
         self.repo = repo
+        self.allowed_repos = (repo, *allowed_repos) if repo else tuple(allowed_repos)
         self.workdir = workdir
         config_dir = Path(workdir, "gh-config")
         config_dir.mkdir()
@@ -209,18 +264,29 @@ class Broker:
             "GH_NO_UPDATE_NOTIFIER": "1",
         }
         self.env.pop("GITHUB_TOKEN", None)
-        self.env["GH_REPO"] = repo
+
+    def repository_for(self, request):
+        arguments = request.get("arguments") if isinstance(request, dict) else None
+        named = arguments.get("repo") if isinstance(arguments, dict) else None
+        if named is None:
+            if not self.repo:
+                raise Refused("this project has no GitHub origin, so name a repo")
+            return self.repo
+        if not isinstance(named, str) or not REPOSITORY.fullmatch(named):
+            raise Refused("repo must be owner/name")
+        if not repository_allowed(named, self.allowed_repos):
+            raise Refused(f"{named} is not on this machine's gh-repos list (~/.config/claude-custom/gh-repos)")
+        return named
 
     def handle(self, request):
-        if not self.repo:
-            raise Refused("this project has no GitHub origin, so there is no repo to read")
+        repository = self.repository_for(request)
         return reply_from(
             subprocess.run(
                 [self.gh, *gh_args(request)],
                 capture_output=True,
                 text=True,
                 cwd=self.workdir,
-                env=self.env,
+                env={**self.env, "GH_REPO": repository},
                 stdin=subprocess.DEVNULL,
                 timeout=COMMAND_TIMEOUT_SECONDS,
                 check=False,
@@ -280,10 +346,11 @@ def main():
     parser.add_argument("--socket", required=True)
     parser.add_argument("--gh", required=True)
     parser.add_argument("--repo", default="")
+    parser.add_argument("--allow-repo", action="append", default=[])
     parser.add_argument("--watch-pid", type=int, required=True)
     options = parser.parse_args()
     with tempfile.TemporaryDirectory() as workdir:
-        server = serve(Broker(options.gh, options.repo, workdir), options.socket)
+        server = serve(Broker(options.gh, options.repo, workdir, options.allow_repo), options.socket)
         threading.Thread(target=exit_when_gone, args=(options.watch_pid, options.socket), daemon=True).start()
         server.serve_forever()
 

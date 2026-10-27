@@ -10,6 +10,9 @@ export GOMODCACHE="$session_dir/go-mod"
 export EDIT_CHECK_CACHE_DIR="$session_dir/cache/claude-custom/edit-check"
 export STOP_VERIFY_STATE_DIR="$session_dir/cache/claude-custom/edited-files"
 export DISABLE_AUTOUPDATER=1
+if [ -n "${CLAUDE_OLLAMA_GH_BROKER:-}" ]; then
+  export PATH="$CLAUDE_CUSTOM_HOME/ollama/gh/bin:$PATH"
+fi
 if [ -n "${GH_BASIC:-}" ]; then
   export GIT_CONFIG_COUNT=1
   export GIT_CONFIG_KEY_0=http.https://github.com/.extraHeader

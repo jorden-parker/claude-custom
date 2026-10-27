@@ -68,8 +68,10 @@ start_broker() {
   session_pid=$!
   socket="$tmp/broker.sock"
   rm -f "$socket"
+  local repo="$1"
+  shift
   GH_TOKEN=readsecret GITHUB_TOKEN=outer python3 "$broker" --socket "$socket" --gh "$tmp/gh" \
-    --repo "$1" --watch-pid "$session_pid" &
+    --repo "$repo" --watch-pid "$session_pid" "$@" &
   broker_pid=$!
   for _ in $(seq 50); do
     [ -S "$socket" ] && return 0
@@ -113,7 +115,7 @@ issue_view_fields="number,title,body,state,author,labels,url,comments"
 run_fields="databaseId,displayTitle,workflowName,headBranch,status,conclusion,createdAt"
 run_view_fields="databaseId,displayTitle,workflowName,headBranch,status,conclusion,url,jobs"
 
-start_broker owner/project
+start_broker owner/project --allow-repo friend/tool --allow-repo team/*
 
 ask pr_list
 check_eq "the broker passes gh's exit status back" 3 "$(reply_field exit)"
@@ -165,7 +167,8 @@ check_that "a tool that is not on the list is refused" refused ask pr_merge '{"n
 check_that "a request without a tool is refused" refused send_line '{"arguments":{}}'
 check_that "a malformed request is refused" refused send_line 'not json'
 check_that "arguments that are not an object are refused" refused ask pr_list '["--web"]'
-check_that "an argument the tool does not take is refused" refused ask pr_view '{"number":12,"repo":"evil.example/o/r"}'
+check_that "an argument the tool does not take is refused" refused ask pr_view '{"number":12,"web":true}'
+check_that "a repo on another host is refused" refused ask pr_view '{"number":12,"repo":"evil.example/o/r"}'
 check_that "a missing PR number is refused" refused ask pr_view
 check_that "a PR number given as text is refused" refused ask pr_view '{"number":"12 --web"}'
 check_that "a PR number of true is refused" refused ask pr_view '{"number":true}'
@@ -185,10 +188,45 @@ check_that "allowed qualifiers pass" not_refused ask issue_list '{"search":"is:o
 check_that "an author must be a GitHub login" refused ask pr_list '{"author":"me repo:other/project"}'
 check_that "or @me" not_refused ask pr_list '{"author":"@me"}'
 check_that "a switch that is not a boolean is refused" refused ask pr_diff '{"number":12,"name_only":"yes"}'
+
+gh_repo_used() {
+  : > "$tmp/gh.log"
+  ask "$1" "$2"
+  [ "$(cut -d' ' -f2 "$tmp/gh-env")" = "$3" ]
+}
+check_that "a request may name the project's own repo" gh_repo_used pr_diff '{"number":4,"repo":"owner/project"}' owner/project
+check_that "or a repo on the allow list" gh_repo_used pr_diff '{"number":4,"repo":"friend/tool"}' friend/tool
+check_that "whatever its case" gh_repo_used pr_list '{"repo":"Friend/Tool"}' Friend/Tool
+check_that "or any repo of an owner allowed with owner/*" gh_repo_used issue_view '{"number":1,"repo":"team/anything"}' team/anything
+check_that "a repo off the allow list is refused" refused ask pr_diff '{"number":4,"repo":"stranger/secret"}'
+check_that "as is another repo of an owner allowed only for one" refused ask pr_diff '{"number":4,"repo":"friend/other"}'
+check_that "a repo that is not owner/name is refused" refused ask pr_diff '{"number":4,"repo":"team/../x"}'
+check_that "or one that starts like a flag" refused ask pr_diff '{"number":4,"repo":"-R/x"}'
+check_that "the next request goes back to the project's repo" gh_repo_used pr_list '{}' owner/project
+
+ask pr_view '{"number":12,"fields":"number,headRefOid,commits"}'
+check_that "pr_view can ask for fewer or extra allowed fields" logged "pr view 12 --json number,headRefOid,commits"
+check_that "a field off pr_view's list is refused" refused ask pr_view '{"number":12,"fields":"number,--web"}'
+check_that "an empty field list is refused" refused ask pr_view '{"number":12,"fields":""}'
+ask pr_checks '{"number":12,"fields":"name,bucket,link"}'
+check_that "pr_checks takes fields" logged "pr checks 12 --json name,bucket,link"
+ask issue_view '{"number":3,"fields":"title,body"}'
+check_that "issue_view takes fields" logged "issue view 3 --json title,body"
+ask run_view '{"run_id":99,"fields":"status,conclusion"}'
+check_that "run_view takes fields" logged "run view 99 --json status,conclusion"
+ask pr_review_comments '{"number":12}'
+check_that "pr_review_comments reads the PR's review comments" logged "api repos/{owner}/{repo}/pulls/12/comments --paginate"
+ask pr_diff '{"branch":"feature/x-1.2"}'
+check_that "pr_diff finds a PR by its branch" logged "pr diff feature/x-1.2"
+check_that "a branch that starts like a flag is refused" refused ask pr_diff '{"branch":"--web"}'
+check_that "a branch with spaces is refused" refused ask pr_diff '{"branch":"a b"}'
+check_that "a number and a branch together are refused" refused ask pr_diff '{"number":1,"branch":"main"}'
+check_that "pr_diff needs a number or a branch" refused ask pr_diff
 stop_broker
 
-start_broker ""
-check_that "without a GitHub origin every request is refused" refused ask pr_list
+start_broker "" --allow-repo friend/tool
+check_that "without a GitHub origin a request that names no repo is refused" refused ask pr_list
+check_that "but one that names an allowed repo passes" not_refused ask pr_list '{"repo":"friend/tool"}'
 
 kill "$session_pid" && wait "$session_pid" 2>/dev/null
 for _ in $(seq 50); do

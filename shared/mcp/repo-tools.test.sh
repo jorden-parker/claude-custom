@@ -46,7 +46,7 @@ messages = [
     {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "test", "version": "0"}}},
     {"jsonrpc": "2.0", "method": "notifications/initialized"},
 ]
-if method == "list":
+if method in ("list", "schema"):
     messages.append({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
 else:
     messages.append({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": method, "arguments": arguments}})
@@ -56,6 +56,8 @@ replies = {reply.get("id"): reply for reply in map(json.loads, completed.stdout.
 result = replies[2]["result"]
 if method == "list":
     print(" ".join(tool["name"] for tool in result["tools"]))
+elif method == "schema":
+    print(json.dumps(next(tool["inputSchema"] for tool in result["tools"] if tool["name"] == arguments["tool"]), sort_keys=True))
 else:
     print(("ERROR " if result["isError"] else "") + "\n".join(item["text"] for item in result["content"]).rstrip("\n"))
 PY
@@ -223,7 +225,18 @@ for _ in $(seq 50); do
 done
 export CLAUDE_OLLAMA_GH_BROKER="$socket"
 check "with the GitHub broker the GitHub tools are listed too" \
-  [ "$(call list)" = "git_status git_diff git_log git_show pr_list pr_view pr_diff pr_checks issue_list issue_view run_list run_view" ]
+  [ "$(call list)" = "git_status git_diff git_log git_show pr_list pr_view pr_diff pr_checks pr_review_comments issue_list issue_view run_list run_view" ]
+github_schema() {
+  call schema "{\"tool\":\"$1\"}" | python3 -c "import json, sys; schema = json.load(sys.stdin); print(sys.argv[1] in schema['properties'])" "$2"
+}
+for github_tool in pr_list pr_view pr_diff pr_checks pr_review_comments issue_list issue_view run_list run_view; do
+  check "$github_tool can name another repo" [ "$(github_schema "$github_tool" repo)" = True ]
+done
+for github_tool in pr_view pr_checks issue_view run_view; do
+  check "$github_tool can choose its JSON fields" [ "$(github_schema "$github_tool" fields)" = True ]
+done
+check "pr_diff can find a PR by branch" [ "$(github_schema pr_diff branch)" = True ]
+check "so pr_diff needs no number" [ "$(call schema '{"tool":"pr_diff"}' | python3 -c 'import json, sys; print(json.load(sys.stdin).get("required"))')" = None ]
 check "a GitHub tool returns the broker's output" [ "$(call pr_view '{"number":12}')" = '[{"number":12}]' ]
 check "and sends the broker the tool and its arguments" \
   [ "$(tail -n 1 "$tmp/broker.log")" = '{"tool": "pr_view", "arguments": {"number": 12}}' ]
