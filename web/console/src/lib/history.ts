@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
+import { consoleStateDir } from "./state-dir";
 
 export type HistoryEntry = {
   id: string;
@@ -39,10 +39,7 @@ const FILE_MODE = 0o600;
 const DEFAULT_MODE = 0o644;
 
 export function historyDir(): string {
-  const stateDir =
-    process.env.CLAUDE_CONSOLE_STATE_DIR ||
-    path.join(os.homedir(), ".local/share/claude-custom/console");
-  return path.join(stateDir, "history");
+  return path.join(consoleStateDir(), "history");
 }
 
 export function listHistory(): HistoryEntry[] {

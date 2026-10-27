@@ -21,6 +21,9 @@ fetch_settings="$session_config_dir/fetch-settings.json"
 fetch_domain_pattern='^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z][a-z0-9-]*[a-z0-9]$'
 review_log_dir="${PR_REVIEW_LOG_DIR:-$HOME/.local/share/claude-custom/reviews}"
 console_state_dir="${CLAUDE_CONSOLE_STATE_DIR:-$HOME/.local/share/claude-custom/console}"
+launcher_log="$console_state_dir/launcher.log"
+launcher_log_max_bytes=1048576
+launcher_log_open=""
 github_keychain_item=claude-ollama-github
 github_read_keychain_item=claude-ollama-github-read
 raw_terminal_mode=(-brkint -icrnl -inpck -istrip -ixon cs8 -echo -icanon -iexten -isig min 1 time 0)
@@ -259,6 +262,27 @@ run_in_raw_terminal() {
   trap 'exit 143' TERM
   stty "${raw_terminal_mode[@]}"
   "$@"
+}
+
+rotate_launcher_log() {
+  [ -f "$launcher_log" ] || return 0
+  [ "$(wc -c < "$launcher_log")" -gt "$launcher_log_max_bytes" ] || return 0
+  mv -f "$launcher_log" "$launcher_log.1"
+}
+
+start_launcher_log() {
+  (umask 077; mkdir -p "$console_state_dir" && chmod 700 "$console_state_dir") || return 0
+  rotate_launcher_log
+  (umask 077; : >> "$launcher_log") || return 0
+  exec 3>&2 2> >(tee -a "$launcher_log" >&2)
+  launcher_log_open=1
+  echo "claude-ollama: launch $size in $(pwd -P) at $(date -u +%Y-%m-%dT%H:%M:%SZ)" >&2
+}
+
+stop_launcher_log() {
+  echo "claude-ollama: starting claude" >&2
+  [ -n "$launcher_log_open" ] || return 0
+  exec 2>&3 3>&-
 }
 
 git_common_dir() {
@@ -912,6 +936,7 @@ case "$mode" in
   prepare) ensure_model; exit 0 ;;
 esac
 
+start_launcher_log
 require_sandbox_runtime
 require_plain_project_root
 apply_server_env
@@ -935,6 +960,7 @@ export CLAUDE_CONFIG_DIR="$session_config_dir"
 export CLAUDE_CODE_TMPDIR="$session_config_dir/tmp"
 GH_BASIC="$(github_basic_auth)"
 export GH_BASIC
+stop_launcher_log
 run_in_raw_terminal "$sandbox_runtime" -s "$sandbox_policy" -- "$profile_dir/sandbox-entry" claude \
   --settings "$(launch_settings_file)" \
   --system-prompt-file "$profile_dir/system-prompt.md" \

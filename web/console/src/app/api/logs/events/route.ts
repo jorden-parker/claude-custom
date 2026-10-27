@@ -1,14 +1,13 @@
-import { readLogPath } from "@/lib/log-path";
 import { logFrame } from "@/lib/log-line";
 import { streamLines } from "@/lib/line-tail";
-import { consoleRepoDir } from "@/lib/sizes";
+import { requestedLogPath } from "../log-request";
 
 export async function GET(request: Request) {
-  const log = await readLogPath(consoleRepoDir());
-  if (!log.ok) {
-    return new Response(log.message, { status: 404 });
+  const logPath = await requestedLogPath(request);
+  if (logPath instanceof Response) {
+    return logPath;
   }
-  const stream = streamLines(log.path, request.signal, {
+  const stream = streamLines(logPath, request.signal, {
     skipLines: 0,
     isEnd: () => false,
     frame: logFrame,

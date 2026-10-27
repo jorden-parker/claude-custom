@@ -1,12 +1,11 @@
 import { connection } from "next/server";
-import { readLogPath } from "@/lib/log-path";
-import { consoleRepoDir } from "@/lib/sizes";
+import { requestedLogPath } from "../log-request";
 
-export async function GET() {
+export async function GET(request: Request) {
   await connection();
-  const log = await readLogPath(consoleRepoDir());
-  if (!log.ok) {
-    return new Response(log.message, { status: 404 });
+  const logPath = await requestedLogPath(request);
+  if (logPath instanceof Response) {
+    return logPath;
   }
-  return Response.json({ path: log.path });
+  return Response.json({ path: logPath });
 }

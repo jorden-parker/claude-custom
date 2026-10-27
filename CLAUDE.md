@@ -113,7 +113,11 @@ before changing how any file gets applied.
   `claude-ollama --print-config [size]` (resolved values, no launch). Follow the
   server log: `claude-ollama logs [-n LINES]` (the running launchd job's log,
   else the LaunchAgent plist path, else the Homebrew log, else the app log);
-  `claude-ollama logs --path` prints that path instead of following it
+  `claude-ollama logs --path` prints that path instead of following it. Each
+  launch also copies its own stderr, up to the hand-off to `claude`, to
+  `$CLAUDE_CONSOLE_STATE_DIR/launcher.log` (0600, moved to `launcher.log.1` past
+  1 MiB); the console's Logs page has Ollama server and Launcher tabs
+  (`/api/logs/path` and `/api/logs/events` take `?source=server|launcher`)
 - GitHub tokens: `claude-ollama github-token [read|push]` (both without a kind)
   opens a pre-filled fine-grained token page and stores the pasted token with
   `security add-generic-password -U ... -w`, which prompts, so it never lands in

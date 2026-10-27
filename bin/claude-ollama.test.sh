@@ -59,7 +59,7 @@ new_sandbox() {
   mkdir -p "$HOME" "$sandbox/stubbin"
   unset ZDOTDIR XDG_CONFIG_HOME CLAUDE_CONFIG_DIR STUB_OLLAMA_SHOW_EXIT STUB_OLLAMA_PULL_EXIT
   unset STUB_OLLAMA_PID STUB_OLLAMA_ENV STUB_CURL_EXIT STUB_OLLAMA_NUM_CTX STUB_AGENT_EXIT CMUX_SOCKET_PATH CLAUDE_OLLAMA_CMUX
-  unset STUB_SHASUM_DIGEST STUB_INSPECT_EXIT
+  unset STUB_SHASUM_DIGEST STUB_INSPECT_EXIT STUB_CLAUDE_STDERR CLAUDE_CONSOLE_STATE_DIR
   export SHELL=/bin/zsh
   record_installed_num_ctx
   export CLAUDE_OLLAMA_MANAGED_SETTINGS="$sandbox/managed-settings.json"
@@ -73,6 +73,7 @@ echo "\${CLAUDE_CONFIG_DIR-unset}" > "$sandbox/config-dir-env"
 echo "\${CLAUDE_CODE_TMPDIR-unset}" > "$sandbox/tmpdir-env"
 echo "\${GIT_CONFIG_COUNT-unset} \${GIT_CONFIG_KEY_0-unset} \${GIT_CONFIG_VALUE_0-unset}" > "$sandbox/git-config-env"
 env > "$sandbox/claude-env"
+[ -n "\${STUB_CLAUDE_STDERR:-}" ] && echo "\$STUB_CLAUDE_STDERR" >&2
 if [ -n "\${STUB_RUN_GH:-}" ]; then
   for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
     [ -S "\$CLAUDE_OLLAMA_GH_BROKER" ] && break
@@ -286,6 +287,33 @@ check_that "claude-ollama pulls a missing embedding model" grep -qxF "pull qwen3
 rm -f "$sandbox/ollama.log"
 CODE_SEARCH_MODEL=nomic-embed-text STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" 35b -p hi
 check_that "claude-ollama pulls the CODE_SEARCH_MODEL override" grep -qxF "pull nomic-embed-text" "$sandbox/ollama.log"
+rm -f "$sandbox/ollama.log"
+launcher_log="$HOME/.local/share/claude-custom/console/launcher.log"
+
+wait_for_launcher_log() {
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    grep -qF -- "$1" "$launcher_log" 2>/dev/null && return 0
+    sleep 0.2
+  done
+  return 1
+}
+
+rm -f "$launcher_log"
+STUB_CLAUDE_STDERR="claude own stderr" run_capture "$repo/bin/claude-ollama" 35b -p hi
+check_that "a launch writes its start to the launcher log" wait_for_launcher_log "claude-ollama: launch 35b in $(pwd -P)"
+check_that "the launcher log records the hand-off to claude" wait_for_launcher_log "claude-ollama: starting claude"
+check_not "the launcher log leaves out claude's own stderr" grep -qF "claude own stderr" "$launcher_log"
+check_that "claude's own stderr still reaches the terminal" grep -qxF "claude own stderr" "$sandbox/err"
+check_that "launcher messages still reach the terminal" grep -qF "claude-ollama: launch 35b" "$sandbox/err"
+check_eq "the launcher log is private" 600 "$(stat -f %Lp "$launcher_log" 2>/dev/null || stat -c %a "$launcher_log")"
+mkdir -p "$sandbox/glob*root"
+(cd "$sandbox/glob*root" && run_capture "$repo/bin/claude-ollama" 35b -p hi)
+check_that "a failed launch's error lands in the launcher log" wait_for_launcher_log "has glob characters (*?[])"
+head -c 1100000 /dev/zero | tr '\0' x > "$launcher_log"
+run_capture "$repo/bin/claude-ollama" 35b -p hi
+check_that "a launcher log over 1 MiB moves aside" test "$(wc -c < "$launcher_log.1")" -ge 1100000
+check_that "the fresh launcher log starts with this launch" wait_for_launcher_log "claude-ollama: launch 35b"
+check_that "the fresh launcher log is small" test "$(wc -c < "$launcher_log")" -lt 4096
 rm -f "$sandbox/ollama.log"
 STUB_OLLAMA_SHOW_EXIT=1 STUB_OLLAMA_PULL_EXIT=1 run_capture "$repo/bin/claude-ollama" 35b -p hi
 check_eq "claude-ollama 35b failed pull exit status" 1 "$?"

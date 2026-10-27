@@ -1,6 +1,6 @@
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
+import { consoleStateDir } from "./state-dir";
 import { parseRunEvents, type RunEvent } from "./run-event";
 
 export type RunStatus = "running" | "ok" | "failed" | "cancelled" | "lost";
@@ -18,18 +18,23 @@ const RUN_ID_PATTERN = /^[0-9]{8}-[0-9]{6}-[a-z][a-z-]*-[0-9a-f]{4}$/;
 const RUN_FILE_SUFFIX = ".jsonl";
 
 export function runsDir(): string {
-  const stateDir =
-    process.env.CLAUDE_CONSOLE_STATE_DIR ||
-    path.join(os.homedir(), ".local/share/claude-custom/console");
-  return path.join(stateDir, "runs");
+  return path.join(consoleStateDir(), "runs");
 }
 
 export function isRunId(id: string): boolean {
   return RUN_ID_PATTERN.test(id);
 }
 
-export function newRunId(command: string, now: Date, randomHex: string): string {
-  const stamp = now.toISOString().slice(0, 19).replace(/[-:]/g, "").replace("T", "-");
+export function newRunId(
+  command: string,
+  now: Date,
+  randomHex: string,
+): string {
+  const stamp = now
+    .toISOString()
+    .slice(0, 19)
+    .replace(/[-:]/g, "")
+    .replace("T", "-");
   return `${stamp}-${command}-${randomHex}`;
 }
 
@@ -48,7 +53,10 @@ export function resolveRunFileIn(directory: string, id: string): string | null {
   return fs.existsSync(file) ? file : null;
 }
 
-export function runStatus(events: RunEvent[], isAlive: (pid: number) => boolean): RunStatus {
+export function runStatus(
+  events: RunEvent[],
+  isAlive: (pid: number) => boolean,
+): RunStatus {
   const end = events.find((event) => event.kind === "end");
   if (end) {
     if (end.cancelled === true) {
@@ -78,10 +86,20 @@ export function listRuns(
   }
   return fs
     .readdirSync(directory)
-    .filter((name) => name.endsWith(RUN_FILE_SUFFIX) && isRunId(name.slice(0, -RUN_FILE_SUFFIX.length)))
+    .filter(
+      (name) =>
+        name.endsWith(RUN_FILE_SUFFIX) &&
+        isRunId(name.slice(0, -RUN_FILE_SUFFIX.length)),
+    )
     .sort()
     .reverse()
-    .map((name) => summarizeRun(path.join(directory, name), name.slice(0, -RUN_FILE_SUFFIX.length), isAlive));
+    .map((name) =>
+      summarizeRun(
+        path.join(directory, name),
+        name.slice(0, -RUN_FILE_SUFFIX.length),
+        isAlive,
+      ),
+    );
 }
 
 function summarizeRun(
