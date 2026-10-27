@@ -142,7 +142,7 @@ EOF
   cat > "$sandbox/stubbin/python3" <<EOF
 #!/bin/sh
 case "\$1" in
-  *cmux/broker.py) exec /usr/bin/python3 "\$@" ;;
+  *cmux/broker.py | *gh/broker.py) exec /usr/bin/python3 "\$@" ;;
 esac
 echo "\$*" >> "$sandbox/python.log"
 EOF
@@ -820,6 +820,12 @@ check_eq "the sandbox writes only the project, the session config and the macOS 
 session_env() {
   grep -x "$1=.*" "$sandbox/claude-env" | cut -d= -f2-
 }
+broker_socket_is_per_launch() {
+  case "$2" in
+    "$session_config/$1".[0-9]*.sock) return 0 ;;
+    *) return 1 ;;
+  esac
+}
 check_eq "the session's temp dir is its own" "$session_config/tmp" "$(session_env TMPDIR)"
 for variable in XDG_CACHE_HOME XDG_STATE_HOME XDG_DATA_HOME npm_config_cache GOCACHE GOMODCACHE EDIT_CHECK_CACHE_DIR STOP_VERIFY_STATE_DIR; do
   check_that "the session keeps $variable inside its own config" test "$(session_env "$variable" | cut -c1-${#session_config})" = "$session_config"
@@ -842,13 +848,14 @@ esac
 EOF
 chmod +x "$sandbox/stubbin/cmux"
 run_capture env CMUX_SOCKET_PATH="$cmux_socket" "$repo/bin/claude-ollama" 27b -p hi
-broker_socket="$session_config/cmux-broker.sock"
+broker_socket="$(session_env CLAUDE_OLLAMA_CMUX_BROKER)"
+check_that "the cmux broker's socket is named for its launch" broker_socket_is_per_launch cmux-broker "$broker_socket"
 check_eq "inside cmux with no CLAUDE_OLLAMA_CMUX the sandbox allows the broker's socket" "[\"$broker_socket\"]" "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
 run_capture env CLAUDE_OLLAMA_CMUX=0 CMUX_SOCKET_PATH="$cmux_socket" "$repo/bin/claude-ollama" 27b -p hi
 check_eq "CLAUDE_OLLAMA_CMUX=0 turns the broker off" null "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
 run_capture env CLAUDE_OLLAMA_CMUX=1 CMUX_SOCKET_PATH="$cmux_socket" "$repo/bin/claude-ollama" 27b -p hi
+broker_socket="$(session_env CLAUDE_OLLAMA_CMUX_BROKER)"
 check_eq "CLAUDE_OLLAMA_CMUX=1 allows only the cmux broker's socket" "[\"$broker_socket\"]" "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
-check_eq "the session finds the cmux broker" "$broker_socket" "$(session_env CLAUDE_OLLAMA_CMUX_BROKER)"
 check_that "the session cannot replace the cmux broker's socket" policy_lists denyWrite "$broker_socket"
 check_not "the session has no cmux client on its PATH" grep -qF "$repo/ollama/cmux/" "$sandbox/claude-env"
 run_capture env CMUX_SOCKET_PATH="$sandbox/not-a-socket" "$repo/bin/claude-ollama" 27b -p hi
@@ -966,7 +973,12 @@ echo "\$* \${GH_TOKEN-unset} \${GH_REPO-unset}" >> "$sandbox/gh.log"
 EOF
 chmod +x "$sandbox/stubbin/gh"
 STUB_GH_AUTH_TOKEN=readsecret run_capture "$repo/bin/claude-ollama" 27b -p hi
-gh_socket="$session_config/gh-broker.sock"
+gh_socket="$(session_env CLAUDE_OLLAMA_GH_BROKER)"
+check_that "the gh broker's socket is named for its launch" broker_socket_is_per_launch gh-broker "$gh_socket"
+STUB_GH_AUTH_TOKEN=readsecret run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_not "two launches never share a gh broker socket" test "$gh_socket" = "$(session_env CLAUDE_OLLAMA_GH_BROKER)"
+STUB_GH_AUTH_TOKEN=readsecret run_capture "$repo/bin/claude-ollama" 27b -p hi
+gh_socket="$(session_env CLAUDE_OLLAMA_GH_BROKER)"
 check_eq "a gh login allows only the gh broker's socket" "[\"$gh_socket\"]" "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
 check_that "the session cannot replace the gh broker's socket" policy_lists denyWrite "$gh_socket"
 session_path_has_gh_client() {
@@ -975,7 +987,7 @@ session_path_has_gh_client() {
 check_not "the session gets no gh command of its own" session_path_has_gh_client
 check_eq "the session never holds the gh login's token" "" "$(session_env GH_TOKEN)"
 run_capture env CLAUDE_OLLAMA_CMUX=1 CMUX_SOCKET_PATH="$cmux_socket" STUB_GH_AUTH_TOKEN=readsecret "$repo/bin/claude-ollama" 27b -p hi
-check_eq "with cmux too the session reaches both brokers" "[\"$session_config/cmux-broker.sock\",\"$gh_socket\"]" \
+check_eq "with cmux too the session reaches both brokers" "[\"$(session_env CLAUDE_OLLAMA_CMUX_BROKER)\",\"$(session_env CLAUDE_OLLAMA_GH_BROKER)\"]" \
   "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
 run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_eq "without a gh login the session gets no gh broker" "" "$(session_env CLAUDE_OLLAMA_GH_BROKER)"

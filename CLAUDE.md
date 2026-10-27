@@ -394,10 +394,10 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   resolves `localhost` and checks TLS through system services the sandbox
   blocks), so with `gh` on PATH and logged in (`gh auth token`, your normal
   login) the launcher starts `ollama/gh/broker.py` outside the sandbox on
-  `<session config>/gh-broker.sock` (in `allowUnixSockets` and `denyWrite`,
-  beside the cmux broker's), with the token as `GH_TOKEN` and `GH_REPO` from the
-  project's GitHub `origin`. The broker takes only structured requests
-  (`{"tool": "pr_view", "arguments": {"number": 12}}`) for eight tools
+  `<session config>/gh-broker.<launcher pid>.sock` (in `allowUnixSockets` and
+  `denyWrite`, beside the cmux broker's), with the token as `GH_TOKEN` and
+  `GH_REPO` from the project's GitHub `origin`. The broker takes only structured
+  requests (`{"tool": "pr_view", "arguments": {"number": 12}}`) for eight tools
   (`pr_list`, `pr_view`, `pr_diff`, `pr_checks`, `issue_list`, `issue_view`,
   `run_list`, `run_view`), checks each argument (known keys only, positive
   integers, fixed choices, text at most 256 characters, search qualifiers only
@@ -428,18 +428,19 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   `$CMUX_SOCKET_PATH` is an absolute path to a socket and `cmux` is on PATH (a
   cmux terminal), the launcher starts by default, and `CLAUDE_OLLAMA_CMUX=0`
   turns it off. The launcher starts `ollama/cmux/broker.py` outside the sandbox
-  on `<session config>/cmux-broker.sock`, an `allowUnixSockets` entry (also in
-  `denyWrite`); the session has no cmux command. The broker drives one cmux
-  browser REPL session (`cmux browser repl`) that it locks to `localhost`,
-  `127.0.0.1` and `[::1]` (navigations, new tabs, `fetch`, subresources and
-  websockets, through `session.allowedDomains(..., { lock: true })`). It routes
-  the REPL's browser through a closed proxy so the pages never use the user's
-  own profile. It takes only structured page requests (`open`, `snapshot`,
-  `act`), never JavaScript or raw cmux argv, and proves the lock before it
-  creates its socket. `claude-ollama browser-check` is the live proof on a real
-  machine. It exits when the launcher's process does. Not covered by WebKit
-  content rules: WebRTC (STUN/TURN) and DNS prefetch. Tests:
-  `ollama/cmux/broker.test.sh` (stub `cmux`).
+  on `<session config>/cmux-broker.<launcher pid>.sock`, an `allowUnixSockets`
+  entry (also in `denyWrite`); the session has no cmux command. The broker
+  drives one cmux browser REPL session (`cmux browser repl`) that it locks to
+  `localhost`, `127.0.0.1` and `[::1]` (navigations, new tabs, `fetch`,
+  subresources and websockets, through
+  `session.allowedDomains(..., { lock: true })`). It routes the REPL's browser
+  through a closed proxy so the pages never use the user's own profile. It takes
+  only structured page requests (`open`, `snapshot`, `act`), never JavaScript or
+  raw cmux argv, and proves the lock before it creates its socket.
+  `claude-ollama browser-check` is the live proof on a real machine. It exits
+  when the launcher's process does. Not covered by WebKit content rules: WebRTC
+  (STUN/TURN) and DNS prefetch. Tests: `ollama/cmux/broker.test.sh` (stub
+  `cmux`).
 - There is no side model: each Ollama profile sets
   `ANTHROPIC_DEFAULT_HAIKU_MODEL` to its own main model, has no `modelOverrides`
   and no subagent model, and denies `Agent` (it is not in `--tools` either),
