@@ -405,17 +405,17 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   and rebuilds every option as `--long=value`, so no value becomes a flag. The
   session never holds `SHORTCUT_API_TOKEN` (outer Shortcut and Clubhouse vars
   are unset), and the policy denies reading every `short` config folder.
-  Everything outside the sandbox runs from a safe `PATH`: the launcher first
-  drops relative entries and folders the session can write (the enclosing repo
-  and session config, then the git dir and item folder), and `trusted_command`
-  refuses a `gh`, `cmux` or `short` that links into one; `sandbox-entry`
-  restores your own `PATH` (`CLAUDE_OLLAMA_SESSION_PATH`) inside the sandbox. A
-  masked token would not do: srt swaps the placeholder back in request bodies
-  too, so a session could store it in a story and read it back. Tests:
-  `ollama/shortcut/broker.test.sh` (stub `short`),
-  `shared/mcp/short-shim.test.sh` (fake broker). `gh` can't run inside the
-  sandbox (Go on macOS resolves `localhost` and checks TLS through system
-  services the sandbox blocks), so with `gh` on PATH and logged in
+  Everything outside the sandbox runs from a safe `PATH`: the launcher starts on
+  `/bin/bash` with a fixed system `PATH`, then first drops relative entries and
+  folders the session can write (the enclosing repo and session config, then the
+  git dir and item folder), and `trusted_command` refuses a `gh`, `cmux` or
+  `short` that links into one; `sandbox-entry` restores your own `PATH`
+  (`CLAUDE_OLLAMA_SESSION_PATH`) inside the sandbox. A masked token would not
+  do: srt swaps the placeholder back in request bodies too, so a session could
+  store it in a story and read it back. Tests: `ollama/shortcut/broker.test.sh`
+  (stub `short`), `shared/mcp/short-shim.test.sh` (fake broker). `gh` can't run
+  inside the sandbox (Go on macOS resolves `localhost` and checks TLS through
+  system services the sandbox blocks), so with `gh` on PATH and logged in
   (`gh auth token`, your normal login) the launcher starts `ollama/gh/broker.py`
   outside the sandbox on `<session config>/gh-broker.<launcher pid>.sock` (in
   `allowUnixSockets` and `denyWrite`, beside the cmux broker's; every policy

@@ -1171,18 +1171,18 @@ check_that "a short command the broker refuses never runs" grep -qF "short broke
 rm "$sandbox/stubbin/short"
 
 mkdir -p "$gh_project/bin"
-for planted in short gh; do
+for planted in short gh bash readlink dirname; do
   printf '#!/bin/sh\necho planted >> "%s/planted.log"\n' "$sandbox" > "$gh_project/bin/$planted"
   chmod +x "$gh_project/bin/$planted"
 done
 (cd "$gh_project" && PATH="$gh_project/bin:$PATH" CLAUDE_OLLAMA_NO_INDEX=1 STUB_GH_AUTH_TOKEN=readsecret \
   run_capture "$repo/bin/claude-ollama" 27b -p hi)
 check_eq "a short the session could plant in the project never gets a broker" "" "$(session_env CLAUDE_OLLAMA_SHORTCUT_BROKER)"
-check_not "and neither a planted short nor gh runs outside the sandbox" test -e "$sandbox/planted.log"
+check_not "and nothing planted there runs outside the sandbox, not even bash or what finds the repo" test -e "$sandbox/planted.log"
 check_that "the session still gets your PATH back inside the sandbox" \
   sh -c 'printf "%s\n" "$1" | tr ":" "\n" | grep -qxF "$2"' _ "$(session_env PATH)" "$gh_project/bin"
 check_eq "without the launcher's copy of it" "" "$(session_env CLAUDE_OLLAMA_SESSION_PATH)"
-rm "$gh_project/bin/gh" "$gh_project/bin/short"
+rm "$gh_project/bin/gh" "$gh_project/bin/short" "$gh_project/bin/bash" "$gh_project/bin/readlink" "$gh_project/bin/dirname"
 ln -s "$gh_project/planted-short" "$sandbox/stubbin/short"
 printf '#!/bin/sh\necho planted >> "%s/planted.log"\n' "$sandbox" > "$gh_project/planted-short"
 chmod +x "$gh_project/planted-short"

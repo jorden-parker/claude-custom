@@ -1,4 +1,6 @@
-#!/usr/bin/env bash
+#!/bin/bash
+launch_path="$PATH"
+PATH=/usr/bin:/bin:/usr/sbin:/sbin
 set -euo pipefail
 
 repo_dir="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
@@ -352,7 +354,7 @@ session_can_write() {
 safe_path() {
   local entry folder safe=""
   local IFS=:
-  for entry in $PATH; do
+  for entry in $launch_path; do
     case "$entry" in
       /*) ;;
       *) continue ;;
@@ -991,7 +993,6 @@ run_browser_check() {
   exec python3 "$repo_dir/ollama/cmux/broker.py" --self-test --cmux "$(command -v cmux)"
 }
 
-launch_path="$PATH"
 PATH="$(safe_path)"
 path_is_safe=1
 PATH="$(safe_path)"
