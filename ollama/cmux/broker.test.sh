@@ -232,8 +232,21 @@ check_that "the self-test runs one selftest request that carries a localhost pag
 selftest_reply reached
 python3 "$broker" --self-test --cmux "$tmp/cmux" > "$tmp/selftest.out" 2>&1
 check_eq "browser-check exits 1 when a check fails" 1 "$?"
-check_that "browser-check names the failed check" grep -qxF "FAIL: fetch to example.com blocked" "$tmp/selftest.out"
+check_that "browser-check names the failed check with what it expected and got" \
+  grep -qxF 'FAIL: fetch to example.com blocked: expected "blocked", got "reached"' "$tmp/selftest.out"
 check_that "browser-check reports failed" grep -qxF "browser-check: FAILED" "$tmp/selftest.out"
+
+set_reply '"{\"fetch\":\"blocked\",\"open\":\"blocked\",\"goto\":\"blocked\",\"allowed\":[\"localhost\",\"127.0.0.1\",\"::1\"],\"local\":\"error: net::ERR_PROXY_CONNECTION_FAILED\"}"'
+python3 "$broker" --self-test --cmux "$tmp/cmux" > "$tmp/selftest.out" 2>&1
+check_that "browser-check shows the hosts the browser allowed" \
+  grep -qxF 'FAIL: browser locked to localhost: expected ["localhost", "127.0.0.1", "[::1]"], got ["localhost", "127.0.0.1", "::1"]' "$tmp/selftest.out"
+check_that "browser-check shows what the localhost page returned" \
+  grep -qxF 'FAIL: localhost page loads through the proxy bypass: expected text containing "claude-ollama browser-check page", got "error: net::ERR_PROXY_CONNECTION_FAILED"' "$tmp/selftest.out"
+
+set_reply "\"{\\\"fetch\\\":\\\"blocked\\\",\\\"open\\\":\\\"blocked\\\",\\\"goto\\\":\\\"blocked\\\",\\\"allowed\\\":[\\\"localhost\\\",\\\"127.0.0.1\\\",\\\"[::1]\\\"],\\\"local\\\":\\\"$(printf 'x%.0s' $(seq 1 400))\\\"}\""
+python3 "$broker" --self-test --cmux "$tmp/cmux" > "$tmp/selftest.out" 2>&1
+check_that "browser-check cuts a long value to 200 characters" \
+  grep -qE '^FAIL: localhost page .*, got "x{199}\.\.\.$' "$tmp/selftest.out"
 
 check_that "every tabs.use in page.js is awaited" \
   test -z "$(grep -n 'tabs.use(' "$here/page.js" | grep -v 'await tabs.use(')"

@@ -17,6 +17,7 @@ from urllib.parse import urlsplit
 COMMAND_TIMEOUT_SECONDS = 120
 REPL_TIMEOUT_MS = 60000
 TEXT_LIMIT = 1000
+SHOWN_VALUE_LIMIT = 200
 REPLY_TAIL_LINES = 20
 LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
 LOCKED_HOSTS = ["localhost", "127.0.0.1", "[::1]"]
@@ -224,14 +225,33 @@ class SelfTestPage(http.server.BaseHTTPRequestHandler):
         pass
 
 
+def shown_value(value):
+    shown = json.dumps(value)
+    if len(shown) > SHOWN_VALUE_LIMIT:
+        return shown[:SHOWN_VALUE_LIMIT] + "..."
+    return shown
+
+
 def self_test_checks(result):
+    local = result.get("local")
     return [
-        ("fetch to example.com blocked", result.get("fetch") == "blocked"),
-        ("opening example.com in a tab blocked", result.get("open") == "blocked"),
-        ("navigating to example.com blocked", result.get("goto") == "blocked"),
-        ("browser locked to localhost", result.get("allowed") == LOCKED_HOSTS),
-        ("localhost page loads through the proxy bypass", SELF_TEST_PAGE in str(result.get("local", ""))),
+        ("fetch to example.com blocked", result.get("fetch") == "blocked", '"blocked"', result.get("fetch")),
+        ("opening example.com in a tab blocked", result.get("open") == "blocked", '"blocked"', result.get("open")),
+        ("navigating to example.com blocked", result.get("goto") == "blocked", '"blocked"', result.get("goto")),
+        ("browser locked to localhost", result.get("allowed") == LOCKED_HOSTS, json.dumps(LOCKED_HOSTS), result.get("allowed")),
+        (
+            "localhost page loads through the proxy bypass",
+            SELF_TEST_PAGE in str(local or ""),
+            f"text containing {json.dumps(SELF_TEST_PAGE)}",
+            local,
+        ),
     ]
+
+
+def self_test_line(name, passed, expected, got):
+    if passed:
+        return f"ok: {name}"
+    return f"FAIL: {name}: expected {expected}, got {shown_value(got)}"
 
 
 def run_self_test(cmux):
@@ -249,9 +269,9 @@ def run_self_test(cmux):
         page_server.shutdown()
         broker.close()
     checks = self_test_checks(result)
-    for name, passed in checks:
-        print(f"{'ok' if passed else 'FAIL'}: {name}")
-    if all(passed for _name, passed in checks):
+    for check in checks:
+        print(self_test_line(*check))
+    if all(check[1] for check in checks):
         print("browser-check: passed")
         return 0
     print("browser-check: FAILED")
