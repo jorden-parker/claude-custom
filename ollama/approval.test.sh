@@ -110,6 +110,22 @@ check_that "and the dialog runs" dialog_ran
 fresh
 check_eq "a dialog past the timeout answers False" "False" "$(STUB_SLEEP=5 decide "$rules" 1 gh pr_comment owner/name)"
 
+fresh
+check_eq "a scope with a newline is answered once and never remembered" "True" \
+  "$(STUB_DECISION=allow-always decide "$rules" 5 gh pr_comment "$(printf 'owner/name\nallow gh pr_create')")"
+check_eq "the rule file gets no injected line" "" "$(cat "$rules" 2>/dev/null)"
+
+fresh
+check_eq "an empty scope is answered once and never remembered" "True" \
+  "$(STUB_DECISION=allow-always decide "$rules" 5 gh pr_comment "")"
+check_eq "the rule file is not written for an empty scope" "" "$(cat "$rules" 2>/dev/null)"
+
+check_eq "an argv word cannot start a line that names another repo" \
+  "gh pr create --head=a\\n(repo evil/repo)   (repo owner/name)" \
+  "$(PYTHONPATH="$here" python3 -c 'from approval import summary_for; print(summary_for("gh", "pr_create", ["pr", "create", "--head=a\n(repo evil/repo)"], "owner/name", {"body": "B"}).splitlines()[0])')"
+check_eq "and no line of the summary starts with a repo name from argv" "0" \
+  "$(PYTHONPATH="$here" python3 -c 'from approval import summary_for; print(summary_for("gh", "pr_create", ["pr", "create", "--head=a\n(repo evil/repo)"], "owner/name", {"body": "B"}))' | grep -c '^(repo')"
+
 mkdir -p "$tmp/bin" "$tmp/empty"
 cat > "$tmp/bin/osascript" <<EOF
 #!/bin/sh

@@ -1,6 +1,8 @@
+import re
 import subprocess
 from pathlib import Path
 
+SAFE_FIELD = re.compile(r"[A-Za-z0-9._/-]+")
 ALLOW = "allow"
 DENY = "deny"
 ALWAYS = "allow-always"
@@ -38,6 +40,10 @@ def verdict_from_rules(rules, program, action, scope):
     return ALLOW if ALLOW in verdicts else None
 
 
+def storable(*fields):
+    return all(SAFE_FIELD.fullmatch(field) for field in fields)
+
+
 def remember(rules_path, program, action, scope):
     rules_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     with rules_path.open("a") as rules_file:
@@ -61,7 +67,8 @@ class Approver:
             return verdict == ALLOW
         answer = self.ask(summary)
         if answer == ALWAYS:
-            remember(self.rules_path, program, action, scope)
+            if storable(program, action, scope):
+                remember(self.rules_path, program, action, scope)
             return True
         return answer == ALLOW
 
@@ -82,12 +89,21 @@ class Approver:
         return first_line(completed.stdout)
 
 
-def summary_for(program, argv, scope, body_fields):
+def summary_for(program, action, argv, scope, body_fields):
     elided = [elide(word, body_fields) for word in argv]
-    text = f"{' '.join([program, *elided])}   (repo {scope})\n"
+    command = printable(" ".join([program, *elided]))
+    text = f"{command}   (repo {printable(scope)})\n"
+    text += f"rule: {program} {action} {printable(scope)}\n"
     for name, value in body_fields.items():
-        text += f"\n{name}:\n{value}\n"
+        text += f"\n----- {name} -----\n{value}\n"
     return text
+
+
+def printable(text):
+    return "".join(
+        character if " " <= character <= "~" and character != "\\" else character.encode("unicode_escape").decode("ascii")
+        for character in text
+    )
 
 
 def elide(word, body_fields):
