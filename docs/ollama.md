@@ -245,7 +245,12 @@ it again replaces the stored token.
   fixed flags, from an empty folder, with `GH_REPO` set to the project's
   `origin` and none of your saved `gh` logins. Without a `gh` login, only the
   git tools are listed. A `GH_TOKEN` or `GITHUB_TOKEN` from your shell never
-  reaches the session.
+  reaches the session. The three writes (`pr_comment`, `issue_comment`,
+  `pr_create`) open a macOS dialog that shows the exact command and the full
+  body, and run only when you click Allow. A line
+  `allow|deny gh TOOL [owner/name]` in `~/.config/claude-custom/command-rules`
+  (per machine, outside the sandbox) answers without asking; `deny` wins, and
+  "Always allow" appends an `allow` line for that repo.
 
 `bin/ollama-models` manages the installed models:
 

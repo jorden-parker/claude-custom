@@ -21,6 +21,7 @@ sandbox_policy="$session_config_dir/sandbox-policy.json"
 append_prompt="$session_config_dir/append-prompt.md"
 fetch_domains_file="${XDG_CONFIG_HOME:-$HOME/.config}/claude-custom/fetch-domains"
 gh_repos_file="${XDG_CONFIG_HOME:-$HOME/.config}/claude-custom/gh-repos"
+command_rules_file="${XDG_CONFIG_HOME:-$HOME/.config}/claude-custom/command-rules"
 gh_repo_pattern='^[A-Za-z0-9][A-Za-z0-9-]*/([A-Za-z0-9_][A-Za-z0-9._-]*|\*)$'
 fetch_settings="$session_config_dir/fetch-settings.json"
 fetch_domain_pattern='^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z][a-z0-9-]*[a-z0-9]$'
@@ -458,7 +459,8 @@ start_gh_broker() {
   rm -f "$gh_broker_socket"
   while IFS= read -r flag; do allow_flags+=("$flag"); done < <(gh_repo_allow_flags)
   GH_TOKEN="$token" nohup "$profile_dir/gh/broker.py" --socket "$gh_broker_socket" --gh "$gh" \
-    --repo "$(github_repo_slug)" --watch-pid "$$" ${allow_flags[@]+"${allow_flags[@]}"} >/dev/null 2>&1 &
+    --repo "$(github_repo_slug)" --watch-pid "$$" --rules "$command_rules_file" \
+    --approve-with "$profile_dir/approve-dialog" ${allow_flags[@]+"${allow_flags[@]}"} >/dev/null 2>&1 &
   if wait_for_socket "$gh_broker_socket"; then
     export CLAUDE_OLLAMA_GH_BROKER="$gh_broker_socket"
   else
@@ -873,6 +875,17 @@ check_gh_login() {
   fi
 }
 
+check_command_rules() {
+  local allowed denied
+  if [ ! -r "$command_rules_file" ]; then
+    report ok "command rules: none ($command_rules_file); writes ask in a dialog"
+    return 0
+  fi
+  allowed="$(grep -c '^allow[[:space:]]' "$command_rules_file" || true)"
+  denied="$(grep -c '^deny[[:space:]]' "$command_rules_file" || true)"
+  report ok "command rules: $allowed allow, $denied deny ($command_rules_file)"
+}
+
 doctor() {
   local status=0
   report ok "jq on PATH"
@@ -890,6 +903,7 @@ doctor() {
     check_shortcut
   fi
   check_gh_login
+  check_command_rules
   check_model_allowed
   exit "$status"
 }

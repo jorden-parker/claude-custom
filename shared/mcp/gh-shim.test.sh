@@ -94,6 +94,15 @@ expect "api review comments with placeholders" '{"arguments": {"number": 12}, "t
   api 'repos/{owner}/{repo}/pulls/12/comments' --paginate
 expect "api review comments of a named repo" '{"arguments": {"number": 12, "repo": "o/r"}, "tool": "pr_review_comments"}' \
   api repos/o/r/pulls/12/comments
+expect "pr comment sends the number and body" '{"arguments": {"body": "Looks good", "number": 12}, "tool": "pr_comment"}' \
+  pr comment 12 --body "Looks good"
+expect "pr comment with the short body flag" '{"arguments": {"body": "text", "number": 12}, "tool": "pr_comment"}' pr comment 12 -b text
+expect "pr comment by URL names the repo" '{"arguments": {"body": "t", "number": 12, "repo": "o/r"}, "tool": "pr_comment"}' \
+  pr comment https://github.com/o/r/pull/12 --body=t
+expect "issue comment" '{"arguments": {"body": "t", "number": 7}, "tool": "issue_comment"}' issue comment 7 --body t
+expect "pr create with every field" \
+  '{"arguments": {"base": "main", "body": "B", "draft": true, "head": "feature/x", "title": "T"}, "tool": "pr_create"}' \
+  pr create --title T --body B --head feature/x --base main --draft
 
 check_eq "gh prints the broker's stdout" "out" "$(sent pr diff 12 >/dev/null; cat "$tmp/stdout")"
 reply '{"exit":8,"stdout":"partial\n","stderr":"pending\n"}'
@@ -115,7 +124,13 @@ refused() {
   check_eq "$label is refused before the broker" "nothing 1" "$(sent "$@") $(cat "$tmp/status")"
 }
 refused "pr merge" pr merge 12
-refused "pr comment" pr comment 12 --body hi
+refused "pr comment with a body file" pr comment 12 --body-file x
+refused "pr comment with a hostname" pr comment 12 --hostname other.example
+refused "pr create --fill" pr create --fill
+refused "pr create --web" pr create --web
+refused "pr create with a file body" pr create -F body=@/etc/passwd
+refused "pr review" pr review 12 --approve
+refused "issue create" issue create --title x
 refused "pr checkout" pr checkout 12
 refused "auth token" auth token
 refused "api on another path" api repos/o/r/issues
@@ -125,7 +140,7 @@ refused "pr view with no PR" pr view
 refused "a flag missing its value" pr list --limit
 refused "a text limit" pr list --limit ten
 sent pr merge 12 >/dev/null
-check_eq "the refusal names what works" "gh (claude-ollama): read-only; supported: pr list|view|diff|checks, issue list|view, run list|view, api repos/{owner}/{repo}/pulls/N/comments" \
+check_eq "the refusal names what works" "gh (claude-ollama): supported: pr list|view|diff|checks|comment|create, issue list|view|comment, run list|view, api repos/{owner}/{repo}/pulls/N/comments; writes ask you in a dialog" \
   "$(head -n 1 "$tmp/stderr")"
 
 stop_broker
