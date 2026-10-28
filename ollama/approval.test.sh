@@ -110,6 +110,30 @@ check_that "and the dialog runs" dialog_ran
 fresh
 check_eq "a dialog past the timeout answers False" "False" "$(STUB_SLEEP=5 decide "$rules" 1 gh pr_comment owner/name)"
 
+mkdir -p "$tmp/bin" "$tmp/empty"
+cat > "$tmp/bin/osascript" <<EOF
+#!/bin/sh
+printf '%s\n' "\$@" > "$tmp/osascript.args"
+cat "$tmp/osascript.answer"
+EOF
+chmod +x "$tmp/bin/osascript"
+
+dialog_answers() {
+  printf '%s' "$1" > "$tmp/osascript.answer"
+  printf '%s' "$2" | PATH="$tmp/bin:$PATH" "$here/approve-dialog"
+}
+
+check_eq "Allow once answers allow" "allow" "$(dialog_answers 'button returned:Allow once' 'gh pr comment 12')"
+check_eq "Always allow answers allow-always" "allow-always" "$(dialog_answers 'button returned:Always allow' 'gh pr comment 12')"
+check_eq "a dialog given up on answers deny" "deny" "$(dialog_answers 'button returned:Deny, gave up:true' 'gh pr comment 12')"
+check_eq "Escape answers deny" "deny" "$(dialog_answers '' 'gh pr comment 12')"
+check_eq "no osascript on the machine answers deny" "deny" "$(printf 'gh pr comment 12' | PATH="$tmp/empty" "$here/approve-dialog")"
+dialog_answers 'button returned:Deny' 'say "hi" \ there' >/dev/null
+check_that "quotes and backslashes are escaped for AppleScript" grep -qF 'say \"hi\" \\ there' "$tmp/osascript.args"
+long="$(head -c 4005 /dev/zero | tr '\0' x)"
+dialog_answers 'button returned:Deny' "$long" >/dev/null
+check_that "a long summary is cut with a marker for the rest" grep -qF '[... 5 more bytes]' "$tmp/osascript.args"
+
 if [ "$failures" -eq 0 ]; then
   echo "all passed"
 else
