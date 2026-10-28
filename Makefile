@@ -71,6 +71,7 @@ test-cmux:
 	ollama/cmux/broker.test.sh
 
 test-gh:
+	ollama/approval.test.sh
 	ollama/gh/broker.test.sh
 	shared/mcp/gh-shim.test.sh
 

@@ -20,7 +20,8 @@ add_test() {
 }
 
 for test in shared/hooks/edit-check.test.sh shared/hooks/fallow-a.test.sh shared/hooks/fallow-b.test.sh \
-  personal/install.test.sh bin/claude-ollama.test.sh bin/ollama-profiles.test.sh .claude/verify.test.sh; do
+  personal/install.test.sh bin/claude-ollama.test.sh bin/ollama-profiles.test.sh .claude/verify.test.sh \
+  ollama/approval.test.sh ollama/gh/broker.test.sh ollama/shortcut/broker.test.sh; do
   add_test "$test"
 done
 
@@ -57,6 +58,8 @@ check_ran 'installer runs install and launcher tests' "$checks|bin/claude-ollama
 check_ran 'ollama config runs launcher tests' "$checks|bin/claude-ollama.test.sh|" ollama/sizes.json
 check_ran 'personal files run install tests' "$checks|personal/install.test.sh|" personal/claude.sh
 check_ran 'shared settings run install tests' "$checks|personal/install.test.sh|" shared/settings/hooks.json
+check_ran 'approval module runs its tests and the brokers' "$checks|ollama/approval.test.sh|ollama/gh/broker.test.sh|ollama/shortcut/broker.test.sh|" ollama/approval.py
+check_ran 'approve dialog runs the approval tests and the brokers' "$checks|ollama/approval.test.sh|ollama/gh/broker.test.sh|ollama/shortcut/broker.test.sh|" ollama/approve-dialog
 check_ran 'verify runs its own test' "$checks|.claude/verify.test.sh|" .claude/verify
 check_ran 'makefile runs everything' 'make test|' Makefile README.md
 
