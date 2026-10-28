@@ -145,6 +145,13 @@ text = summary_for("gh", "pr_create", ["pr", "create"], "owner/name", {"body": "
 lines = text.rstrip("\n").split("\n")
 print("ok" if lines[-1] == real and "more characters" in text and len(text.encode()) < 4000 else "bad")')"
 
+check_eq "a long non-body argv word is capped so the rule line stays last" "ok" \
+  "$(PYTHONPATH="$here" python3 -c 'from approval import summary_for
+real = "rule: short story-edit workspace"
+text = summary_for("short", "story-edit", ["story", "12", "--state=" + "x" * 5000], "workspace", {})
+lines = text.rstrip("\n").split("\n")
+print("ok" if len(lines[0]) < 300 and "more characters" in lines[0] and lines[-1] == real else "bad")')"
+
 mkdir -p "$tmp/bin" "$tmp/empty"
 cat > "$tmp/bin/osascript" <<EOF
 #!/bin/sh

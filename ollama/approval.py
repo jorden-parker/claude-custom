@@ -6,6 +6,7 @@ from pathlib import Path
 SAFE_FIELD = re.compile(r"[A-Za-z0-9._/-]+")
 UNSAFE_CATEGORIES = {"Cc", "Cf", "Zl", "Zp"}
 BODY_PREVIEW_CHARS = 1500
+WORD_PREVIEW_CHARS = 200
 ALLOW = "allow"
 DENY = "deny"
 ALWAYS = "allow-always"
@@ -136,4 +137,6 @@ def elide(word, body_fields):
     for name in body_fields:
         if word.startswith(f"--{name}="):
             return f"--{name}=..."
+    if len(word) > WORD_PREVIEW_CHARS:
+        return f"{word[:WORD_PREVIEW_CHARS]}[... {len(word) - WORD_PREVIEW_CHARS} more characters]"
     return word
