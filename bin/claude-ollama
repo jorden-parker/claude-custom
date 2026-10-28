@@ -529,13 +529,14 @@ write_sandbox_policy() {
     --arg items "$(item_replacement_dir)" --arg root "$(project_root)" --arg cmux_broker "${cmux_broker_socket:-}" --arg gh_broker "${gh_broker_socket:-}" \
     --arg shortcut_broker "${shortcut_broker_socket:-}" \
     --arg reviews "$review_log_dir" --arg console_state "$console_state_dir" --arg fetch_settings "$fetch_settings" \
+    --arg rules "$command_rules_file" --arg rules_dir "$(dirname "$command_rules_file")" \
     --argjson shortcut_configs "$(shortcut_config_dirs | jq -R . | jq -s 'unique')" \
     --argjson fetch_domains "$(printf '%s' "${launch_fetch_domains:-}" | fetch_domains_json)" \
     --argjson config_sources '["CLAUDE.md", "skills", "settings.json", "settings.local.json", "commands", "agents", "plugins", "rules", "output-styles", "keybindings.json", ".config.json", "append-prompt.md"]' '
     ($git | if . == "" then [] else [.] end) as $git_dirs
     | ($items | if . == "" then [] else [.] end) as $item_dirs
     | .filesystem.allowWrite += [$config] + $item_dirs + $git_dirs
-    | .filesystem.denyWrite += [$repo, $policy, {path: "\($root)/.claude", literal: true}, "\($root)/**/.claude", "\($root)/**/.claude/**"]
+    | .filesystem.denyWrite += [$repo, $policy, $rules, $rules_dir, {path: "\($root)/.claude", literal: true}, "\($root)/**/.claude", "\($root)/**/.claude/**"]
         + ["\($config)/gh-broker.*.sock", "\($config)/cmux-broker.*.sock", "\($config)/shortcut-broker.*.sock"]
         + [$config_sources[] as $source | "\($config)/\($source)"]
         + [$git_dirs[] | "\(.)/hooks", "\(.)/config"]

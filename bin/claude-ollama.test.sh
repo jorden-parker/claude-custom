@@ -816,6 +816,8 @@ check_that "claude-ollama still passes claude args through the sandbox" grep -qF
 check_that "the sandbox lets the session write the project" policy_lists allowWrite .
 check_that "the sandbox never writes claude-custom" policy_lists denyWrite "$repo"
 check_that "the sandbox never rewrites its own policy" policy_lists denyWrite "$session_config/sandbox-policy.json"
+check_that "the session never writes the command rules file, which pre-approves writes" policy_lists denyWrite "$HOME/.config/claude-custom/command-rules"
+check_that "nor its folder, so it cannot plant one" policy_lists denyWrite "$HOME/.config/claude-custom"
 check_that "no session can plant or remove another launch's gh broker socket" policy_lists denyWrite "$session_config/gh-broker.*.sock"
 check_that "nor its cmux broker socket" policy_lists denyWrite "$session_config/cmux-broker.*.sock"
 home_in_policy='~'

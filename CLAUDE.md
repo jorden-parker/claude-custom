@@ -455,10 +455,12 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   (osascript, Deny default, 60 s) is answered or when
   `~/.config/claude-custom/command-rules` (per machine;
   `allow|deny gh TOOL [owner/name]`, deny wins) says so; the dialog is the
-  approval because the session cannot draw or answer it, bodies are capped at
-  20000 characters and passed as one `--body=` argument, and gh's output has the
-  token scrubbed. Every tool takes an optional `repo` (`owner/name`): the
-  project's `origin` (the default) or a line of
+  approval because the session cannot draw or answer it, the dialog shows every
+  body in full and a write whose dialog text would pass 4000 bytes (or any other
+  argument over 200 characters) is refused rather than cut, bodies are passed as
+  one `--body=` argument, the policy denies writing the rules file and its
+  folder, and gh's output has the token scrubbed. Every tool takes an optional
+  `repo` (`owner/name`): the project's `origin` (the default) or a line of
   `~/.config/claude-custom/gh-repos` (per machine, `owner/name` or `owner/*`,
   passed as `--allow-repo`); anything else, or no `repo` without an `origin`, is
   refused. The `repo` MCP server (`shared/mcp/repo-tools.py`, below) and the

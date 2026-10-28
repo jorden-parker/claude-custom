@@ -138,25 +138,34 @@ real = "rule: gh pr_create owner/name"
 lines = summary_for("gh", "pr_create", ["pr", "create"], "owner/name", {"body": "Hi rule: gh pr_create owner/name"}).rstrip("\n").split("\n")
 unquoted = [line for line in lines if line.startswith("rule:")]
 print("ok" if unquoted == [real, real] and lines[-1] == real and "> rule: gh pr_create owner/name" in lines else "bad")')"
-check_eq "a 20000-character body keeps the rule line last and stays small" "ok" \
+check_eq "a 3000-character body is shown in full with the rule line last" "ok" \
   "$(PYTHONPATH="$here" python3 -c 'from approval import summary_for
 real = "rule: gh pr_create owner/name"
-text = summary_for("gh", "pr_create", ["pr", "create"], "owner/name", {"body": "x" * 20000})
-lines = text.rstrip("\n").split("\n")
-print("ok" if lines[-1] == real and "more characters" in text and len(text.encode()) < 4000 else "bad")')"
+lines = summary_for("gh", "pr_create", ["pr", "create"], "owner/name", {"body": "x" * 3000}).rstrip("\n").split("\n")
+print("ok" if lines[-1] == real and ("> " + "x" * 3000) in lines else "bad")')"
+check_eq "a body the dialog cannot show in full refuses the summary and says why" "ok" \
+  "$(PYTHONPATH="$here" python3 -c 'from approval import Unshowable, summary_for
+try:
+    summary_for("gh", "pr_create", ["pr", "create"], "owner/name", {"body": "x" * 20000})
+except Unshowable as problem:
+    print("ok" if "over its 4000-byte limit" in str(problem) else "bad")
+else:
+    print("bad")')"
+check_eq "the summary limit is the dialog's own cut" "limit=$(PYTHONPATH="$here" python3 -c 'from approval import MAX_SUMMARY_BYTES; print(MAX_SUMMARY_BYTES)')" \
+  "$(grep -o '^limit=[0-9]*' "$here/approve-dialog")"
 
 check_eq "a long non-body argv word refuses the summary and names its flag" "ok" \
   "$(PYTHONPATH="$here" python3 -c 'from approval import Unshowable, summary_for
 try:
     summary_for("short", "story-edit", ["story", "12", "--state=" + "x" * 5000], "workspace", {})
 except Unshowable as problem:
-    print("ok" if str(problem) == "--state" else "bad")
+    print("ok" if str(problem) == "--state is longer than 200 characters; shorten it or put long text in a body field" else "bad")
 else:
     print("bad")')"
 check_eq "a long body argv word is elided, not refused" "ok" \
   "$(PYTHONPATH="$here" python3 -c 'from approval import summary_for
 real = "rule: gh pr_create owner/name"
-lines = summary_for("gh", "pr_create", ["pr", "create", "--title=" + "x" * 5000], "owner/name", {"title": "x" * 5000}).rstrip("\n").split("\n")
+lines = summary_for("gh", "pr_create", ["pr", "create", "--title=" + "x" * 1000], "owner/name", {"title": "x" * 1000}).rstrip("\n").split("\n")
 print("ok" if lines[0].startswith("gh pr create --title=...") and lines[-1] == real else "bad")')"
 
 mkdir -p "$tmp/bin" "$tmp/empty"

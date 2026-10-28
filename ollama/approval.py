@@ -5,12 +5,14 @@ from pathlib import Path
 
 SAFE_FIELD = re.compile(r"[A-Za-z0-9._/-]+")
 UNSAFE_CATEGORIES = {"Cc", "Cf", "Zl", "Zp"}
-BODY_PREVIEW_CHARS = 1500
 MAX_WORD_CHARS = 200
+MAX_SUMMARY_BYTES = 4000
 
 
 class Unshowable(Exception):
     pass
+
+
 ALLOW = "allow"
 DENY = "deny"
 ALWAYS = "allow-always"
@@ -104,15 +106,17 @@ def summary_for(program, action, argv, scope, body_fields):
     text = f"{command}   (repo {printable(scope)})\n{rule}\n"
     for name, value in body_fields.items():
         text += body_section(name, value)
-    return f"{text}{rule}\n"
+    summary = f"{text}{rule}\n"
+    size = len(summary.encode())
+    if size > MAX_SUMMARY_BYTES:
+        raise Unshowable(
+            f"the dialog would need {size} bytes, over its {MAX_SUMMARY_BYTES}-byte limit; shorten the body so the user can read all of it"
+        )
+    return summary
 
 
 def body_section(name, value):
-    shown = value[:BODY_PREVIEW_CHARS]
-    lines = quoted_lines(shown)
-    if len(value) > BODY_PREVIEW_CHARS:
-        lines += f"\n> [... {len(value) - BODY_PREVIEW_CHARS} more characters]"
-    return f"\n----- {name} -----\n{lines}\n"
+    return f"\n----- {name} -----\n{quoted_lines(value)}\n"
 
 
 def quoted_lines(value):
@@ -142,5 +146,6 @@ def elide(word, body_fields):
         if word.startswith(f"--{name}="):
             return f"--{name}=..."
     if len(word) > MAX_WORD_CHARS:
-        raise Unshowable(word.partition("=")[0])
+        flag = word.partition("=")[0]
+        raise Unshowable(f"{flag} is longer than {MAX_WORD_CHARS} characters; shorten it or put long text in a body field")
     return word
