@@ -1,0 +1,392 @@
+#!/usr/bin/env bash
+set -u
+
+repo_dir="$(cd "$(dirname "$0")/.." && pwd)"
+all_checks="nested_seatbelt api_host_match body_injection unknown_policy_key rule_file_protected gh_https_proxy pasteboard"
+srt="${SANDBOX_PROBE_SRT:-$HOME/.local/share/claude-custom/sandbox-runtime/node_modules/.bin/srt}"
+only=""
+clipboard=0
+checked=0
+failed=0
+tmp=""
+proxy_pid=""
+
+usage() {
+  cat <<'USAGE'
+usage: bin/sandbox-probe [--only CHECK] [--clipboard]
+
+Runs the installed sandbox-runtime (srt) on throwaway policies and prints one
+ok/FAIL/skip line per question. Results are recorded in docs/sandbox-checks.md.
+
+  --only CHECK   run one check: nested_seatbelt, api_host_match, body_injection,
+                 unknown_policy_key, rule_file_protected, gh_https_proxy, pasteboard
+  --clipboard    run the pasteboard check (it reads and writes the clipboard)
+  --help         show this help
+USAGE
+}
+
+parse_args() {
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --only)
+        only="${2:-}"
+        shift 2
+        ;;
+      --clipboard)
+        clipboard=1
+        shift
+        ;;
+      --help | -h)
+        usage
+        exit 0
+        ;;
+      *)
+        echo "sandbox-probe: unknown argument $1" >&2
+        usage >&2
+        exit 2
+        ;;
+    esac
+  done
+}
+
+validate_only() {
+  if [ -z "$only" ]; then
+    return
+  fi
+  case " $all_checks " in
+    *" $only "*) ;;
+    *)
+      echo "sandbox-probe: unknown check $only; checks: $all_checks" >&2
+      exit 2
+      ;;
+  esac
+}
+
+require_srt() {
+  if [ ! -x "$srt" ]; then
+    echo "sandbox-probe: sandbox-runtime is missing; run claude-custom install" >&2
+    exit 1
+  fi
+}
+
+report() {
+  checked=$((checked + 1))
+  case "$1" in
+    ok) printf 'ok: %s\n' "$2" ;;
+    FAIL)
+      printf 'FAIL: %s\n' "$2"
+      failed=$((failed + 1))
+      ;;
+    skip) printf 'skip: %s\n' "$2" ;;
+  esac
+}
+
+write_policy() {
+  printf '%s' "$2" | jq -e . > "$tmp/$1" || {
+    echo "sandbox-probe: policy $1 is not valid JSON" >&2
+    exit 1
+  }
+}
+
+base_policy() {
+  echo '{"filesystem":{"allowWrite":["."],"denyRead":[],"denyWrite":[]},"network":{"allowedDomains":[],"deniedDomains":[]}}'
+}
+
+in_sandbox() {
+  local policy="$1"
+  shift
+  "$srt" -s "$tmp/$policy" -- "$@" > "$tmp/last.out" 2> "$tmp/last.err"
+}
+
+first_error_line() {
+  head -n 1 "$tmp/last.err" 2>/dev/null
+}
+
+check_nested_seatbelt() {
+  if [ ! -x /usr/bin/sandbox-exec ]; then
+    report skip "sandbox-exec is missing from /usr/bin ($(sw_vers -productVersion 2>/dev/null || echo unknown macOS))"
+    return
+  fi
+  write_policy nested.json "$(base_policy)"
+  in_sandbox nested.json /usr/bin/sandbox-exec -p '(version 1)(allow default)' /usr/bin/true
+  local code=$?
+  if [ "$code" -eq 0 ]; then
+    report ok "a second Seatbelt sandbox starts inside srt (nested sandbox works)"
+  else
+    report FAIL "a second Seatbelt sandbox is refused inside srt (exit $code): $(first_error_line)"
+  fi
+}
+
+write_host_policy() {
+  jq --argjson base "$(base_policy)" '{filesystem: $base.filesystem, network: .network}' "$repo_dir/ollama/sandbox.json" > "$tmp/hosts.json" || exit 1
+}
+
+host_reachable() {
+  case "$1" in
+    [0-9][0-9][0-9]) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+check_api_host_match() {
+  write_host_policy
+  in_sandbox hosts.json curl -sS -o /dev/null -w '%{http_code}' --max-time 20 https://github.com/
+  local github_rc=$?
+  local github_code
+  github_code="$(cat "$tmp/last.out")"
+  local github_err
+  github_err="$(first_error_line)"
+  if [ "$github_rc" -ne 0 ] || ! host_reachable "$github_code"; then
+    report skip "github.com unreachable from srt (curl exit $github_rc: $github_err); api.github.com not tested"
+    report skip "api.github.com not tested: github.com unreachable"
+    return
+  fi
+  report ok "github.com reachable (HTTP $github_code)"
+
+  in_sandbox hosts.json curl -sS -o /dev/null -w '%{http_code}' --max-time 20 https://api.github.com/
+  local api_rc=$?
+  local api_code
+  api_code="$(cat "$tmp/last.out")"
+  if [ "$api_rc" -eq 0 ] && host_reachable "$api_code"; then
+    report FAIL "allowedDomains [\"github.com\"] also reaches api.github.com (HTTP $api_code): subdomains match"
+  else
+    report ok "api.github.com is blocked by allowedDomains [\"github.com\"] (curl exit $api_rc)"
+  fi
+}
+
+write_inject_policy() {
+  jq -n --arg host "$1" --argjson base "$(base_policy)" '{
+    filesystem: $base.filesystem,
+    network: ($base.network + {allowedDomains: (["httpbin.org", $host] | unique), tlsTerminate: {excludeDomains: []}}),
+    credentials: {envVars: [{name: "PROBE_SECRET", mode: "mask", injectHosts: [$host]}]}
+  }' > "$tmp/$2" || exit 1
+}
+
+echoed_field() {
+  jq -r "$1 // \"\"" "$tmp/last.out" 2>/dev/null
+}
+
+contains_value() {
+  case "$1" in
+    *"$2"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+request_with_secret() {
+  in_sandbox "$1" sh -c "curl -sS --max-time 20 -H \"Authorization: Bearer \$PROBE_SECRET\" https://httpbin.org/post -d \"note=\$PROBE_SECRET\""
+}
+
+check_session_view() {
+  in_sandbox inject.json sh -c "echo \"\$PROBE_SECRET\""
+  local seen
+  seen="$(cat "$tmp/last.out")"
+  if [ -z "$seen" ]; then
+    report FAIL "srt did not run the session env check: $(first_error_line)"
+  elif contains_value "$seen" "$secret_value"; then
+    report FAIL "the session sees the real masked value"
+  else
+    report ok "the session sees a placeholder, not the value"
+  fi
+}
+
+check_body_injection() {
+  secret_value="$(openssl rand -hex 16)"
+  export PROBE_SECRET="$secret_value"
+  write_inject_policy httpbin.org inject.json
+  check_session_view
+
+  request_with_secret inject.json
+  local request_rc=$?
+  if [ "$request_rc" -ne 0 ]; then
+    local reason
+    reason="$(first_error_line)"
+    report skip "httpbin.org unreachable from srt (curl exit $request_rc: $reason); header and body substitution not tested"
+    report skip "httpbin.org unreachable; body substitution not tested"
+    report skip "httpbin.org unreachable; narrowed injectHosts not tested"
+    return
+  fi
+  local header form
+  header="$(echoed_field '.headers.Authorization')"
+  form="$(echoed_field '.form.note')"
+  if contains_value "$header" "$secret_value"; then
+    report ok "the proxy swaps the header on an injectHosts host"
+  fi
+  if contains_value "$form" "$secret_value"; then
+    report FAIL "the proxy also rewrites request bodies (body-substitution is on): a model can post its sentinel and read the real value back"
+  fi
+  if ! contains_value "$header" "$secret_value"; then
+    report FAIL "no substitution happened (TLS termination or proxy trust failed): $(first_error_line)"
+  fi
+
+  write_inject_policy example.invalid narrowed.json
+  request_with_secret narrowed.json
+  local narrowed_header narrowed_form
+  narrowed_header="$(echoed_field '.headers.Authorization')"
+  narrowed_form="$(echoed_field '.form.note')"
+  if [ -n "$narrowed_header" ] && [ -n "$narrowed_form" ] \
+    && ! contains_value "$narrowed_header" "$secret_value" \
+    && ! contains_value "$narrowed_form" "$secret_value"; then
+    report ok "narrowing injectHosts stops both header and body substitution"
+  else
+    report FAIL "narrowing injectHosts did not stop substitution (header: $narrowed_header; body: $narrowed_form)"
+  fi
+}
+
+check_unknown_policy_key() {
+  printf 'nope' > "$tmp/secret.txt"
+  printf 'nope' > "$tmp/secret2.txt"
+  jq -n --arg one "$tmp/secret.txt" --arg two "$tmp/secret2.txt" --argjson base "$(base_policy)" '{
+    filesystem: ($base.filesystem + {denyRead: [$one], denyReads: [$two]}),
+    network: $base.network,
+    filesysten: {}
+  }' > "$tmp/typo.json" || exit 1
+
+  if ! in_sandbox typo.json /usr/bin/true; then
+    report ok "srt rejects unknown policy keys (strict schema)"
+    report skip "misspelled deny key not tested: srt refused the policy"
+    return
+  fi
+  if in_sandbox typo.json cat "$tmp/secret.txt"; then
+    report FAIL "a spelled-right denyRead did not hold: secret.txt was readable"
+  else
+    report ok "a spelled-right denyRead holds"
+  fi
+  if in_sandbox typo.json cat "$tmp/secret2.txt"; then
+    report FAIL "a misspelled deny key is silently dropped: secret2.txt was readable"
+  else
+    report ok "the misspelled deny key is enforced: secret2.txt was not readable"
+  fi
+}
+
+check_rule_file_protected() {
+  local rule_dir="$HOME/.config/claude-custom"
+  if [ ! -d "$rule_dir" ]; then
+    report skip "$rule_dir does not exist; the write-protection check needs it"
+    return
+  fi
+  mkdir -p "$tmp/project"
+  write_policy project.json "$(base_policy)"
+  if ! (cd "$tmp/project" && in_sandbox project.json /usr/bin/true); then
+    report skip "srt would not start the project policy: $(first_error_line)"
+    return
+  fi
+  local probe_file="$rule_dir/command-rules.probe"
+  if (cd "$tmp/project" && in_sandbox project.json touch "$probe_file"); then
+    rm -f "$probe_file"
+    report FAIL "the session can write $rule_dir (probe file created, removed)"
+  else
+    report ok "the session cannot write ~/.config/claude-custom"
+  fi
+  if (cd "$tmp/project" && in_sandbox project.json touch ./inside.txt); then
+    report ok "the session writes its own project"
+  else
+    report FAIL "the session cannot write its own project: $(first_error_line)"
+  fi
+}
+
+write_proxy_script() {
+  cat > "$tmp/logging-proxy.py" <<'PY'
+import socketserver
+import sys
+
+
+class Logging(socketserver.StreamRequestHandler):
+    def handle(self):
+        line = self.rfile.readline().decode(errors="replace").strip()
+        with open(sys.argv[2], "a") as log:
+            log.write(line + "\n")
+        self.wfile.write(b"HTTP/1.1 403 Forbidden\r\n\r\n")
+
+
+socketserver.TCPServer(("127.0.0.1", int(sys.argv[1])), Logging).serve_forever()
+PY
+}
+
+free_port() {
+  python3 -c 'import socket
+s = socket.socket()
+s.bind(("127.0.0.1", 0))
+print(s.getsockname()[1])
+'
+}
+
+check_gh_https_proxy() {
+  if ! command -v gh >/dev/null 2>&1; then
+    report skip "gh is not installed"
+    return
+  fi
+  write_proxy_script
+  local port log
+  port="$(free_port)"
+  log="$tmp/gh-proxy.log"
+  python3 -I "$tmp/logging-proxy.py" "$port" "$log" &
+  proxy_pid=$!
+  sleep 1
+  HTTPS_PROXY="http://127.0.0.1:$port" https_proxy="http://127.0.0.1:$port" GH_TOKEN=probe gh api user >/dev/null 2>&1 || true
+  { kill "$proxy_pid"; wait "$proxy_pid"; } 2>/dev/null
+  proxy_pid=""
+  if grep -q '^CONNECT api.github.com:443' "$log" 2>/dev/null; then
+    report ok "gh honours HTTPS_PROXY (CONNECT api.github.com seen)"
+  else
+    report FAIL "gh ignored HTTPS_PROXY (no CONNECT logged)"
+  fi
+}
+
+check_pasteboard() {
+  if [ "$clipboard" -ne 1 ]; then
+    report skip "pasteboard check needs --clipboard (it reads and writes the clipboard)"
+    return
+  fi
+  pbpaste > "$tmp/clip.bak" 2>/dev/null
+  write_policy pasteboard.json "$(base_policy)"
+  jq '.network.allowMachLookup = ["com.apple.pasteboard.1"]' "$tmp/pasteboard.json" > "$tmp/pasteboard.next.json" && mv "$tmp/pasteboard.next.json" "$tmp/pasteboard.json"
+  in_sandbox pasteboard.json pbpaste
+  local read_rc=$?
+  in_sandbox pasteboard.json sh -c 'printf probe-write | pbcopy'
+  local write_rc=$?
+  local written=""
+  if [ "$write_rc" -eq 0 ]; then
+    written="$(pbpaste 2>/dev/null)"
+  fi
+  pbcopy < "$tmp/clip.bak"
+  local read_seen=no write_seen=no
+  [ "$read_rc" -eq 0 ] && read_seen=yes
+  [ "$written" = "probe-write" ] && write_seen=yes
+  report ok "pasteboard lookup grants read=$read_seen write=$write_seen"
+}
+
+run_check() {
+  case "$1" in
+    nested_seatbelt) check_nested_seatbelt ;;
+    api_host_match) check_api_host_match ;;
+    body_injection) check_body_injection ;;
+    unknown_policy_key) check_unknown_policy_key ;;
+    rule_file_protected) check_rule_file_protected ;;
+    gh_https_proxy) check_gh_https_proxy ;;
+    pasteboard) check_pasteboard ;;
+  esac
+}
+
+main() {
+  parse_args "$@"
+  validate_only
+  local to_run="$all_checks"
+  if [ -n "$only" ]; then
+    to_run="$only"
+  fi
+  require_srt
+  tmp="$(mktemp -d "${TMPDIR:-/tmp}/sp.XXXXXX")" || exit 1
+  trap 'kill "$proxy_pid" 2>/dev/null; rm -rf "$tmp"' EXIT
+  local name
+  for name in $to_run; do
+    run_check "$name"
+  done
+  printf 'sandbox-probe: %d checks, %d failed\n' "$checked" "$failed"
+  if [ "$failed" -gt 0 ]; then
+    exit 1
+  fi
+  exit 0
+}
+
+main "$@"

@@ -72,6 +72,12 @@ before changing how any file gets applied.
 - Cache probe: `bin/ollama-cache-probe [27b|35b|MODEL] [--prefix-tokens N]`
   measures prompt-cache reuse on a live Ollama; its tests are
   `bin/ollama-cache-probe.test.sh` (stub server, no real Ollama)
+- Sandbox probe: `bin/sandbox-probe [--only CHECK] [--clipboard]` runs the real
+  sandbox-runtime on throwaway policies and prints one ok/FAIL/skip line per
+  question (nested Seatbelt, api.github.com host matching, body injection and
+  injectHosts narrowing, unknown policy keys, rule-file protection, gh and
+  HTTPS_PROXY, pasteboard); results are recorded in `docs/sandbox-checks.md`;
+  tests: `bin/sandbox-probe.test.sh` (stub srt)
 - Speed check: `claude-ollama speed-check` (`bin/speed-check`) checks power,
   disk and Ollama, prepares the four MLX and GGUF sizes, then runs the thinking
   check, the paired benches and the cache probes, and prints a verdict and a
