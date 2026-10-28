@@ -157,6 +157,12 @@ check_that "a flag missing its value is refused" refused story 12 -s
 check_that "no command is refused" refused
 check_that "argv that is not a list of text is refused" refused_line '{"argv": ["story", 12]}'
 check_that "a request that is not JSON is refused" refused_line 'not json'
+run_short install
+check_that "a refused command lists the commands it can use" \
+  sh -c 'printf "%s" "$1" | grep -qF "commands: search, find, story, create, members, workflows, epics, epic view"' _ "$(reply_field stderr)"
+run_short story 12 -O
+check_that "a refused flag lists that command's flags" \
+  sh -c 'printf "%s" "$1" | grep -qF "story takes: --archived, --comment, --deadline"' _ "$(reply_field stderr)"
 
 touch "$tmp/leak"
 run_short search owner:me

@@ -124,10 +124,15 @@ def command_of(argv):
     for length in (2, 1):
         if tuple(argv[:length]) in COMMANDS:
             return argv[:length]
-    raise Refused(f"{' '.join(argv[:2]) or 'no command'} is not a short command this session can use")
+    commands = ", ".join(" ".join(command) for command in COMMANDS)
+    raise Refused(f"{' '.join(argv[:2]) or 'no command'} is not a short command this session can use; commands: {commands}")
 
 
-def rebuilt(words, options):
+def allowed_flags(options):
+    return ", ".join(sorted({long_name for long_name, _ in options.values()})) or "no flags"
+
+
+def rebuilt(command, words, options):
     built = []
     remaining = iter(words)
     for word in remaining:
@@ -136,7 +141,7 @@ def rebuilt(words, options):
             continue
         flag, equals, value = word.partition("=")
         if flag not in options:
-            raise Refused(f"{flag} is not allowed here")
+            raise Refused(f"{flag} is not allowed here; {' '.join(command)} takes: {allowed_flags(options)}")
         long_name, kind = options[flag]
         if kind == SWITCH:
             built.append(long_name)
@@ -154,7 +159,7 @@ def short_args(request):
     if not isinstance(argv, list) or not all(isinstance(word, str) for word in argv):
         raise Refused("argv must be a list of text")
     command = command_of(argv)
-    return [*command, *rebuilt(argv[len(command) :], COMMANDS[tuple(command)])]
+    return [*command, *rebuilt(command, argv[len(command) :], COMMANDS[tuple(command)])]
 
 
 def shortcut_config_files():

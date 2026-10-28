@@ -164,6 +164,37 @@ asks_before_dev_start() {
 check_that "CLAUDE.local.md tells the model to use the repo tools" grep -qF 'mcp__repo__' "$repo/ollama/CLAUDE.local.md"
 check_that "CLAUDE.local.md tells the model to use the dev tools" grep -qF 'mcp__dev__dev_status' "$repo/ollama/CLAUDE.local.md"
 
+instructions_show_every_broker_command() {
+  python3 - "$repo" <<'PY'
+import importlib.util
+import sys
+from pathlib import Path
+
+repo = Path(sys.argv[1])
+sys.path.insert(0, str(repo / "shared/mcp"))
+
+
+def load(path):
+    spec = importlib.util.spec_from_file_location(path.stem.replace("-", "_"), path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+instructions = (repo / "ollama/CLAUDE.local.md").read_text()
+gh_shim = load(repo / "shared/mcp/gh-shim.py")
+shortcut_broker = load(repo / "ollama/shortcut/broker.py")
+expected = [f"`gh {' '.join(command)}" for command in gh_shim.COMMANDS] + ["`gh api repos/"]
+expected += [f"`short {' '.join(command)}" for command in shortcut_broker.COMMANDS]
+missing = [phrase for phrase in expected if phrase not in instructions]
+for phrase in missing:
+    print(f"CLAUDE.local.md never shows {phrase}`", file=sys.stderr)
+sys.exit(1 if missing else 0)
+PY
+}
+
+check_that "CLAUDE.local.md shows every gh and short command the brokers take" instructions_show_every_broker_command
+
 for settings in "$repo"/ollama/settings.*.json; do
   check_that "${settings##*/} allows semantic_search" allows_semantic_search "$settings"
   check_that "${settings##*/} allows the read-only repo tools without a prompt" allows_repo_tools "$settings"

@@ -554,16 +554,17 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   `EnvironmentVariables` are lost.
 - `ollama/CLAUDE.local.md` is the appended system prompt for every size, for
   small local models, not memory files. Keep it terse: the 27b has a 64k
-  context, the other sizes 96k. `ollama/sizes.json` is the single source for
-  each size's `context`: `bin/ollama-profiles` writes it to `Modelfile.<size>`
-  (`num_ctx`), `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, and the `ollama create` names
-  that `model` and the `ANTHROPIC_DEFAULT_*_MODEL` vars refer to. A managed
-  `availableModels` that lacks the model makes Claude Code substitute a `[1m]`
-  ID, which assumes a 1M window; `claude-ollama doctor` warns when that happens.
-  Each profile's own `availableModels` lists only its main model;
-  `bin/check-config` checks it. `ollama/system-prompt.md` replaces Claude Code's
-  default system prompt for both sizes; keep it short and don't put
-  size-specific rules in it.
+  context, the other sizes 96k. It shows every `gh` and `short` form the brokers
+  take; `bin/check-config` fails when one is missing. `ollama/sizes.json` is the
+  single source for each size's `context`: `bin/ollama-profiles` writes it to
+  `Modelfile.<size>` (`num_ctx`), `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, and the
+  `ollama create` names that `model` and the `ANTHROPIC_DEFAULT_*_MODEL` vars
+  refer to. A managed `availableModels` that lacks the model makes Claude Code
+  substitute a `[1m]` ID, which assumes a 1M window; `claude-ollama doctor`
+  warns when that happens. Each profile's own `availableModels` lists only its
+  main model; `bin/check-config` checks it. `ollama/system-prompt.md` replaces
+  Claude Code's default system prompt for both sizes; keep it short and don't
+  put size-specific rules in it.
 - The personal overlay is loaded with `--settings` by the `claude` shell
   function (`personal/claude.sh` for bash/zsh/ksh, `personal/claude.fish` for
   fish), wired into rc files by `bin/claude-custom install`, never merged into
