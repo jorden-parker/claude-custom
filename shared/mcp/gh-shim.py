@@ -7,8 +7,8 @@ from broker_client import BrokerMissing, ask_broker
 
 PREFIX = "gh (claude-ollama): "
 SUPPORTED = (
-    "read-only; supported: pr list|view|diff|checks, issue list|view, run list|view, "
-    "api repos/{owner}/{repo}/pulls/N/comments"
+    "supported: pr list|view|diff|checks|comment|create, issue list|view|comment, run list|view, "
+    "api repos/{owner}/{repo}/pulls/N/comments; writes ask you in a dialog"
 )
 BROKER_MISSING = "the GitHub broker is not running; run gh auth login outside the session, then relaunch"
 ITEM_URL = re.compile(r"https://github\.com/([^/]+/[^/]+)/(?:pull|issues)/(\d+)/?")
@@ -34,14 +34,28 @@ LIMIT = option("limit", NUMBER, "--limit", "-L")
 SEARCH = option("search", TEXT, "--search", "-S")
 FIELDS = {**option("fields", TEXT, "--json"), **option("", JQ, "--jq", "-q")}
 COMMENTS = option("", IGNORED, "--comments", "-c")
+BODY = option("body", TEXT, "--body", "-b")
 
 COMMANDS = {
     ("pr", "list"): ("pr_list", None, {**STATE, **LIMIT, **SEARCH, **option("author", TEXT, "--author", "-A")}),
     ("pr", "view"): ("pr_view", NUMBER, {**FIELDS, **COMMENTS}),
     ("pr", "diff"): ("pr_diff", "pull_request", option("name_only", SWITCH, "--name-only")),
     ("pr", "checks"): ("pr_checks", NUMBER, FIELDS),
+    ("pr", "comment"): ("pr_comment", NUMBER, BODY),
+    ("pr", "create"): (
+        "pr_create",
+        None,
+        {
+            **option("title", TEXT, "--title", "-t"),
+            **BODY,
+            **option("head", TEXT, "--head", "-H"),
+            **option("base", TEXT, "--base", "-B"),
+            **option("draft", SWITCH, "--draft", "-d"),
+        },
+    ),
     ("issue", "list"): ("issue_list", None, {**STATE, **LIMIT, **SEARCH}),
     ("issue", "view"): ("issue_view", NUMBER, {**FIELDS, **COMMENTS}),
+    ("issue", "comment"): ("issue_comment", NUMBER, BODY),
     ("run", "list"): ("run_list", None, {**LIMIT, **option("branch", TEXT, "--branch", "-b")}),
     ("run", "view"): ("run_view", "run_id", {**FIELDS, **option("failed_logs", SWITCH, "--log-failed")}),
 }
