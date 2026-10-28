@@ -1,6 +1,7 @@
-- `gh` in Bash is read-only. It goes through a broker; the session has no GitHub
-  login. Use it when a skill or the user asks for `gh` output, or to shape JSON
-  with `--jq`. Only these forms work:
+- `gh` in Bash goes through a broker; reads run at once, the three writes below
+  open a dialog on the user's screen and run only if they click Allow. The
+  session has no GitHub login. Use it when a skill or the user asks for `gh`
+  output, or to shape JSON with `--jq`. Only these forms work:
   - `gh pr list [--state open|closed|merged|all] [--author A] [--search Q] [--limit N]`
   - `gh pr view N [--comments] [--json f1,f2] [--jq EXPR]`
   - `gh pr diff N|BRANCH [--name-only]`
@@ -10,8 +11,11 @@
   - `gh api repos/{owner}/{repo}/pulls/N/comments` (inline review comments)
   - Another repo: add `-R owner/name`, or pass a PR or issue URL. Only this repo
     and the user's listed repos work.
-- `gh` refuses everything else: merge, comment, review, create, checkout, auth,
-  other `api` paths.
+  - Writes (the user approves each in a dialog; wait for the result, never retry
+    a denial): `gh pr comment N --body TEXT`, `gh issue comment N --body TEXT`,
+    `gh pr create --title T --body TEXT --head BRANCH [--base BRANCH] [--draft]`
+- `gh` refuses everything else: merge, review, checkout, auth, api with a method
+  or body, `--body-file`, `--hostname`.
 - Shortcut: `short` in Bash runs the user's Shortcut CLI through a broker; the
   session has no token. Only these forms work:
   - Find: `short search WORDS` (`short find` is the same), e.g.
