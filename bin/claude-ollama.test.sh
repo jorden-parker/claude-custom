@@ -155,7 +155,8 @@ EOF
 #!/bin/sh
 case "\$1" in
   *gh/broker.py) echo "\$*" >> "$sandbox/gh-broker.log"; exec /usr/bin/python3 "\$@" ;;
-  *cmux/broker.py | *shortcut/broker.py) exec /usr/bin/python3 "\$@" ;;
+  *shortcut/broker.py) echo "\$*" >> "$sandbox/shortcut-broker.log"; exec /usr/bin/python3 "\$@" ;;
+  *cmux/broker.py) exec /usr/bin/python3 "\$@" ;;
 esac
 echo "\$*" >> "$sandbox/python.log"
 EOF
@@ -1161,7 +1162,14 @@ chmod +x "$sandbox/stubbin/gh"
 gh_project="$sandbox/gh-project"
 git init -q "$gh_project"
 git -C "$gh_project" remote add origin git@github.com:owner/project.git
-ln -sf "$(command -pv python3)" "$sandbox/stubbin/python3"
+cat > "$sandbox/stubbin/python3" <<EOF
+#!/bin/sh
+case "\$1" in
+  *shortcut/broker.py) echo "\$*" >> "$sandbox/shortcut-broker.log" ;;
+esac
+exec /usr/bin/python3 "\$@"
+EOF
+chmod +x "$sandbox/stubbin/python3"
 (cd "$gh_project" && CLAUDE_OLLAMA_NO_INDEX=1 STUB_GH_AUTH_TOKEN=readsecret STUB_RUN_GH=1 run_capture "$repo/bin/claude-ollama" 27b -p hi)
 check_eq "the session's pr_list tool runs gh outside it, through the broker, with the gh login's token and the project's repo" \
   "pr list --state open --limit 20 --json number,title,author,headRefName,isDraft,updatedAt readsecret owner/project" \
@@ -1193,10 +1201,12 @@ echo "story 12"
 EOF
 chmod +x "$sandbox/stubbin/short"
 session_config="$HOME/.claude-ollama"
-(cd "$gh_project" && CLAUDE_OLLAMA_NO_INDEX=1 SHORTCUT_API_TOKEN=shortsecret STUB_RUN_SHORT=1 \
+(cd "$gh_project" && CLAUDE_OLLAMA_SANDBOX=1 CLAUDE_OLLAMA_NO_INDEX=1 SHORTCUT_API_TOKEN=shortsecret STUB_RUN_SHORT=1 \
   run_capture "$repo/bin/claude-ollama" 27b -p hi)
 check_that "the Shortcut broker's socket is named for its launch" \
   broker_socket_is_per_launch shortcut-broker "$(session_env CLAUDE_OLLAMA_SHORTCUT_BROKER)"
+check_that "the Shortcut broker reads the command rules file" grep -qE -- '--rules [^ ]*/claude-custom/command-rules( |$)' "$sandbox/shortcut-broker.log"
+check_that "and asks Shortcut writes through the approval dialog" grep -qE -- '--approve-with [^ ]*/ollama/approve-dialog( |$)' "$sandbox/shortcut-broker.log"
 check_that "the session gets the short command" session_path_has_short_client
 check_eq "the session's short runs your short outside it, through the broker, with your token" \
   "search owner:me --state=Done shortsecret" "$(cat "$sandbox/short.log" 2>/dev/null)"
@@ -1213,8 +1223,10 @@ done
   run_capture "$repo/bin/claude-ollama" 27b -p hi)
 check_eq "a short the session could plant in the project never gets a broker" "" "$(session_env CLAUDE_OLLAMA_SHORTCUT_BROKER)"
 check_not "and nothing planted there runs outside the sandbox, not even bash or what finds the repo" test -e "$sandbox/planted.log"
-check_that "the session still gets your PATH back inside the sandbox" \
-  sh -c 'printf "%s\n" "$1" | tr ":" "\n" | grep -qxF "$2"' _ "$(session_env PATH)" "$gh_project/bin"
+session_path_has_entry() {
+  session_env PATH | tr ':' '\n' | grep -qxF "$1"
+}
+check_that "the session still gets your PATH back inside the sandbox" session_path_has_entry "$gh_project/bin"
 check_eq "without the launcher's copy of it" "" "$(session_env CLAUDE_OLLAMA_SESSION_PATH)"
 rm "$gh_project/bin/gh" "$gh_project/bin/short" "$gh_project/bin/bash" "$gh_project/bin/readlink" "$gh_project/bin/dirname"
 ln -s "$gh_project/planted-short" "$sandbox/stubbin/short"

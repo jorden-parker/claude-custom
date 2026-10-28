@@ -27,7 +27,8 @@
     `short label epics ID`, `short teams`, `short team view ID`,
     `short team stories ID`, `short members [-s NAME]`, `short workflows`,
     `short docs`, `short doc view ID`
-  - Change, only when the user asked (it writes to Shortcut):
+  - Change, only when the user asked; each opens a dialog on the user's screen
+    and runs only if they click Allow:
     `short story ID -c "comment" -s STATE -e N -o OWNER -l LABEL`,
     `short story ID --task "text"`, `short story ID --task-complete "text"`,
     `short create -t TITLE [-d TEXT] [-s STATE] [-o OWNER] [-l LABEL]`

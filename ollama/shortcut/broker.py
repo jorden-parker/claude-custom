@@ -4,16 +4,25 @@ import json
 import os
 import socketserver
 import subprocess
+import sys
 import tempfile
 import threading
 import time
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from approval import Approver, summary_for
 
 COMMAND_TIMEOUT_SECONDS = 120
 TOKEN_VARIABLES = ("SHORTCUT_API_TOKEN", "CLUBHOUSE_API_TOKEN")
 TOKEN_REMOVED = "[Shortcut token removed]"
 SWITCH = "switch"
 VALUE = "value"
+DEFAULT_RULES_PATH = "~/.config/claude-custom/command-rules"
+APPROVE_DIALOG = Path(__file__).resolve().parent.parent / "approve-dialog"
+WORKSPACE_SCOPE = "workspace"
+READ_ONLY_STORY_FLAGS = {"--format", "--quiet"}
+BODY_FLAGS = ("--comment", "--task", "--description", "--title")
 
 
 class Refused(Exception):
@@ -154,12 +163,35 @@ def rebuilt(command, words, options):
     return built
 
 
-def short_args(request):
+def planned(request):
     argv = request.get("argv") if isinstance(request, dict) else None
     if not isinstance(argv, list) or not all(isinstance(word, str) for word in argv):
         raise Refused("argv must be a list of text")
     command = command_of(argv)
-    return [*command, *rebuilt(command, argv[len(command) :], COMMANDS[tuple(command)])]
+    return command, rebuilt(command, argv[len(command) :], COMMANDS[tuple(command)])
+
+
+def write_action(command, built):
+    if command == ["create"]:
+        return "create"
+    if command == ["story"] and any(is_story_edit_flag(word) for word in built):
+        return "story-edit"
+    return None
+
+
+def is_story_edit_flag(word):
+    return word.startswith("-") and word.partition("=")[0] not in READ_ONLY_STORY_FLAGS
+
+
+def body_fields(argv):
+    fields = {}
+    for word in argv:
+        flag, equals, value = word.partition("=")
+        if equals and flag in BODY_FLAGS:
+            if flag[2:] in fields:
+                raise Refused(f"{flag} may be given only once in a write")
+            fields[flag[2:]] = value
+    return fields
 
 
 def shortcut_config_files():
@@ -196,14 +228,20 @@ def without_tokens(text, tokens):
 
 
 class Broker:
-    def __init__(self, short, workdir):
+    def __init__(self, short, workdir, approver):
         self.short = short
         self.workdir = workdir
+        self.approver = approver
 
     def handle(self, request):
+        command, built = planned(request)
+        action = write_action(command, built)
+        argv = [*command, *built]
+        if action is not None:
+            self.require_approval(action, argv)
         return reply_from(
             subprocess.run(
-                [self.short, *short_args(request)],
+                [self.short, *argv],
                 capture_output=True,
                 text=True,
                 cwd=self.workdir,
@@ -212,6 +250,11 @@ class Broker:
                 check=False,
             )
         )
+
+    def require_approval(self, action, argv):
+        summary = summary_for("short", action, argv, WORKSPACE_SCOPE, body_fields(argv))
+        if not self.approver.decide("short", action, WORKSPACE_SCOPE, summary):
+            raise Refused(f"{action} was not approved")
 
 
 def reply_from(completed):
@@ -273,9 +316,12 @@ def main():
     parser.add_argument("--socket", required=True)
     parser.add_argument("--short", required=True)
     parser.add_argument("--watch-pid", type=int, required=True)
+    parser.add_argument("--rules", default=DEFAULT_RULES_PATH)
+    parser.add_argument("--approve-with", default=str(APPROVE_DIALOG))
     options = parser.parse_args()
+    approver = Approver(Path(options.rules).expanduser(), [options.approve_with])
     with tempfile.TemporaryDirectory() as workdir:
-        server = serve(Broker(options.short, workdir), options.socket)
+        server = serve(Broker(options.short, workdir, approver), options.socket)
         threading.Thread(target=exit_when_gone, args=(options.watch_pid, options.socket), daemon=True).start()
         server.serve_forever()
 

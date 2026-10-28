@@ -415,15 +415,18 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   (`ollama/shortcut/bin`, on `PATH` only while the broker runs) runs
   `shared/mcp/short-shim.py`, which sends its argv; the broker allows only reads
   and story edits (`COMMANDS` in the broker: no `install`, `api`, `workspace`,
-  deletes, `--open*`, `--git-branch*`, `--from-git`, `--download*`, `--save`)
-  and rebuilds every option as `--long=value`, so no value becomes a flag. The
-  session never holds `SHORTCUT_API_TOKEN` (outer Shortcut and Clubhouse vars
-  are unset), and the policy denies reading every `short` config folder.
-  Everything outside the sandbox runs from a safe `PATH`: the launcher starts on
-  `/bin/bash` with a fixed system `PATH`, then first drops relative entries and
-  folders the session can write (the enclosing repo and session config, then the
-  git dir and item folder), and `trusted_command` refuses a `gh`, `cmux` or
-  `short` that links into one; `sandbox-entry` restores your own `PATH`
+  deletes, `--open*`, `--git-branch*`, `--from-git`, `--download*`, `--save`),
+  and story edits and creates run only after the same approval dialog and rule
+  file as the gh writes (stored rule: `allow short story-edit workspace`;
+  `allow|deny short create|story-edit`), and rebuilds every option as
+  `--long=value`, so no value becomes a flag. The session never holds
+  `SHORTCUT_API_TOKEN` (outer Shortcut and Clubhouse vars are unset), and the
+  policy denies reading every `short` config folder. Everything outside the
+  sandbox runs from a safe `PATH`: the launcher starts on `/bin/bash` with a
+  fixed system `PATH`, then first drops relative entries and folders the session
+  can write (the enclosing repo and session config, then the git dir and item
+  folder), and `trusted_command` refuses a `gh`, `cmux` or `short` that links
+  into one; `sandbox-entry` restores your own `PATH`
   (`CLAUDE_OLLAMA_SESSION_PATH`) inside the sandbox. A masked token would not
   do: srt swaps the placeholder back in request bodies too, so a session could
   store it in a story and read it back. Tests: `ollama/shortcut/broker.test.sh`

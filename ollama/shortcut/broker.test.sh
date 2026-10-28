@@ -63,12 +63,21 @@ exit 3
 EOF
 chmod +x "$tmp/short"
 
+cat > "$tmp/approve" <<EOF
+#!/bin/sh
+cat > "$tmp/approve.in"
+cat "$tmp/approve.answer"
+EOF
+chmod +x "$tmp/approve"
+printf 'allow\n' > "$tmp/approve.answer"
+
 sleep 600 &
 session_pid=$!
 socket="$tmp/broker.sock"
 mkdir -p "$tmp/home/.config/shortcut-cli"
 printf '{"token":"cfgsecret-0000"}\n' > "$tmp/home/.config/shortcut-cli/config.json"
-HOME="$tmp/home" SHORTCUT_API_TOKEN=envsecret-1111 python3 "$broker" --socket "$socket" --short "$tmp/short" --watch-pid "$session_pid" &
+HOME="$tmp/home" SHORTCUT_API_TOKEN=envsecret-1111 python3 "$broker" --socket "$socket" --short "$tmp/short" --watch-pid "$session_pid" \
+  --rules "$tmp/rules" --approve-with "$tmp/approve" &
 broker_pid=$!
 for _ in $(seq 50); do
   [ -S "$socket" ] && break
@@ -112,6 +121,30 @@ refused_reply() {
   [ "$(reply_field exit)" = 1 ] && [ ! -s "$tmp/short.log" ] && reply_field stderr | grep -q "short broker:"
 }
 
+stderr_contains() {
+  printf '%s' "$(reply_field stderr)" | grep -qF "$1"
+}
+
+stderr_starts_with() {
+  case "$(reply_field stderr)" in
+    "$1"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+run_asking() {
+  rm -f "$tmp/approve.in"
+  run_short "$@"
+}
+
+approve_with() {
+  printf '%s\n' "$1" > "$tmp/approve.answer"
+}
+
+approver_ran() {
+  [ -e "$tmp/approve.in" ]
+}
+
 refused() {
   run_short "$@"
   refused_reply
@@ -141,6 +174,51 @@ expect "iteration stories" "iteration|stories|3|--format=%j|" iteration stories 
 expect "members search" "members|--search=jo|" members -s jo
 expect "doc view" "doc|view|5|--quiet|" doc view 5 -q
 
+run_asking search owner:me
+check_not "a search is not asked for approval" approver_ran
+run_asking story 12
+check_not "a story read is not asked for approval" approver_ran
+check_eq "and the read runs" "story|12|" "$(ran)"
+run_asking story 12 -f json
+check_not "a story read with a format is not asked for approval" approver_ran
+run_asking story 12 -c hello
+check_that "a story edit is asked for approval" approver_ran
+check_that "as a story-edit" grep -qF "rule: short story-edit workspace" "$tmp/approve.in"
+check_that "the approver sees the comment" grep -qF "> hello" "$tmp/approve.in"
+check_eq "an approved story edit runs" "story|12|--comment=hello|" "$(ran)"
+run_asking create -t "New"
+check_that "a create is asked for approval as a create" grep -qF "rule: short create workspace" "$tmp/approve.in"
+check_eq "an approved create runs" "create|--title=New|" "$(ran)"
+
+approve_with deny
+run_asking story 12 -c Nope
+check_that "a denied story edit is refused" refused_reply
+check_eq "with the reason" "short broker: story-edit was not approved" "$(reply_field stderr | tr -d '\n')"
+run_asking create -t "Denied"
+check_that "a denied create is refused" refused_reply
+check_eq "with its reason" "short broker: create was not approved" "$(reply_field stderr | tr -d '\n')"
+
+approve_with allow
+run_asking story 12 -c one -c two
+check_that "a write that repeats a body flag is refused" refused_reply
+check_not "before the approver is asked about it" approver_ran
+
+rm -f "$tmp/rules"
+printf 'deny short create\n' > "$tmp/rules"
+run_asking create -t "Blocked"
+check_not "a create the rules deny is not asked for approval" approver_ran
+check_that "and it is refused" refused_reply
+
+rm -f "$tmp/rules"
+approve_with allow-always
+run_asking story 12 -s Done
+check_that "allow-always stores the rule" grep -qxF "allow short story-edit workspace" "$tmp/rules"
+approve_with deny
+run_asking story 12 -c Again
+check_not "the next story edit is not asked for approval" approver_ran
+check_eq "and runs under the stored rule" "story|12|--comment=Again|" "$(ran)"
+approve_with allow
+
 check_that "install is refused" refused install
 check_that "api is refused" refused api /stories
 check_that "workspace is refused" refused workspace
@@ -158,11 +236,9 @@ check_that "no command is refused" refused
 check_that "argv that is not a list of text is refused" refused_line '{"argv": ["story", 12]}'
 check_that "a request that is not JSON is refused" refused_line 'not json'
 run_short install
-check_that "a refused command lists the commands it can use" \
-  sh -c 'printf "%s" "$1" | grep -qF "commands: search, find, story, create, members, workflows, epics, epic view"' _ "$(reply_field stderr)"
+check_that "a refused command lists the commands it can use" stderr_contains "commands: search, find, story, create, members, workflows, epics, epic view"
 run_short story 12 -O
-check_that "a refused flag lists that command's flags" \
-  sh -c 'printf "%s" "$1" | grep -qF "story takes: --archived, --comment, --deadline"' _ "$(reply_field stderr)"
+check_that "a refused flag lists that command's flags" stderr_contains "story takes: --archived, --comment, --deadline"
 
 touch "$tmp/leak"
 run_short search owner:me
@@ -174,7 +250,7 @@ rm "$tmp/leak"
 mv "$tmp/short" "$tmp/short.moved"
 run_short search owner:me
 check_eq "a short that can't run is an error reply, not a dropped request" 1 "$(reply_field exit)"
-check_that "that names the problem" sh -c 'reply_stderr="$1"; case "$reply_stderr" in "short broker: short could not run"*) exit 0 ;; *) exit 1 ;; esac' _ "$(reply_field stderr)"
+check_that "that names the problem" stderr_starts_with "short broker: short could not run"
 mv "$tmp/short.moved" "$tmp/short"
 
 kill "$session_pid" && wait "$session_pid" 2>/dev/null

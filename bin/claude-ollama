@@ -489,7 +489,7 @@ start_shortcut_broker() {
   shortcut_broker_socket="$session_config_dir/shortcut-broker.$$.sock"
   rm -f "$shortcut_broker_socket"
   nohup "$profile_dir/shortcut/broker.py" --socket "$shortcut_broker_socket" --short "$short" \
-    --watch-pid "$$" >/dev/null 2>&1 &
+    --watch-pid "$$" --rules "$command_rules_file" --approve-with "$profile_dir/approve-dialog" >/dev/null 2>&1 &
   if wait_for_socket "$shortcut_broker_socket"; then
     export CLAUDE_OLLAMA_SHORTCUT_BROKER="$shortcut_broker_socket"
   else
