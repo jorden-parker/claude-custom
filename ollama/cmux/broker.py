@@ -235,6 +235,12 @@ class SelfTestPage(http.server.BaseHTTPRequestHandler):
         pass
 
 
+class SelfTestPageServer(http.server.ThreadingHTTPServer):
+    def server_bind(self):
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
+
+
 def shown_value(value):
     shown = json.dumps(value)
     if len(shown) > SHOWN_VALUE_LIMIT:
@@ -265,7 +271,7 @@ def self_test_line(name, passed, expected, got):
 
 
 def run_self_test(cmux):
-    page_server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), SelfTestPage)
+    page_server = SelfTestPageServer(("127.0.0.1", 0), SelfTestPage)
     threading.Thread(target=page_server.serve_forever, daemon=True).start()
     broker = Broker(cmux)
     result = {}

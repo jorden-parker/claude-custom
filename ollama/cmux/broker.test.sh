@@ -261,6 +261,19 @@ python3 "$broker" --self-test --cmux "$tmp/cmux" > "$tmp/selftest.out" 2>&1
 check_that "browser-check cuts a long value to 200 characters" \
   grep -qE '^FAIL: localhost page .*, got "x{199}\.\.\.$' "$tmp/selftest.out"
 
+check_eq "the self-test page server never reverse-resolves its address, which stalls on some machines" "127.0.0.1" \
+  "$(python3 -c 'import socket, sys
+sys.path.insert(0, sys.argv[1])
+import broker
+
+def stalled(host):
+    raise AssertionError("getfqdn called")
+
+socket.getfqdn = stalled
+server = broker.SelfTestPageServer(("127.0.0.1", 0), broker.SelfTestPage)
+print(server.server_name)
+server.server_close()' "$here")"
+
 check_that "every tabs.use in page.js is awaited" \
   test -z "$(grep -n 'tabs.use(' "$here/page.js" | grep -v 'await tabs.use(')"
 
