@@ -56,6 +56,7 @@ pwd -P > "$tmp/gh-cwd"
 echo "\${GH_HOST-unset}" > "$tmp/gh-host"
 echo "\${GH_CONFIG_DIR-unset}" > "$tmp/gh-config-dir"
 ls -A "\${GH_CONFIG_DIR:-/nonexistent}" > "$tmp/gh-config-listing" 2>&1
+[ -e "$tmp/echo-token" ] && echo "\$GH_TOKEN"
 echo "listed"
 echo "warning" >&2
 exit 3
@@ -223,6 +224,86 @@ check_that "a branch with spaces is refused" refused ask pr_diff '{"branch":"a b
 check_that "a number and a branch together are refused" refused ask pr_diff '{"number":1,"branch":"main"}'
 check_that "pr_diff needs a number or a branch" refused ask pr_diff
 stop_broker
+
+cat > "$tmp/approve" <<EOF
+#!/bin/sh
+cat > "$tmp/approve.in"
+cat "$tmp/approve.answer"
+EOF
+chmod +x "$tmp/approve"
+approve_with() {
+  printf '%s\n' "$1" > "$tmp/approve.answer"
+  rm -f "$tmp/approve.in"
+  : > "$tmp/gh.log"
+}
+approver_ran() {
+  [ -e "$tmp/approve.in" ]
+}
+
+start_broker owner/project --allow-repo friend/tool --allow-repo team/* --rules "$tmp/rules" --approve-with "$tmp/approve"
+
+rm -f "$tmp/rules"
+approve_with allow
+ask pr_comment '{"number":12,"body":"Looks good"}'
+check_that "an approved pr_comment runs with the body as one --body= argument" logged "pr comment 12 --body=Looks good"
+check_that "the approver saw the body" grep -qF "Looks good" "$tmp/approve.in"
+check_that "and the repo the write goes to" grep -qF "(repo owner/project)" "$tmp/approve.in"
+
+approve_with deny
+ask pr_comment '{"number":12,"body":"Nope"}'
+check_eq "a denied pr_comment is refused" "1" "$(reply_field exit)"
+check_eq "and gh never runs" "" "$(cat "$tmp/gh.log")"
+check_eq "with the reason" "gh broker: pr comment on owner/project was not approved" "$(reply_field stderr | tr -d '\n')"
+
+rm -f "$tmp/rules"
+approve_with allow-always
+ask pr_comment '{"number":13,"body":"Again"}'
+check_that "allow-always writes a rule for this repo" grep -qxF "allow gh pr_comment owner/project" "$tmp/rules"
+approve_with deny
+ask pr_comment '{"number":14,"body":"Again"}'
+check_that "the next identical write runs without the approver" logged "pr comment 14 --body=Again"
+check_that "and the approver is not asked" test ! -e "$tmp/approve.in"
+
+printf 'deny gh pr_create\n' > "$tmp/rules"
+approve_with allow
+check_that "a rule that denies pr_create refuses it without the approver" refused ask pr_create '{"title":"T","body":"B","head":"feature/x"}'
+check_that "and the approver is not asked" test ! -e "$tmp/approve.in"
+
+rm -f "$tmp/rules"
+approve_with allow
+long_body="$(head -c 20001 /dev/zero | tr '\0' x)"
+check_that "a body over 20000 characters is refused" refused ask issue_comment "{\"number\":7,\"body\":\"$long_body\"}"
+check_eq "with the limit named" "gh broker: body must be at most 20000 characters" "$(reply_field stderr | tr -d '\n')"
+check_that "an empty body is refused" refused ask issue_comment '{"number":7,"body":"   "}'
+check_that "a missing body is refused" refused ask pr_comment '{"number":7}'
+
+approve_with allow
+ask issue_comment '{"number":7,"body":"Thanks"}'
+check_that "an approved issue_comment runs" logged "issue comment 7 --body=Thanks"
+
+approve_with allow
+ask pr_create '{"title":"T","body":"B","head":"feature/x","base":"main","draft":true}'
+check_that "pr_create passes title, body, head, base and draft as flags" \
+  logged "pr create --title=T --body=B --head=feature/x --base=main --draft"
+check_that "without head pr_create is refused" refused ask pr_create '{"title":"T","body":"B"}'
+check_eq "naming the missing field" "gh broker: head is required" "$(reply_field stderr | tr -d '\n')"
+
+approve_with allow
+ask pr_comment '{"number":12,"body":"--hostname=evil"}'
+check_eq "a body that looks like a flag is one argument" "pr comment 12 --body=--hostname=evil" "$(tail -n 1 "$tmp/gh.log")"
+
+approve_with deny
+ask pr_view '{"number":12}'
+check_that "a read never asks the approver" test ! -e "$tmp/approve.in"
+
+touch "$tmp/echo-token"
+ask pr_view '{"number":12}'
+check_eq "gh's output has the token scrubbed" "[GitHub token removed]" "$(reply_field stdout | head -n 1)"
+rm -f "$tmp/echo-token"
+
+approve_with allow
+check_that "a repo off the allow list is refused" refused ask pr_comment '{"number":12,"body":"x","repo":"stranger/secret"}'
+check_that "before the approver runs" test ! -e "$tmp/approve.in"
 
 start_broker "" --allow-repo friend/tool
 check_that "without a GitHub origin a request that names no repo is refused" refused ask pr_list

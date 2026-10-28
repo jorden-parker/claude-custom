@@ -5,15 +5,24 @@ import os
 import re
 import socketserver
 import subprocess
+import sys
 import tempfile
 import threading
 import time
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from approval import Approver, summary_for
+
 COMMAND_TIMEOUT_SECONDS = 120
 DEFAULT_LIMIT = 20
 MAX_LIMIT = 100
 MAX_TEXT_LENGTH = 256
+MAX_BODY_LENGTH = 20000
+BODY_FIELDS = ("title", "body")
+TOKEN_REMOVED = "[GitHub token removed]"
+DEFAULT_RULES_PATH = "~/.config/claude-custom/command-rules"
+APPROVE_DIALOG = Path(__file__).resolve().parent.parent / "approve-dialog"
 SEARCH_QUALIFIER = re.compile(r"([A-Za-z_-]*):")
 ALLOWED_QUALIFIERS = {
     "is",
@@ -162,6 +171,39 @@ class Arguments:
             raise Refused("author must be a GitHub login or @me")
         return [f"--author={value}"]
 
+    def body(self, name):
+        value = self.values.get(name)
+        if value is None:
+            raise Refused(f"{name} is required")
+        if not isinstance(value, str):
+            raise Refused(f"{name} must be text")
+        if not value.strip():
+            raise Refused(f"{name} must not be empty")
+        if len(value) > MAX_BODY_LENGTH:
+            raise Refused(f"{name} must be at most {MAX_BODY_LENGTH} characters")
+        if "\0" in value:
+            raise Refused(f"{name} must not contain NUL")
+        return value
+
+    def required_text(self, name):
+        value = self.text(name)
+        if value is None or not value.strip():
+            raise Refused(f"{name} is required")
+        return value
+
+    def branch(self, name):
+        value = self.text(name)
+        if value is None:
+            raise Refused(f"{name} is required")
+        if not BRANCH.fullmatch(value):
+            raise Refused(f"{name} must be a branch name")
+        return value
+
+    def optional_branch_flag(self, name, flag):
+        if name not in self.values:
+            return []
+        return [f"{flag}={self.branch(name)}"]
+
 
 def pr_list(values):
     args = Arguments(values, {"state", "limit", "author", "search"})
@@ -220,6 +262,35 @@ def run_view(values):
     return ["run", "view", run_id, "--json", args.fields(RUN_VIEW_FIELDS, RUN_VIEW_FIELD_CHOICES)]
 
 
+def pr_comment(values):
+    args = Arguments(values, {"number", "body"})
+    return ["pr", "comment", args.number("number"), f"--body={args.body('body')}"]
+
+
+def issue_comment(values):
+    args = Arguments(values, {"number", "body"})
+    return ["issue", "comment", args.number("number"), f"--body={args.body('body')}"]
+
+
+def pr_create(values):
+    args = Arguments(values, {"title", "body", "head", "base", "draft"})
+    return [
+        "pr",
+        "create",
+        f"--title={args.required_text('title')}",
+        f"--body={args.body('body')}",
+        f"--head={args.branch('head')}",
+        *args.optional_branch_flag("base", "--base"),
+        *(["--draft"] if args.switch("draft") else []),
+    ]
+
+
+WRITE_TOOLS = {
+    "pr_comment": "pr comment",
+    "issue_comment": "issue comment",
+    "pr_create": "pr create",
+}
+
 TOOLS = {
     "pr_list": pr_list,
     "pr_view": pr_view,
@@ -230,6 +301,9 @@ TOOLS = {
     "issue_view": issue_view,
     "run_list": run_list,
     "run_view": run_view,
+    "pr_comment": pr_comment,
+    "issue_comment": issue_comment,
+    "pr_create": pr_create,
 }
 
 
@@ -248,11 +322,12 @@ def repository_allowed(repository, patterns):
 
 
 class Broker:
-    def __init__(self, gh, repo, workdir, allowed_repos=()):
+    def __init__(self, gh, repo, workdir, approver, allowed_repos=()):
         self.gh = gh
         self.repo = repo
         self.allowed_repos = (repo, *allowed_repos) if repo else tuple(allowed_repos)
         self.workdir = workdir
+        self.approver = approver
         config_dir = Path(workdir, "gh-config")
         config_dir.mkdir()
         self.env = {
@@ -280,9 +355,13 @@ class Broker:
 
     def handle(self, request):
         repository = self.repository_for(request)
+        argv = gh_args(request)
+        tool = request["tool"]
+        if tool in WRITE_TOOLS:
+            self.require_approval(tool, argv, repository, request.get("arguments", {}))
         return reply_from(
             subprocess.run(
-                [self.gh, *gh_args(request)],
+                [self.gh, *argv],
                 capture_output=True,
                 text=True,
                 cwd=self.workdir,
@@ -293,9 +372,24 @@ class Broker:
             )
         )
 
+    def require_approval(self, tool, argv, repository, arguments):
+        body_fields = {name: arguments[name] for name in BODY_FIELDS if name in arguments}
+        summary = summary_for("gh", tool, argv, repository, body_fields)
+        if not self.approver.decide("gh", tool, repository, summary):
+            raise Refused(f"{WRITE_TOOLS[tool]} on {repository} was not approved")
+
+
+def without_token(text):
+    token = os.environ.get("GH_TOKEN", "")
+    return text.replace(token, TOKEN_REMOVED) if token else text
+
 
 def reply_from(completed):
-    return {"exit": completed.returncode, "stdout": completed.stdout, "stderr": completed.stderr}
+    return {
+        "exit": completed.returncode,
+        "stdout": without_token(completed.stdout),
+        "stderr": without_token(completed.stderr),
+    }
 
 
 def refusal(reason):
@@ -348,9 +442,12 @@ def main():
     parser.add_argument("--repo", default="")
     parser.add_argument("--allow-repo", action="append", default=[])
     parser.add_argument("--watch-pid", type=int, required=True)
+    parser.add_argument("--rules", default=DEFAULT_RULES_PATH)
+    parser.add_argument("--approve-with", default=str(APPROVE_DIALOG))
     options = parser.parse_args()
+    approver = Approver(Path(options.rules).expanduser(), [options.approve_with])
     with tempfile.TemporaryDirectory() as workdir:
-        server = serve(Broker(options.gh, options.repo, workdir, options.allow_repo), options.socket)
+        server = serve(Broker(options.gh, options.repo, workdir, approver, options.allow_repo), options.socket)
         threading.Thread(target=exit_when_gone, args=(options.watch_pid, options.socket), daemon=True).start()
         server.serve_forever()
 
