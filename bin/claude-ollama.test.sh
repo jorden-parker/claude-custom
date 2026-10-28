@@ -154,7 +154,8 @@ EOF
   cat > "$sandbox/stubbin/python3" <<EOF
 #!/bin/sh
 case "\$1" in
-  *cmux/broker.py | *gh/broker.py | *shortcut/broker.py) exec /usr/bin/python3 "\$@" ;;
+  *gh/broker.py) echo "\$*" >> "$sandbox/gh-broker.log"; exec /usr/bin/python3 "\$@" ;;
+  *cmux/broker.py | *shortcut/broker.py) exec /usr/bin/python3 "\$@" ;;
 esac
 echo "\$*" >> "$sandbox/python.log"
 EOF
@@ -1026,6 +1027,8 @@ STUB_GH_AUTH_TOKEN=readsecret run_capture "$repo/bin/claude-ollama" 27b -p hi
 gh_socket="$(session_env CLAUDE_OLLAMA_GH_BROKER)"
 check_eq "a gh login allows only the gh broker's socket" "[\"$gh_socket\"]" "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
 check_that "the session cannot replace the gh broker's socket" policy_lists denyWrite "$gh_socket"
+check_that "the gh broker reads the command rules file" grep -qE -- '--rules [^ ]*/claude-custom/command-rules( |$)' "$sandbox/gh-broker.log"
+check_that "and asks writes through the approval dialog" grep -qE -- '--approve-with [^ ]*/ollama/approve-dialog( |$)' "$sandbox/gh-broker.log"
 session_path_has_gh_client() {
   session_env PATH | tr ':' '\n' | grep -qxF "$repo/ollama/gh/bin"
 }
