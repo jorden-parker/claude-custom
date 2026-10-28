@@ -111,8 +111,8 @@ before changing how any file gets applied.
   `printf '{"tool_input":{"command":"git log"}}' | shared/hooks/bash-output-guard.py`
 - Validate JSON after editing: `make check-json`
 - Launch the work harness: `claude-ollama [27b|35b] [claude args...]`, sandboxed
-  with `CLAUDE_OLLAMA_SANDBOX=1 claude-ollama ...` (27b is the default size;
-  `--help` lists sizes)
+  sandboxed by default; `CLAUDE_OLLAMA_SANDBOX=0 claude-ollama ...` runs it as
+  you (27b is the default size; `--help` lists sizes)
 - `claude-ollama browser-check` proves the session browser can't leave localhost
   (needs a cmux terminal; prints `browser-check: passed`).
 - Check the work harness: `claude-ollama doctor [size]` (exit 1 on a missing
@@ -313,16 +313,20 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   bare name, so their schemas never reach the local model's context. `--tools`
   in `bin/claude-ollama` is the primary allowlist and that deny list is the
   backstop. `bin/check-config` fails when the Ollama deny lists differ. A local
-  model's weights are not trusted, so with `CLAUDE_OLLAMA_SANDBOX=1`
+  model's weights are not trusted, so unless `CLAUDE_OLLAMA_SANDBOX=0`
   `bin/claude-ollama` runs the whole session (Bash, hooks, Fallow, MCP servers)
   inside `sandbox-runtime` with `ollama/sandbox.json` (see the launcher entry
-  below). The sandbox is off by default for now: without that variable the
-  launcher execs `claude` directly with your `PATH`, env, `gh`, `short` and git
+  below). The proxy rewrites request bodies too, so `injectHosts` must never
+  include a host the session can post text to, and a misspelled key in
+  `ollama/sandbox.json` is silently dropped and opens that path, so
+  `bin/check-config`'s exact assertions are the guard. `CLAUDE_OLLAMA_SANDBOX=0`
+  execs `claude` directly with your `PATH`, env, `gh`, `short` and git
   credentials (no policy, no Shortcut broker, no `GH_BASIC`; the gh and cmux
-  brokers still start for the `mcp__repo__` and page tools), and `doctor` and
-  `--print-config` say which mode applies. The profiles turn Claude Code's own
-  Bash sandbox off (`sandbox.enabled: false`: macOS refuses a second sandbox
-  inside the first). They ask before every Bash command, commit and push
+  brokers still start for the `mcp__repo__` and page tools); the launch and
+  `doctor` say so, and the GitHub and Shortcut writes a session needs go through
+  the brokers' approval dialog. The profiles turn Claude Code's own Bash sandbox
+  off (`sandbox.enabled: false`: macOS refuses a second sandbox inside the
+  first). They ask before every Bash command, commit and push
   (`permissions.ask`); `bin/check-config` checks both and the policy's network,
   masked token and read and write lists. The profiles also set
   `CLAUDE_CODE_EXTRA_BODY` to `{"thinking":{"type":"disabled"}}` so Ollama skips
@@ -349,7 +353,7 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   `num_ctx` (no pull). `doctor` and `--print-config` are dispatched before any
   pull or launch; `doctor` reads hook names from the profile's settings file,
   not from `~/.claude/hooks`.
-- With `CLAUDE_OLLAMA_SANDBOX=1`, `bin/claude-ollama` never runs `claude`
+- Unless `CLAUDE_OLLAMA_SANDBOX=0`, `bin/claude-ollama` never runs `claude`
   unsandboxed: it exits 1 when `~/.local/share/claude-custom/sandbox-runtime`
   (installed by `claude-custom install` from
   `ollama/sandbox-runtime.package*.json`, named so Fallow does not read them as

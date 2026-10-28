@@ -83,3 +83,5 @@ to api.github.com was blocked (curl exit 56).
   target stays readable, so a typo in `ollama/sandbox.json` opens that path. In
   this run srt accepted the policy with the misspelled key and rejected policies
   that lacked required fields.
+
+2026-10-28: default flipped to on at 271c8fe after these results.

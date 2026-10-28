@@ -191,7 +191,10 @@ not used, so image paste does not work on them.
 `claude-ollama` runs the whole session, Bash, hooks, Fallow and the code-search
 server included, inside Anthropic's `sandbox-runtime`, and refuses to start
 without it (`claude-custom install` installs it). The policy is
-`ollama/sandbox.json`:
+`ollama/sandbox.json`. `CLAUDE_OLLAMA_SANDBOX=0 claude-ollama` is the escape
+hatch: it execs `claude` as you, with your `PATH`, env, `gh`, `short` and git
+credentials, and gives up the policy, the Shortcut broker and the masked push
+token. Only the exact value `0` turns it off.
 
 - Writes: the project, its git directory (except `hooks` and `config`), the
   session's own folder `~/.claude-ollama` (its config, temp files and its own
@@ -234,7 +237,9 @@ it again replaces the stored token.
   write) lets `git push` work. The session never sees the token: it gets a
   placeholder, which the sandbox's proxy swaps for the real value only on
   requests to `github.com`. Without it, `doctor` warns and pushes fail; commits
-  still work. Remotes must use HTTPS.
+  still work. Remotes must use HTTPS: an SSH `origin` (`git@github.com:` or
+  `ssh://`) makes the launch and `doctor` warn, with the `git remote set-url` to
+  run, since `~/.ssh` is unreadable inside the sandbox.
 - Reading PRs, issues and CI uses your normal `gh` login
   (`gh auth token --hostname github.com`), so it reaches every repo you can. The
   token never enters the sandbox, and the session has no `gh`. The model gets
