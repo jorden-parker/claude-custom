@@ -10,7 +10,7 @@ flowchart TB
   personal --> policy["5. managed policy (always wins)"]
   profile --> policy
   policy --> hooks["hooks: CLAUDE_CUSTOM_HOME/shared/hooks/&lt;name&gt;"]
-  policy --> prompt["prompts: ~/.claude/CLAUDE.md @-imports PREFERENCES.md; claude-ollama adds system-prompt.md and CLAUDE.local.md"]
+  policy --> prompt["prompts: ~/.claude/CLAUDE.md @-imports PREFERENCES.md; claude-ollama adds system-prompt.md, CLAUDE.local.md and, sandboxed, CLAUDE.sandbox.md"]
 ```
 
 Below the diagram, the numbered list gives the same layers in order. Mermaid is

@@ -104,8 +104,9 @@ before changing how any file gets applied.
 - Feed the hook one command by hand:
   `printf '{"tool_input":{"command":"git log"}}' | shared/hooks/bash-output-guard.py`
 - Validate JSON after editing: `make check-json`
-- Launch the work harness: `claude-ollama [27b|35b] [claude args...]` (27b is
-  the default size; `--help` lists sizes)
+- Launch the work harness: `claude-ollama [27b|35b] [claude args...]`, sandboxed
+  with `CLAUDE_OLLAMA_SANDBOX=1 claude-ollama ...` (27b is the default size;
+  `--help` lists sizes)
 - `claude-ollama browser-check` proves the session browser can't leave localhost
   (needs a cmux terminal; prints `browser-check: passed`).
 - Check the work harness: `claude-ollama doctor [size]` (exit 1 on a missing
@@ -306,13 +307,18 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   bare name, so their schemas never reach the local model's context. `--tools`
   in `bin/claude-ollama` is the primary allowlist and that deny list is the
   backstop. `bin/check-config` fails when the Ollama deny lists differ. A local
-  model's weights are not trusted, so `bin/claude-ollama` runs the whole session
-  (Bash, hooks, Fallow, MCP servers) inside `sandbox-runtime` with
-  `ollama/sandbox.json` (see the launcher entry below), and the profiles turn
-  Claude Code's own Bash sandbox off (`sandbox.enabled: false`: macOS refuses a
-  second sandbox inside the first). They ask before every Bash command, commit
-  and push (`permissions.ask`); `bin/check-config` checks both and the policy's
-  network, masked token and read and write lists. The profiles also set
+  model's weights are not trusted, so with `CLAUDE_OLLAMA_SANDBOX=1`
+  `bin/claude-ollama` runs the whole session (Bash, hooks, Fallow, MCP servers)
+  inside `sandbox-runtime` with `ollama/sandbox.json` (see the launcher entry
+  below). The sandbox is off by default for now: without that variable the
+  launcher execs `claude` directly with your `PATH`, env, `gh`, `short` and git
+  credentials (no policy, no Shortcut broker, no `GH_BASIC`; the gh and cmux
+  brokers still start for the `mcp__repo__` and page tools), and `doctor` and
+  `--print-config` say which mode applies. The profiles turn Claude Code's own
+  Bash sandbox off (`sandbox.enabled: false`: macOS refuses a second sandbox
+  inside the first). They ask before every Bash command, commit and push
+  (`permissions.ask`); `bin/check-config` checks both and the policy's network,
+  masked token and read and write lists. The profiles also set
   `CLAUDE_CODE_EXTRA_BODY` to `{"thinking":{"type":"disabled"}}` so Ollama skips
   reasoning; `bin/check-config` checks it. `shared/hooks/git-push-guard.py`
   (Ollama-only, PreToolUse on Bash) denies force pushes, remote deletes,
@@ -324,9 +330,11 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
 - `bin/claude-ollama` resolves its own symlink to find `ollama/`. It unsets
   `ANTHROPIC_API_KEY`, passes `--settings ollama/settings.<size>.json`,
   `--system-prompt-file ollama/system-prompt.md` (replacing Claude Code's
-  default system prompt), `--append-system-prompt-file ollama/CLAUDE.local.md`,
-  `--strict-mcp-config` plus an inline `--mcp-config` for the code-search
-  server, `--model` with the profile's `model` (it also unsets
+  default system prompt),
+  `--append-system-prompt-file ~/.claude-ollama/append-prompt.md` (written each
+  launch from `ollama/CLAUDE.local.md`, plus `ollama/CLAUDE.sandbox.md` when
+  sandboxed), `--strict-mcp-config` plus an inline `--mcp-config` for the
+  code-search server, `--model` with the profile's `model` (it also unsets
   `ANTHROPIC_MODEL`, which would otherwise win over the settings file), and
   restricts tools with `--tools` (built-in tools only; MCP tools still load).
   Before launching, it pulls the base model and creates the `-cc` model when
@@ -335,11 +343,11 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   `num_ctx` (no pull). `doctor` and `--print-config` are dispatched before any
   pull or launch; `doctor` reads hook names from the profile's settings file,
   not from `~/.claude/hooks`.
-- `bin/claude-ollama` never runs `claude` unsandboxed: it exits 1 when
-  `~/.local/share/claude-custom/sandbox-runtime` (installed by
-  `claude-custom install` from `ollama/sandbox-runtime.package*.json`, named so
-  Fallow does not read them as a package) is missing, and `doctor` reports it.
-  It runs
+- With `CLAUDE_OLLAMA_SANDBOX=1`, `bin/claude-ollama` never runs `claude`
+  unsandboxed: it exits 1 when `~/.local/share/claude-custom/sandbox-runtime`
+  (installed by `claude-custom install` from
+  `ollama/sandbox-runtime.package*.json`, named so Fallow does not read them as
+  a package) is missing, and `doctor` reports it. It runs
   `srt -s ~/.claude-ollama/sandbox-policy.json -- ollama/sandbox-entry claude ...`
   (`exec` without a terminal). On a terminal it first sets the raw mode Claude
   Code's runtime would set, and restores the saved mode on exit: the sandbox
@@ -554,10 +562,11 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   `EnvironmentVariables` are lost.
 - `ollama/CLAUDE.local.md` is the appended system prompt for every size, for
   small local models, not memory files. Keep it terse: the 27b has a 64k
-  context, the other sizes 96k. It shows every `gh` and `short` form the brokers
-  take; `bin/check-config` fails when one is missing. `ollama/sizes.json` is the
-  single source for each size's `context`: `bin/ollama-profiles` writes it to
-  `Modelfile.<size>` (`num_ctx`), `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, and the
+  context, the other sizes 96k. `ollama/CLAUDE.sandbox.md` is appended after it
+  only in sandboxed sessions; it shows every `gh` and `short` form the brokers
+  take, and `bin/check-config` fails when one is missing. `ollama/sizes.json` is
+  the single source for each size's `context`: `bin/ollama-profiles` writes it
+  to `Modelfile.<size>` (`num_ctx`), `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, and the
   `ollama create` names that `model` and the `ANTHROPIC_DEFAULT_*_MODEL` vars
   refer to. A managed `availableModels` that lacks the model makes Claude Code
   substitute a `[1m]` ID, which assumes a 1M window; `claude-ollama doctor`

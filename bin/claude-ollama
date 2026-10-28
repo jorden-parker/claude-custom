@@ -18,6 +18,7 @@ gguf_inspect="${CLAUDE_OLLAMA_GGUF_INSPECT:-$repo_dir/bin/gguf-inspect}"
 sandbox_runtime="$HOME/.local/share/claude-custom/sandbox-runtime/node_modules/.bin/srt"
 session_config_dir="$HOME/.claude-ollama"
 sandbox_policy="$session_config_dir/sandbox-policy.json"
+append_prompt="$session_config_dir/append-prompt.md"
 fetch_domains_file="${XDG_CONFIG_HOME:-$HOME/.config}/claude-custom/fetch-domains"
 gh_repos_file="${XDG_CONFIG_HOME:-$HOME/.config}/claude-custom/gh-repos"
 gh_repo_pattern='^[A-Za-z0-9][A-Za-z0-9-]*/([A-Za-z0-9_][A-Za-z0-9._-]*|\*)$'
@@ -246,6 +247,10 @@ warm_search_index() {
   [ -z "${CLAUDE_OLLAMA_NO_INDEX:-}" ] || return 0
   git rev-parse --show-toplevel >/dev/null 2>&1 || return 0
   nohup python3 "$repo_dir/shared/mcp/code-search.py" --index --watch-pid "$$" >/dev/null 2>&1 &
+}
+
+sandbox_wanted() {
+  [ "${CLAUDE_OLLAMA_SANDBOX:-0}" = 1 ]
 }
 
 require_sandbox_runtime() {
@@ -499,7 +504,7 @@ write_sandbox_policy() {
     --arg reviews "$review_log_dir" --arg console_state "$console_state_dir" --arg fetch_settings "$fetch_settings" \
     --argjson shortcut_configs "$(shortcut_config_dirs | jq -R . | jq -s 'unique')" \
     --argjson fetch_domains "$(printf '%s' "${launch_fetch_domains:-}" | fetch_domains_json)" \
-    --argjson config_sources '["CLAUDE.md", "skills", "settings.json", "settings.local.json", "commands", "agents", "plugins", "rules", "output-styles", "keybindings.json", ".config.json"]' '
+    --argjson config_sources '["CLAUDE.md", "skills", "settings.json", "settings.local.json", "commands", "agents", "plugins", "rules", "output-styles", "keybindings.json", ".config.json", "append-prompt.md"]' '
     ($git | if . == "" then [] else [.] end) as $git_dirs
     | ($items | if . == "" then [] else [.] end) as $item_dirs
     | .filesystem.allowWrite += [$config] + $item_dirs + $git_dirs
@@ -633,9 +638,40 @@ github_basic_auth() {
 }
 
 claude_command() {
-  printf '%s -s %s -- %s ' "$sandbox_runtime" "$sandbox_policy" "$profile_dir/sandbox-entry"
+  if sandbox_wanted; then
+    printf '%s -s %s -- %s ' "$sandbox_runtime" "$sandbox_policy" "$profile_dir/sandbox-entry"
+  fi
   printf 'claude --settings %s --system-prompt-file %s --append-system-prompt-file %s --strict-mcp-config --mcp-config %s --model %s --tools %s' \
-    "$(launch_settings_file)" "$profile_dir/system-prompt.md" "$profile_dir/CLAUDE.local.md" "$(mcp_config)" "$model" "$(launch_tools)"
+    "$(launch_settings_file)" "$profile_dir/system-prompt.md" "$append_prompt" "$(mcp_config)" "$model" "$(launch_tools)"
+}
+
+sandbox_label() {
+  if sandbox_wanted; then
+    echo on
+  else
+    echo off
+  fi
+}
+
+write_append_prompt() {
+  if sandbox_wanted; then
+    cat "$profile_dir/CLAUDE.local.md" "$profile_dir/CLAUDE.sandbox.md" > "$append_prompt"
+  else
+    cat "$profile_dir/CLAUDE.local.md" > "$append_prompt"
+  fi
+}
+
+launch_sandboxed() {
+  unset GH_TOKEN GITHUB_TOKEN
+  start_shortcut_broker
+  unset SHORTCUT_API_TOKEN SHORTCUT_URL_SLUG SHORTCUT_MENTION_NAME CLUBHOUSE_API_TOKEN
+  write_sandbox_policy
+  GH_BASIC="$(github_basic_auth)"
+  export GH_BASIC
+  export CLAUDE_OLLAMA_SESSION_PATH="$launch_path"
+  stop_launcher_log
+  run_in_raw_terminal "$sandbox_runtime" -s "$sandbox_policy" -- "$profile_dir/sandbox-entry" claude "$@"
+  exit
 }
 
 print_config() {
@@ -648,6 +684,7 @@ print_config() {
   echo "settings: $(launch_settings_file)"
   echo "fetch domains: $(fetch_domains_label)"
   echo "tools: $(launch_tools)"
+  echo "sandbox: $(sandbox_label)"
   echo "command: $(claude_command)"
 }
 
@@ -784,6 +821,15 @@ check_model_allowed() {
   fi
 }
 
+check_sandbox() {
+  if ! sandbox_wanted; then
+    report ok "sandbox off (CLAUDE_OLLAMA_SANDBOX=1 turns it on)"
+    return 0
+  fi
+  report ok "sandbox on (CLAUDE_OLLAMA_SANDBOX=1)"
+  check_sandbox_runtime
+}
+
 check_sandbox_runtime() {
   if [ -x "$sandbox_runtime" ]; then
     report ok "sandbox-runtime installed"
@@ -837,10 +883,12 @@ doctor() {
   check_hooks_present || status=1
   check_reachable || status=1
   check_server_env || status=1
-  check_sandbox_runtime || status=1
+  check_sandbox || status=1
   check_fetch_domains
-  check_github_token
-  check_shortcut
+  if sandbox_wanted; then
+    check_github_token
+    check_shortcut
+  fi
   check_gh_login
   check_model_allowed
   exit "$status"
@@ -969,6 +1017,7 @@ case "${1:-}" in
     echo "usage: claude-ollama [size] [claude args...]"
     echo "sizes: $(configured_sizes | tr '\n' ' ' | sed 's/ $//')"
     echo "no size: pick one in a menu (or $default_size without a terminal)"
+    echo "sandbox: off by default; CLAUDE_OLLAMA_SANDBOX=1 claude-ollama ... runs the session inside sandbox-runtime"
     echo "doctor [size]: check models, context sizes, hooks, Ollama and the server env"
     echo "--print-config [size]: print the resolved settings and the claude command"
     echo "logs [-n LINES|--path]: follow the Ollama server log (LaunchAgent, Homebrew service or app), or print its path"
@@ -1065,8 +1114,10 @@ case "$mode" in
 esac
 
 start_launcher_log
-require_sandbox_runtime
-require_plain_project_root
+if sandbox_wanted; then
+  require_sandbox_runtime
+  require_plain_project_root
+fi
 apply_server_env
 ensure_model
 ensure_embedding_model
@@ -1076,28 +1127,29 @@ warm_embedding_model
 warm_search_index
 warm_model
 
-unset ANTHROPIC_API_KEY ANTHROPIC_MODEL CLAUDE_OLLAMA_CMUX_BROKER CLAUDE_OLLAMA_GH_BROKER CLAUDE_OLLAMA_SHORTCUT_BROKER GH_TOKEN GITHUB_TOKEN
-export CLAUDE_OLLAMA_SESSION_PATH="$launch_path"
+unset ANTHROPIC_API_KEY ANTHROPIC_MODEL CLAUDE_OLLAMA_CMUX_BROKER CLAUDE_OLLAMA_GH_BROKER CLAUDE_OLLAMA_SHORTCUT_BROKER CLAUDE_OLLAMA_SESSION_PATH
 export CLAUDE_CUSTOM_HOME="$repo_dir"
 prepare_session_config
 start_cmux_broker
 start_gh_broker
-start_shortcut_broker
-unset SHORTCUT_API_TOKEN SHORTCUT_URL_SLUG SHORTCUT_MENTION_NAME CLUBHOUSE_API_TOKEN
 launch_fetch_domains="$(fetch_domains)"
 write_fetch_settings
-write_sandbox_policy
+write_append_prompt
 export CLAUDE_CONFIG_DIR="$session_config_dir"
 export CLAUDE_CODE_TMPDIR="$session_config_dir/tmp"
-GH_BASIC="$(github_basic_auth)"
-export GH_BASIC
+claude_args=(
+  --settings "$(launch_settings_file)"
+  --system-prompt-file "$profile_dir/system-prompt.md"
+  --append-system-prompt-file "$append_prompt"
+  --strict-mcp-config
+  --mcp-config "$(mcp_config)"
+  --model "$model"
+  --tools "$(launch_tools)"
+)
+if sandbox_wanted; then
+  launch_sandboxed "${claude_args[@]}" "$@"
+fi
+echo "claude-ollama: sandbox off: the session runs as you (CLAUDE_OLLAMA_SANDBOX=1 turns it on)" >&2
 stop_launcher_log
-run_in_raw_terminal "$sandbox_runtime" -s "$sandbox_policy" -- "$profile_dir/sandbox-entry" claude \
-  --settings "$(launch_settings_file)" \
-  --system-prompt-file "$profile_dir/system-prompt.md" \
-  --append-system-prompt-file "$profile_dir/CLAUDE.local.md" \
-  --strict-mcp-config \
-  --mcp-config "$(mcp_config)" \
-  --model "$model" \
-  --tools "$(launch_tools)" \
-  "$@"
+PATH="$launch_path"
+exec claude "${claude_args[@]}" "$@"

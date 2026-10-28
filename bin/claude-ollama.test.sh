@@ -60,6 +60,7 @@ new_sandbox() {
   unset ZDOTDIR XDG_CONFIG_HOME CLAUDE_CONFIG_DIR STUB_OLLAMA_SHOW_EXIT STUB_OLLAMA_PULL_EXIT
   unset STUB_OLLAMA_PID STUB_OLLAMA_ENV STUB_CURL_EXIT STUB_OLLAMA_NUM_CTX STUB_AGENT_EXIT CMUX_SOCKET_PATH CLAUDE_OLLAMA_CMUX
   unset STUB_SHASUM_DIGEST STUB_INSPECT_EXIT STUB_CLAUDE_STDERR CLAUDE_CONSOLE_STATE_DIR
+  export CLAUDE_OLLAMA_SANDBOX=1
   export SHELL=/bin/zsh
   record_installed_num_ctx
   export CLAUDE_OLLAMA_MANAGED_SETTINGS="$sandbox/managed-settings.json"
@@ -248,8 +249,11 @@ check_eq "claude-ollama exports CLAUDE_CUSTOM_HOME to claude" "$repo" "$(cat "$s
 run_capture "$repo/bin/claude-ollama" 35b -p hi
 check_that "claude-ollama 35b uses the 35b settings" grep -qF -- "--settings $repo/ollama/settings.35b.json" "$sandbox/out"
 check_that "claude-ollama 35b passes the 35b model" grep -qF -- "--model qwen3.6-35b-cc --tools" "$sandbox/out"
-check_that "claude-ollama 35b uses the shared prompt" grep -qF -- "--append-system-prompt-file $repo/ollama/CLAUDE.local.md" "$sandbox/out"
-check_that "claude-ollama replaces the default system prompt" grep -qF -- "--system-prompt-file $repo/ollama/system-prompt.md --append-system-prompt-file $repo/ollama/CLAUDE.local.md" "$sandbox/out"
+append_prompt="$HOME/.claude-ollama/append-prompt.md"
+check_that "claude-ollama replaces the default system prompt and appends its own" \
+  grep -qF -- "--system-prompt-file $repo/ollama/system-prompt.md --append-system-prompt-file $append_prompt" "$sandbox/out"
+check_eq "the sandboxed prompt is the shared prompt plus the sandbox's gh and short rules" \
+  "$(cat "$repo/ollama/CLAUDE.local.md" "$repo/ollama/CLAUDE.sandbox.md")" "$(cat "$append_prompt")"
 check_that "claude-ollama 35b passes claude args through" grep -qF -- "--tools Bash,Read,Edit,Write,Skill,TaskStop -p hi" "$sandbox/out"
 check_that "claude-ollama warms the main model" grep -q 'localhost:11434/api/generate' "$sandbox/curl.log"
 check_that "claude-ollama warm-up names the model" grep -q '"model":"qwen3.6-35b-cc"' "$sandbox/curl.log"
@@ -1071,9 +1075,10 @@ run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_eq "claude-ollama without sandbox-runtime exits 1" 1 "$?"
 check_that "claude-ollama without sandbox-runtime says how to install it" \
   grep -qxF "claude-ollama: sandbox-runtime is missing; run claude-custom install" "$sandbox/err"
-check_not "claude-ollama never runs claude unsandboxed" grep -q "^ARGS:" "$sandbox/out"
+check_not "with CLAUDE_OLLAMA_SANDBOX=1 claude-ollama never falls back to running claude unsandboxed" grep -q "^ARGS:" "$sandbox/out"
 run_capture "$repo/bin/claude-ollama" doctor 27b
 check_that "doctor reports a missing sandbox-runtime" grep -qxF "fail sandbox-runtime missing (run claude-custom install)" "$sandbox/out"
+check_that "doctor says the sandbox is on" grep -qxF "ok   sandbox on (CLAUDE_OLLAMA_SANDBOX=1)" "$sandbox/out"
 check_that "doctor warns when no GitHub token is stored" \
   grep -qxF "warn no GitHub token in the keychain item claude-ollama-github (git push from the session will fail; run claude-ollama github-token push)" "$sandbox/out"
 install_sandbox_runtime_stub
@@ -1113,6 +1118,32 @@ run_capture "$repo/bin/claude-ollama" --help
 check_that "help lists github-token" grep -qF "github-token [push]:" "$sandbox/out"
 
 short_unix_socket_parent=/tmp
+
+new_sandbox
+unset CLAUDE_OLLAMA_SANDBOX
+GH_TOKEN=outer SHORTCUT_API_TOKEN=outer STUB_GITHUB_TOKEN=secret run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_that "without CLAUDE_OLLAMA_SANDBOX=1 claude runs without sandbox-runtime" grep -q "^ARGS:" "$sandbox/out"
+check_not "and never through it" test -e "$sandbox/srt.log"
+check_that "the launch says the sandbox is off and how to turn it on" \
+  grep -qxF "claude-ollama: sandbox off: the session runs as you (CLAUDE_OLLAMA_SANDBOX=1 turns it on)" "$sandbox/err"
+check_not "with no sandbox policy" test -e "$HOME/.claude-ollama/sandbox-policy.json"
+check_eq "the unsandboxed session keeps your GitHub token" outer "$(session_env GH_TOKEN)"
+check_eq "and your Shortcut token" outer "$(session_env SHORTCUT_API_TOKEN)"
+check_eq "and your own git credentials, not the keychain header" "unset unset unset" "$(cat "$sandbox/git-config-env")"
+check_eq "and your PATH" "$PATH" "$(session_env PATH)"
+check_eq "and gets no Shortcut broker" "" "$(session_env CLAUDE_OLLAMA_SHORTCUT_BROKER)"
+check_eq "the unsandboxed prompt leaves out the sandbox's gh and short rules" \
+  "$(cat "$repo/ollama/CLAUDE.local.md")" "$(cat "$HOME/.claude-ollama/append-prompt.md")"
+run_capture "$repo/bin/claude-ollama" doctor 27b
+check_that "doctor says the sandbox is off and how to turn it on" \
+  grep -qxF "ok   sandbox off (CLAUDE_OLLAMA_SANDBOX=1 turns it on)" "$sandbox/out"
+check_not "and doesn't fail on a missing sandbox-runtime" grep -qF "sandbox-runtime missing" "$sandbox/out"
+run_capture "$repo/bin/claude-ollama" --print-config 27b
+check_that "print-config says the sandbox is off" grep -qxF "sandbox: off" "$sandbox/out"
+check_that "and prints the command without sandbox-runtime" grep -qF "command: claude --settings " "$sandbox/out"
+CLAUDE_OLLAMA_SANDBOX=1 run_capture "$repo/bin/claude-ollama" --print-config 27b
+check_that "print-config says when the sandbox is on" grep -qxF "sandbox: on" "$sandbox/out"
+
 new_sandbox "$short_unix_socket_parent"
 cat > "$sandbox/stubbin/gh" <<EOF
 #!/bin/sh

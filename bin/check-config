@@ -181,19 +181,19 @@ def load(path):
     return module
 
 
-instructions = (repo / "ollama/CLAUDE.local.md").read_text()
+instructions = (repo / "ollama/CLAUDE.sandbox.md").read_text()
 gh_shim = load(repo / "shared/mcp/gh-shim.py")
 shortcut_broker = load(repo / "ollama/shortcut/broker.py")
 expected = [f"`gh {' '.join(command)}" for command in gh_shim.COMMANDS] + ["`gh api repos/"]
 expected += [f"`short {' '.join(command)}" for command in shortcut_broker.COMMANDS]
 missing = [phrase for phrase in expected if phrase not in instructions]
 for phrase in missing:
-    print(f"CLAUDE.local.md never shows {phrase}`", file=sys.stderr)
+    print(f"CLAUDE.sandbox.md never shows {phrase}`", file=sys.stderr)
 sys.exit(1 if missing else 0)
 PY
 }
 
-check_that "CLAUDE.local.md shows every gh and short command the brokers take" instructions_show_every_broker_command
+check_that "CLAUDE.sandbox.md shows every gh and short command the brokers take" instructions_show_every_broker_command
 
 for settings in "$repo"/ollama/settings.*.json; do
   check_that "${settings##*/} allows semantic_search" allows_semantic_search "$settings"
