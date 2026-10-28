@@ -59,8 +59,7 @@ new_sandbox() {
   mkdir -p "$HOME" "$sandbox/stubbin"
   unset ZDOTDIR XDG_CONFIG_HOME CLAUDE_CONFIG_DIR STUB_OLLAMA_SHOW_EXIT STUB_OLLAMA_PULL_EXIT
   unset STUB_OLLAMA_PID STUB_OLLAMA_ENV STUB_CURL_EXIT STUB_OLLAMA_NUM_CTX STUB_AGENT_EXIT CMUX_SOCKET_PATH CLAUDE_OLLAMA_CMUX
-  unset STUB_SHASUM_DIGEST STUB_INSPECT_EXIT STUB_CLAUDE_STDERR CLAUDE_CONSOLE_STATE_DIR
-  export CLAUDE_OLLAMA_SANDBOX=1
+  unset STUB_SHASUM_DIGEST STUB_INSPECT_EXIT STUB_CLAUDE_STDERR CLAUDE_CONSOLE_STATE_DIR CLAUDE_OLLAMA_SANDBOX
   export SHELL=/bin/zsh
   record_installed_num_ctx
   export CLAUDE_OLLAMA_MANAGED_SETTINGS="$sandbox/managed-settings.json"
@@ -1082,7 +1081,7 @@ check_that "claude-ollama without sandbox-runtime says how to install it" \
 check_not "with CLAUDE_OLLAMA_SANDBOX=1 claude-ollama never falls back to running claude unsandboxed" grep -q "^ARGS:" "$sandbox/out"
 run_capture "$repo/bin/claude-ollama" doctor 27b
 check_that "doctor reports a missing sandbox-runtime" grep -qxF "fail sandbox-runtime missing (run claude-custom install)" "$sandbox/out"
-check_that "doctor says the sandbox is on" grep -qxF "ok   sandbox on (CLAUDE_OLLAMA_SANDBOX=1)" "$sandbox/out"
+check_that "doctor says the sandbox is on" grep -qxF "ok   sandbox on (CLAUDE_OLLAMA_SANDBOX=0 turns it off)" "$sandbox/out"
 check_that "doctor warns when no GitHub token is stored" \
   grep -qxF "warn no GitHub token in the keychain item claude-ollama-github (git push from the session will fail; run claude-ollama github-token push)" "$sandbox/out"
 install_sandbox_runtime_stub
@@ -1124,12 +1123,12 @@ check_that "help lists github-token" grep -qF "github-token [push]:" "$sandbox/o
 short_unix_socket_parent=/tmp
 
 new_sandbox
-unset CLAUDE_OLLAMA_SANDBOX
+export CLAUDE_OLLAMA_SANDBOX=0
 GH_TOKEN=outer SHORTCUT_API_TOKEN=outer STUB_GITHUB_TOKEN=secret run_capture "$repo/bin/claude-ollama" 27b -p hi
-check_that "without CLAUDE_OLLAMA_SANDBOX=1 claude runs without sandbox-runtime" grep -q "^ARGS:" "$sandbox/out"
+check_that "with CLAUDE_OLLAMA_SANDBOX=0 claude runs without sandbox-runtime" grep -q "^ARGS:" "$sandbox/out"
 check_not "and never through it" test -e "$sandbox/srt.log"
-check_that "the launch says the sandbox is off and how to turn it on" \
-  grep -qxF "claude-ollama: sandbox off: the session runs as you (CLAUDE_OLLAMA_SANDBOX=1 turns it on)" "$sandbox/err"
+check_that "the launch says the sandbox is off and what that gives up" \
+  grep -qxF "claude-ollama: sandbox OFF (CLAUDE_OLLAMA_SANDBOX=0): the session runs as you, with your gh, short, git credentials and env" "$sandbox/err"
 check_not "with no sandbox policy" test -e "$HOME/.claude-ollama/sandbox-policy.json"
 check_eq "the unsandboxed session keeps your GitHub token" outer "$(session_env GH_TOKEN)"
 check_eq "and your Shortcut token" outer "$(session_env SHORTCUT_API_TOKEN)"
@@ -1140,13 +1139,20 @@ check_eq "the unsandboxed prompt leaves out the sandbox's gh and short rules" \
   "$(cat "$repo/ollama/CLAUDE.local.md")" "$(cat "$HOME/.claude-ollama/append-prompt.md")"
 run_capture "$repo/bin/claude-ollama" doctor 27b
 check_that "doctor says the sandbox is off and how to turn it on" \
-  grep -qxF "ok   sandbox off (CLAUDE_OLLAMA_SANDBOX=1 turns it on)" "$sandbox/out"
+  grep -qxF "warn sandbox off (CLAUDE_OLLAMA_SANDBOX=0); unset it to sandbox the session" "$sandbox/out"
 check_not "and doesn't fail on a missing sandbox-runtime" grep -qF "sandbox-runtime missing" "$sandbox/out"
 run_capture "$repo/bin/claude-ollama" --print-config 27b
 check_that "print-config says the sandbox is off" grep -qxF "sandbox: off" "$sandbox/out"
 check_that "and prints the command without sandbox-runtime" grep -qF "command: claude --settings " "$sandbox/out"
-CLAUDE_OLLAMA_SANDBOX=1 run_capture "$repo/bin/claude-ollama" --print-config 27b
-check_that "print-config says when the sandbox is on" grep -qxF "sandbox: on" "$sandbox/out"
+unset CLAUDE_OLLAMA_SANDBOX
+run_capture "$repo/bin/claude-ollama" --print-config 27b
+check_that "print-config says the sandbox is on by default" grep -qxF "sandbox: on" "$sandbox/out"
+export CLAUDE_OLLAMA_SANDBOX=
+run_capture "$repo/bin/claude-ollama" --print-config 27b
+check_that "an empty CLAUDE_OLLAMA_SANDBOX leaves the sandbox on" grep -qxF "sandbox: on" "$sandbox/out"
+export CLAUDE_OLLAMA_SANDBOX=yes
+run_capture "$repo/bin/claude-ollama" --print-config 27b
+check_that "CLAUDE_OLLAMA_SANDBOX=yes leaves the sandbox on" grep -qxF "sandbox: on" "$sandbox/out"
 
 new_sandbox "$short_unix_socket_parent"
 cat > "$sandbox/stubbin/gh" <<EOF
@@ -1203,6 +1209,11 @@ chmod +x "$sandbox/stubbin/short"
 session_config="$HOME/.claude-ollama"
 (cd "$gh_project" && CLAUDE_OLLAMA_SANDBOX=1 CLAUDE_OLLAMA_NO_INDEX=1 SHORTCUT_API_TOKEN=shortsecret STUB_RUN_SHORT=1 \
   run_capture "$repo/bin/claude-ollama" 27b -p hi)
+check_that "a sandboxed launch warns that an SSH origin cannot push" \
+  grep -qxF "claude-ollama: origin is an SSH remote; sandboxed pushes need HTTPS: git remote set-url origin https://github.com/owner/project.git" "$sandbox/err"
+(cd "$gh_project" && run_capture "$repo/bin/claude-ollama" doctor 27b)
+check_that "doctor warns that an SSH origin cannot push" \
+  grep -qxF "warn origin is an SSH remote; sandboxed pushes need HTTPS: git remote set-url origin https://github.com/owner/project.git" "$sandbox/out"
 check_that "the Shortcut broker's socket is named for its launch" \
   broker_socket_is_per_launch shortcut-broker "$(session_env CLAUDE_OLLAMA_SHORTCUT_BROKER)"
 check_that "the Shortcut broker reads the command rules file" grep -qE -- '--rules [^ ]*/claude-custom/command-rules( |$)' "$sandbox/shortcut-broker.log"
@@ -1213,6 +1224,11 @@ check_eq "the session's short runs your short outside it, through the broker, wi
 check_that "and prints what it printed" grep -qxF "story 12" "$sandbox/session-short.out"
 check_that "a short command the broker refuses never runs" grep -qF "short broker: -O is not allowed here" "$sandbox/session-short.out"
 rm "$sandbox/stubbin/short"
+
+git -C "$gh_project" remote set-url origin https://github.com/owner/project.git
+(cd "$gh_project" && CLAUDE_OLLAMA_NO_INDEX=1 run_capture "$repo/bin/claude-ollama" 27b -p hi)
+check_not "a sandboxed launch with an HTTPS origin does not warn about SSH" grep -qF "origin is an SSH remote" "$sandbox/err"
+git -C "$gh_project" remote set-url origin git@github.com:owner/project.git
 
 mkdir -p "$gh_project/bin"
 for planted in short gh bash readlink dirname; do

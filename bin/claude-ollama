@@ -251,7 +251,7 @@ warm_search_index() {
 }
 
 sandbox_wanted() {
-  [ "${CLAUDE_OLLAMA_SANDBOX:-0}" = 1 ]
+  [ "${CLAUDE_OLLAMA_SANDBOX:-1}" != 0 ]
 }
 
 require_sandbox_runtime() {
@@ -435,6 +435,31 @@ github_repo_slug() {
     *) return 0 ;;
   esac
   printf '%s' "${remote%.git}"
+}
+
+ssh_origin_fix() {
+  local remote slug
+  remote="$(git -C "$(project_root)" remote get-url origin 2>/dev/null)" || return 0
+  case "$remote" in
+    git@github.com:*|ssh://*) ;;
+    *) return 0 ;;
+  esac
+  slug="$(github_repo_slug)"
+  echo "git remote set-url origin https://github.com/${slug:-OWNER/NAME}.git"
+}
+
+warn_ssh_origin() {
+  local fix
+  fix="$(ssh_origin_fix)"
+  [ -n "$fix" ] || return 0
+  echo "claude-ollama: origin is an SSH remote; sandboxed pushes need HTTPS: $fix" >&2
+}
+
+check_ssh_origin() {
+  local fix
+  fix="$(ssh_origin_fix)"
+  [ -n "$fix" ] || return 0
+  report warn "origin is an SSH remote; sandboxed pushes need HTTPS: $fix"
 }
 
 gh_repo_allow_flags() {
@@ -665,6 +690,7 @@ write_append_prompt() {
 
 launch_sandboxed() {
   unset GH_TOKEN GITHUB_TOKEN
+  warn_ssh_origin
   start_shortcut_broker
   unset SHORTCUT_API_TOKEN SHORTCUT_URL_SLUG SHORTCUT_MENTION_NAME CLUBHOUSE_API_TOKEN
   write_sandbox_policy
@@ -825,10 +851,11 @@ check_model_allowed() {
 
 check_sandbox() {
   if ! sandbox_wanted; then
-    report ok "sandbox off (CLAUDE_OLLAMA_SANDBOX=1 turns it on)"
+    report warn "sandbox off (CLAUDE_OLLAMA_SANDBOX=0); unset it to sandbox the session"
     return 0
   fi
-  report ok "sandbox on (CLAUDE_OLLAMA_SANDBOX=1)"
+  report ok "sandbox on (CLAUDE_OLLAMA_SANDBOX=0 turns it off)"
+  check_ssh_origin
   check_sandbox_runtime
 }
 
@@ -1031,7 +1058,7 @@ case "${1:-}" in
     echo "usage: claude-ollama [size] [claude args...]"
     echo "sizes: $(configured_sizes | tr '\n' ' ' | sed 's/ $//')"
     echo "no size: pick one in a menu (or $default_size without a terminal)"
-    echo "sandbox: off by default; CLAUDE_OLLAMA_SANDBOX=1 claude-ollama ... runs the session inside sandbox-runtime"
+    echo "sandbox: on by default (sandbox-runtime); CLAUDE_OLLAMA_SANDBOX=0 claude-ollama ... runs the session as you"
     echo "doctor [size]: check models, context sizes, hooks, Ollama and the server env"
     echo "--print-config [size]: print the resolved settings and the claude command"
     echo "logs [-n LINES|--path]: follow the Ollama server log (LaunchAgent, Homebrew service or app), or print its path"
@@ -1163,7 +1190,7 @@ claude_args=(
 if sandbox_wanted; then
   launch_sandboxed "${claude_args[@]}" "$@"
 fi
-echo "claude-ollama: sandbox off: the session runs as you (CLAUDE_OLLAMA_SANDBOX=1 turns it on)" >&2
+echo "claude-ollama: sandbox OFF (CLAUDE_OLLAMA_SANDBOX=0): the session runs as you, with your gh, short, git credentials and env" >&2
 stop_launcher_log
 PATH="$launch_path"
 exec claude "${claude_args[@]}" "$@"
