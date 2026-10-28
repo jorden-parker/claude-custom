@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from approval import Approver, is_unsafe, summary_for
+from approval import MAX_WORD_CHARS, Approver, Unshowable, is_unsafe, summary_for
 
 COMMAND_TIMEOUT_SECONDS = 120
 DEFAULT_LIMIT = 20
@@ -380,7 +380,10 @@ class Broker:
 
     def require_approval(self, tool, argv, repository, arguments):
         body_fields = {name: arguments[name] for name in BODY_FIELDS if name in arguments}
-        summary = summary_for("gh", tool, argv, repository, body_fields)
+        try:
+            summary = summary_for("gh", tool, argv, repository, body_fields)
+        except Unshowable as flag:
+            raise Refused(f"{flag} is longer than {MAX_WORD_CHARS} characters; shorten it or put long text in a body field") from None
         if not self.approver.decide("gh", tool, repository, summary):
             raise Refused(f"{WRITE_TOOLS[tool]} on {repository} was not approved")
 

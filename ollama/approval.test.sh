@@ -145,12 +145,19 @@ text = summary_for("gh", "pr_create", ["pr", "create"], "owner/name", {"body": "
 lines = text.rstrip("\n").split("\n")
 print("ok" if lines[-1] == real and "more characters" in text and len(text.encode()) < 4000 else "bad")')"
 
-check_eq "a long non-body argv word is capped so the rule line stays last" "ok" \
+check_eq "a long non-body argv word refuses the summary and names its flag" "ok" \
+  "$(PYTHONPATH="$here" python3 -c 'from approval import Unshowable, summary_for
+try:
+    summary_for("short", "story-edit", ["story", "12", "--state=" + "x" * 5000], "workspace", {})
+except Unshowable as problem:
+    print("ok" if str(problem) == "--state" else "bad")
+else:
+    print("bad")')"
+check_eq "a long body argv word is elided, not refused" "ok" \
   "$(PYTHONPATH="$here" python3 -c 'from approval import summary_for
-real = "rule: short story-edit workspace"
-text = summary_for("short", "story-edit", ["story", "12", "--state=" + "x" * 5000], "workspace", {})
-lines = text.rstrip("\n").split("\n")
-print("ok" if len(lines[0]) < 300 and "more characters" in lines[0] and lines[-1] == real else "bad")')"
+real = "rule: gh pr_create owner/name"
+lines = summary_for("gh", "pr_create", ["pr", "create", "--title=" + "x" * 5000], "owner/name", {"title": "x" * 5000}).rstrip("\n").split("\n")
+print("ok" if lines[0].startswith("gh pr create --title=...") and lines[-1] == real else "bad")')"
 
 mkdir -p "$tmp/bin" "$tmp/empty"
 cat > "$tmp/bin/osascript" <<EOF

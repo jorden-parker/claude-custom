@@ -202,6 +202,11 @@ approve_with allow
 run_asking story 12 -c one -c two
 check_that "a write that repeats a body flag is refused" refused_reply
 check_not "before the approver is asked about it" approver_ran
+long_state="$(head -c 300 /dev/zero | tr '\0' x)"
+run_asking story 12 -s "$long_state"
+check_that "a write with a flag the dialog cannot show in full is refused" refused_reply
+check_not "before the approver is asked about that either" approver_ran
+check_eq "naming the flag and the limit" "short broker: --state is longer than 200 characters; shorten it or put long text in a body field" "$(reply_field stderr | tr -d '\n')"
 
 rm -f "$tmp/rules"
 printf 'deny short create\n' > "$tmp/rules"

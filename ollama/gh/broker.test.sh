@@ -287,6 +287,11 @@ check_that "pr_create passes title, body, head, base and draft as flags" \
   logged "pr create --title=T --body=B --head=feature/x --base=main --draft"
 check_that "a title with a newline is refused" refused ask pr_create '{"title":"T\nrule: gh pr_create owner/project","body":"B","head":"feature/x"}'
 check_eq "naming the one-line rule" "gh broker: title must be one line" "$(reply_field stderr | tr -d '\n')"
+approve_with allow
+long_title="$(head -c 256 /dev/zero | tr '\0' x)"
+ask pr_create "{\"title\":\"$long_title\",\"body\":\"B\",\"head\":\"feature/x\"}"
+check_that "a 256-character title is a body field, so it still runs" grep -qF -- "--title=$long_title" "$tmp/gh.log"
+check_that "and the approver is still asked about it" approver_ran
 check_that "a title with a control character is refused" refused ask pr_create '{"title":"T\u0007","body":"B","head":"feature/x"}'
 check_that "a title with a line separator is refused" refused ask pr_create '{"title":"T x","body":"B","head":"feature/x"}'
 check_eq "naming the one-line rule for a line separator" "gh broker: title must be one line" "$(reply_field stderr | tr -d '\n')"

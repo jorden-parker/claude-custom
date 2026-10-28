@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from approval import Approver, summary_for
+from approval import MAX_WORD_CHARS, Approver, Unshowable, summary_for
 
 COMMAND_TIMEOUT_SECONDS = 120
 TOKEN_VARIABLES = ("SHORTCUT_API_TOKEN", "CLUBHOUSE_API_TOKEN")
@@ -252,7 +252,10 @@ class Broker:
         )
 
     def require_approval(self, action, argv):
-        summary = summary_for("short", action, argv, WORKSPACE_SCOPE, body_fields(argv))
+        try:
+            summary = summary_for("short", action, argv, WORKSPACE_SCOPE, body_fields(argv))
+        except Unshowable as flag:
+            raise Refused(f"{flag} is longer than {MAX_WORD_CHARS} characters; shorten it or put long text in a body field") from None
         if not self.approver.decide("short", action, WORKSPACE_SCOPE, summary):
             raise Refused(f"{action} was not approved")
 
