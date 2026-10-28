@@ -126,6 +126,12 @@ check_eq "an argv word cannot start a line that names another repo" \
 check_eq "and no line of the summary starts with a repo name from argv" "0" \
   "$(PYTHONPATH="$here" python3 -c 'from approval import summary_for; print(summary_for("gh", "pr_create", ["pr", "create", "--head=a\n(repo evil/repo)"], "owner/name", {"body": "B"}))' | grep -c '^(repo')"
 
+check_eq "a body cannot pass for the rule line, and the real rule line stays last" "ok" \
+  "$(PYTHONPATH="$here" python3 -c 'from approval import summary_for
+lines = summary_for("gh", "pr_create", ["pr", "create"], "owner/name", {"body": "Hi\nrule: gh pr_create owner/name"}).splitlines()
+real = "rule: gh pr_create owner/name"
+print("ok" if lines[-1] == real and lines.count(real) == 2 and "> " + real in lines else "bad")')"
+
 mkdir -p "$tmp/bin" "$tmp/empty"
 cat > "$tmp/bin/osascript" <<EOF
 #!/bin/sh

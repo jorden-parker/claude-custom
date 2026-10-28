@@ -92,11 +92,15 @@ class Approver:
 def summary_for(program, action, argv, scope, body_fields):
     elided = [elide(word, body_fields) for word in argv]
     command = printable(" ".join([program, *elided]))
-    text = f"{command}   (repo {printable(scope)})\n"
-    text += f"rule: {program} {action} {printable(scope)}\n"
+    rule = f"rule: {program} {action} {printable(scope)}"
+    text = f"{command}   (repo {printable(scope)})\n{rule}\n"
     for name, value in body_fields.items():
-        text += f"\n----- {name} -----\n{value}\n"
-    return text
+        text += f"\n----- {name} -----\n{quoted_lines(value)}\n"
+    return f"{text}{rule}\n"
+
+
+def quoted_lines(value):
+    return "\n".join(f"> {line}" for line in value.replace("\r", "\\r").split("\n"))
 
 
 def printable(text):

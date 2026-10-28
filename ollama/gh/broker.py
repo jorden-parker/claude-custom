@@ -191,6 +191,12 @@ class Arguments:
             raise Refused(f"{name} is required")
         return value
 
+    def one_line(self, name):
+        value = self.required_text(name)
+        if any(character < " " or character == "\x7f" for character in value):
+            raise Refused(f"{name} must be one line")
+        return value
+
     def branch(self, name):
         value = self.text(name)
         if value is None:
@@ -277,7 +283,7 @@ def pr_create(values):
     return [
         "pr",
         "create",
-        f"--title={args.required_text('title')}",
+        f"--title={args.one_line('title')}",
         f"--body={args.body('body')}",
         f"--head={args.branch('head')}",
         *args.optional_branch_flag("base", "--base"),
