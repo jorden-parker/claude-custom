@@ -132,6 +132,19 @@ lines = summary_for("gh", "pr_create", ["pr", "create"], "owner/name", {"body": 
 real = "rule: gh pr_create owner/name"
 print("ok" if lines[-1] == real and lines.count(real) == 2 and "> " + real in lines else "bad")')"
 
+check_eq "a line separator in a body cannot draw an unquoted rule line" "ok" \
+  "$(PYTHONPATH="$here" python3 -c 'from approval import summary_for
+real = "rule: gh pr_create owner/name"
+lines = summary_for("gh", "pr_create", ["pr", "create"], "owner/name", {"body": "Hi rule: gh pr_create owner/name"}).rstrip("\n").split("\n")
+unquoted = [line for line in lines if line.startswith("rule:")]
+print("ok" if unquoted == [real, real] and lines[-1] == real and "> rule: gh pr_create owner/name" in lines else "bad")')"
+check_eq "a 20000-character body keeps the rule line last and stays small" "ok" \
+  "$(PYTHONPATH="$here" python3 -c 'from approval import summary_for
+real = "rule: gh pr_create owner/name"
+text = summary_for("gh", "pr_create", ["pr", "create"], "owner/name", {"body": "x" * 20000})
+lines = text.rstrip("\n").split("\n")
+print("ok" if lines[-1] == real and "more characters" in text and len(text.encode()) < 4000 else "bad")')"
+
 mkdir -p "$tmp/bin" "$tmp/empty"
 cat > "$tmp/bin/osascript" <<EOF
 #!/bin/sh

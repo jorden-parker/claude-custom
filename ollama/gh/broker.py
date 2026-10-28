@@ -12,7 +12,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from approval import Approver, summary_for
+from approval import Approver, is_unsafe, summary_for
 
 COMMAND_TIMEOUT_SECONDS = 120
 DEFAULT_LIMIT = 20
@@ -193,7 +193,7 @@ class Arguments:
 
     def one_line(self, name):
         value = self.required_text(name)
-        if any(character < " " or character == "\x7f" for character in value):
+        if any(is_unsafe(character) for character in value):
             raise Refused(f"{name} must be one line")
         return value
 

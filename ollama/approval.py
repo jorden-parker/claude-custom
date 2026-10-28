@@ -1,8 +1,11 @@
 import re
 import subprocess
+import unicodedata
 from pathlib import Path
 
 SAFE_FIELD = re.compile(r"[A-Za-z0-9._/-]+")
+UNSAFE_CATEGORIES = {"Cc", "Cf", "Zl", "Zp"}
+BODY_PREVIEW_CHARS = 1500
 ALLOW = "allow"
 DENY = "deny"
 ALWAYS = "allow-always"
@@ -95,12 +98,31 @@ def summary_for(program, action, argv, scope, body_fields):
     rule = f"rule: {program} {action} {printable(scope)}"
     text = f"{command}   (repo {printable(scope)})\n{rule}\n"
     for name, value in body_fields.items():
-        text += f"\n----- {name} -----\n{quoted_lines(value)}\n"
+        text += body_section(name, value)
     return f"{text}{rule}\n"
 
 
+def body_section(name, value):
+    shown = value[:BODY_PREVIEW_CHARS]
+    lines = quoted_lines(shown)
+    if len(value) > BODY_PREVIEW_CHARS:
+        lines += f"\n> [... {len(value) - BODY_PREVIEW_CHARS} more characters]"
+    return f"\n----- {name} -----\n{lines}\n"
+
+
 def quoted_lines(value):
-    return "\n".join(f"> {line}" for line in value.replace("\r", "\\r").split("\n"))
+    return "\n".join(f"> {escape_unsafe(line)}" for line in (value.splitlines() or [""]))
+
+
+def is_unsafe(character):
+    return character == "\x7f" or unicodedata.category(character) in UNSAFE_CATEGORIES
+
+
+def escape_unsafe(text):
+    return "".join(
+        character.encode("unicode_escape").decode("ascii") if is_unsafe(character) else character
+        for character in text
+    )
 
 
 def printable(text):
