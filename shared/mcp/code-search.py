@@ -20,7 +20,7 @@ from mcp_stdio import serve, tool_result
 
 
 def ollama_url():
-    url = os.environ.get("CODE_SEARCH_OLLAMA_URL") or os.environ.get("OLLAMA_HOST") or "http://localhost:11434"
+    url = os.environ.get("CODE_SEARCH_OLLAMA_URL") or os.environ.get("OLLAMA_HOST") or "http://127.0.0.1:11434"
     return url if url.startswith(("http://", "https://")) else f"http://{url}"
 
 

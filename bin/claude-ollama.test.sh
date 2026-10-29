@@ -53,7 +53,7 @@ pinned_tags() {
 }
 
 new_sandbox() {
-  sandbox="$(cd "$(mktemp -d "${1:-${TMPDIR:-/tmp}}/claude-ollama-test.XXXXXX")" && pwd -P)"
+  sandbox="$(made="$(mktemp -d "${1:-${TMPDIR:-/tmp}}/claude-ollama-test.XXXXXX")" && cd "$made" && pwd -P)" || exit 1
   sandboxes="$sandboxes $sandbox"
   export HOME="$sandbox/home"
   mkdir -p "$HOME" "$sandbox/stubbin"
@@ -210,7 +210,7 @@ link_system_tools() {
 
 build_system_tools() {
   local entry name
-  system_tools="$(cd "$(mktemp -d)" && pwd -P)"
+  system_tools="$(made="$(mktemp -d)" && cd "$made" && pwd -P)" || exit 1
   sandboxes="$sandboxes $system_tools"
   for entry in /usr/bin/* /bin/*; do
     name="${entry##*/}"
@@ -261,7 +261,7 @@ check_that "claude-ollama replaces the default system prompt and appends its own
 check_eq "the sandboxed prompt is the shared prompt plus the sandbox's gh and short rules" \
   "$(cat "$repo/ollama/CLAUDE.local.md" "$repo/ollama/CLAUDE.sandbox.md")" "$(cat "$append_prompt")"
 check_that "claude-ollama 35b passes claude args through" grep -qF -- "--tools Bash,Read,Edit,Write,Skill,TaskStop -p hi" "$sandbox/out"
-check_that "claude-ollama warms the main model" grep -q 'localhost:11434/api/generate' "$sandbox/curl.log"
+check_that "claude-ollama warms the main model" grep -q '127.0.0.1:11434/api/generate' "$sandbox/curl.log"
 check_that "claude-ollama warm-up names the model" grep -q '"model":"qwen3.6-35b-cc"' "$sandbox/curl.log"
 check_that "claude-ollama warm-up sets keep_alive" grep -q '"keep_alive":"30m"' "$sandbox/curl.log"
 rm -f "$sandbox/curl.log"
@@ -279,7 +279,7 @@ run_capture env CLAUDE_OLLAMA_NO_INDEX=1 "$repo/bin/claude-ollama" 35b -p hi
 check_not "CLAUDE_OLLAMA_NO_INDEX skips the indexer" test -e "$sandbox/python.log"
 new_sandbox
 STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2" run_capture "$repo/bin/claude-ollama" 27b -p hi
-check_that "claude-ollama warms the embedding model when the server keeps two models" grep -q 'localhost:11434/api/embed' "$sandbox/curl.log"
+check_that "claude-ollama warms the embedding model when the server keeps two models" grep -q '127.0.0.1:11434/api/embed' "$sandbox/curl.log"
 check_that "the embedding warm-up names the model and keeps it alive" grep -q '"model":"qwen3-embedding:0.6b","input":"warm up","keep_alive":"30m"' "$sandbox/curl.log"
 check_eq "claude-ollama allows the search server to load embeddings when the server keeps two models" 1 "$(cat "$sandbox/embed-env")"
 rm -f "$sandbox/curl.log"
@@ -597,7 +597,7 @@ check_that "review without a target says so" grep -q 'pull request number, URL o
 run_capture "$repo/bin/claude-ollama" review 27b 123 </dev/null
 check_eq "review exit status" 0 "$?"
 check_that "review runs the reviewer with the size's model and server" \
-  grep -qxF "REVIEW: --model qwen3.8-27b-cc --base-url http://localhost:11434 123" "$sandbox/out"
+  grep -qxF "REVIEW: --model qwen3.8-27b-cc --base-url http://127.0.0.1:11434 123" "$sandbox/out"
 warm_up_logged() {
   for _ in $(seq 50); do
     grep -q 'api/generate' "$sandbox/curl.log" 2>/dev/null && return 0
@@ -609,7 +609,7 @@ check_that "review warms the model" warm_up_logged
 check_not "review does not launch claude" grep -q '^ARGS:' "$sandbox/out"
 run_capture "$repo/bin/claude-ollama" review 27b --post 45 </dev/null
 check_that "review passes its own flags before the target" \
-  grep -qxF "REVIEW: --model qwen3.8-27b-cc --base-url http://localhost:11434 --post 45" "$sandbox/out"
+  grep -qxF "REVIEW: --model qwen3.8-27b-cc --base-url http://127.0.0.1:11434 --post 45" "$sandbox/out"
 run_capture "$repo/bin/claude-ollama" review 9 </dev/null
 check_that "review without a size uses the default" grep -q 'REVIEW: --model qwen3.8-27b-cc ' "$sandbox/out"
 unset CLAUDE_OLLAMA_REVIEWER
@@ -625,7 +625,7 @@ check_not "doctor no longer checks a side model" grep -q "side model" "$sandbox/
 check_that "doctor reports the embedding model" grep -qxF "ok   embedding model qwen3-embedding:0.6b" "$sandbox/out"
 check_that "doctor reports context sizes agree" grep -qxF "ok   num_ctx 65536 matches CLAUDE_CODE_MAX_CONTEXT_TOKENS" "$sandbox/out"
 check_that "doctor reports hooks" grep -qxF "ok   hook stop-verify.py present" "$sandbox/out"
-check_that "doctor reports reachability" grep -qxF "ok   ollama reachable at http://localhost:11434" "$sandbox/out"
+check_that "doctor reports reachability" grep -qxF "ok   ollama reachable at http://127.0.0.1:11434" "$sandbox/out"
 check_that "doctor reports server env" grep -qxF "ok   server env OLLAMA_KV_CACHE_TYPE=q8_0" "$sandbox/out"
 check_that "doctor reports no managed model allowlist" grep -qxF "ok   no managed availableModels restricts qwen3.8-27b-cc" "$sandbox/out"
 check_not "doctor does not launch claude" grep -q '^ARGS:' "$sandbox/out"
@@ -674,7 +674,7 @@ check_that "doctor warns the managed allowlist lacks the model" grep -qxF "warn 
 new_sandbox
 STUB_CURL_EXIT=7 run_capture "$repo/bin/claude-ollama" doctor 27b
 check_eq "doctor with no server exit status" 1 "$?"
-check_that "doctor fails when the server is unreachable" grep -qxF "fail ollama not reachable at http://localhost:11434 (brew services start ollama)" "$sandbox/out"
+check_that "doctor fails when the server is unreachable" grep -qxF "fail ollama not reachable at http://127.0.0.1:11434 (brew services start ollama)" "$sandbox/out"
 check_that "doctor fails when no server process runs" grep -qxF "fail ollama server not running (brew services start ollama)" "$sandbox/out"
 
 new_sandbox
@@ -1354,7 +1354,7 @@ qwen_home="$HOME/.claude-ollama/qwen"
 SANDBOX=outer run_capture "$repo/bin/claude-ollama" qwen 27b -p hi
 check_eq "claude-ollama qwen exit status" 0 "$?"
 check_that "claude-ollama qwen runs qwen inside sandbox-runtime" \
-  grep -qF -- "-s $HOME/.claude-ollama/sandbox-policy.json -- $repo/ollama/sandbox-entry qwen --auth-type openai --openai-base-url http://localhost:11434/v1 --openai-api-key ollama -m qwen3.8-27b-cc --approval-mode auto-edit --mcp-config " "$sandbox/srt.log"
+  grep -qF -- "-s $HOME/.claude-ollama/sandbox-policy.json -- $repo/ollama/sandbox-entry qwen --auth-type openai --openai-base-url http://127.0.0.1:11434/v1 --openai-api-key ollama -m qwen3.8-27b-cc --approval-mode auto-edit --mcp-config " "$sandbox/srt.log"
 check_that "claude-ollama qwen passes the MCP servers and the user's args" grep -qF -- 'repo-tools.py"]}' "$sandbox/out"
 check_that "and the user's args last" grep -q -- '-p hi$' "$sandbox/out"
 check_not "claude-ollama qwen never runs claude" grep -q '^ARGS:' "$sandbox/out"
@@ -1373,7 +1373,7 @@ check_that "and the launcher log records the hand-off to qwen" wait_for_launcher
 check_not "an outer OPENAI_API_KEY never reaches the session" grep -q '^OPENAI_API_KEY=' "$sandbox/qwen-env"
 check_eq "the rendered settings name the size's model" "qwen3.8-27b-cc qwen3.8-27b-cc" \
   "$(jq -r '[.model.name, .modelProviders.openai[0].id] | join(" ")' "$qwen_home/settings.json")"
-check_eq "and point it at Ollama's OpenAI endpoint" "http://localhost:11434/v1" "$(jq -r '.modelProviders.openai[0].baseUrl' "$qwen_home/settings.json")"
+check_eq "and point it at Ollama's OpenAI endpoint by address, since the sandbox resolves names only from /etc/hosts" "http://127.0.0.1:11434/v1" "$(jq -r '.modelProviders.openai[0].baseUrl' "$qwen_home/settings.json")"
 check_eq "and carry the Modelfile's num_ctx as the context window" 65536 "$(jq -r '.modelProviders.openai[0].generationConfig.contextWindowSize' "$qwen_home/settings.json")"
 check_eq "and ask Ollama for no thinking" none "$(jq -r '.modelProviders.openai[0].generationConfig.extra_body.reasoning_effort' "$qwen_home/settings.json")"
 check_eq "and turn cross-session messaging off, whose socket the sandbox would refuse" false "$(jq -r '.agents.crossSessionMessaging' "$qwen_home/settings.json")"

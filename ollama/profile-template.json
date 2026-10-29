@@ -9,7 +9,7 @@
   "promptSuggestionEnabled": false,
   "bashOutputMaxChars": 12000,
   "env": {
-    "ANTHROPIC_BASE_URL": "http://localhost:11434",
+    "ANTHROPIC_BASE_URL": "http://127.0.0.1:11434",
     "ANTHROPIC_AUTH_TOKEN": "ollama",
     "ANTHROPIC_DEFAULT_OPUS_MODEL": "{{MODEL}}",
     "ANTHROPIC_DEFAULT_SONNET_MODEL": "{{MODEL}}",

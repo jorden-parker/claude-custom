@@ -24,7 +24,7 @@
       {
         "id": "MODEL",
         "name": "MODEL (Ollama)",
-        "baseUrl": "http://localhost:11434/v1",
+        "baseUrl": "http://127.0.0.1:11434/v1",
         "envKey": "OLLAMA_API_KEY",
         "generationConfig": {
           "contextWindowSize": 65536,
