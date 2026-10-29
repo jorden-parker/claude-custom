@@ -270,6 +270,35 @@ it again replaces the stored token.
 
 To compare Ollama with other servers, see [backend-bench](backend-bench.md).
 
+### Qwen Code
+
+`claude-ollama qwen [size] [qwen args...]` (or `claude-custom qwen ...`) runs
+Qwen Code (`brew install qwen-code`) instead of Claude Code on the size's `-cc`
+model: same model preparation and warm-up, same brokers and session sandbox,
+same `semantic_search`, `repo` and `dev` MCP servers.
+`claude-ollama qwen --print-config [size]` prints the command. The point is a
+comparison: Qwen Code keeps its own system prompt and tool schemas, which are
+written for Qwen models.
+
+Qwen Code reads `~/.claude-ollama/qwen` as its home (`QWEN_HOME`), never your
+`~/.qwen`, which the policy also hides from both harnesses. Each launch rewrites
+`settings.json` there from `ollama/qwen-settings.template.json` (model,
+`localhost:11434/v1`, the Modelfile's `num_ctx` as `contextWindowSize`,
+`reasoning_effort: none` in `extra_body` so Ollama skips thinking, 30-minute
+timeouts, `agent`, `web_fetch`, `web_search` and `notebook_edit` off, usage
+statistics and auto-update off) and `QWEN.md` (the preferences file,
+`ollama/QWEN.local.md` and, sandboxed, `ollama/CLAUDE.sandbox.md`). The session
+cannot write those files, `.env`, `skills`, `agents`, `extensions`, `rules` or
+`commands` there, nor any `.qwen` folder in the project.
+`--approval-mode auto-edit` approves edits and asks before every shell command,
+as the Claude profiles do. An outer `OPENAI_API_KEY`, `OPENAI_BASE_URL`,
+`OPENAI_MODEL`, `QWEN_MODEL` or `QWEN_SANDBOX` never reaches the session.
+
+Not yet wired for Qwen Code: the hooks (Qwen Code's hook contract matches Claude
+Code's, but the hooks match Claude tool names), `doctor`, the picker and the
+console. `CLAUDE_OLLAMA_SANDBOX=0 claude-ollama qwen ...` runs it as you, like
+the Claude launch.
+
 ### Dev servers and the browser
 
 The `dev` MCP server gives the session eight tools: `dev_status` (which dev

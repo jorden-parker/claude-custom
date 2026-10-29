@@ -18,7 +18,11 @@ four parts:
 - **Work harness** (`bin/claude-ollama`, `ollama/`, `go/cmd/model-picker/`):
   starts `claude` against a local Ollama server (`localhost:11434`) running Qwen
   3.8 27b or Qwen 3.6 35b. The overlay only applies to that launch.
-  `go/cmd/model-picker/` is a Go/Bubble Tea menu for choosing the size.
+  `claude-ollama qwen [size]` runs Qwen Code on the same model, sandbox and MCP
+  servers, with `~/.claude-ollama/qwen` as its `QWEN_HOME`; its settings come
+  from `ollama/qwen-settings.template.json` and `ollama/QWEN.local.md` (see
+  `docs/ollama.md`). `go/cmd/model-picker/` is a Go/Bubble Tea menu for choosing
+  the size.
 - **Tools TUI** (`go/cmd/claude-tools/`): a Go/Bubble Tea app that edits the
   bare-tool-name permission rules in a Claude Code settings file. `-json` prints
   the rules and `-set NAME=perm[,off]` saves them without the TUI (scope last).
@@ -49,7 +53,7 @@ before changing how any file gets applied.
 - Run log tests: `bin/console-run.test.sh` (prints `all passed`;
   `make test-console`)
 - Launcher tests: `bin/claude-ollama.test.sh` (prints `all passed`; covers
-  `bin/claude-ollama` and the `claude-custom ollama|tools` subcommands)
+  `bin/claude-ollama` and the `claude-custom ollama|qwen|tools` subcommands)
 - Model manager: `bin/ollama-models list|prune [--yes]|pin NAME[:TAG]` marks
   installed models (pinned, mismatch, profile, orphan, third-party, other),
   removes third-party and orphan `-cc` models after asking
@@ -153,7 +157,7 @@ before changing how any file gets applied.
   `http://<host>` (`proxy.ts`), so a cross-site page can't start a run.
 - Launch the tools TUI: `claude-tools [user|project|local|FILE]`. Launch the
   agent TUI: `ollama-agent [-file PLIST] [-ollama BIN]`. All three are also
-  `claude-custom ollama|tools|agent [...]`.
+  `claude-custom ollama|qwen|tools|agent [...]`.
 - `bin/claude-custom`, `bin/claude-ollama`, `bin/claude-tools` and
   `bin/ollama-agent` must stay bash-3.2 compatible (macOS `/bin/bash`).
   `bin/claude-custom` must never write `~/.zshenv` or `~/.local/bin/claude`, and
