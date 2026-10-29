@@ -88,6 +88,18 @@ describe("parseDraft", () => {
     expect(result).toMatchObject({ ok: true, draft: { posted } });
   });
 
+  it.each([
+    "javascript:alert(1)",
+    "http://github.com/o/r/pull/3",
+    "https://github.com.evil.example/o/r/pull/3",
+  ])("rejects a posted url that is not https on github.com: %s", (url) => {
+    const posted = { url, at: CREATED };
+
+    expect(reasonFor(JSON.stringify(prDraft({ posted })))).toBe(
+      "posted url must be an https://github.com/ link",
+    );
+  });
+
   it("names the problem when the text is not JSON", () => {
     expect(reasonFor("{not json")).toBe("not JSON");
   });

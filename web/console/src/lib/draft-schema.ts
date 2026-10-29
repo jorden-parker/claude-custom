@@ -315,13 +315,28 @@ function checkOptionalLine(value: unknown): number | undefined {
   return value as number;
 }
 
+function checkPostedUrl(value: unknown): string {
+  const url = checkOneLine(value, "posted url", LIMITS.urlChars);
+  ensure(isGithubLink(url), "posted url must be an https://github.com/ link");
+  return url;
+}
+
+function isGithubLink(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" && parsed.hostname === "github.com";
+  } catch {
+    return false;
+  }
+}
+
 function checkPosted(value: unknown): Posted | undefined {
   if (value === undefined) {
     return undefined;
   }
   const record = checkRecord(value);
   return {
-    url: checkOneLine(record.url, "posted url", LIMITS.urlChars),
+    url: checkPostedUrl(record.url),
     at: checkTime(record.at, "posted at"),
   };
 }
