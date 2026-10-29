@@ -20,6 +20,10 @@ write_machine_overlay() {
     mv "$machine_overlay.tmp" "$machine_overlay"
 }
 
+if [ -e "$sandbox_off" ]; then
+  echo "claude-custom: sandbox off on this machine ($sandbox_off)" >&2
+fi
+
 if [ ! -r "$enabled_tools" ] && [ ! -e "$sandbox_off" ]; then
   echo "$shared_overlay"
 elif write_machine_overlay; then

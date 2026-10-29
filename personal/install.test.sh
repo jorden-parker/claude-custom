@@ -176,7 +176,10 @@ mkdir -p "$HOME/.config/claude-custom"
 : > "$HOME/.config/claude-custom/sandbox-off"
 local_overlay="$HOME/.cache/claude-custom/settings.tokens.json"
 check_eq "sandbox-off alone makes the sh function use the machine overlay" "ARGS: --settings $local_overlay a b c" \
-  "$(CLAUDE_CUSTOM_HOME="$repo" sh -c ". \"$repo/personal/claude.sh\"; claude a 'b c'" 2>&1)"
+  "$(CLAUDE_CUSTOM_HOME="$repo" sh -c ". \"$repo/personal/claude.sh\"; claude a 'b c'" 2>/dev/null)"
+check_eq "sandbox-off warns at every launch, so a planted file is seen" \
+  "claude-custom: sandbox off on this machine ($HOME/.config/claude-custom/sandbox-off)" \
+  "$(CLAUDE_CUSTOM_HOME="$repo" sh -c ". \"$repo/personal/claude.sh\"; claude a 'b c'" 2>&1 >/dev/null)"
 check_eq "sandbox-off turns the sandbox off in the machine overlay" false "$(jq '.sandbox.enabled' "$local_overlay")"
 check_eq "sandbox-off keeps every deny" \
   "$(jq -c '.permissions.deny' "$repo/personal/settings.tokens.json")" \

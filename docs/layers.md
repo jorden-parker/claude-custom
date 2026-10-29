@@ -47,4 +47,5 @@ that copy instead (or the shared overlay if `jq` fails).
 
 To turn Claude Code's sandbox off on one machine only, create an empty
 `~/.config/claude-custom/sandbox-off`. The machine copy then sets
-`sandbox.enabled` to false; every other machine keeps it on.
+`sandbox.enabled` to false and `claude` prints a warning at every launch; every
+other machine keeps it on.
