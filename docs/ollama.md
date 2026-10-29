@@ -288,8 +288,12 @@ Qwen Code reads `~/.claude-ollama/qwen` as its home (`QWEN_HOME`), never your
 timeouts, `agent`, `web_fetch`, `web_search` and `notebook_edit` off, usage
 statistics and auto-update off) and `QWEN.md` (the preferences file,
 `ollama/QWEN.local.md` and, sandboxed, `ollama/CLAUDE.sandbox.md`). The session
-cannot write those files, `.env`, `skills`, `agents`, `extensions`, `rules` or
-`commands` there, nor any `.qwen` folder in the project.
+cannot write those files, `system.md`, `.env`, `skills`, `agents`, `extensions`,
+`rules` or `commands` there, nor any `.qwen` folder in the project. Qwen Code
+also reads the project's `.env`, which a session can write, so the profile's
+`advanced.excludedEnvVars` keeps `QWEN_SYSTEM_MD` (a replacement system prompt),
+the model and key variables and `SEATBELT_PROFILE` out of it; `QWEN_SANDBOX`,
+`QWEN_HOME` and the approvals and trust paths are excluded by Qwen Code itself.
 `--approval-mode auto-edit` approves edits and asks before every shell command,
 as the Claude profiles do. An outer `OPENAI_API_KEY`, `OPENAI_BASE_URL`,
 `OPENAI_MODEL`, `QWEN_MODEL` or `QWEN_SANDBOX` never reaches the session.

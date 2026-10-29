@@ -1374,6 +1374,9 @@ check_that "and carries the Qwen rules" grep -qF 'mcp__code-search__semantic_sea
 check_that "and, sandboxed, the broker forms" grep -qF 'gh pr list' "$qwen_home/QWEN.md"
 check_that "the session never rewrites Qwen Code's settings" policy_lists denyWrite "$qwen_home/settings.json"
 check_that "nor its global QWEN.md" policy_lists denyWrite "$qwen_home/QWEN.md"
+check_that "nor a system.md that QWEN_SYSTEM_MD would load as the system prompt" policy_lists denyWrite "$qwen_home/system.md"
+check_that "the rendered settings keep QWEN_SYSTEM_MD out of a project .env" \
+  jq -e '.advanced.excludedEnvVars | index("QWEN_SYSTEM_MD")' "$qwen_home/settings.json"
 check_that "nor plants a .env for the next launch" policy_lists denyWrite "$qwen_home/.env"
 check_that "nor skills, agents or extensions" policy_lists denyWrite "$qwen_home/extensions"
 check_that "the sandbox still hides the user's own Qwen config" policy_lists denyRead "$home_in_policy/.qwen"

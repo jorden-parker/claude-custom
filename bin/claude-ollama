@@ -535,7 +535,7 @@ write_sandbox_policy() {
     --argjson fetch_domains "$(printf '%s' "${launch_fetch_domains:-}" | fetch_domains_json)" \
     --argjson config_sources '["CLAUDE.md", "skills", "settings.json", "settings.local.json", "commands", "agents", "plugins", "rules", "output-styles", "keybindings.json", ".config.json", "append-prompt.md"]' \
     --arg qwen_home "$qwen_home" \
-    --argjson qwen_sources '["settings.json", "QWEN.md", ".env", "skills", "agents", "extensions", "rules", "commands", "hooks", "mcpApprovals.json"]' '
+    --argjson qwen_sources '["settings.json", "QWEN.md", "system.md", ".env", "skills", "agents", "extensions", "rules", "commands", "hooks", "mcpApprovals.json"]' '
     ($git | if . == "" then [] else [.] end) as $git_dirs
     | ($items | if . == "" then [] else [.] end) as $item_dirs
     | .filesystem.allowWrite += [$config] + $item_dirs + $git_dirs

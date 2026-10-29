@@ -89,6 +89,8 @@ check_eq "the Qwen Code profile has no subagent, web or notebook tools and no sa
   "$(jq -r '[((["agent", "web_fetch", "web_search", "notebook_edit"] - .tools.disabled) == []), .tools.sandbox] | map(tostring) | join(" ")' "$qwen_template")"
 check_eq "the Qwen Code profile allows semantic_search and the repo tools without a prompt, like the Claude profiles" true \
   "$(jq '(.permissions.allow | index("mcp__code-search__semantic_search") != null) and (.permissions.allow | index("mcp__repo") != null)' "$qwen_template")"
+check_eq "the Qwen Code profile keeps a project .env, which the session can write, from choosing the next session's system prompt, model, key or Seatbelt profile" true \
+  "$(jq '(["QWEN_SYSTEM_MD", "SEATBELT_PROFILE", "OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_MODEL", "QWEN_MODEL"] - .advanced.excludedEnvVars) == []' "$qwen_template")"
 
 digests="$repo/ollama/model-digests.json"
 pulled_models() {
