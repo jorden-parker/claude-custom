@@ -776,7 +776,7 @@ print_qwen_config() {
 launch_qwen() {
   local launch_args=()
   while IFS= read -r arg; do launch_args+=("$arg"); done < <(qwen_args)
-  unset OPENAI_API_KEY OPENAI_BASE_URL OPENAI_MODEL QWEN_MODEL QWEN_SANDBOX QWEN_RUNTIME_DIR
+  unset OPENAI_API_KEY OPENAI_BASE_URL OPENAI_MODEL QWEN_MODEL QWEN_SANDBOX QWEN_RUNTIME_DIR SANDBOX
   export QWEN_HOME="$qwen_home"
   export QWEN_USAGE_STATISTICS_ENABLED=false
   export QWEN_CODE_MODELS_DEV_REFRESH=off
@@ -784,6 +784,7 @@ launch_qwen() {
   write_qwen_settings
   write_qwen_context
   if sandbox_wanted; then
+    export SANDBOX=claude-ollama
     export NODE_OPTIONS="--require \"$profile_dir/qwen-raw-mode.cjs\" --require \"$profile_dir/qwen-dir-watch.cjs\"${NODE_OPTIONS:+ $NODE_OPTIONS}"
     launch_sandboxed qwen "${launch_args[@]}" "$@"
   fi

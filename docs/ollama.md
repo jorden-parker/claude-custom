@@ -313,7 +313,11 @@ missing one is refused; `ollama/qwen-dir-watch.cjs` drops the `EMFILE` that
 every directory watch raises because FSEvents cannot start inside the sandbox
 (file watches use kqueue and still work), so Qwen Code runs without live reload
 of those folders; and the settings turn `agents.crossSessionMessaging` off,
-since the sandbox refuses the Unix socket it would listen on.
+since the sandbox refuses the Unix socket it would listen on. A sandboxed launch
+also exports `SANDBOX=claude-ollama`, so Qwen Code's footer and `/about` name
+the sandbox instead of saying "no sandbox"; an outer `SANDBOX` is unset first,
+and `advanced.excludedEnvVars` keeps a project `.env` from setting it, so an
+unsandboxed launch never claims one.
 
 ### Dev servers and the browser
 

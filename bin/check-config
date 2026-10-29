@@ -89,8 +89,8 @@ check_eq "the Qwen Code profile has no subagent, web or notebook tools and no sa
   "$(jq -r '[((["agent", "web_fetch", "web_search", "notebook_edit"] - .tools.disabled) == []), .tools.sandbox] | map(tostring) | join(" ")' "$qwen_template")"
 check_eq "the Qwen Code profile allows semantic_search and the repo tools without a prompt, like the Claude profiles" true \
   "$(jq '(.permissions.allow | index("mcp__code-search__semantic_search") != null) and (.permissions.allow | index("mcp__repo") != null)' "$qwen_template")"
-check_eq "the Qwen Code profile keeps a project .env, which the session can write, from choosing the next session's system prompt, model, key or Seatbelt profile" true \
-  "$(jq '(["QWEN_SYSTEM_MD", "SEATBELT_PROFILE", "OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_MODEL", "QWEN_MODEL"] - .advanced.excludedEnvVars) == []' "$qwen_template")"
+check_eq "the Qwen Code profile keeps a project .env, which the session can write, from choosing the next session's system prompt, model, key or Seatbelt profile, or claiming a sandbox" true \
+  "$(jq '(["QWEN_SYSTEM_MD", "SEATBELT_PROFILE", "OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_MODEL", "QWEN_MODEL", "SANDBOX"] - .advanced.excludedEnvVars) == []' "$qwen_template")"
 check_eq "the Qwen Code profile turns cross-session messaging off, since the sandbox denies the Unix socket it would listen on" false \
   "$(jq -r '.agents.crossSessionMessaging' "$qwen_template")"
 
@@ -131,6 +131,10 @@ check_eq "settings.tokens.json sets subagents to Haiku" haiku \
   "$(jq -r .env.CLAUDE_CODE_SUBAGENT_MODEL "$repo/personal/settings.tokens.json")"
 check_eq "settings.tokens.json forces the subagent model" 1 \
   "$(jq -r .env.CLAUDE_CODE_SUBAGENT_MODEL_FORCE "$repo/personal/settings.tokens.json")"
+check_eq "settings.tokens.json turns Claude Code's own sandbox on for every personal session" true \
+  "$(jq -r .sandbox.enabled "$repo/personal/settings.tokens.json")"
+check_eq "settings.tokens.json asks before a command leaves that sandbox, whatever the permission mode" true \
+  "$(jq '.permissions.ask | index("Bash(dangerouslyDisableSandbox:true)") != null' "$repo/personal/settings.tokens.json")"
 
 denies_tool() {
   jq -e --arg tool "$2" '.permissions.deny | index($tool) != null' "$1" >/dev/null

@@ -1351,7 +1351,7 @@ check_that "doctor says web fetch is off without a fetch list" grep -qxF "ok   w
 
 new_sandbox /tmp
 qwen_home="$HOME/.claude-ollama/qwen"
-run_capture "$repo/bin/claude-ollama" qwen 27b -p hi
+SANDBOX=outer run_capture "$repo/bin/claude-ollama" qwen 27b -p hi
 check_eq "claude-ollama qwen exit status" 0 "$?"
 check_that "claude-ollama qwen runs qwen inside sandbox-runtime" \
   grep -qF -- "-s $HOME/.claude-ollama/sandbox-policy.json -- $repo/ollama/sandbox-entry qwen --auth-type openai --openai-base-url http://localhost:11434/v1 --openai-api-key ollama -m qwen3.8-27b-cc --approval-mode auto-edit --mcp-config " "$sandbox/srt.log"
@@ -1367,6 +1367,7 @@ check_eq "claude-ollama qwen preloads the raw-mode and directory-watch shims, si
 for folder in skills agents extensions rules commands hooks; do
   check_that "claude-ollama qwen creates $folder under its home before the launch, since Qwen Code's startup mkdir is denied inside the sandbox" test -d "$qwen_home/$folder"
 done
+check_eq "claude-ollama qwen tells Qwen Code it is sandboxed, so its footer and /about say so" "SANDBOX=claude-ollama" "$(grep '^SANDBOX=' "$sandbox/qwen-env")"
 launcher_log="$HOME/.local/share/claude-custom/console/launcher.log"
 check_that "and the launcher log records the hand-off to qwen" wait_for_launcher_log "claude-ollama: starting qwen"
 check_not "an outer OPENAI_API_KEY never reaches the session" grep -q '^OPENAI_API_KEY=' "$sandbox/qwen-env"
@@ -1398,12 +1399,13 @@ run_capture "$repo/bin/claude-ollama" qwen -p hi </dev/null
 check_that "claude-ollama qwen without a size uses the default" grep -qF -- "-m qwen3.8-27b-cc" "$sandbox/srt.log"
 
 rm -f "$sandbox/srt.log"
-CLAUDE_OLLAMA_SANDBOX=0 run_capture "$repo/bin/claude-ollama" qwen 27b -p hi
+SANDBOX=outer CLAUDE_OLLAMA_SANDBOX=0 run_capture "$repo/bin/claude-ollama" qwen 27b -p hi
 check_that "with CLAUDE_OLLAMA_SANDBOX=0 qwen runs without sandbox-runtime" grep -q '^QWEN ARGS: --auth-type openai' "$sandbox/out"
 check_not "and never through it" test -e "$sandbox/srt.log"
 check_that "and says so" grep -qF 'sandbox OFF (CLAUDE_OLLAMA_SANDBOX=0)' "$sandbox/err"
 check_not "and needs no raw-mode shim outside the sandbox" grep -q 'qwen-raw-mode' "$sandbox/qwen-env"
 check_not "nor the directory-watch shim" grep -q 'qwen-dir-watch' "$sandbox/qwen-env"
+check_not "and never claims a sandbox it does not have" grep -q '^SANDBOX=' "$sandbox/qwen-env"
 check_that "and still names the program" grep -qxF "claude-ollama: starting qwen" "$sandbox/err"
 check_not "and leaves the broker forms out of QWEN.md" grep -qF 'gh pr list' "$qwen_home/QWEN.md"
 

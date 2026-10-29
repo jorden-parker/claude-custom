@@ -20,7 +20,8 @@ changes are in [install](docs/install.md).
 
 ## Use
 
-- `claude`: the personal overlay (hooks, token discipline).
+- `claude`: the personal overlay (hooks, token discipline, Claude Code's own
+  sandbox on).
 - `claude-ollama [27b|35b]`: Claude Code on a local model.
 - `claude-tools`: edit which built-in tools Claude Code loads.
 - `make test`: every test suite, the one CI runs. The Stop hook runs only the

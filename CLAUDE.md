@@ -11,7 +11,8 @@ four parts:
 - **Personal setup** (`personal/`, `project/`): loaded with `--settings` by the
   `claude` shell function, and `shared/preferences/PREFERENCES.md` is
   `@`-imported into `~/.claude/CLAUDE.md`, to cut token usage on the normal
-  Anthropic-backed `claude`.
+  Anthropic-backed `claude`; the overlay also turns Claude Code's own sandbox on
+  and asks before any unsandboxed retry.
 - **Preference enforcement** (`shared/hooks/`, `shared/preferences/`): hooks and
   a short rules file that both the personal setup and the work harness load, so
   the same checks run whichever model is driving.
@@ -616,7 +617,16 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   scalars in the overlay override the user file, so don't add keys to the
   overlay that `~/.claude/settings.json` already sets. Both functions get the
   file from `personal/settings-path`, which drops the bare denies listed in
-  `~/.config/claude-custom/enabled-tools` (per machine, outside the repo).
+  `~/.config/claude-custom/enabled-tools` (per machine, outside the repo). The
+  overlay sets `sandbox.enabled` and the ask rule
+  `Bash(dangerouslyDisableSandbox:true)`, so every personal session (subagents
+  and `--agent pr-review` included) runs Claude's shell commands inside Claude
+  Code's sandbox and asks before one runs outside it; `bin/check-config` checks
+  both. The Ollama profiles keep that sandbox off because the session sandbox
+  wraps them, and a sandboxed `claude-ollama qwen` exports
+  `SANDBOX=claude-ollama` so Qwen Code's footer and `/about` report it (the
+  launcher unsets an outer `SANDBOX`, and `advanced.excludedEnvVars` keeps a
+  project `.env` from setting it).
 - `go/internal/picker/` has two packages: `profiles` (`Load` reads the
   configured sizes from `ollama/`, `EmbeddingModel` the search model) and `ui`
   (the Bubble Tea model).

@@ -2,6 +2,9 @@
   "bashOutputMaxChars": 15000,
   "promptSuggestionEnabled": false,
   "skillListingMaxDescChars": 300,
+  "sandbox": {
+    "enabled": true
+  },
   "env": {
     "MAX_MCP_OUTPUT_TOKENS": "10000",
     "CLAUDE_CODE_SUBAGENT_MODEL": "haiku",
@@ -31,7 +34,8 @@
       "SendUserFile",
       "ShareOnboardingGuide",
       "Workflow"
-    ]
+    ],
+    "ask": ["Bash(dangerouslyDisableSandbox:true)"]
   },
   "hooks": {
     "PreToolUse": [

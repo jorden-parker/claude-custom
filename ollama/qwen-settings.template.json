@@ -10,7 +10,8 @@
       "OPENAI_API_KEY",
       "OPENAI_BASE_URL",
       "OPENAI_MODEL",
-      "QWEN_MODEL"
+      "QWEN_MODEL",
+      "SANDBOX"
     ]
   },
   "privacy": { "usageStatisticsEnabled": false },

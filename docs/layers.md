@@ -30,6 +30,15 @@ overlay denies tools you never use by bare name, so their schemas stay out of
 the context; to get one back, delete its name from the deny list or run
 `claude-tools <path>` and press `x`.
 
+The overlay also turns Claude Code's own sandbox on (`sandbox.enabled`): shell
+commands Claude runs can write only the working directory, the per-user temp
+folder and added directories, and reach only hosts you allow (the first use of a
+new host prompts). When Claude wants to retry a command outside the sandbox, the
+overlay's ask rule `Bash(dangerouslyDisableSandbox:true)` prompts you in every
+permission mode. `claude-ollama` instead wraps the whole session in the sandbox
+runtime and keeps Claude Code's own sandbox off, since macOS refuses a nested
+one.
+
 To get a tool back on one machine only, list its name (one per line) in
 `~/.config/claude-custom/enabled-tools`. `personal/settings-path` then writes a
 copy of the overlay without those denies to
