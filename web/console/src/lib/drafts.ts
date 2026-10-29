@@ -70,11 +70,55 @@ export async function draftRows(): Promise<DraftRow[]> {
 
 export function readStoredDraft(id: string): StoredDraft | null {
   const file = draftFile(id);
-  if (file === null || !fs.existsSync(file)) {
+  if (file === null || !isRealFolder(path.dirname(file))) {
     return null;
   }
-  const text = fs.readFileSync(file, "utf8");
+  const text = readRegularFile(file);
+  if (text === null) {
+    return null;
+  }
   return { text, hash: draftHash(text), parsed: parseDraft(id, text) };
+}
+
+function readRegularFile(file: string): string | null {
+  let descriptor: number;
+  try {
+    descriptor = fs.openSync(
+      file,
+      fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW,
+    );
+  } catch {
+    return null;
+  }
+  try {
+    return fs.fstatSync(descriptor).isFile()
+      ? fs.readFileSync(descriptor, "utf8")
+      : null;
+  } finally {
+    fs.closeSync(descriptor);
+  }
+}
+
+function isRealFolder(folder: string): boolean {
+  try {
+    return fs.lstatSync(folder).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function writeNewPrivateFile(file: string, text: string): void {
+  const flags =
+    fs.constants.O_WRONLY |
+    fs.constants.O_CREAT |
+    fs.constants.O_EXCL |
+    fs.constants.O_NOFOLLOW;
+  const descriptor = fs.openSync(file, flags, FILE_MODE);
+  try {
+    fs.writeFileSync(descriptor, text);
+  } finally {
+    fs.closeSync(descriptor);
+  }
 }
 
 export function saveDraft(draft: Draft): string {
@@ -84,8 +128,11 @@ export function saveDraft(draft: Draft): string {
   }
   const text = `${JSON.stringify(draft, null, 2)}\n`;
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: FOLDER_MODE });
-  const temporary = `${file}.${process.pid}.${Date.now()}.tmp`;
-  fs.writeFileSync(temporary, text, { mode: FILE_MODE });
+  if (!isRealFolder(path.dirname(file))) {
+    throw new Error("the drafts folder is not a real folder");
+  }
+  const temporary = `${file}.${crypto.randomBytes(12).toString("hex")}.tmp`;
+  writeNewPrivateFile(temporary, text);
   fs.renameSync(temporary, file);
   return draftHash(text);
 }
@@ -159,7 +206,7 @@ function draftFile(id: string): string | null {
 
 function draftIdsOnDisk(): string[] {
   const directory = draftsDir();
-  if (!fs.existsSync(directory)) {
+  if (!isRealFolder(directory)) {
     return [];
   }
   return fs

@@ -71,6 +71,51 @@ describe("drafts store", () => {
     fs.writeFileSync(path.join(draftsFolder, `${id}.json`), text);
   }
 
+  describe("links the session planted", () => {
+    function outsideFile(text: string): string {
+      const outside = path.join(path.dirname(draftsFolder), "outside.txt");
+      fs.writeFileSync(outside, text);
+      return outside;
+    }
+
+    it("never reads a draft that is a symlink", () => {
+      const outside = outsideFile(JSON.stringify(prDraft()));
+      fs.mkdirSync(draftsFolder, { recursive: true });
+      fs.symlinkSync(outside, path.join(draftsFolder, `${PR_ID}.json`));
+      expect(readStoredDraft(PR_ID)).toBeNull();
+    });
+
+    it("never writes through a drafts folder that is a symlink", () => {
+      const target = path.join(path.dirname(draftsFolder), "elsewhere");
+      fs.mkdirSync(target);
+      fs.symlinkSync(target, draftsFolder);
+      expect(() => saveDraft(prDraft())).toThrow();
+      expect(fs.readdirSync(target)).toEqual([]);
+    });
+
+    it("lists nothing from a drafts folder that is a symlink", () => {
+      const target = path.join(path.dirname(draftsFolder), "elsewhere");
+      fs.mkdirSync(target);
+      fs.writeFileSync(
+        path.join(target, `${PR_ID}.json`),
+        JSON.stringify(prDraft()),
+      );
+      fs.symlinkSync(target, draftsFolder);
+      expect(listDrafts()).toEqual([]);
+    });
+
+    it("replaces a symlinked draft on save, never its target", () => {
+      const outside = outsideFile("keep me");
+      fs.mkdirSync(draftsFolder, { recursive: true });
+      fs.symlinkSync(outside, path.join(draftsFolder, `${PR_ID}.json`));
+      saveDraft(prDraft());
+      expect(fs.readFileSync(outside, "utf8")).toBe("keep me");
+      expect(
+        fs.lstatSync(path.join(draftsFolder, `${PR_ID}.json`)).isFile(),
+      ).toBe(true);
+    });
+  });
+
   describe("draftsDir", () => {
     it("uses the environment variable when it is set", () => {
       expect(draftsDir()).toBe(draftsFolder);
