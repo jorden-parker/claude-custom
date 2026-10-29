@@ -43,7 +43,7 @@ check_not() {
 }
 
 new_sandbox() {
-  sandbox="$(cd "$(mktemp -d)" && pwd -P)"
+  sandbox="$(made="$(mktemp -d)" && cd "$made" && pwd -P)" || exit 1
   sandboxes="$sandboxes $sandbox"
   export HOME="$sandbox/home"
   mkdir -p "$HOME" "$sandbox/stubbin"
@@ -89,7 +89,7 @@ link_system_tools() {
 
 build_system_tools() {
   local entry name
-  system_tools="$(cd "$(mktemp -d)" && pwd -P)"
+  system_tools="$(made="$(mktemp -d)" && cd "$made" && pwd -P)" || exit 1
   sandboxes="$sandboxes $system_tools"
   for entry in /usr/bin/* /bin/*; do
     name="${entry##*/}"

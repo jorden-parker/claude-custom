@@ -2,7 +2,7 @@
 set -u
 umask 022
 here="$(cd "$(dirname "$0")" && pwd)"
-tmp="$(cd "$(mktemp -d)" && pwd -P)"
+tmp="$(made="$(mktemp -d)" && cd "$made" && pwd -P)" || exit 1
 failures=0
 
 trap 'rm -rf "$tmp"' EXIT

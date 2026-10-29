@@ -2,7 +2,7 @@
 set -u
 hook="$(cd "$(dirname "$0")" && pwd)/stop-verify.py"
 failures=0
-sandbox="$(cd "$(mktemp -d)" && pwd -P)"
+sandbox="$(made="$(mktemp -d)" && cd "$made" && pwd -P)" || exit 1
 trap 'rm -rf "$sandbox"' EXIT
 export STOP_VERIFY_STATE_DIR="$sandbox/edits"
 

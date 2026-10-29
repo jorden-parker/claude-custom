@@ -2,7 +2,7 @@
 set -u
 repo="$(cd "$(dirname "$0")/.." && pwd -P)"
 tool="$repo/bin/extract-mtp-weights"
-sandbox="$(cd "$(mktemp -d)" && pwd -P)"
+sandbox="$(made="$(mktemp -d)" && cd "$made" && pwd -P)" || exit 1
 trap 'rm -rf "$sandbox"' EXIT
 failures=0
 

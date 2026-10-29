@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -u
 repo="$(cd "$(dirname "$0")/.." && pwd -P)"
-sandbox="$(cd "$(mktemp -d)" && pwd -P)"
+sandbox="$(made="$(mktemp -d)" && cd "$made" && pwd -P)" || exit 1
 trap 'pkill -f "$sandbox/stubbin" 2>/dev/null; rm -rf "$sandbox"' EXIT
 failures=0
 

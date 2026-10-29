@@ -2,7 +2,7 @@
 set -u
 umask 022
 server="$(cd "$(dirname "$0")" && pwd)/dev-server.py"
-tmp="$(cd "$(mktemp -d)" && pwd -P)"
+tmp="$(made="$(mktemp -d)" && cd "$made" && pwd -P)" || exit 1
 failures=0
 
 trap 'kill "${broker_pid:-}" 2>/dev/null; rm -rf "$tmp"' EXIT

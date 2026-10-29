@@ -2,7 +2,7 @@
 set -u
 here="$(cd "$(dirname "$0")" && pwd)"
 gh="$here/../../ollama/gh/bin/gh"
-tmp="$(cd "$(mktemp -d)" && pwd -P)"
+tmp="$(made="$(mktemp -d)" && cd "$made" && pwd -P)" || exit 1
 failures=0
 broker_pid=""
 

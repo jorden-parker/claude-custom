@@ -2,7 +2,7 @@
 set -u
 here="$(cd "$(dirname "$0")" && pwd)"
 short="$here/../../ollama/shortcut/bin/short"
-tmp="$(cd "$(mktemp -d)" && pwd -P)"
+tmp="$(made="$(mktemp -d)" && cd "$made" && pwd -P)" || exit 1
 failures=0
 broker_pid=""
 
