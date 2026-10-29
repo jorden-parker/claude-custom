@@ -738,6 +738,10 @@ qwen_command() {
   printf 'qwen %s' "$(qwen_args | tr '\n' ' ' | sed 's/ $//')"
 }
 
+create_qwen_home() {
+  mkdir -p "$qwen_home/skills" "$qwen_home/agents" "$qwen_home/extensions" "$qwen_home/rules" "$qwen_home/commands" "$qwen_home/hooks"
+}
+
 write_qwen_settings() {
   jq --arg model "$model" --arg base_url "$ollama_url/v1" --argjson context "$(modelfile_num_ctx)" '
     .model.name = $model
@@ -776,11 +780,11 @@ launch_qwen() {
   export QWEN_HOME="$qwen_home"
   export QWEN_USAGE_STATISTICS_ENABLED=false
   export QWEN_CODE_MODELS_DEV_REFRESH=off
-  mkdir -p "$qwen_home"
+  create_qwen_home
   write_qwen_settings
   write_qwen_context
   if sandbox_wanted; then
-    export NODE_OPTIONS="--require \"$profile_dir/qwen-raw-mode.cjs\"${NODE_OPTIONS:+ $NODE_OPTIONS}"
+    export NODE_OPTIONS="--require \"$profile_dir/qwen-raw-mode.cjs\" --require \"$profile_dir/qwen-dir-watch.cjs\"${NODE_OPTIONS:+ $NODE_OPTIONS}"
     launch_sandboxed qwen "${launch_args[@]}" "$@"
   fi
   echo "claude-ollama: sandbox OFF (CLAUDE_OLLAMA_SANDBOX=0): the session runs as you, with your gh, short, git credentials and env" >&2

@@ -371,9 +371,14 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   open every other terminal) or by reopening stdin on `/dev/tty` (Bun's kqueue
   rejects it). Qwen Code (Node) still issues the ioctl, so `launch_qwen`
   preloads `ollama/qwen-raw-mode.cjs` through `NODE_OPTIONS` in sandboxed
-  launches. The policy is `ollama/sandbox.json` (writes only the project;
-  `bin/check-config` keeps it that way) plus, per launch, the session config
-  dir, the repo's git common dir and macOS's item-replacement folder
+  launches, beside `ollama/qwen-dir-watch.cjs`, which drops the `EMFILE` every
+  directory watch raises there (FSEvents cannot start in the sandbox);
+  `create_qwen_home` makes the write-denied folders under the Qwen home first,
+  since Qwen Code's recursive `mkdir` passes only when they exist, and the
+  settings template turns `agents.crossSessionMessaging` off, since its Unix
+  socket cannot bind. The policy is `ollama/sandbox.json` (writes only the
+  project; `bin/check-config` keeps it that way) plus, per launch, the session
+  config dir, the repo's git common dir and macOS's item-replacement folder
   (`$(getconf DARWIN_USER_TEMP_DIR)TemporaryItems`, which Claude Code stalls
   without) as writable, and this repo, the policy itself, the git dir's `hooks`
   and `config`, every `.claude` under the repo root (`ROOT/**/.claude` and

@@ -306,6 +306,14 @@ which the sandbox refuses, so a sandboxed launch preloads
 `ollama/qwen-raw-mode.cjs` through `NODE_OPTIONS`: it lets that call succeed on
 the terminal the launcher already switched to raw mode. The session's own `node`
 processes inherit the preload; it changes nothing when the ioctl is allowed.
+Three more startup needs are met the same way: the launcher creates the folders
+under the Qwen home that the policy denies writing (`extensions` and the rest),
+since Qwen Code's own recursive `mkdir` of an existing folder passes while a
+missing one is refused; `ollama/qwen-dir-watch.cjs` drops the `EMFILE` that
+every directory watch raises because FSEvents cannot start inside the sandbox
+(file watches use kqueue and still work), so Qwen Code runs without live reload
+of those folders; and the settings turn `agents.crossSessionMessaging` off,
+since the sandbox refuses the Unix socket it would listen on.
 
 ### Dev servers and the browser
 

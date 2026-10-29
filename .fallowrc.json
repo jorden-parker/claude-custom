@@ -1,5 +1,9 @@
 {
-  "entry": ["ollama/cmux/page.js", "ollama/qwen-raw-mode.cjs"],
+  "entry": [
+    "ollama/cmux/page.js",
+    "ollama/qwen-raw-mode.cjs",
+    "ollama/qwen-dir-watch.cjs"
+  ],
   "ignoreFindings": [
     "web/console/src/components/ui/**",
     "web/console/src/components/ai-elements/**"

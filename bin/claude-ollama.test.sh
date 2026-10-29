@@ -1362,8 +1362,11 @@ check_that "claude-ollama qwen warms the model" warm_up_logged
 check_eq "claude-ollama qwen gives Qwen Code its own home under the session folder" "QWEN_HOME=$qwen_home" "$(grep '^QWEN_HOME=' "$sandbox/qwen-env")"
 check_that "and turns usage statistics off" grep -qx 'QWEN_USAGE_STATISTICS_ENABLED=false' "$sandbox/qwen-env"
 check_that "and the models.dev download" grep -qx 'QWEN_CODE_MODELS_DEV_REFRESH=off' "$sandbox/qwen-env"
-check_eq "claude-ollama qwen preloads the raw-mode shim, since the sandbox denies the terminal ioctl Node's setRawMode makes" \
-  "NODE_OPTIONS=--require \"$repo/ollama/qwen-raw-mode.cjs\"" "$(grep '^NODE_OPTIONS=' "$sandbox/qwen-env")"
+check_eq "claude-ollama qwen preloads the raw-mode and directory-watch shims, since the sandbox denies the terminal ioctl and FSEvents" \
+  "NODE_OPTIONS=--require \"$repo/ollama/qwen-raw-mode.cjs\" --require \"$repo/ollama/qwen-dir-watch.cjs\"" "$(grep '^NODE_OPTIONS=' "$sandbox/qwen-env")"
+for folder in skills agents extensions rules commands hooks; do
+  check_that "claude-ollama qwen creates $folder under its home before the launch, since Qwen Code's startup mkdir is denied inside the sandbox" test -d "$qwen_home/$folder"
+done
 launcher_log="$HOME/.local/share/claude-custom/console/launcher.log"
 check_that "and the launcher log records the hand-off to qwen" wait_for_launcher_log "claude-ollama: starting qwen"
 check_not "an outer OPENAI_API_KEY never reaches the session" grep -q '^OPENAI_API_KEY=' "$sandbox/qwen-env"
@@ -1372,6 +1375,7 @@ check_eq "the rendered settings name the size's model" "qwen3.8-27b-cc qwen3.8-2
 check_eq "and point it at Ollama's OpenAI endpoint" "http://localhost:11434/v1" "$(jq -r '.modelProviders.openai[0].baseUrl' "$qwen_home/settings.json")"
 check_eq "and carry the Modelfile's num_ctx as the context window" 65536 "$(jq -r '.modelProviders.openai[0].generationConfig.contextWindowSize' "$qwen_home/settings.json")"
 check_eq "and ask Ollama for no thinking" none "$(jq -r '.modelProviders.openai[0].generationConfig.extra_body.reasoning_effort' "$qwen_home/settings.json")"
+check_eq "and turn cross-session messaging off, whose socket the sandbox would refuse" false "$(jq -r '.agents.crossSessionMessaging' "$qwen_home/settings.json")"
 check_that "the global QWEN.md starts with the preferences" \
   test "$(head -1 "$qwen_home/QWEN.md")" = "$(head -1 "$repo/shared/preferences/PREFERENCES.md")"
 check_that "and carries the Qwen rules" grep -qF 'mcp__code-search__semantic_search answers' "$qwen_home/QWEN.md"
@@ -1399,6 +1403,7 @@ check_that "with CLAUDE_OLLAMA_SANDBOX=0 qwen runs without sandbox-runtime" grep
 check_not "and never through it" test -e "$sandbox/srt.log"
 check_that "and says so" grep -qF 'sandbox OFF (CLAUDE_OLLAMA_SANDBOX=0)' "$sandbox/err"
 check_not "and needs no raw-mode shim outside the sandbox" grep -q 'qwen-raw-mode' "$sandbox/qwen-env"
+check_not "nor the directory-watch shim" grep -q 'qwen-dir-watch' "$sandbox/qwen-env"
 check_that "and still names the program" grep -qxF "claude-ollama: starting qwen" "$sandbox/err"
 check_not "and leaves the broker forms out of QWEN.md" grep -qF 'gh pr list' "$qwen_home/QWEN.md"
 

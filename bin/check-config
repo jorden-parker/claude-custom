@@ -91,6 +91,8 @@ check_eq "the Qwen Code profile allows semantic_search and the repo tools withou
   "$(jq '(.permissions.allow | index("mcp__code-search__semantic_search") != null) and (.permissions.allow | index("mcp__repo") != null)' "$qwen_template")"
 check_eq "the Qwen Code profile keeps a project .env, which the session can write, from choosing the next session's system prompt, model, key or Seatbelt profile" true \
   "$(jq '(["QWEN_SYSTEM_MD", "SEATBELT_PROFILE", "OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_MODEL", "QWEN_MODEL"] - .advanced.excludedEnvVars) == []' "$qwen_template")"
+check_eq "the Qwen Code profile turns cross-session messaging off, since the sandbox denies the Unix socket it would listen on" false \
+  "$(jq -r '.agents.crossSessionMessaging' "$qwen_template")"
 
 digests="$repo/ollama/model-digests.json"
 pulled_models() {
