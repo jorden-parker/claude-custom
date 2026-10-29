@@ -369,7 +369,9 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   cooked mode and the terminal's replies to Claude Code's startup queries show
   up as text in the prompt. Don't fix it with `allowPty` (it lets the session
   open every other terminal) or by reopening stdin on `/dev/tty` (Bun's kqueue
-  rejects it). The policy is `ollama/sandbox.json` (writes only the project;
+  rejects it). Qwen Code (Node) still issues the ioctl, so `launch_qwen`
+  preloads `ollama/qwen-raw-mode.cjs` through `NODE_OPTIONS` in sandboxed
+  launches. The policy is `ollama/sandbox.json` (writes only the project;
   `bin/check-config` keeps it that way) plus, per launch, the session config
   dir, the repo's git common dir and macOS's item-replacement folder
   (`$(getconf DARWIN_USER_TEMP_DIR)TemporaryItems`, which Claude Code stalls

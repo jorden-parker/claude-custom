@@ -1362,6 +1362,10 @@ check_that "claude-ollama qwen warms the model" warm_up_logged
 check_eq "claude-ollama qwen gives Qwen Code its own home under the session folder" "QWEN_HOME=$qwen_home" "$(grep '^QWEN_HOME=' "$sandbox/qwen-env")"
 check_that "and turns usage statistics off" grep -qx 'QWEN_USAGE_STATISTICS_ENABLED=false' "$sandbox/qwen-env"
 check_that "and the models.dev download" grep -qx 'QWEN_CODE_MODELS_DEV_REFRESH=off' "$sandbox/qwen-env"
+check_eq "claude-ollama qwen preloads the raw-mode shim, since the sandbox denies the terminal ioctl Node's setRawMode makes" \
+  "NODE_OPTIONS=--require \"$repo/ollama/qwen-raw-mode.cjs\"" "$(grep '^NODE_OPTIONS=' "$sandbox/qwen-env")"
+launcher_log="$HOME/.local/share/claude-custom/console/launcher.log"
+check_that "and the launcher log records the hand-off to qwen" wait_for_launcher_log "claude-ollama: starting qwen"
 check_not "an outer OPENAI_API_KEY never reaches the session" grep -q '^OPENAI_API_KEY=' "$sandbox/qwen-env"
 check_eq "the rendered settings name the size's model" "qwen3.8-27b-cc qwen3.8-27b-cc" \
   "$(jq -r '[.model.name, .modelProviders.openai[0].id] | join(" ")' "$qwen_home/settings.json")"
@@ -1394,6 +1398,8 @@ CLAUDE_OLLAMA_SANDBOX=0 run_capture "$repo/bin/claude-ollama" qwen 27b -p hi
 check_that "with CLAUDE_OLLAMA_SANDBOX=0 qwen runs without sandbox-runtime" grep -q '^QWEN ARGS: --auth-type openai' "$sandbox/out"
 check_not "and never through it" test -e "$sandbox/srt.log"
 check_that "and says so" grep -qF 'sandbox OFF (CLAUDE_OLLAMA_SANDBOX=0)' "$sandbox/err"
+check_not "and needs no raw-mode shim outside the sandbox" grep -q 'qwen-raw-mode' "$sandbox/qwen-env"
+check_that "and still names the program" grep -qxF "claude-ollama: starting qwen" "$sandbox/err"
 check_not "and leaves the broker forms out of QWEN.md" grep -qF 'gh pr list' "$qwen_home/QWEN.md"
 
 run_capture "$repo/bin/claude-ollama" qwen --print-config 35b

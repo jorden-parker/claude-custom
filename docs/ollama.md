@@ -301,7 +301,11 @@ as the Claude profiles do. An outer `OPENAI_API_KEY`, `OPENAI_BASE_URL`,
 Not yet wired for Qwen Code: the hooks (Qwen Code's hook contract matches Claude
 Code's, but the hooks match Claude tool names), `doctor`, the picker and the
 console. `CLAUDE_OLLAMA_SANDBOX=0 claude-ollama qwen ...` runs it as you, like
-the Claude launch.
+the Claude launch. Node's `setRawMode` asks the terminal for raw mode itself,
+which the sandbox refuses, so a sandboxed launch preloads
+`ollama/qwen-raw-mode.cjs` through `NODE_OPTIONS`: it lets that call succeed on
+the terminal the launcher already switched to raw mode. The session's own `node`
+processes inherit the preload; it changes nothing when the ioctl is allowed.
 
 ### Dev servers and the browser
 

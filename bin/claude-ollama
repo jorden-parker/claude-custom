@@ -291,7 +291,7 @@ start_launcher_log() {
 }
 
 stop_launcher_log() {
-  echo "claude-ollama: starting claude" >&2
+  echo "claude-ollama: starting $1" >&2
   [ -n "$launcher_log_open" ] || return 0
   exec 2>&3 3>&-
 }
@@ -702,7 +702,7 @@ launch_sandboxed() {
   GH_BASIC="$(github_basic_auth)"
   export GH_BASIC
   export CLAUDE_OLLAMA_SESSION_PATH="$launch_path"
-  stop_launcher_log
+  stop_launcher_log "$1"
   run_in_raw_terminal "$sandbox_runtime" -s "$sandbox_policy" -- "$profile_dir/sandbox-entry" "$@"
   exit
 }
@@ -780,10 +780,11 @@ launch_qwen() {
   write_qwen_settings
   write_qwen_context
   if sandbox_wanted; then
+    export NODE_OPTIONS="--require \"$profile_dir/qwen-raw-mode.cjs\"${NODE_OPTIONS:+ $NODE_OPTIONS}"
     launch_sandboxed qwen "${launch_args[@]}" "$@"
   fi
   echo "claude-ollama: sandbox OFF (CLAUDE_OLLAMA_SANDBOX=0): the session runs as you, with your gh, short, git credentials and env" >&2
-  stop_launcher_log
+  stop_launcher_log qwen
   PATH="$launch_path"
   exec qwen "${launch_args[@]}" "$@"
 }
@@ -1281,6 +1282,6 @@ if sandbox_wanted; then
   launch_sandboxed claude "${claude_args[@]}" "$@"
 fi
 echo "claude-ollama: sandbox OFF (CLAUDE_OLLAMA_SANDBOX=0): the session runs as you, with your gh, short, git credentials and env" >&2
-stop_launcher_log
+stop_launcher_log claude
 PATH="$launch_path"
 exec claude "${claude_args[@]}" "$@"
