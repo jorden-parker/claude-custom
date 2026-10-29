@@ -169,6 +169,19 @@ if [ -n "$fish_bin" ]; then
   check_eq "fish function uses the machine overlay" "ARGS: --settings $local_overlay a b c" \
     "$("$fish_bin" --no-config -c "set -g CLAUDE_CUSTOM_HOME $repo; source $repo/personal/claude.fish; claude a 'b c'" 2>&1)"
 fi
+check_eq "machine overlay keeps the sandbox on without a sandbox-off file" true "$(jq '.sandbox.enabled' "$local_overlay")"
+
+new_sandbox
+mkdir -p "$HOME/.config/claude-custom"
+: > "$HOME/.config/claude-custom/sandbox-off"
+local_overlay="$HOME/.cache/claude-custom/settings.tokens.json"
+check_eq "sandbox-off alone makes the sh function use the machine overlay" "ARGS: --settings $local_overlay a b c" \
+  "$(CLAUDE_CUSTOM_HOME="$repo" sh -c ". \"$repo/personal/claude.sh\"; claude a 'b c'" 2>&1)"
+check_eq "sandbox-off turns the sandbox off in the machine overlay" false "$(jq '.sandbox.enabled' "$local_overlay")"
+check_eq "sandbox-off keeps every deny" \
+  "$(jq -c '.permissions.deny' "$repo/personal/settings.tokens.json")" \
+  "$(jq -c '.permissions.deny' "$local_overlay")"
+check_eq "sandbox-off leaves the shared overlay's sandbox on" true "$(jq '.sandbox.enabled' "$repo/personal/settings.tokens.json")"
 
 new_sandbox
 run_capture "$installer" install

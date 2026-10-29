@@ -617,8 +617,9 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   scalars in the overlay override the user file, so don't add keys to the
   overlay that `~/.claude/settings.json` already sets. Both functions get the
   file from `personal/settings-path`, which drops the bare denies listed in
-  `~/.config/claude-custom/enabled-tools` (per machine, outside the repo). The
-  overlay sets `sandbox.enabled` and the ask rule
+  `~/.config/claude-custom/enabled-tools` and sets `sandbox.enabled` to false
+  when `~/.config/claude-custom/sandbox-off` exists (both per machine, outside
+  the repo). The overlay sets `sandbox.enabled` and the ask rule
   `Bash(dangerouslyDisableSandbox:true)`, so every personal session (subagents
   and `--agent pr-review` included) runs Claude's shell commands inside Claude
   Code's sandbox and asks before one runs outside it; `bin/check-config` checks

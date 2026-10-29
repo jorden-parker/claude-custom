@@ -44,3 +44,7 @@ To get a tool back on one machine only, list its name (one per line) in
 copy of the overlay without those denies to
 `~/.cache/claude-custom/settings.tokens.json`, and the `claude` function loads
 that copy instead (or the shared overlay if `jq` fails).
+
+To turn Claude Code's sandbox off on one machine only, create an empty
+`~/.config/claude-custom/sandbox-off`. The machine copy then sets
+`sandbox.enabled` to false; every other machine keeps it on.

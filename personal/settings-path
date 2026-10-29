@@ -2,22 +2,29 @@
 set -u
 repo_dir="$(cd "$(dirname "$0")/.." && pwd -P)"
 shared_overlay="$repo_dir/personal/settings.tokens.json"
-enabled_tools="${XDG_CONFIG_HOME:-$HOME/.config}/claude-custom/enabled-tools"
+machine_config="${XDG_CONFIG_HOME:-$HOME/.config}/claude-custom"
+enabled_tools="$machine_config/enabled-tools"
+sandbox_off="$machine_config/sandbox-off"
 machine_overlay="${XDG_CACHE_HOME:-$HOME/.cache}/claude-custom/settings.tokens.json"
+
+sandbox_off_requested() {
+  if [ -e "$sandbox_off" ]; then echo true; else echo false; fi
+}
 
 write_machine_overlay() {
   mkdir -p "${machine_overlay%/*}" &&
-    jq --rawfile enabled "$enabled_tools" \
-      '.permissions.deny -= ($enabled | split("\n") | map(gsub("^\\s+|\\s+$"; "")) | map(select(. != "")))' \
-      "$shared_overlay" > "$machine_overlay.tmp" &&
+    jq --arg enabled "$(cat "$enabled_tools" 2>/dev/null)" --argjson sandbox_off "$(sandbox_off_requested)" '
+      .permissions.deny -= ($enabled | split("\n") | map(gsub("^\\s+|\\s+$"; "")) | map(select(. != "")))
+      | if $sandbox_off then .sandbox.enabled = false else . end
+    ' "$shared_overlay" > "$machine_overlay.tmp" &&
     mv "$machine_overlay.tmp" "$machine_overlay"
 }
 
-if [ ! -r "$enabled_tools" ]; then
+if [ ! -r "$enabled_tools" ] && [ ! -e "$sandbox_off" ]; then
   echo "$shared_overlay"
 elif write_machine_overlay; then
   echo "$machine_overlay"
 else
-  echo "claude-custom: could not apply $enabled_tools" >&2
+  echo "claude-custom: could not apply $machine_config" >&2
   echo "$shared_overlay"
 fi
