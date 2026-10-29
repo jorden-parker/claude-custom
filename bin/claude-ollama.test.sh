@@ -823,6 +823,7 @@ check_that "nor its cmux broker socket" policy_lists denyWrite "$session_config/
 home_in_policy='~'
 check_that "the sandbox hides SSH keys" policy_lists denyRead "$home_in_policy/.ssh"
 check_that "the sandbox hides the normal Claude config" policy_lists denyRead "$home_in_policy/.claude"
+check_that "the sandbox hides the normal Qwen Code config, which holds keys" policy_lists denyRead "$home_in_policy/.qwen"
 check_that "the sandbox hides the reviews and their console link" policy_lists denyRead "$PR_REVIEW_LOG_DIR"
 check_that "the sandbox hides the console token" policy_lists denyRead "$CLAUDE_CONSOLE_STATE_DIR"
 unset PR_REVIEW_LOG_DIR CLAUDE_CONSOLE_STATE_DIR
@@ -1062,6 +1063,8 @@ ln -s "$project" "$sandbox/project-link"
 (cd "$sandbox/project-link/src/deep" && run_capture "$repo/bin/claude-ollama" 27b -p hi)
 check_that "from a subfolder the session still never writes the repo root's .claude" policy_lists denyWrite "$project/**/.claude"
 check_that "nor anything inside any .claude in the repo" policy_lists denyWrite "$project/**/.claude/**"
+check_that "from a subfolder the session still never writes the repo root's .qwen" policy_lists denyWrite "$project/**/.qwen"
+check_that "nor anything inside any .qwen in the repo" policy_lists denyWrite "$project/**/.qwen/**"
 outside="$sandbox/outside"
 mkdir -p "$outside"
 (cd "$outside" && run_capture "$repo/bin/claude-ollama" 27b -p hi)

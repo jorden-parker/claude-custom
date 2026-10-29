@@ -536,7 +536,7 @@ write_sandbox_policy() {
     ($git | if . == "" then [] else [.] end) as $git_dirs
     | ($items | if . == "" then [] else [.] end) as $item_dirs
     | .filesystem.allowWrite += [$config] + $item_dirs + $git_dirs
-    | .filesystem.denyWrite += [$repo, $policy, $rules, $rules_dir, {path: "\($root)/.claude", literal: true}, "\($root)/**/.claude", "\($root)/**/.claude/**"]
+    | .filesystem.denyWrite += [$repo, $policy, $rules, $rules_dir, {path: "\($root)/.claude", literal: true}, "\($root)/**/.claude", "\($root)/**/.claude/**", {path: "\($root)/.qwen", literal: true}, "\($root)/**/.qwen", "\($root)/**/.qwen/**"]
         + ["\($config)/gh-broker.*.sock", "\($config)/cmux-broker.*.sock", "\($config)/shortcut-broker.*.sock"]
         + [$config_sources[] as $source | "\($config)/\($source)"]
         + [$git_dirs[] | "\(.)/hooks", "\(.)/config"]

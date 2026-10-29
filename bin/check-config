@@ -72,7 +72,7 @@ check_eq "the session sandbox reaches the clipboard, so copied images paste" '["
 check_eq "the session sandbox sends the GitHub token, masked, only to github.com" '[{"name":"GH_BASIC","mode":"mask","injectHosts":["github.com"]}]' \
   "$(jq -c .credentials.envVars "$sandbox_policy")"
 check_eq "the session sandbox hides credentials and the normal Claude config" true \
-  "$(jq '.filesystem.denyRead | (["~/.ssh", "~/.aws", "~/.config/gh", "~/.npmrc", "~/Library/Keychains", "~/.claude"] - .) == []' "$sandbox_policy")"
+  "$(jq '.filesystem.denyRead | (["~/.ssh", "~/.aws", "~/.config/gh", "~/.npmrc", "~/Library/Keychains", "~/.claude", "~/.qwen"] - .) == []' "$sandbox_policy")"
 check_eq "the session sandbox writes only the project, so no folder an unsandboxed program runs from" '["."]' \
   "$(jq -c .filesystem.allowWrite "$sandbox_policy")"
 

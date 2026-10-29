@@ -10,7 +10,8 @@
       "~/.kube",
       "~/.gnupg",
       "~/Library/Keychains",
-      "~/.claude"
+      "~/.claude",
+      "~/.qwen"
     ],
     "allowWrite": ["."],
     "denyWrite": []
