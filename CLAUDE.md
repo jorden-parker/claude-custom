@@ -557,6 +557,25 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   `--no-index`). The nine GitHub tools are listed only when
   `CLAUDE_OLLAMA_GH_BROKER` is set and go to the broker. Output over 20000
   characters is cut with a note on how to narrow it.
+- Drafts: `shared/skills/pr-draft` (a PR description from the project's pull
+  request template) and `shared/skills/pr-review-draft` (a review in
+  Conventional Comments) save through the `repo` server's `draft_pr` and
+  `draft_review` tools (`shared/mcp/draft_store.py`, listed only when
+  `CLAUDE_OLLAMA_DRAFTS_DIR` is set) to `~/.claude-ollama/drafts/<id>.json`
+  (0700/0600), the one folder both the sandboxed session can write and the
+  console can find. They never post. `ollama/drafts/opener.py` runs outside the
+  sandbox (`--watch-pid`, `CLAUDE_OLLAMA_OPEN_DRAFTS=0` turns it off) and opens
+  the newest new draft, at most one every 5 s, at `/drafts/<id>` through a 0600
+  redirect page under the console state dir, so the console token never lands in
+  argv; it uses `cmux browser open-split` in a cmux terminal, else `open`, and
+  starts `claude-ollama ui` when `/health` fails. The console's `/drafts` pages
+  edit each item's markdown, save, and post with your own `gh` (`gh pr create`,
+  or `gh api .../pulls/N/reviews` with inline comments): the click is the
+  approval. The console derives `owner/name` from the project's `origin` (the
+  session can't write `.git/config`), never from the draft, and a post carries
+  the draft's hash, so a draft changed after you loaded it is refused (409).
+  Tests: `ollama/drafts/opener.test.sh` (stub `open`, `cmux`, console),
+  `shared/mcp/repo-tools.test.sh`, the console's vitest suite.
 - `shared/mcp/code-search.py` is the `semantic_search` MCP server (JSON-RPC over
   stdio, stdlib only). It ranks 40-line chunks by their words (BM25) on every
   search, adds a vector ranking through Ollama `/api/embed` only while

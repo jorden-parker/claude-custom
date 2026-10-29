@@ -183,6 +183,7 @@ check_apis() {
 /api/history
 /api/runs
 /api/reviews
+/api/drafts
 /api/tools
 /api/telemetry
 /api/speed-reports

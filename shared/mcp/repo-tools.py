@@ -4,6 +4,7 @@ import subprocess
 from pathlib import PurePath
 
 from broker_client import BrokerMissing, ask_broker
+from draft_store import DRAFT_TOOL_NAMES, DRAFT_TOOLS, DraftRefused, draft_pr, draft_review, drafts_dir
 from mcp_stdio import serve, tool_result
 
 GIT_TIMEOUT_SECONDS = 60
@@ -247,9 +248,25 @@ def run_github_tool(name, arguments):
     return reply.get("stdout", "") + reply.get("stderr", "")
 
 
+def current_branch():
+    return run_git(["rev-parse", "--abbrev-ref", "HEAD"]).strip()
+
+
+def run_draft_tool(name, arguments):
+    project = run_git(["rev-parse", "--show-toplevel"]).strip()
+    try:
+        if name == "draft_pr":
+            return draft_pr(arguments, project, current_branch())
+        return draft_review(arguments, project)
+    except DraftRefused as refusal:
+        raise ToolError(str(refusal)) from None
+
+
 def run_tool(name, arguments):
     if name in GIT_COMMANDS:
         return run_git(GIT_COMMANDS[name](arguments))
+    if name in DRAFT_TOOL_NAMES:
+        return run_draft_tool(name, arguments)
     if name in GITHUB_TOOL_NAMES:
         return run_github_tool(name, arguments)
     raise ToolError(f"unknown tool: {name}")
@@ -272,7 +289,8 @@ def call_tool(params):
 
 
 def list_tools():
-    return GIT_TOOLS + (GITHUB_TOOLS if os.environ.get("CLAUDE_OLLAMA_GH_BROKER") else [])
+    github_tools = GITHUB_TOOLS if os.environ.get("CLAUDE_OLLAMA_GH_BROKER") else []
+    return GIT_TOOLS + (DRAFT_TOOLS if drafts_dir() else []) + github_tools
 
 
 serve("repo", list_tools, call_tool)

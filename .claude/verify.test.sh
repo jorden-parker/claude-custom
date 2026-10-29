@@ -21,7 +21,8 @@ add_test() {
 
 for test in shared/hooks/edit-check.test.sh shared/hooks/fallow-a.test.sh shared/hooks/fallow-b.test.sh \
   personal/install.test.sh bin/claude-ollama.test.sh bin/ollama-profiles.test.sh .claude/verify.test.sh \
-  ollama/approval.test.sh ollama/gh/broker.test.sh ollama/shortcut/broker.test.sh; do
+  ollama/approval.test.sh ollama/gh/broker.test.sh ollama/shortcut/broker.test.sh \
+  ollama/drafts/opener.test.sh shared/mcp/repo-tools.test.sh; do
   add_test "$test"
 done
 
@@ -60,6 +61,8 @@ check_ran 'personal files run install tests' "$checks|personal/install.test.sh|"
 check_ran 'shared settings run install tests' "$checks|personal/install.test.sh|" shared/settings/hooks.json
 check_ran 'approval module runs its tests and the brokers' "$checks|ollama/approval.test.sh|ollama/gh/broker.test.sh|ollama/shortcut/broker.test.sh|" ollama/approval.py
 check_ran 'approve dialog runs the approval tests and the brokers' "$checks|ollama/approval.test.sh|ollama/gh/broker.test.sh|ollama/shortcut/broker.test.sh|" ollama/approve-dialog
+check_ran 'draft opener runs its tests and the launcher tests' "$checks|bin/claude-ollama.test.sh|ollama/drafts/opener.test.sh|" ollama/drafts/opener.py
+check_ran 'draft store runs the repo tools tests' "$checks|shared/mcp/repo-tools.test.sh|" shared/mcp/draft_store.py
 check_ran 'verify runs its own test' "$checks|.claude/verify.test.sh|" .claude/verify
 check_ran 'makefile runs everything' 'make test|' Makefile README.md
 

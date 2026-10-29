@@ -277,6 +277,9 @@ check_eq "claude-tools link" "$repo/bin/claude-tools" "$(readlink "$HOME/.local/
 check_eq "ollama-agent link" "$repo/bin/ollama-agent" "$(readlink "$HOME/.local/bin/ollama-agent")"
 check_eq "pr-review agent link" "$repo/shared/agents/pr-review.md" "$(readlink "$HOME/.claude/agents/pr-review.md")"
 check_eq "handoff skill link" "$repo/shared/skills/handoff" "$(readlink "$HOME/.claude/skills/handoff")"
+for draft_skill in pr-draft pr-review-draft; do
+  check_eq "$draft_skill skill link" "$repo/shared/skills/$draft_skill" "$(readlink "$HOME/.claude/skills/$draft_skill")"
+done
 check_not "install creates no hook links" test -e "$HOME/.claude/hooks"
 for settings in "$repo"/personal/settings.tokens.json "$repo"/ollama/settings.*.json; do
   for hook_name in $(jq -r '.hooks[][].hooks[].command' "$settings" | sed -n 's#.*/shared/hooks/##p' | sort -u); do
@@ -420,6 +423,9 @@ check_not "round trip removes claude-tools link" test -L "$HOME/.local/bin/claud
 check_not "round trip removes ollama-agent link" test -L "$HOME/.local/bin/ollama-agent"
 check_not "round trip removes pr-review agent link" test -L "$HOME/.claude/agents/pr-review.md"
 check_not "round trip removes handoff skill link" test -L "$HOME/.claude/skills/handoff"
+for draft_skill in pr-draft pr-review-draft; do
+  check_not "round trip removes $draft_skill skill link" test -L "$HOME/.claude/skills/$draft_skill"
+done
 
 new_sandbox
 mkdir -p "$HOME/.local/bin" "$HOME/.claude/hooks"

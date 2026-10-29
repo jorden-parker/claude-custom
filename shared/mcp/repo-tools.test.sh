@@ -215,6 +215,61 @@ big="$(call git_diff '{"staged":true,"paths":["big.txt"]}')"
 check "long output is cut to stay inside the model's context" [ "${#big}" -lt 21000 ]
 check "and says how to narrow it" contains "$big" "[truncated: showed 20000 of"
 
+drafts="$tmp/drafts"
+export CLAUDE_OLLAMA_DRAFTS_DIR="$drafts"
+check "with a drafts folder the draft tools are listed too" \
+  [ "$(call list)" = "git_status git_diff git_log git_show draft_pr draft_review" ]
+pr_draft='{"title":"Add notes","base":"main","sections":[{"heading":"Summary","body":"Adds **notes**."},{"heading":"Testing","body":"- [x] ran it"}]}'
+drafted="$(call draft_pr "$pr_draft")"
+check "draft_pr links the draft in the console" contains "$drafted" "http://127.0.0.1:8765/drafts/"
+pr_file="$(find "$drafts" -name '*-pr-*.json' 2>/dev/null | head -n 1)"
+check "draft_pr writes one draft file" [ -f "$pr_file" ]
+check "the drafts folder is private" [ "$(stat -f %Lp "$drafts" 2>/dev/null || stat -c %a "$drafts")" = 700 ]
+check "the draft file is private" [ "$(stat -f %Lp "$pr_file" 2>/dev/null || stat -c %a "$pr_file")" = 600 ]
+draft_field() {
+  python3 -c "import json, sys; value = json.load(open(sys.argv[1]))[sys.argv[2]]; print(value if isinstance(value, (str, int)) else json.dumps(value))" "$1" "$2"
+}
+check "a PR draft names its kind" [ "$(draft_field "$pr_file" kind)" = pr ]
+check "a PR draft takes the head from the current branch" [ "$(draft_field "$pr_file" head)" = main ]
+check "a PR draft records the pinned work tree" [ "$(draft_field "$pr_file" project)" = "$repo" ]
+check "a PR draft keeps its sections in order" \
+  [ "$(draft_field "$pr_file" sections)" = '[{"heading": "Summary", "body": "Adds **notes**."}, {"heading": "Testing", "body": "- [x] ran it"}]' ]
+check "the reply names the draft id" contains "$drafted" "$(draft_field "$pr_file" id)"
+
+review_draft='{"pr":12,"event":"REQUEST_CHANGES","summary":"Close.","comments":[{"label":"issue","decorations":["blocking"],"path":"notes.txt","line":2,"body":"Off by one."},{"label":"praise","body":"Nice tests."}]}'
+call draft_review "$review_draft" >/dev/null
+review_file="$(find "$drafts" -name '*-review-12.json' 2>/dev/null | head -n 1)"
+check "draft_review writes a draft named after the PR" [ -f "$review_file" ]
+check "a review draft keeps the event" [ "$(draft_field "$review_file" event)" = REQUEST_CHANGES ]
+check "a review draft keeps inline and general comments" \
+  [ "$(draft_field "$review_file" comments)" = '[{"label": "issue", "decorations": ["blocking"], "path": "notes.txt", "line": 2, "body": "Off by one."}, {"label": "praise", "decorations": [], "body": "Nice tests."}]' ]
+
+refused() {
+  contains "$(call "$1" "$2")" "ERROR $3"
+}
+check "a label outside Conventional Comments is refused" \
+  refused draft_review '{"pr":1,"event":"COMMENT","summary":"s","comments":[{"label":"bug","body":"b"}]}' "label must be one of"
+check "an unknown decoration is refused" \
+  refused draft_review '{"pr":1,"event":"COMMENT","summary":"s","comments":[{"label":"issue","decorations":["urgent"],"body":"b"}]}' "decorations must be from"
+check "a comment path that climbs out is refused" \
+  refused draft_review '{"pr":1,"event":"COMMENT","summary":"s","comments":[{"label":"issue","path":"../x","line":1,"body":"b"}]}' "paths must stay inside the repository"
+check "a line without a path is refused" \
+  refused draft_review '{"pr":1,"event":"COMMENT","summary":"s","comments":[{"label":"issue","line":3,"body":"b"}]}' "line needs a path"
+check "an unknown event is refused" \
+  refused draft_review '{"pr":1,"event":"MERGE","summary":"s","comments":[]}' "event must be one of"
+check "a PR number must be positive" \
+  refused draft_review '{"pr":0,"event":"COMMENT","summary":"s","comments":[]}' "pr must be a positive whole number"
+check "a PR title must be one line" \
+  refused draft_pr '{"title":"a\nb","base":"main","sections":[{"heading":"h","body":"b"}]}' "title must be one line"
+check "a PR draft needs sections" \
+  refused draft_pr '{"title":"t","base":"main","sections":[]}' "sections must be a list of 1 to 30"
+check "a section needs a heading" \
+  refused draft_pr '{"title":"t","base":"main","sections":[{"body":"b"}]}' "heading is required"
+check "a base that looks like an option is refused" \
+  refused draft_pr '{"title":"t","base":"--force","sections":[{"heading":"h","body":"b"}]}' "base must be a branch name"
+check "a refused draft writes no file" [ "$(find "$drafts" -type f | wc -l | tr -d ' ')" = 2 ]
+unset CLAUDE_OLLAMA_DRAFTS_DIR
+
 socket="$tmp/b.sock"
 printf '%s\n' '{"exit":0,"stdout":"[{\"number\":12}]\n","stderr":""}' > "$tmp/broker-reply"
 python3 "$tmp/broker.py" "$socket" "$tmp/broker.log" "$tmp/broker-reply" &

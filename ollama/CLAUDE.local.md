@@ -6,6 +6,8 @@
 - Read at most 300 lines per call, with offset and limit.
 - Read git history and GitHub PRs, issues and CI through the mcp__repo__ tools
   (no permission prompt), not Bash `git log`/`git diff`.
+- Write a PR description with /pr-draft and a PR review with /pr-review-draft;
+  the user edits and posts the draft in the console.
 - If semantic_search errors, don't retry: use `git grep -n`. If the launch said
   the embedding pull failed, tell the user to pick "Set up embedding model" in
   `claude-ollama`.

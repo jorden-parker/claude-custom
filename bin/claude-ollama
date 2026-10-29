@@ -17,6 +17,7 @@ ollama_agent="${CLAUDE_OLLAMA_AGENT:-$repo_dir/bin/ollama-agent}"
 gguf_inspect="${CLAUDE_OLLAMA_GGUF_INSPECT:-$repo_dir/bin/gguf-inspect}"
 sandbox_runtime="$HOME/.local/share/claude-custom/sandbox-runtime/node_modules/.bin/srt"
 session_config_dir="$HOME/.claude-ollama"
+drafts_dir="$session_config_dir/drafts"
 qwen_home="$session_config_dir/qwen"
 sandbox_policy="$session_config_dir/sandbox-policy.json"
 append_prompt="$session_config_dir/append-prompt.md"
@@ -28,6 +29,7 @@ fetch_settings="$session_config_dir/fetch-settings.json"
 fetch_domain_pattern='^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z][a-z0-9-]*[a-z0-9]$'
 review_log_dir="${PR_REVIEW_LOG_DIR:-$HOME/.local/share/claude-custom/reviews}"
 console_state_dir="${CLAUDE_CONSOLE_STATE_DIR:-$HOME/.local/share/claude-custom/console}"
+console_port=8765
 launcher_log="$console_state_dir/launcher.log"
 launcher_log_max_bytes=1048576
 launcher_log_open=""
@@ -395,12 +397,42 @@ require_plain_project_root() {
   esac
 }
 
-cmux_broker_wanted() {
-  [ "${CLAUDE_OLLAMA_CMUX:-}" = 0 ] && return 1
+in_cmux_terminal() {
   case "${CMUX_SOCKET_PATH:-}" in
     /*) [ -S "$CMUX_SOCKET_PATH" ] && trusted_command cmux >/dev/null ;;
     *) return 1 ;;
   esac
+}
+
+cmux_broker_wanted() {
+  [ "${CLAUDE_OLLAMA_CMUX:-}" = 0 ] && return 1
+  in_cmux_terminal
+}
+
+prepare_drafts_dir() {
+  (umask 077; mkdir -p "$drafts_dir")
+  chmod 700 "$drafts_dir"
+  export CLAUDE_OLLAMA_DRAFTS_DIR="$drafts_dir"
+}
+
+draft_browser_args() {
+  if in_cmux_terminal; then
+    printf '%s\n' --cmux "$(trusted_command cmux)"
+  else
+    printf '%s\n' --open /usr/bin/open
+  fi
+}
+
+start_draft_opener() {
+  [ "${CLAUDE_OLLAMA_OPEN_DRAFTS:-}" = 0 ] && return 0
+  local browser_args=()
+  while IFS= read -r arg; do
+    browser_args+=("$arg")
+  done < <(draft_browser_args)
+  nohup "${CLAUDE_OLLAMA_DRAFT_OPENER:-$profile_dir/drafts/opener.py}" --drafts "$drafts_dir" --watch-pid "$$" \
+    --console-url "http://127.0.0.1:$console_port" --token-file "$console_state_dir/tokens/$console_port" \
+    --pages "$console_state_dir/open-drafts" --start-console "$repo_dir/bin/claude-ollama" \
+    "${browser_args[@]}" >/dev/null 2>&1 &
 }
 
 wait_for_socket() {
@@ -1084,7 +1116,7 @@ console_install_needed() {
 }
 
 serve_console() {
-  local command_name="$1" label="$2" page="$3" port=8765 web_dir url page_url token project_dir
+  local command_name="$1" label="$2" page="$3" port="$console_port" web_dir url page_url token project_dir
   project_dir="$(pwd -P)"
   shift 3
   while [ $# -gt 0 ]; do
@@ -1261,11 +1293,13 @@ warm_embedding_model
 warm_search_index
 warm_model
 
-unset ANTHROPIC_API_KEY ANTHROPIC_MODEL CLAUDE_OLLAMA_CMUX_BROKER CLAUDE_OLLAMA_GH_BROKER CLAUDE_OLLAMA_SHORTCUT_BROKER CLAUDE_OLLAMA_SESSION_PATH
+unset ANTHROPIC_API_KEY ANTHROPIC_MODEL CLAUDE_OLLAMA_DRAFTS_DIR CLAUDE_OLLAMA_CMUX_BROKER CLAUDE_OLLAMA_GH_BROKER CLAUDE_OLLAMA_SHORTCUT_BROKER CLAUDE_OLLAMA_SESSION_PATH
 export CLAUDE_CUSTOM_HOME="$repo_dir"
 prepare_session_config
 start_cmux_broker
 start_gh_broker
+prepare_drafts_dir
+start_draft_opener
 export CLAUDE_CONFIG_DIR="$session_config_dir"
 export CLAUDE_CODE_TMPDIR="$session_config_dir/tmp"
 if [ "$harness" = qwen ]; then

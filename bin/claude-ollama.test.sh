@@ -33,6 +33,13 @@ check_that() {
   "$@" || fail "$name"
 }
 
+contains() {
+  case "$1" in
+    *"$2"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 check_not() {
   local name="$1"
   shift
@@ -182,6 +189,13 @@ EOF
   chmod +x "$sandbox/stubbin/claude" "$sandbox/stubbin/qwen" "$sandbox/stubbin/ollama" "$sandbox/stubbin/ollama-agent" "$sandbox/stubbin/curl" "$sandbox/stubbin/python3" "$sandbox/stubbin/pgrep" "$sandbox/stubbin/ps" "$sandbox/stubbin/shasum" "$sandbox/stubbin/gguf-inspect"
   link_system_tools
   export PATH="$sandbox/stubbin:$sandbox/sysbin"
+  cat > "$sandbox/stubbin/draft-opener" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" > "$sandbox/opener-args"
+EOF
+  chmod +x "$sandbox/stubbin/draft-opener"
+  export CLAUDE_OLLAMA_DRAFT_OPENER="$sandbox/stubbin/draft-opener"
+  unset CLAUDE_OLLAMA_OPEN_DRAFTS CLAUDE_OLLAMA_DRAFTS_DIR
 }
 
 sandbox_runtime_path() {
@@ -862,6 +876,14 @@ done
 check_eq "the session never auto-updates the shared Claude Code install" 1 "$(session_env DISABLE_AUTOUPDATER)"
 check_eq "outside cmux the sandbox allows no Unix sockets" null "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
 check_eq "outside cmux the session gets no cmux broker" "" "$(session_env CLAUDE_OLLAMA_CMUX_BROKER)"
+check_eq "the session saves drafts in its own config" "$session_config/drafts" "$(session_env CLAUDE_OLLAMA_DRAFTS_DIR)"
+check_eq "the drafts folder is private" 700 "$(stat -f %Lp "$session_config/drafts" 2>/dev/null || stat -c %a "$session_config/drafts")"
+draft_opener_args="$(for _ in $(seq 25); do [ -s "$sandbox/opener-args" ] && break; sleep 0.2; done; cat "$sandbox/opener-args" 2>/dev/null)"
+check_that "outside cmux each new draft opens with open" contains "$draft_opener_args" "--open /usr/bin/open"
+check_that "the opener watches the session's drafts" contains "$draft_opener_args" "--drafts $session_config/drafts"
+check_that "the opener reads the console token the session cannot" contains "$draft_opener_args" "--token-file $sandbox/home/.local/share/claude-custom/console/tokens/8765"
+check_that "the opener's redirect pages sit where the session cannot read" contains "$draft_opener_args" "--pages $sandbox/home/.local/share/claude-custom/console/open-drafts"
+check_that "the opener stops with the launch" contains "$draft_opener_args" "--watch-pid "
 run_capture env CLAUDE_OLLAMA_CMUX_BROKER=/tmp/stale.sock "$repo/bin/claude-ollama" 27b -p hi
 check_eq "an inherited cmux broker address never reaches the session" "" "$(session_env CLAUDE_OLLAMA_CMUX_BROKER)"
 cmux_socket="$sandbox/cmux.sock"
@@ -887,6 +909,18 @@ broker_socket="$(session_env CLAUDE_OLLAMA_CMUX_BROKER)"
 check_eq "CLAUDE_OLLAMA_CMUX=1 allows only the cmux broker's socket" "[\"$broker_socket\"]" "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
 check_that "the session cannot replace the cmux broker's socket" policy_lists denyWrite "$broker_socket"
 check_not "the session has no cmux client on its PATH" grep -qF "$repo/ollama/cmux/" "$sandbox/claude-env"
+opener_args() {
+  for _ in $(seq 25); do
+    [ -s "$sandbox/opener-args" ] && break
+    sleep 0.2
+  done
+  cat "$sandbox/opener-args" 2>/dev/null
+}
+check_that "inside cmux each new draft opens in a cmux browser split" contains "$(opener_args)" "--cmux "
+rm -f "$sandbox/opener-args"
+run_capture env CLAUDE_OLLAMA_OPEN_DRAFTS=0 CMUX_SOCKET_PATH="$cmux_socket" "$repo/bin/claude-ollama" 27b -p hi
+sleep 1
+check_not "CLAUDE_OLLAMA_OPEN_DRAFTS=0 opens no drafts" test -e "$sandbox/opener-args"
 run_capture env CMUX_SOCKET_PATH="$sandbox/not-a-socket" "$repo/bin/claude-ollama" 27b -p hi
 check_eq "inside cmux the broker ignores a path that is not a socket" null "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
 run_capture env CMUX_SOCKET_PATH="cmux.sock" "$repo/bin/claude-ollama" 27b -p hi

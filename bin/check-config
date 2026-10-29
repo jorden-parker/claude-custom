@@ -257,6 +257,15 @@ check_that "pr-review agent names the 250-line Read window" grep -q '250' "$agen
 check_that "pr-review agent posts only a comment review" grep -qF -- '--comment --body-file' "$agent"
 check_that "pr-review agent removes its worktree" grep -qF 'worktree remove --force' "$agent"
 
+for draft_skill in pr-draft pr-review-draft; do
+  check_that "the $draft_skill skill saves through its MCP tool" grep -qF "mcp__repo__draft_" "$repo/shared/skills/$draft_skill/SKILL.md"
+  check_that "claude-custom install links the $draft_skill skill" grep -qF "shared/skills/$draft_skill" "$repo/bin/claude-custom"
+done
+check_that "CLAUDE.local.md points the model at the draft skills" grep -qF "/pr-draft" "$repo/ollama/CLAUDE.local.md"
+check_that "the launcher and the console agree on the drafts folder" grep -qF '.claude-ollama/drafts' "$repo/web/console/src/lib/drafts.ts"
+check_that "the launcher keeps drafts in the session config" grep -qF "drafts_dir=\"\$session_config_dir/drafts\"" "$repo/bin/claude-ollama"
+draft_id_pattern="$(sed -n 's/^DRAFT_ID = re.compile(r"\(.*\)")$/\1/p' "$repo/ollama/drafts/opener.py")"
+check_that "the opener and the console agree on draft ids" grep -rqF -- "${draft_id_pattern#^}" "$repo/web/console/src/lib"
 for skill_dir in "$repo"/shared/skills/*/; do
   skill_name="$(basename "$skill_dir")"
   skill_frontmatter="$(sed -n '2,/^---$/p' "$skill_dir/SKILL.md" | sed '$d')"
