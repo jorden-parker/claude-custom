@@ -76,6 +76,20 @@ check_eq "the session sandbox hides credentials and the normal Claude config" tr
 check_eq "the session sandbox writes only the project, so no folder an unsandboxed program runs from" '["."]' \
   "$(jq -c .filesystem.allowWrite "$sandbox_policy")"
 
+qwen_template="$repo/ollama/qwen-settings.template.json"
+check_eq "the Qwen Code profile talks to Ollama as an OpenAI endpoint with a placeholder key" "openai OLLAMA_API_KEY ollama" \
+  "$(jq -r '[.security.auth.selectedType, .modelProviders.openai[0].envKey, .env.OLLAMA_API_KEY] | join(" ")' "$qwen_template")"
+check_eq "the Qwen Code profile asks Ollama for no thinking, which /v1/chat/completions reads as reasoning_effort" none \
+  "$(jq -r '.modelProviders.openai[0].generationConfig.extra_body.reasoning_effort' "$qwen_template")"
+check_eq "the Qwen Code profile waits the full 30 minutes for a silent Ollama stream" "1800000 1800000" \
+  "$(jq -r '.modelProviders.openai[0].generationConfig | [.timeout, .streamIdleTimeoutMs] | join(" ")' "$qwen_template")"
+check_eq "the Qwen Code profile sends nothing home and never self-updates" "false false false" \
+  "$(jq -r '[.privacy.usageStatisticsEnabled, .telemetry.enabled, .general.enableAutoUpdate] | map(tostring) | join(" ")' "$qwen_template")"
+check_eq "the Qwen Code profile has no subagent, web or notebook tools and no sandbox of its own, which cannot nest in the session sandbox" "true false" \
+  "$(jq -r '[((["agent", "web_fetch", "web_search", "notebook_edit"] - .tools.disabled) == []), .tools.sandbox] | map(tostring) | join(" ")' "$qwen_template")"
+check_eq "the Qwen Code profile allows semantic_search and the repo tools without a prompt, like the Claude profiles" true \
+  "$(jq '(.permissions.allow | index("mcp__code-search__semantic_search") != null) and (.permissions.allow | index("mcp__repo") != null)' "$qwen_template")"
+
 digests="$repo/ollama/model-digests.json"
 pulled_models() {
   sed -n 's/^FROM //p' "$repo"/ollama/Modelfile.*

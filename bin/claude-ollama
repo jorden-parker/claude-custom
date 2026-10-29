@@ -17,6 +17,7 @@ ollama_agent="${CLAUDE_OLLAMA_AGENT:-$repo_dir/bin/ollama-agent}"
 gguf_inspect="${CLAUDE_OLLAMA_GGUF_INSPECT:-$repo_dir/bin/gguf-inspect}"
 sandbox_runtime="$HOME/.local/share/claude-custom/sandbox-runtime/node_modules/.bin/srt"
 session_config_dir="$HOME/.claude-ollama"
+qwen_home="$session_config_dir/qwen"
 sandbox_policy="$session_config_dir/sandbox-policy.json"
 append_prompt="$session_config_dir/append-prompt.md"
 fetch_domains_file="${XDG_CONFIG_HOME:-$HOME/.config}/claude-custom/fetch-domains"
@@ -532,13 +533,16 @@ write_sandbox_policy() {
     --arg rules "$command_rules_file" --arg rules_dir "$(dirname "$command_rules_file")" \
     --argjson shortcut_configs "$(shortcut_config_dirs | jq -R . | jq -s 'unique')" \
     --argjson fetch_domains "$(printf '%s' "${launch_fetch_domains:-}" | fetch_domains_json)" \
-    --argjson config_sources '["CLAUDE.md", "skills", "settings.json", "settings.local.json", "commands", "agents", "plugins", "rules", "output-styles", "keybindings.json", ".config.json", "append-prompt.md"]' '
+    --argjson config_sources '["CLAUDE.md", "skills", "settings.json", "settings.local.json", "commands", "agents", "plugins", "rules", "output-styles", "keybindings.json", ".config.json", "append-prompt.md"]' \
+    --arg qwen_home "$qwen_home" \
+    --argjson qwen_sources '["settings.json", "QWEN.md", ".env", "skills", "agents", "extensions", "rules", "commands", "hooks", "mcpApprovals.json"]' '
     ($git | if . == "" then [] else [.] end) as $git_dirs
     | ($items | if . == "" then [] else [.] end) as $item_dirs
     | .filesystem.allowWrite += [$config] + $item_dirs + $git_dirs
     | .filesystem.denyWrite += [$repo, $policy, $rules, $rules_dir, {path: "\($root)/.claude", literal: true}, "\($root)/**/.claude", "\($root)/**/.claude/**", {path: "\($root)/.qwen", literal: true}, "\($root)/**/.qwen", "\($root)/**/.qwen/**"]
         + ["\($config)/gh-broker.*.sock", "\($config)/cmux-broker.*.sock", "\($config)/shortcut-broker.*.sock"]
         + [$config_sources[] as $source | "\($config)/\($source)"]
+        + [$qwen_sources[] as $source | "\($qwen_home)/\($source)"]
         + [$git_dirs[] | "\(.)/hooks", "\(.)/config"]
     | .filesystem.denyRead += [$reviews, $console_state] + $shortcut_configs
     | ([$cmux_broker, $gh_broker, $shortcut_broker] | map(select(. != ""))) as $broker_sockets
@@ -699,7 +703,7 @@ launch_sandboxed() {
   export GH_BASIC
   export CLAUDE_OLLAMA_SESSION_PATH="$launch_path"
   stop_launcher_log
-  run_in_raw_terminal "$sandbox_runtime" -s "$sandbox_policy" -- "$profile_dir/sandbox-entry" claude "$@"
+  run_in_raw_terminal "$sandbox_runtime" -s "$sandbox_policy" -- "$profile_dir/sandbox-entry" "$@"
   exit
 }
 
@@ -715,6 +719,73 @@ print_config() {
   echo "tools: $(launch_tools)"
   echo "sandbox: $(sandbox_label)"
   echo "command: $(claude_command)"
+}
+
+require_qwen() {
+  command -v qwen >/dev/null 2>&1 && return 0
+  echo "claude-ollama: qwen is missing (brew install qwen-code)" >&2
+  exit 1
+}
+
+qwen_args() {
+  printf '%s\n' --auth-type openai --openai-base-url "$ollama_url/v1" --openai-api-key ollama -m "$model" --approval-mode auto-edit --mcp-config "$(mcp_config)"
+}
+
+qwen_command() {
+  if sandbox_wanted; then
+    printf '%s -s %s -- %s ' "$sandbox_runtime" "$sandbox_policy" "$profile_dir/sandbox-entry"
+  fi
+  printf 'qwen %s' "$(qwen_args | tr '\n' ' ' | sed 's/ $//')"
+}
+
+write_qwen_settings() {
+  jq --arg model "$model" --arg base_url "$ollama_url/v1" --argjson context "$(modelfile_num_ctx)" '
+    .model.name = $model
+    | .modelProviders.openai[0].id = $model
+    | .modelProviders.openai[0].name = "\($model) (Ollama)"
+    | .modelProviders.openai[0].baseUrl = $base_url
+    | .modelProviders.openai[0].generationConfig.contextWindowSize = $context
+  ' "$profile_dir/qwen-settings.template.json" > "$qwen_home/settings.json"
+}
+
+write_qwen_context() {
+  if sandbox_wanted; then
+    cat "$repo_dir/shared/preferences/PREFERENCES.md" "$profile_dir/QWEN.local.md" "$profile_dir/CLAUDE.sandbox.md" > "$qwen_home/QWEN.md"
+  else
+    cat "$repo_dir/shared/preferences/PREFERENCES.md" "$profile_dir/QWEN.local.md" > "$qwen_home/QWEN.md"
+  fi
+}
+
+print_qwen_config() {
+  echo "harness: qwen"
+  echo "size: $size"
+  echo "model: $model"
+  echo "base: $(base_model)"
+  echo "num_ctx: $(modelfile_num_ctx)"
+  echo "context window: $(modelfile_num_ctx)"
+  echo "qwen home: $qwen_home"
+  echo "settings template: $profile_dir/qwen-settings.template.json"
+  echo "sandbox: $(sandbox_label)"
+  echo "command: $(qwen_command)"
+}
+
+launch_qwen() {
+  local launch_args=()
+  while IFS= read -r arg; do launch_args+=("$arg"); done < <(qwen_args)
+  unset OPENAI_API_KEY OPENAI_BASE_URL OPENAI_MODEL QWEN_MODEL QWEN_SANDBOX QWEN_RUNTIME_DIR
+  export QWEN_HOME="$qwen_home"
+  export QWEN_USAGE_STATISTICS_ENABLED=false
+  export QWEN_CODE_MODELS_DEV_REFRESH=off
+  mkdir -p "$qwen_home"
+  write_qwen_settings
+  write_qwen_context
+  if sandbox_wanted; then
+    launch_sandboxed qwen "${launch_args[@]}" "$@"
+  fi
+  echo "claude-ollama: sandbox OFF (CLAUDE_OLLAMA_SANDBOX=0): the session runs as you, with your gh, short, git credentials and env" >&2
+  stop_launcher_log
+  PATH="$launch_path"
+  exec qwen "${launch_args[@]}" "$@"
 }
 
 report() {
@@ -1057,6 +1128,8 @@ serve_console() {
 case "${1:-}" in
   -h|--help)
     echo "usage: claude-ollama [size] [claude args...]"
+    echo "qwen [size] [qwen args...]: launch Qwen Code (brew install qwen-code) on the size's model, in the same sandbox, with the same MCP servers"
+    echo "qwen --print-config [size]: print the resolved settings and the qwen command"
     echo "sizes: $(configured_sizes | tr '\n' ' ' | sed 's/ $//')"
     echo "no size: pick one in a menu (or $default_size without a terminal)"
     echo "sandbox: on by default (sandbox-runtime); CLAUDE_OLLAMA_SANDBOX=0 claude-ollama ... runs the session as you"
@@ -1088,6 +1161,7 @@ PATH="$(safe_path)"
 path_is_safe=1
 PATH="$(safe_path)"
 
+harness=claude
 mode=launch
 case "${1:-}" in
   doctor) mode=doctor; shift ;;
@@ -1100,6 +1174,10 @@ case "${1:-}" in
   reviews) mode=reviews; shift ;;
   github-token) mode=github-token; shift ;;
   prepare) mode=prepare; shift ;;
+  qwen)
+    harness=qwen
+    shift
+    case "${1:-}" in --print-config) mode=print-config; shift ;; esac ;;
   speed-check) exec "${CLAUDE_OLLAMA_SPEED_CHECK:-$repo_dir/bin/speed-check}" "${@:2}" ;;
   thinking-check) exec "${CLAUDE_OLLAMA_SPEED_CHECK:-$repo_dir/bin/speed-check}" --thinking-only ;;
 esac
@@ -1149,7 +1227,14 @@ model="$(jq -r .model "$profile_dir/settings.$size.json")"
 settings_file="$profile_dir/settings.$size.json"
 
 case "$mode" in
-  print-config) launch_fetch_domains="$(fetch_domains)"; print_config; exit 0 ;;
+  print-config)
+    if [ "$harness" = qwen ]; then
+      print_qwen_config
+    else
+      launch_fetch_domains="$(fetch_domains)"
+      print_config
+    fi
+    exit 0 ;;
   doctor) doctor ;;
   review) run_review "$review_target" "$@" ;;
   prepare) ensure_model; exit 0 ;;
@@ -1160,6 +1245,7 @@ if sandbox_wanted; then
   require_sandbox_runtime
   require_plain_project_root
 fi
+[ "$harness" != qwen ] || require_qwen
 apply_server_env
 ensure_model
 ensure_embedding_model
@@ -1174,11 +1260,14 @@ export CLAUDE_CUSTOM_HOME="$repo_dir"
 prepare_session_config
 start_cmux_broker
 start_gh_broker
+export CLAUDE_CONFIG_DIR="$session_config_dir"
+export CLAUDE_CODE_TMPDIR="$session_config_dir/tmp"
+if [ "$harness" = qwen ]; then
+  launch_qwen "$@"
+fi
 launch_fetch_domains="$(fetch_domains)"
 write_fetch_settings
 write_append_prompt
-export CLAUDE_CONFIG_DIR="$session_config_dir"
-export CLAUDE_CODE_TMPDIR="$session_config_dir/tmp"
 claude_args=(
   --settings "$(launch_settings_file)"
   --system-prompt-file "$profile_dir/system-prompt.md"
@@ -1189,7 +1278,7 @@ claude_args=(
   --tools "$(launch_tools)"
 )
 if sandbox_wanted; then
-  launch_sandboxed "${claude_args[@]}" "$@"
+  launch_sandboxed claude "${claude_args[@]}" "$@"
 fi
 echo "claude-ollama: sandbox OFF (CLAUDE_OLLAMA_SANDBOX=0): the session runs as you, with your gh, short, git credentials and env" >&2
 stop_launcher_log

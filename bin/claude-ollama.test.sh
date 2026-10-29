@@ -94,6 +94,11 @@ if [ -n "\${STUB_RUN_SHORT:-}" ]; then
   short story 12 -O >> "$sandbox/session-short.out" 2>&1
 fi
 EOF
+  cat > "$sandbox/stubbin/qwen" <<EOF
+#!/bin/sh
+echo "QWEN ARGS: \$*"
+env > "$sandbox/qwen-env"
+EOF
   install_sandbox_runtime_stub
   cat > "$sandbox/stubbin/getconf" <<EOF
 #!/bin/sh
@@ -174,7 +179,7 @@ EOF
 #!/bin/sh
 echo "ollama serve ${STUB_OLLAMA_ENV:-}"
 EOF
-  chmod +x "$sandbox/stubbin/claude" "$sandbox/stubbin/ollama" "$sandbox/stubbin/ollama-agent" "$sandbox/stubbin/curl" "$sandbox/stubbin/python3" "$sandbox/stubbin/pgrep" "$sandbox/stubbin/ps" "$sandbox/stubbin/shasum" "$sandbox/stubbin/gguf-inspect"
+  chmod +x "$sandbox/stubbin/claude" "$sandbox/stubbin/qwen" "$sandbox/stubbin/ollama" "$sandbox/stubbin/ollama-agent" "$sandbox/stubbin/curl" "$sandbox/stubbin/python3" "$sandbox/stubbin/pgrep" "$sandbox/stubbin/ps" "$sandbox/stubbin/shasum" "$sandbox/stubbin/gguf-inspect"
   link_system_tools
   export PATH="$sandbox/stubbin:$sandbox/sysbin"
 }
@@ -487,6 +492,8 @@ with_tty "$sandbox/repo/bin/claude-ollama" >"$sandbox/out" 2>&1 </dev/null
 check_not "claude-ollama cancelled picker does not launch claude" grep -q 'ARGS:' "$sandbox/out"
 run_capture "$installer" ollama -p hi
 check_that "claude-custom ollama runs claude-ollama" grep -qF -- "$ollama_settings" "$sandbox/out"
+run_capture "$installer" qwen 27b -p hi
+check_that "claude-custom qwen runs claude-ollama qwen" grep -q '^QWEN ARGS: --auth-type openai' "$sandbox/out"
 
 new_sandbox
 copy_repo "$sandbox/repo"
@@ -504,7 +511,7 @@ run_capture "$sandbox/repo/bin/claude-custom" agent
 check_that "claude-custom agent runs ollama-agent" grep -qF "ollama-agent: needs Go 1.26+" "$sandbox/err"
 run_capture "$installer" bogus
 check_eq "unknown subcommand exit status" 2 "$?"
-check_that "usage lists the new subcommands" grep -qF "install|update|uninstall|ollama|tools|agent" "$sandbox/err"
+check_that "usage lists the new subcommands" grep -qF "install|update|uninstall|ollama|qwen|tools|agent" "$sandbox/err"
 
 new_sandbox
 run_capture "$repo/bin/claude-ollama" --print-config 35b
@@ -1341,6 +1348,68 @@ check_that "doctor says web fetch is on for the listed domains" grep -qxF "ok   
 rm -f "$fetch_list"
 run_capture "$repo/bin/claude-ollama" doctor 27b
 check_that "doctor says web fetch is off without a fetch list" grep -qxF "ok   web fetch off (no domains in $fetch_list)" "$sandbox/out"
+
+new_sandbox /tmp
+qwen_home="$HOME/.claude-ollama/qwen"
+run_capture "$repo/bin/claude-ollama" qwen 27b -p hi
+check_eq "claude-ollama qwen exit status" 0 "$?"
+check_that "claude-ollama qwen runs qwen inside sandbox-runtime" \
+  grep -qF -- "-s $HOME/.claude-ollama/sandbox-policy.json -- $repo/ollama/sandbox-entry qwen --auth-type openai --openai-base-url http://localhost:11434/v1 --openai-api-key ollama -m qwen3.8-27b-cc --approval-mode auto-edit --mcp-config " "$sandbox/srt.log"
+check_that "claude-ollama qwen passes the MCP servers and the user's args" grep -qF -- 'repo-tools.py"]}' "$sandbox/out"
+check_that "and the user's args last" grep -q -- '-p hi$' "$sandbox/out"
+check_not "claude-ollama qwen never runs claude" grep -q '^ARGS:' "$sandbox/out"
+check_that "claude-ollama qwen warms the model" warm_up_logged
+check_eq "claude-ollama qwen gives Qwen Code its own home under the session folder" "QWEN_HOME=$qwen_home" "$(grep '^QWEN_HOME=' "$sandbox/qwen-env")"
+check_that "and turns usage statistics off" grep -qx 'QWEN_USAGE_STATISTICS_ENABLED=false' "$sandbox/qwen-env"
+check_that "and the models.dev download" grep -qx 'QWEN_CODE_MODELS_DEV_REFRESH=off' "$sandbox/qwen-env"
+check_not "an outer OPENAI_API_KEY never reaches the session" grep -q '^OPENAI_API_KEY=' "$sandbox/qwen-env"
+check_eq "the rendered settings name the size's model" "qwen3.8-27b-cc qwen3.8-27b-cc" \
+  "$(jq -r '[.model.name, .modelProviders.openai[0].id] | join(" ")' "$qwen_home/settings.json")"
+check_eq "and point it at Ollama's OpenAI endpoint" "http://localhost:11434/v1" "$(jq -r '.modelProviders.openai[0].baseUrl' "$qwen_home/settings.json")"
+check_eq "and carry the Modelfile's num_ctx as the context window" 65536 "$(jq -r '.modelProviders.openai[0].generationConfig.contextWindowSize' "$qwen_home/settings.json")"
+check_eq "and ask Ollama for no thinking" none "$(jq -r '.modelProviders.openai[0].generationConfig.extra_body.reasoning_effort' "$qwen_home/settings.json")"
+check_that "the global QWEN.md starts with the preferences" \
+  test "$(head -1 "$qwen_home/QWEN.md")" = "$(head -1 "$repo/shared/preferences/PREFERENCES.md")"
+check_that "and carries the Qwen rules" grep -qF 'mcp__code-search__semantic_search answers' "$qwen_home/QWEN.md"
+check_that "and, sandboxed, the broker forms" grep -qF 'gh pr list' "$qwen_home/QWEN.md"
+check_that "the session never rewrites Qwen Code's settings" policy_lists denyWrite "$qwen_home/settings.json"
+check_that "nor its global QWEN.md" policy_lists denyWrite "$qwen_home/QWEN.md"
+check_that "nor plants a .env for the next launch" policy_lists denyWrite "$qwen_home/.env"
+check_that "nor skills, agents or extensions" policy_lists denyWrite "$qwen_home/extensions"
+check_that "the sandbox still hides the user's own Qwen config" policy_lists denyRead "$home_in_policy/.qwen"
+
+OPENAI_API_KEY=outer run_capture "$repo/bin/claude-ollama" qwen 35b -p hi
+check_that "claude-ollama qwen 35b uses the 35b model" grep -qF -- "-m qwen3.6-35b-cc" "$sandbox/srt.log"
+check_eq "and its context window" 98304 "$(jq -r '.modelProviders.openai[0].generationConfig.contextWindowSize' "$qwen_home/settings.json")"
+check_not "an outer OPENAI_API_KEY is dropped" grep -q '^OPENAI_API_KEY=' "$sandbox/qwen-env"
+
+run_capture "$repo/bin/claude-ollama" qwen -p hi </dev/null
+check_that "claude-ollama qwen without a size uses the default" grep -qF -- "-m qwen3.8-27b-cc" "$sandbox/srt.log"
+
+rm -f "$sandbox/srt.log"
+CLAUDE_OLLAMA_SANDBOX=0 run_capture "$repo/bin/claude-ollama" qwen 27b -p hi
+check_that "with CLAUDE_OLLAMA_SANDBOX=0 qwen runs without sandbox-runtime" grep -q '^QWEN ARGS: --auth-type openai' "$sandbox/out"
+check_not "and never through it" test -e "$sandbox/srt.log"
+check_that "and says so" grep -qF 'sandbox OFF (CLAUDE_OLLAMA_SANDBOX=0)' "$sandbox/err"
+check_not "and leaves the broker forms out of QWEN.md" grep -qF 'gh pr list' "$qwen_home/QWEN.md"
+
+run_capture "$repo/bin/claude-ollama" qwen --print-config 35b
+check_eq "qwen print-config exit status" 0 "$?"
+check_not "qwen print-config does not launch qwen" grep -q '^QWEN ARGS:' "$sandbox/out"
+check_that "qwen print-config names the harness" grep -qxF "harness: qwen" "$sandbox/out"
+check_that "qwen print-config shows the model" grep -qxF "model: qwen3.6-35b-cc" "$sandbox/out"
+check_that "qwen print-config shows the context window" grep -qxF "context window: 98304" "$sandbox/out"
+check_that "qwen print-config shows the sandboxed command" \
+  grep -qF "command: $HOME/.local/share/claude-custom/sandbox-runtime/node_modules/.bin/srt -s $HOME/.claude-ollama/sandbox-policy.json -- $repo/ollama/sandbox-entry qwen --auth-type openai" "$sandbox/out"
+
+rm -f "$sandbox/stubbin/qwen"
+run_capture "$repo/bin/claude-ollama" qwen 27b -p hi
+check_eq "claude-ollama qwen without qwen exits 1" 1 "$?"
+check_that "and says how to install it" grep -qxF "claude-ollama: qwen is missing (brew install qwen-code)" "$sandbox/err"
+check_not "and pulls no model first" grep -sqE '^(pull|create) ' "$sandbox/ollama.log"
+
+run_capture "$repo/bin/claude-ollama" --help
+check_that "claude-ollama help lists qwen" grep -qF -- "qwen [size] [qwen args...]: launch Qwen Code" "$sandbox/out"
 
 if [ "$failures" -eq 0 ]; then
   echo "all passed"

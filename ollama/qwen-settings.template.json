@@ -1,0 +1,57 @@
+{
+  "$version": 4,
+  "general": { "enableAutoUpdate": false },
+  "privacy": { "usageStatisticsEnabled": false },
+  "telemetry": { "enabled": false },
+  "security": { "auth": { "selectedType": "openai" } },
+  "env": { "OLLAMA_API_KEY": "ollama" },
+  "model": { "name": "MODEL" },
+  "modelProviders": {
+    "openai": [
+      {
+        "id": "MODEL",
+        "name": "MODEL (Ollama)",
+        "baseUrl": "http://localhost:11434/v1",
+        "envKey": "OLLAMA_API_KEY",
+        "generationConfig": {
+          "contextWindowSize": 65536,
+          "timeout": 1800000,
+          "streamIdleTimeoutMs": 1800000,
+          "maxRetries": 1,
+          "extra_body": { "reasoning_effort": "none" }
+        }
+      }
+    ]
+  },
+  "memory": {
+    "enableAutoSkill": false,
+    "enableManagedAutoDream": false,
+    "enableManagedAutoMemory": false
+  },
+  "tools": {
+    "sandbox": false,
+    "disabled": ["agent", "web_fetch", "web_search", "notebook_edit"],
+    "eager": [
+      "read_file",
+      "write_file",
+      "edit",
+      "glob",
+      "grep_search",
+      "run_shell_command"
+    ],
+    "workflowsEnabled": false
+  },
+  "permissions": {
+    "allow": [
+      "mcp__code-search__semantic_search",
+      "mcp__repo",
+      "mcp__dev__dev_status",
+      "mcp__dev__dev_logs",
+      "mcp__dev__dev_errors",
+      "mcp__dev__page_check",
+      "mcp__dev__page_snapshot",
+      "mcp__dev__page_act"
+    ]
+  },
+  "ui": { "autoModeAcknowledged": true }
+}

@@ -443,9 +443,10 @@ main() {
     finish-update) finish_update ;;
     uninstall) uninstall_all ;;
     ollama) shift; exec "$repo_dir/bin/claude-ollama" "$@" ;;
+    qwen) shift; exec "$repo_dir/bin/claude-ollama" qwen "$@" ;;
     tools) shift; exec "$repo_dir/bin/claude-tools" "$@" ;;
     agent) shift; exec "$repo_dir/bin/ollama-agent" "$@" ;;
-    *) echo "usage: claude-custom [install|update|uninstall|ollama|tools|agent]" >&2; exit 2 ;;
+    *) echo "usage: claude-custom [install|update|uninstall|ollama|qwen|tools|agent]" >&2; exit 2 ;;
   esac
   exit "$status"
 }
