@@ -406,12 +406,22 @@ prepare_session_config() {
   fi
   seed_session_state
   copy_user_skills
+  copy_vendored_skills
 }
 
 copy_user_skills() {
   rm -rf "$session_config_dir/skills"
   [ -d "$HOME/.claude/skills" ] || return 0
   cp -RL "$HOME/.claude/skills" "$session_config_dir/skills"
+}
+
+copy_vendored_skills() {
+  mkdir -p "$session_config_dir/skills"
+  for skill_dir in "$profile_dir"/skills/*/; do
+    skill_dir="${skill_dir%/}"
+    target="$session_config_dir/skills/${skill_dir##*/}"
+    [ -e "$target" ] || cp -R "$skill_dir" "$target"
+  done
 }
 
 gh_login_token() {

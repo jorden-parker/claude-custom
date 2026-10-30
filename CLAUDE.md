@@ -383,8 +383,12 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
 - The session config dir `~/.claude-ollama` is `CLAUDE_CONFIG_DIR`:
   `prepare_session_config` seeds `.claude.json` with `hasCompletedOnboarding`
   (an existing file is kept), copies `~/.claude/CLAUDE.md` and
-  `~/.claude/skills`, and makes the `tmp` folder that `CLAUDE_CODE_TMPDIR`
-  names. `CLAUDE_OLLAMA_CMUX=0` turns the browser tools off; a cmux terminal
+  `~/.claude/skills`, adds the skills in `ollama/skills/` (Matt Pocock's, pinned
+  in `ollama/skills/UPSTREAM`, minus `chief-of-staff`, `claude-handoff`,
+  `code-review`, `implement-spec` and `research`, which need subagents or the
+  web; a skill of yours with the same name wins, and plugins never load in this
+  session), and makes the `tmp` folder that `CLAUDE_CODE_TMPDIR` names.
+  `CLAUDE_OLLAMA_CMUX=0` turns the browser tools off; a cmux terminal
   (`CMUX_SOCKET_PATH` set and `cmux` on `PATH`) turns them on. The `dev` server
   drives one cmux browser surface with plain `cmux browser` commands
   (`open-split`, `goto`, `wait`, `console list`, `errors list`,

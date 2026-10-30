@@ -1,7 +1,8 @@
 {
   "ignoreFindings": [
     "web/console/src/components/ui/**",
-    "web/console/src/components/ai-elements/**"
+    "web/console/src/components/ai-elements/**",
+    "ollama/skills/**"
   ],
   "health": {
     "ignore": [

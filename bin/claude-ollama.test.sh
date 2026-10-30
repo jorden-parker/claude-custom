@@ -880,10 +880,12 @@ echo '{"hasCompletedOnboarding":true,"theme":"light"}' > "$session_config/.claud
 run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_eq "the session reads a copy of your CLAUDE.md" "@preferences" "$(cat "$session_config/CLAUDE.md")"
 check_eq "an existing session config is kept" light "$(jq -r .theme "$session_config/.claude.json")"
-check_not "without your skills the session gets none" test -e "$session_config/skills"
+check_that "without your skills the session still gets the vendored ones" test -f "$session_config/skills/tdd/SKILL.md"
+check_that "the vendored skills include the ones the plugin leaves out" test -f "$session_config/skills/loop-me/SKILL.md"
 
-mkdir -p "$HOME/.claude/skills/tidy" "$sandbox/linked-skill"
+mkdir -p "$HOME/.claude/skills/tidy" "$HOME/.claude/skills/tdd" "$sandbox/linked-skill"
 echo "tidy skill" > "$HOME/.claude/skills/tidy/SKILL.md"
+echo "your tdd" > "$HOME/.claude/skills/tdd/SKILL.md"
 echo "linked skill" > "$sandbox/linked-skill/SKILL.md"
 ln -s "$sandbox/linked-skill" "$HOME/.claude/skills/linked"
 mkdir -p "$session_config/skills/retired"
@@ -893,6 +895,11 @@ check_eq "a symlinked skill is copied as files, since the sandbox cannot read ~/
   "$(cat "$session_config/skills/linked/SKILL.md")"
 check_not "the copy is a plain folder, not a link" test -L "$session_config/skills/linked"
 check_not "a skill you removed is gone from the copy" test -e "$session_config/skills/retired"
+check_eq "your skill wins over a vendored one of the same name" "your tdd" "$(cat "$session_config/skills/tdd/SKILL.md")"
+check_that "the vendored skills sit beside yours" test -f "$session_config/skills/grilling/SKILL.md"
+for agent_only_skill in chief-of-staff claude-handoff code-review implement-spec research; do
+  check_not "$agent_only_skill needs subagents or the web, so it is not vendored" test -e "$session_config/skills/$agent_only_skill"
+done
 
 
 
