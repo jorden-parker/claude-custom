@@ -63,11 +63,12 @@ variables: `BENCH_MODELS`, `BENCH_RESULTS`, `BENCH_COOLDOWN` (60 s),
 `BENCH_OMLX_PORT` (8100), `BENCH_VLLM_PORT` (8200), `BENCH_SERVER_TIMEOUT` and
 `VLLM_MLX_EXTRA_ARGS`.
 
-The console's Benchmarks page (`claude-ollama ui`, then `/benchmarks`) can run one cell
-(`bench-off-run`) and rebuild the report (`bench-off-report`), and embeds the report in a
-frame that allows scripts only. It can't run `install`, `download` or `all`: those stay in
-the terminal, as above. The same page shows the last 20 bench runs and the tool telemetry
-report, see `docs/ollama.md` under Console.
+The console's Benchmarks page (`claude-ollama ui`, then `/benchmarks`) can run
+one cell (`bench-off-run`) and rebuild the report (`bench-off-report`), and
+embeds the report in a frame that allows scripts only. It can't run `install`,
+`download` or `all`: those stay in the terminal, as above. The same page shows
+the last 20 bench runs and the tool telemetry report, see `docs/ollama.md` under
+Console.
 
 ## Models
 
