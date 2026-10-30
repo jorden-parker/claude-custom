@@ -10,11 +10,12 @@ case "$ollama_url" in http://*|https://*) ;; *) ollama_url="http://$ollama_url" 
 
 usage() {
   cat >&2 <<'EOF'
-usage: ollama-models list | prune [--yes] | prune --yes --only NAME... | pin NAME[:TAG]
-  list   show each installed model as pinned, mismatch, profile, orphan, third-party or other
-  prune  remove third-party models and -cc models no profile uses (asks unless --yes)
+usage: ollama-models list | prune [--yes] | prune --yes --only NAME... | outdated [NAME...] | pin NAME[:TAG]
+  list      show each installed model as pinned, mismatch, profile, orphan, third-party or other
+  prune     remove third-party models and -cc models no profile uses (asks unless --yes)
   prune --yes --only NAME...  remove just the named models that are still prunable
-  pin    record NAME's registry manifest sha256 in ollama/model-digests.json
+  outdated [NAME...]  compare each pin (or the named ones) to the registry: current, behind, unknown, skipped
+  pin       record NAME's registry manifest sha256 in ollama/model-digests.json
 EOF
   exit 2
 }
@@ -134,9 +135,39 @@ pin_model() {
   echo "$1 $digest"
 }
 
+pinned_names() {
+  jq -r 'keys[]' "$digests_file"
+}
+
+outdated_line() {
+  local name="$1" pin registry_digest
+  pin="$(jq -r --arg name "$name" '.[$name]' "$digests_file")"
+  case "$name" in
+    ./weights/*) printf 'skipped  %s (GGUF, pinned by file sha256)\n' "$name"; return 0 ;;
+  esac
+  registry_digest="$(manifest_digest "$name")" || { printf 'unknown  %s (no manifest at %s)\n' "$name" "$registry"; return 0; }
+  if [ "$registry_digest" = "$pin" ]; then
+    printf 'current  %s\n' "$name"
+  else
+    printf 'behind   %s (registry %s, pin %s)\n' "$name" "${registry_digest:0:12}" "${pin:0:12}"
+    return 1
+  fi
+}
+
+outdated_command() {
+  local name status=0
+  if [ $# -gt 0 ]; then
+    for name in "$@"; do outdated_line "$name" || status=1; done
+  else
+    while IFS= read -r name; do outdated_line "$name" || status=1; done < <(pinned_names)
+  fi
+  return "$status"
+}
+
 case "${1:-}" in
   list) list_models ;;
   prune) shift; prune_command "$@" ;;
+  outdated) shift; outdated_command "$@" ;;
   pin) [ -n "${2:-}" ] || usage; pin_model "$2" ;;
   *) usage ;;
 esac
