@@ -82,6 +82,8 @@ def main():
     path = log_path_from(sys.argv[1:], os.environ)
     if not path:
         sys.exit("usage: tool-telemetry-report LOG (or set CLAUDE_TOOL_TELEMETRY)")
+    if os.path.islink(path):
+        sys.exit(f"telemetry log {path} is a symlink")
     if not os.path.isfile(path):
         sys.exit(f"no telemetry log at {path}")
     records = read_records(path)

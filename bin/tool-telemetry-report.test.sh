@@ -41,6 +41,13 @@ calls_only="$sandbox/calls-only.log"
 head -n 1 "$log" >"$calls_only"
 check "a log with no denials says so" \
   grep -qxF 'denials: none' <<<"$("$report" "$calls_only")"
+linked_log="$sandbox/linked.log"
+ln -s "$log" "$linked_log"
+linked_output="$("$report" "$linked_log" 2>"$sandbox/linked.err")"
+linked_status=$?
+check "a symlinked log is refused" test "$linked_status" -eq 1
+check "a symlinked log prints no table" test -z "$linked_output"
+check "a symlinked log names the refusal" grep -qF "telemetry log $linked_log is a symlink" "$sandbox/linked.err"
 check "missing log is an error" test "$("$report" "$sandbox/none.log" 2>/dev/null; echo $?)" != 0
 
 if [ "$failures" -eq 0 ]; then
