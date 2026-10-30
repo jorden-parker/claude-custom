@@ -13,9 +13,13 @@ would not send the cookie) or as that cookie. With `CONSOLE_TOKEN_FILE` unset,
 or the file missing, every request gets `401`.
 
 - `claude-ollama ui` and `claude-ollama reviews` make a new token on every
-  launch, keep it in `$CLAUDE_CONSOLE_STATE_DIR/tokens/<port>` (default
+  launch that starts a server, keep it in
+  `$CLAUDE_CONSOLE_STATE_DIR/tokens/<port>` (default
   `~/.local/share/claude-custom/console/tokens/<port>`, mode `0600`, in a folder
   the `claude-ollama` sandbox cannot read), and print the tokened link.
+- A start on a port that already answers reuses that console's token and prints
+  its tokened link without starting anything. If the token file was lost, the
+  start writes a new one, which the running console reads on its next request.
 - `pnpm demo --serve` makes its own token in a `0600` file in its demo folder
   and prints its tokened link.
 - `pnpm dev` and `pnpm start` need the file written and the variable exported
