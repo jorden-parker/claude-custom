@@ -56,25 +56,21 @@ for settings in "$repo"/ollama/settings.*.json; do
   check_eq "${settings##*/} asks Ollama for no thinking, since Claude Code's adaptive thinking reaches Ollama as effort high" \
     '{"thinking":{"type":"disabled"}}' \
     "$(jq -r .env.CLAUDE_CODE_EXTRA_BODY "$settings" | jq -c .)"
-  check_eq "${settings##*/} leaves Bash to the session sandbox, which a second sandbox cannot nest in" false \
-    "$(jq -r .sandbox.enabled "$settings")"
+  check_eq "${settings##*/} runs Bash in Claude Code's own sandbox and still asks before each sandboxed command" "true false" \
+    "$(jq -r '[.sandbox.enabled, .sandbox.autoAllowBashIfSandboxed] | map(tostring) | join(" ")' "$settings")"
+  check_eq "${settings##*/} runs only cmux, gh, short and git push outside the sandbox" '["cmux *","gh *","short *","git push *"]' \
+    "$(jq -c .sandbox.excludedCommands "$settings")"
+  check_eq "${settings##*/} reaches only github.com, the npm registry and local ports" '["github.com","registry.npmjs.org"] true' \
+    "$(jq -r '[(.network.allowedDomains | tojson), (.network.allowLocalBinding | tostring)] | join(" ")' <<<"$(jq .sandbox "$settings")")"
+  check_eq "${settings##*/} hides credentials, the normal Claude config and the console state from sandboxed commands" true \
+    "$(jq '.sandbox.filesystem.denyRead | (["~/.ssh", "~/.aws", "~/.config/gh", "~/.npmrc", "~/Library/Keychains", "~/.claude", "~/.qwen", "~/.local/share/claude-custom"] - .) == []' "$settings")"
+  check_eq "${settings##*/} unsets the GitHub and Shortcut tokens for sandboxed commands" '["GH_TOKEN","GITHUB_TOKEN","SHORTCUT_API_TOKEN"]' \
+    "$(jq -c '[.sandbox.credentials.envVars[] | select(.mode == "deny") | .name]' "$settings")"
   check_eq "${settings##*/} starts in default mode with auto mode off, since its classifier would call Ollama for a Claude model" "default disable" \
     "$(jq -r '[.permissions.defaultMode, .permissions.disableAutoMode] | join(" ")' "$settings")"
-  check_eq "${settings##*/} asks before every Bash command, commit and push" '["Bash","Bash(git commit *)","Bash(git push *)"]' \
+  check_eq "${settings##*/} asks before every Bash command, commit and push, and before a command leaves the sandbox" '["Bash","Bash(git commit *)","Bash(git push *)","Bash(dangerouslyDisableSandbox:true)"]' \
     "$(jq -c .permissions.ask "$settings")"
 done
-
-sandbox_policy="$repo/ollama/sandbox.json"
-check_eq "the session sandbox reaches only github.com and the npm registry" '["github.com","registry.npmjs.org"]' \
-  "$(jq -c .network.allowedDomains "$sandbox_policy")"
-check_eq "the session sandbox reaches the clipboard, so copied images paste" '["com.apple.pasteboard.1"]' \
-  "$(jq -c .network.allowMachLookup "$sandbox_policy")"
-check_eq "the session sandbox sends the GitHub token, masked, only to github.com" '[{"name":"GH_BASIC","mode":"mask","injectHosts":["github.com"]}]' \
-  "$(jq -c .credentials.envVars "$sandbox_policy")"
-check_eq "the session sandbox hides credentials and the normal Claude config" true \
-  "$(jq '.filesystem.denyRead | (["~/.ssh", "~/.aws", "~/.config/gh", "~/.npmrc", "~/Library/Keychains", "~/.claude", "~/.qwen"] - .) == []' "$sandbox_policy")"
-check_eq "the session sandbox writes only the project, so no folder an unsandboxed program runs from" '["."]' \
-  "$(jq -c .filesystem.allowWrite "$sandbox_policy")"
 
 qwen_template="$repo/ollama/qwen-settings.template.json"
 check_eq "the Qwen Code profile talks to Ollama as an OpenAI endpoint with a placeholder key" "openai OLLAMA_API_KEY ollama" \
@@ -85,13 +81,13 @@ check_eq "the Qwen Code profile waits the full 30 minutes for a silent Ollama st
   "$(jq -r '.modelProviders.openai[0].generationConfig | [.timeout, .streamIdleTimeoutMs] | join(" ")' "$qwen_template")"
 check_eq "the Qwen Code profile sends nothing home and never self-updates" "false false false" \
   "$(jq -r '[.privacy.usageStatisticsEnabled, .telemetry.enabled, .general.enableAutoUpdate] | map(tostring) | join(" ")' "$qwen_template")"
-check_eq "the Qwen Code profile has no subagent, web or notebook tools and no sandbox of its own, which cannot nest in the session sandbox" "true false" \
+check_eq "the Qwen Code profile has no subagent, web or notebook tools and no sandbox of its own (Qwen Code runs as you)" "true false" \
   "$(jq -r '[((["agent", "web_fetch", "web_search", "notebook_edit"] - .tools.disabled) == []), .tools.sandbox] | map(tostring) | join(" ")' "$qwen_template")"
 check_eq "the Qwen Code profile allows semantic_search and the repo tools without a prompt, like the Claude profiles" true \
   "$(jq '(.permissions.allow | index("mcp__code-search__semantic_search") != null) and (.permissions.allow | index("mcp__repo") != null)' "$qwen_template")"
 check_eq "the Qwen Code profile keeps a project .env, which the session can write, from choosing the next session's system prompt, model, key or Seatbelt profile, or claiming a sandbox" true \
   "$(jq '(["QWEN_SYSTEM_MD", "SEATBELT_PROFILE", "OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_MODEL", "QWEN_MODEL", "SANDBOX"] - .advanced.excludedEnvVars) == []' "$qwen_template")"
-check_eq "the Qwen Code profile turns cross-session messaging off, since the sandbox denies the Unix socket it would listen on" false \
+check_eq "the Qwen Code profile turns cross-session messaging off, since no second session should drive this one" false \
   "$(jq -r '.agents.crossSessionMessaging' "$qwen_template")"
 
 digests="$repo/ollama/model-digests.json"

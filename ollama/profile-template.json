@@ -56,7 +56,12 @@
     ],
     "defaultMode": "default",
     "disableAutoMode": "disable",
-    "ask": ["Bash", "Bash(git commit *)", "Bash(git push *)"],
+    "ask": [
+      "Bash",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(dangerouslyDisableSandbox:true)"
+    ],
     "allow": [
       "mcp__code-search__semantic_search",
       "mcp__repo",
@@ -69,7 +74,32 @@
     ]
   },
   "sandbox": {
-    "enabled": false
+    "enabled": true,
+    "autoAllowBashIfSandboxed": false,
+    "excludedCommands": ["cmux *", "gh *", "short *", "git push *"],
+    "network": {
+      "allowedDomains": ["github.com", "registry.npmjs.org"],
+      "allowLocalBinding": true
+    },
+    "filesystem": {
+      "denyRead": [
+        "~/.ssh",
+        "~/.aws",
+        "~/.config/gh",
+        "~/.npmrc",
+        "~/Library/Keychains",
+        "~/.claude",
+        "~/.qwen",
+        "~/.local/share/claude-custom"
+      ]
+    },
+    "credentials": {
+      "envVars": [
+        { "name": "GH_TOKEN", "mode": "deny" },
+        { "name": "GITHUB_TOKEN", "mode": "deny" },
+        { "name": "SHORTCUT_API_TOKEN", "mode": "deny" }
+      ]
+    }
   },
   "hooks": "{{HOOKS}}"
 }
