@@ -6,9 +6,11 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with
 Every route is behind the token gate in `src/proxy.ts`. The gate reads the token
 from the file named by `CONSOLE_TOKEN_FILE`. A request is served only when it
 carries that token, either as the `token` query parameter (the gate then sets an
-`HttpOnly`, `SameSite=Strict` cookie named `console_token` and redirects to the
-same page without the parameter) or as that cookie. With `CONSOLE_TOKEN_FILE`
-unset, or the file missing, every request gets `401`.
+`HttpOnly`, `SameSite=Strict` cookie named `console_token` and answers with a
+page that refreshes to the same URL without the parameter; a plain redirect
+would keep a chain started from a `file://` page cross-site, and the browser
+would not send the cookie) or as that cookie. With `CONSOLE_TOKEN_FILE` unset,
+or the file missing, every request gets `401`.
 
 - `claude-ollama ui` and `claude-ollama reviews` make a new token on every
   launch, keep it in `$CLAUDE_CONSOLE_STATE_DIR/tokens/<port>` (default
