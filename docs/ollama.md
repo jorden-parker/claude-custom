@@ -265,8 +265,9 @@ it again replaces the stored token.
 - `prune` lists the `third-party` and `orphan` models, asks, then runs
   `ollama rm` on them (`--yes` skips the question).
 - `outdated [NAME...]` compares each pin with the manifest the registry serves
-  now and prints `current`, `behind`, `unknown` (no manifest) or `skipped` (a
-  GGUF file pin, checked by hand). It exits 1 when a pin is behind.
+  now and prints `current`, `behind`, `unknown` (no manifest), `skipped` (a GGUF
+  file pin, checked by hand) or `unpinned` (a name with no pin). It exits 1 when
+  a pin is behind or a name is unpinned.
 - `pin NAME[:TAG]` fetches the manifest from `registry.ollama.ai`, writes its
   sha256 to `ollama/model-digests.json` and prints it.
 

@@ -133,6 +133,7 @@ def preflight(upgrade):
     refuse(ollama_answers(), f"Ollama is not answering at {ollama_base_url()}: start it, then rerun")
     outdated = outdated_check(upgrade.base)
     refuse(outdated.word != "unknown", f"{upgrade.base} has no manifest in the registry: check the network, then rerun")
+    refuse(outdated.word in ("current", "behind"), f"ollama-models outdated said: {outdated.line}")
     return outdated
 
 

@@ -14,7 +14,7 @@ usage: ollama-models list | prune [--yes] | prune --yes --only NAME... | outdate
   list      show each installed model as pinned, mismatch, profile, orphan, third-party or other
   prune     remove third-party models and -cc models no profile uses (asks unless --yes)
   prune --yes --only NAME...  remove just the named models that are still prunable
-  outdated [NAME...]  compare each pin (or the named ones) to the registry: current, behind, unknown, skipped
+  outdated [NAME...]  compare each pin (or the named ones) to the registry: current, behind, unknown, skipped, unpinned
   pin       record NAME's registry manifest sha256 in ollama/model-digests.json
 EOF
   exit 2
@@ -145,6 +145,10 @@ outdated_line() {
   case "$name" in
     ./weights/*) printf 'skipped  %s (GGUF, pinned by file sha256)\n' "$name"; return 0 ;;
   esac
+  if [ "$pin" = null ]; then
+    printf 'unpinned %s (not in ollama/model-digests.json)\n' "$name"
+    return 1
+  fi
   registry_digest="$(manifest_digest "$name")" || { printf 'unknown  %s (no manifest at %s)\n' "$name" "$registry"; return 0; }
   if [ "$registry_digest" = "$pin" ]; then
     printf 'current  %s\n' "$name"

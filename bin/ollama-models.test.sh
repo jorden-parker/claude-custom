@@ -136,6 +136,11 @@ check "outdated NAME exits 0 when that pin is current" test "$(OLLAMA_PROFILE_DI
 check "outdated NAME exits 1 when that pin is behind" test "$(OLLAMA_PROFILE_DIR="$outdated_profile" "$script" outdated qwen3:4b >/dev/null 2>&1; echo $?)" = 1
 check "outdated exits 0 when no pin is behind" test "$(OLLAMA_PROFILE_DIR="$outdated_profile" "$script" outdated qwen3:8b qwen3:nope >/dev/null 2>&1; echo $?)" = 0
 
+unpinned_listing="$(OLLAMA_PROFILE_DIR="$outdated_profile" "$script" outdated qwen3:none 2>&1)"
+unpinned_status=$?
+check "outdated marks a name with no pin as unpinned" grep -Fxq 'unpinned qwen3:none (not in ollama/model-digests.json)' <<<"$unpinned_listing"
+check "outdated exits 1 for a name with no pin" test "$unpinned_status" = 1
+
 if [ "$failures" -eq 0 ]; then
   echo "all passed"
 else

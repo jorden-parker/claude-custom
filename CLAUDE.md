@@ -59,10 +59,10 @@ before changing how any file gets applied.
   `bin/ollama-models list|outdated [NAME...]|prune [--yes]|pin NAME[:TAG]` marks
   installed models (pinned, mismatch, profile, orphan, third-party, other),
   `outdated` compares each pin with the registry (current, behind, unknown,
-  skipped; exit 1 when one is behind), removes third-party and orphan `-cc`
-  models after asking (`prune --yes --only NAME...` removes just the named
-  models that are still prunable, for the console's Models page), and writes a
-  registry manifest sha256 to `ollama/model-digests.json`; tests:
+  skipped, unpinned; exit 1 when one is behind or unpinned), removes third-party
+  and orphan `-cc` models after asking (`prune --yes --only NAME...` removes
+  just the named models that are still prunable, for the console's Models page),
+  and writes a registry manifest sha256 to `ollama/model-digests.json`; tests:
   `bin/ollama-models.test.sh` (stub `ollama`, stub `curl`)
 - Model upgrade: `bin/model-upgrade SIZE [--eval] [--keep] [--force]` pulls a
   behind base into `MODEL-next`, runs `speed-check --thinking-only --model`, the

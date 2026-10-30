@@ -34,6 +34,10 @@ if [ -n "${STUB_OUTDATED_UNKNOWN:-}" ]; then
   echo "unknown  $2 (no manifest at https://registry.ollama.ai)"
   exit 0
 fi
+if [ -n "${STUB_OUTDATED_UNPINNED:-}" ]; then
+  echo "unpinned $2 (not in ollama/model-digests.json)"
+  exit 1
+fi
 echo "behind   $2 (registry abcdef123456, pin 5642e97495e1)"
 exit 1
 EOF
@@ -136,6 +140,11 @@ run_upgrade STUB_OUTDATED_UNKNOWN=1
 [ "$status" -eq 2 ] || fail "a base with no registry manifest exits 2 (got $status)"
 has "has no manifest in the registry" err || fail "a base with no registry manifest says to check the network"
 grep -q '^ollama ' "$CALLS" && fail "a base with no registry manifest pulls nothing"
+
+run_upgrade STUB_OUTDATED_UNPINNED=1
+[ "$status" -eq 2 ] || fail "a base with no pin exits 2 (got $status)"
+has "ollama-models outdated said: unpinned qwen3.8:27b-mlx" err || fail "a base with no pin quotes the outdated line"
+grep -q '^ollama ' "$CALLS" && fail "a base with no pin pulls nothing"
 
 run_upgrade
 [ "$status" -eq 0 ] || fail "a behind base that passes exits 0 (got $status)"
