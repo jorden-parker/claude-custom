@@ -15,9 +15,17 @@ def log_path_from(arguments, environment):
     return environment.get("CLAUDE_TOOL_TELEMETRY")
 
 
-def read_calls(path):
+def read_records(path):
+    records = []
     with open(path, encoding="utf-8") as log:
-        return [json.loads(line) for line in log if line.strip()]
+        for line in log:
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(record, dict):
+                records.append(record)
+    return records
 
 
 def tool_row(tool, calls):
@@ -52,15 +60,36 @@ def print_largest_calls(calls):
         print(f"{call['bytes']:>10}  {call['tool']:<12} {call['session']}  {format_time(call['time'])}")
 
 
+def denial_rows(denials):
+    by_hook = defaultdict(list)
+    for denial in denials:
+        by_hook[denial.get("hook", "unknown")].append(denial)
+    rows = [(hook, len(group), group[-1].get("reason", "")) for hook, group in by_hook.items()]
+    return sorted(rows, key=lambda row: row[1], reverse=True)
+
+
+def print_denials(denials):
+    print()
+    if not denials:
+        print("denials: none")
+        return
+    print("denials")
+    for hook, count, reason in denial_rows(denials):
+        print(f"{hook:<20}{count:>7}  {reason}")
+
+
 def main():
     path = log_path_from(sys.argv[1:], os.environ)
     if not path:
         sys.exit("usage: tool-telemetry-report LOG (or set CLAUDE_TOOL_TELEMETRY)")
     if not os.path.isfile(path):
         sys.exit(f"no telemetry log at {path}")
-    calls = read_calls(path)
+    records = read_records(path)
+    calls = [record for record in records if record.get("kind", "call") == "call"]
+    denials = [record for record in records if record.get("kind") == "deny"]
     print_tool_table(calls)
     print_largest_calls(calls)
+    print_denials(denials)
 
 
 main()
