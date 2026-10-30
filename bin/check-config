@@ -60,8 +60,14 @@ for settings in "$repo"/ollama/settings.*.json; do
     "$(jq -r '[.sandbox.enabled, .sandbox.autoAllowBashIfSandboxed] | map(tostring) | join(" ")' "$settings")"
   check_eq "${settings##*/} runs only cmux, gh, short and git push outside the sandbox" '["cmux *","gh *","short *","git push *"]' \
     "$(jq -c .sandbox.excludedCommands "$settings")"
-  check_eq "${settings##*/} reaches only github.com, the npm registry and local ports" '["github.com","registry.npmjs.org"] true' \
+  check_eq "${settings##*/} reaches github.com, the loopback addresses, and the npm, Go, PyPI and GitHub download hosts" \
+    '["github.com","registry.npmjs.org","127.0.0.1","[::1]","proxy.golang.org","sum.golang.org","pypi.org","files.pythonhosted.org","objects.githubusercontent.com","codeload.github.com"] true' \
     "$(jq -r '[(.network.allowedDomains | tojson), (.network.allowLocalBinding | tostring)] | join(" ")' <<<"$(jq .sandbox "$settings")")"
+  check_eq "${settings##*/} lets sandboxed commands write the pnpm, npm, Go, pip and XDG caches" \
+    '["~/.npm","~/.cache","~/Library/pnpm","~/Library/Caches/pnpm","~/Library/Caches/go-build","~/Library/Caches/pip","~/go/pkg/mod"]' \
+    "$(jq -c '.sandbox.filesystem.allowWrite' "$settings")"
+  check_eq "${settings##*/} keeps the Stop hook's log and the machine copy of the personal overlay unwritable" '["~/.cache/claude-custom"]' \
+    "$(jq -c '.sandbox.filesystem.denyWrite' "$settings")"
   check_eq "${settings##*/} hides credentials, the normal Claude config and the console state from sandboxed commands" true \
     "$(jq '.sandbox.filesystem.denyRead | (["~/.ssh", "~/.aws", "~/.config/gh", "~/.npmrc", "~/Library/Keychains", "~/.claude", "~/.qwen", "~/.local/share/claude-custom"] - .) == []' "$settings")"
   check_eq "${settings##*/} unsets the GitHub and Shortcut tokens for sandboxed commands" '["GH_TOKEN","GITHUB_TOKEN","SHORTCUT_API_TOKEN"]' \
@@ -131,6 +137,12 @@ check_eq "settings.tokens.json turns Claude Code's own sandbox on for every pers
   "$(jq -r .sandbox.enabled "$repo/personal/settings.tokens.json")"
 check_eq "settings.tokens.json asks before a command leaves that sandbox, whatever the permission mode" true \
   "$(jq '.permissions.ask | index("Bash(dangerouslyDisableSandbox:true)") != null' "$repo/personal/settings.tokens.json")"
+check_eq "settings.tokens.json reaches loopback addresses and lets commands write the same caches as the Ollama profiles" true \
+  "$(jq --slurpfile ollama "$repo/ollama/settings.27b.json" '
+    .sandbox.network == {"allowedDomains": ["127.0.0.1", "[::1]"], "allowLocalBinding": true}
+    and .sandbox.filesystem.allowWrite == $ollama[0].sandbox.filesystem.allowWrite
+    and .sandbox.filesystem.denyWrite == $ollama[0].sandbox.filesystem.denyWrite
+  ' "$repo/personal/settings.tokens.json")"
 
 denies_tool() {
   jq -e --arg tool "$2" '.permissions.deny | index($tool) != null' "$1" >/dev/null
