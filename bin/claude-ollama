@@ -121,7 +121,7 @@ check_pin() {
   local name="$1" actual="$2" pin
   pin="$(pinned_digest "$name")"
   [ -z "$pin" ] || [ "$actual" = "$pin" ] && return 0
-  echo "claude-ollama: $name has digest ${actual:-none}, but ollama/model-digests.json pins $pin; remove it with 'ollama rm $name' and relaunch, or update the pin" >&2
+  echo "claude-ollama: $name has digest ${actual:-none}, but ollama/model-digests.json pins $pin; remove it with 'ollama rm $name' and relaunch, or run bin/model-upgrade SIZE to test the new base and print the pin command" >&2
   return 1
 }
 

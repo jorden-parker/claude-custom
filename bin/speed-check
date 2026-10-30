@@ -14,7 +14,9 @@ GGUF_SIZES = tuple(gguf for _, gguf in PAIRS)
 MLX_SIZES = tuple(mlx for mlx, _ in PAIRS)
 SPEED_STAGE_COUNT = 6
 THINKING_STAGE_COUNT = 3
+NAMED_THINKING_STAGE_COUNT = 2
 THINKING_ONLY_FLAG = "--thinking-only"
+MODEL_FLAG = "--model"
 MIN_FREE_KB = 45 * 1024 * 1024
 THINKING_PREFIX_TOKENS = "2000"
 THINKING_TOOL_TRIALS = 3
@@ -58,7 +60,7 @@ def model_name(size):
 
 
 def command_output(command):
-    return subprocess.run(command, capture_output=True, text=True)
+    return subprocess.run(command, check=False, capture_output=True, text=True)
 
 
 def announce(number, total, title):
@@ -116,7 +118,7 @@ def preflight():
 
 def prepare_models(sizes):
     for size in sizes:
-        result = subprocess.run([tool_path("SPEED_CHECK_LAUNCHER", "claude-ollama"), "prepare", size])
+        result = subprocess.run([tool_path("SPEED_CHECK_LAUNCHER", "claude-ollama"), "prepare", size], check=False)
         require(result.returncode == 0, f"claude-ollama prepare {size} failed: fix the error above, then {RERUN}")
 
 
@@ -130,7 +132,7 @@ def check_renderers():
 def run_bench(model, thinking, tool_trials, *extra):
     command = [tool_path("SPEED_CHECK_BENCH", "messages-bench"), "--model", model, "--thinking", thinking,
                "--tool-trials", str(tool_trials), *extra, "--json", "--base-url", ollama_base_url()]
-    result = subprocess.run(command, stdout=subprocess.PIPE, text=True)
+    result = subprocess.run(command, check=False, stdout=subprocess.PIPE, text=True)
     require(result.returncode == 0, f"messages-bench on {model} failed: fix the error above, then {RERUN}")
     return json.loads(result.stdout)
 
@@ -144,13 +146,31 @@ def all_tool_calls_parsed(report):
     return calls["parsed"] == calls["trials"]
 
 
-def check_thinking():
+def mlx_models():
+    return {size: model_name(size) for size in MLX_SIZES}
+
+
+def flag_value(argv, flag):
+    if flag not in argv:
+        return None
+    position = argv.index(flag) + 1
+    return argv[position] if position < len(argv) else None
+
+
+def thinking_models(argv):
+    if MODEL_FLAG not in argv:
+        return mlx_models()
+    named = flag_value(argv, MODEL_FLAG)
+    require(named is not None, "give --model a model name")
+    return {named: named}
+
+
+def check_thinking(models):
     results = {}
-    for size in MLX_SIZES:
-        model = model_name(size)
+    for label, model in models.items():
         claude_code = run_bench(model, "claude-code", THINKING_TOOL_TRIALS, "--prefix-tokens", THINKING_PREFIX_TOKENS)
         disabled = run_bench(model, "disabled", THINKING_TOOL_TRIALS, "--prefix-tokens", THINKING_PREFIX_TOKENS)
-        results[size] = {
+        results[label] = {
             "claude_code_thinking_chars": thinking_chars(claude_code),
             "disabled_thinking_chars": thinking_chars(disabled),
             "disabled_tool_calls": disabled["tool_calls"],
@@ -167,7 +187,7 @@ def probe_caches():
     reports = {}
     for size in SIZES:
         result = subprocess.run([tool_path("SPEED_CHECK_PROBE", "ollama-cache-probe"), size, "--json"],
-                                stdout=subprocess.PIPE, text=True)
+                                check=False, stdout=subprocess.PIPE, text=True)
         require(result.returncode == 0, f"ollama-cache-probe {size} failed: fix the error above, then {RERUN}")
         reports[size] = json.loads(result.stdout)
     return reports
@@ -243,13 +263,17 @@ def print_verdict(lines, next_action, report_path):
     print("```")
 
 
-def run_thinking_only():
-    announce(1, THINKING_STAGE_COUNT, "Preflight: Ollama")
+def run_thinking_only(argv):
+    models = thinking_models(argv)
+    named = MODEL_FLAG in argv
+    total = NAMED_THINKING_STAGE_COUNT if named else THINKING_STAGE_COUNT
+    announce(1, total, "Preflight: Ollama")
     require_ollama()
-    announce(2, THINKING_STAGE_COUNT, "Prepare models: pull the MLX sizes")
-    prepare_models(MLX_SIZES)
-    announce(3, THINKING_STAGE_COUNT, "Thinking check (plan 066)")
-    thinking = check_thinking()
+    if not named:
+        announce(2, total, "Prepare models: pull the MLX sizes")
+        prepare_models(MLX_SIZES)
+    announce(total, total, "Thinking check (plan 066)")
+    thinking = check_thinking(models)
     print()
     print(thinking_line(thinking))
     return 0 if thinking_passed(thinking) else 1
@@ -263,7 +287,7 @@ def run_speed_check():
     announce(3, SPEED_STAGE_COUNT, "Renderer check: GGUF models use Ollama's renderer and parser")
     check_renderers()
     announce(4, SPEED_STAGE_COUNT, "Thinking check (plan 066)")
-    thinking = check_thinking()
+    thinking = check_thinking(mlx_models())
     announce(5, SPEED_STAGE_COUNT, "Speed bench (plan 067): MLX then GGUF, back to back")
     benches = bench_pairs()
     announce(6, SPEED_STAGE_COUNT, "Cache probe")
@@ -281,7 +305,7 @@ def run_speed_check():
 
 def main(argv):
     try:
-        return run_thinking_only() if THINKING_ONLY_FLAG in argv else run_speed_check()
+        return run_thinking_only(argv) if THINKING_ONLY_FLAG in argv else run_speed_check()
     except StageFailure as failure:
         print(f"speed-check stopped: {failure}", file=sys.stderr)
         return 1

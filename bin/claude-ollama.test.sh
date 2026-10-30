@@ -443,6 +443,7 @@ jq '.models[0].digest = "0000"' "$sandbox/tags.json" > "$sandbox/tags.new" && mv
 STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_eq "claude-ollama exits when a pulled base misses its pin" 1 "$?"
 check_that "claude-ollama names the base that misses its pin" grep -qF "qwen3.8:27b-mlx has digest 0000" "$sandbox/err"
+check_that "claude-ollama names the upgrade command when a base misses its pin" grep -qF "or run bin/model-upgrade SIZE to test the new base and print the pin command" "$sandbox/err"
 check_not "claude-ollama does not create from a base that misses its pin" grep -sq '^create ' "$sandbox/ollama.log"
 check_not "claude-ollama does not launch with a base that misses its pin" grep -q '^ARGS:' "$sandbox/out"
 run_capture "$repo/bin/claude-ollama" 27b -p hi

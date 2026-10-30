@@ -266,9 +266,18 @@ it again replaces the stored token.
   uses), `third-party` (not from the Ollama library) or `other`.
 - `prune` lists the `third-party` and `orphan` models, asks, then runs
   `ollama rm` on them (`--yes` skips the question).
+- `outdated [NAME...]` compares each pin with the manifest the registry serves
+  now and prints `current`, `behind`, `unknown` (no manifest), `skipped` (a GGUF
+  file pin, checked by hand) or `unpinned` (a name with no pin). It exits 1 when
+  a pin is behind or a name is unpinned.
 - `pin NAME[:TAG]` fetches the manifest from `registry.ollama.ai`, writes its
-  sha256 to `ollama/model-digests.json` and prints it. Run it when adding a size
-  or after an upstream tag update, then review the diff.
+  sha256 to `ollama/model-digests.json` and prints it.
+
+To move a base to a newer upstream tag, run `bin/ollama-models outdated` to see
+which pins are behind, then `bin/model-upgrade SIZE`. It pulls the new base into
+`MODEL-next`, runs the thinking check and the cache probe (and the review eval
+with `--eval`), saves `~/bench-results/upgrade-SIZE-*.json` and prints the `pin`
+command. It never writes the pin: run that command, review the diff and commit.
 
 To compare Ollama with other servers, see [backend-bench](backend-bench.md).
 
@@ -541,4 +550,6 @@ same way. Remove unused models opens a panel that lists exactly the third-party
 and orphan models it would remove, with their total size, and starts
 `ollama-models prune --yes --only NAME...` only after you press Remove these.
 The page only previews: the script re-checks each name when it removes it, so a
-model that stopped being prunable is skipped. Pinning stays in the terminal.
+model that stopped being prunable is skipped. The Models page shows each model
+as pinned or mismatch; `model-upgrade` and `pin` are terminal commands, so the
+page never changes a pin.
