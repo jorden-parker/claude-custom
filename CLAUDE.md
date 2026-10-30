@@ -44,10 +44,12 @@ before changing how any file gets applied.
 - Hook tests: `shared/hooks/*.test.sh` (each prints `all passed`, or `FAIL:`
   lines and exits 1)
 - Everything at once: `make test` (`.claude/verify` with no arguments runs it).
-  The Stop hook runs `.claude/verify FILE...` with the files the agent edited,
-  which runs `check-json`, `check-config`, `check-profiles` plus each file's
-  tests (`X.test.sh` beside `X`, mappings in the script; a `Makefile` edit runs
-  `make test`). Its tests: `.claude/verify.test.sh`
+  `make test` runs the targets in parallel (`$(MAKE) -j$(NPROC) test-all`);
+  `make test-all` runs them one after another when interleaved output gets in
+  the way. The Stop hook runs `.claude/verify FILE...` with the files the agent
+  edited, which runs `check-json`, `check-config`, `check-profiles` plus each
+  file's tests (`X.test.sh` beside `X`, mappings in the script; a `Makefile`
+  edit runs `make test`). Its tests: `.claude/verify.test.sh`
 - CI: `.github/workflows/verify.yml` runs `make test` on macOS and Ubuntu on
   every push to main and every PR.
 - Installer tests: `personal/install.test.sh` (prints `all passed`)
