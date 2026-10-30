@@ -20,10 +20,10 @@ four parts:
   starts `claude` against a local Ollama server (`localhost:11434`) running Qwen
   3.8 27b or Qwen 3.6 35b. The overlay only applies to that launch.
   `claude-ollama qwen [size]` runs Qwen Code on the same model, sandbox and MCP
-  servers, with `~/.claude-ollama/qwen` as its `QWEN_HOME`; its settings come
-  from `ollama/qwen-settings.template.json` and `ollama/QWEN.local.md` (see
-  `docs/ollama.md`). `go/cmd/model-picker/` is a Go/Bubble Tea menu for choosing
-  the size.
+  servers, with `~/.claude-ollama/qwen` as its `QWEN_HOME`; `qwen doctor [size]`
+  checks that setup. Its settings come from `ollama/qwen-settings.template.json`
+  and `ollama/QWEN.local.md` (see `docs/ollama.md`). `go/cmd/model-picker/` is a
+  Go/Bubble Tea menu for choosing the size.
 - **Tools TUI** (`go/cmd/claude-tools/`): a Go/Bubble Tea app that edits the
   bare-tool-name permission rules in a Claude Code settings file. `-json` prints
   the rules and `-set NAME=perm[,off]` saves them without the TUI (scope last).

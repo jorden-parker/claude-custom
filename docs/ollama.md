@@ -299,24 +299,26 @@ as the Claude profiles do. An outer `OPENAI_API_KEY`, `OPENAI_BASE_URL`,
 `OPENAI_MODEL`, `QWEN_MODEL` or `QWEN_SANDBOX` never reaches the session.
 
 Not yet wired for Qwen Code: the hooks (Qwen Code's hook contract matches Claude
-Code's, but the hooks match Claude tool names), `doctor`, the picker and the
-console. `CLAUDE_OLLAMA_SANDBOX=0 claude-ollama qwen ...` runs it as you, like
-the Claude launch. Node's `setRawMode` asks the terminal for raw mode itself,
-which the sandbox refuses, so a sandboxed launch preloads
-`ollama/qwen-raw-mode.cjs` through `NODE_OPTIONS`: it lets that call succeed on
-the terminal the launcher already switched to raw mode. The session's own `node`
-processes inherit the preload; it changes nothing when the ioctl is allowed.
-Three more startup needs are met the same way: the launcher creates the folders
-under the Qwen home that the policy denies writing (`extensions` and the rest),
-since Qwen Code's own recursive `mkdir` of an existing folder passes while a
-missing one is refused; `ollama/qwen-dir-watch.cjs` drops the `EMFILE` that
-every directory watch raises because FSEvents cannot start inside the sandbox
-(file watches use kqueue and still work), so Qwen Code runs without live reload
-of those folders; and the settings turn `agents.crossSessionMessaging` off,
-since the sandbox refuses the Unix socket it would listen on. A sandboxed launch
-also exports `SANDBOX=claude-ollama`, so Qwen Code's footer and `/about` name
-the sandbox instead of saying "no sandbox"; an outer `SANDBOX` is unset first,
-and `advanced.excludedEnvVars` keeps a project `.env` from setting it, so an
+Code's, but the hooks match Claude tool names), the picker and the console.
+`claude-ollama qwen doctor [size]` checks qwen, the model, context sizes, the
+settings template, the preloads and Ollama, and warns while no hooks are wired.
+`CLAUDE_OLLAMA_SANDBOX=0 claude-ollama qwen ...` runs it as you, like the Claude
+launch. Node's `setRawMode` asks the terminal for raw mode itself, which the
+sandbox refuses, so a sandboxed launch preloads `ollama/qwen-raw-mode.cjs`
+through `NODE_OPTIONS`: it lets that call succeed on the terminal the launcher
+already switched to raw mode. The session's own `node` processes inherit the
+preload; it changes nothing when the ioctl is allowed. Three more startup needs
+are met the same way: the launcher creates the folders under the Qwen home that
+the policy denies writing (`extensions` and the rest), since Qwen Code's own
+recursive `mkdir` of an existing folder passes while a missing one is refused;
+`ollama/qwen-dir-watch.cjs` drops the `EMFILE` that every directory watch raises
+because FSEvents cannot start inside the sandbox (file watches use kqueue and
+still work), so Qwen Code runs without live reload of those folders; and the
+settings turn `agents.crossSessionMessaging` off, since the sandbox refuses the
+Unix socket it would listen on. A sandboxed launch also exports
+`SANDBOX=claude-ollama`, so Qwen Code's footer and `/about` name the sandbox
+instead of saying "no sandbox"; an outer `SANDBOX` is unset first, and
+`advanced.excludedEnvVars` keeps a project `.env` from setting it, so an
 unsandboxed launch never claims one.
 
 ### Dev servers and the browser

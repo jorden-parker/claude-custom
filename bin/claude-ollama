@@ -805,6 +805,67 @@ print_qwen_config() {
   echo "command: $(qwen_command)"
 }
 
+check_qwen_on_path() {
+  if command -v qwen >/dev/null 2>&1; then
+    report ok "qwen on PATH ($(command -v qwen))"
+  else
+    report fail "qwen missing (brew install qwen-code)"
+    return 1
+  fi
+}
+
+check_qwen_template() {
+  if jq -e . "$profile_dir/qwen-settings.template.json" >/dev/null 2>&1; then
+    report ok "qwen settings template parses"
+  else
+    report fail "qwen settings template is not valid JSON"
+    return 1
+  fi
+}
+
+check_qwen_preloads() {
+  local shim status=0
+  for shim in qwen-raw-mode.cjs qwen-dir-watch.cjs; do
+    if [ -f "$profile_dir/$shim" ]; then
+      report ok "preload $shim present"
+    else
+      report fail "preload $shim missing in ollama/"
+      status=1
+    fi
+  done
+  return "$status"
+}
+
+check_qwen_hooks() {
+  if jq -e '.hooks' "$profile_dir/qwen-settings.template.json" >/dev/null 2>&1; then
+    report ok "qwen hooks wired in the settings template"
+  else
+    report warn "qwen hooks: none wired (docs/qwen-hooks.md)"
+  fi
+}
+
+qwen_doctor() {
+  local status=0
+  report ok "jq on PATH"
+  check_qwen_on_path || status=1
+  check_model_present model "$model" "run claude-ollama qwen $size to pull and create it" || status=1
+  check_digests || status=1
+  check_context_sizes || status=1
+  check_qwen_template || status=1
+  check_qwen_preloads || status=1
+  check_qwen_hooks
+  check_reachable || status=1
+  check_server_env || status=1
+  check_sandbox || status=1
+  if sandbox_wanted; then
+    check_github_token
+    check_shortcut
+  fi
+  check_gh_login
+  check_command_rules
+  exit "$status"
+}
+
 launch_qwen() {
   local launch_args=()
   while IFS= read -r arg; do launch_args+=("$arg"); done < <(qwen_args)
@@ -1168,6 +1229,7 @@ case "${1:-}" in
     echo "usage: claude-ollama [size] [claude args...]"
     echo "qwen [size] [qwen args...]: launch Qwen Code (brew install qwen-code) on the size's model, in the same sandbox, with the same MCP servers"
     echo "qwen --print-config [size]: print the resolved settings and the qwen command"
+    echo "qwen doctor [size]: check qwen, the model, context sizes, the settings template and Ollama"
     echo "sizes: $(configured_sizes | tr '\n' ' ' | sed 's/ $//')"
     echo "no size: pick one in a menu (or $default_size without a terminal)"
     echo "sandbox: on by default (sandbox-runtime); CLAUDE_OLLAMA_SANDBOX=0 claude-ollama ... runs the session as you"
@@ -1215,7 +1277,10 @@ case "${1:-}" in
   qwen)
     harness=qwen
     shift
-    case "${1:-}" in --print-config) mode=print-config; shift ;; esac ;;
+    case "${1:-}" in
+      --print-config) mode=print-config; shift ;;
+      doctor) mode=doctor; shift ;;
+    esac ;;
   speed-check) exec "${CLAUDE_OLLAMA_SPEED_CHECK:-$repo_dir/bin/speed-check}" "${@:2}" ;;
   thinking-check) exec "${CLAUDE_OLLAMA_SPEED_CHECK:-$repo_dir/bin/speed-check}" --thinking-only ;;
 esac
@@ -1273,7 +1338,7 @@ case "$mode" in
       print_config
     fi
     exit 0 ;;
-  doctor) doctor ;;
+  doctor) if [ "$harness" = qwen ]; then qwen_doctor; else doctor; fi ;;
   review) run_review "$review_target" "$@" ;;
   prepare) ensure_model; exit 0 ;;
 esac
