@@ -33,6 +33,8 @@ console_port=8765
 launcher_log="$console_state_dir/launcher.log"
 launcher_log_max_bytes=1048576
 launcher_log_open=""
+telemetry_log="$session_config_dir/telemetry/tool-calls.jsonl"
+telemetry_log_max_bytes=1048576
 github_keychain_item=claude-ollama-github
 shortcut_cli="$HOME/.local/share/claude-custom/shortcut-cli/node_modules/.bin/short"
 raw_terminal_mode=(-brkint -icrnl -inpck -istrip -ixon cs8 -echo -icanon -iexten -isig min 1 time 0)
@@ -281,6 +283,21 @@ rotate_launcher_log() {
   [ -f "$launcher_log" ] || return 0
   [ "$(wc -c < "$launcher_log")" -gt "$launcher_log_max_bytes" ] || return 0
   mv -f "$launcher_log" "$launcher_log.1"
+}
+
+telemetry_log_path() {
+  [ "${CLAUDE_OLLAMA_TELEMETRY:-1}" != 0 ] || return 0
+  printf '%s\n' "${CLAUDE_TOOL_TELEMETRY:-$telemetry_log}"
+}
+
+prepare_telemetry_log() {
+  local path
+  path="$(telemetry_log_path)"
+  [ -n "$path" ] || return 0
+  (umask 077; mkdir -p "${path%/*}") || return 0
+  if [ -f "$path" ] && [ "$(wc -c < "$path")" -gt "$telemetry_log_max_bytes" ]; then
+    mv -f "$path" "$path.1"
+  fi
 }
 
 start_launcher_log() {
@@ -1158,7 +1175,7 @@ serve_console() {
   (umask 077; mkdir -p "$console_state_dir"; chmod 700 "$console_state_dir"; rm -f "$console_state_dir/token"; mkdir -p "$console_state_dir/tokens"; chmod 700 "$console_state_dir/tokens"; rm -f "$console_token_file"; printf '%s\n' "$token" > "$console_token_file")
   trap remove_console_files EXIT INT TERM
   echo "claude-ollama: $label at $page_url"
-  CONSOLE_TOKEN_FILE="$console_token_file" CLAUDE_CUSTOM_HOME="$repo_dir" CLAUDE_CONSOLE_STATE_DIR="$console_state_dir" CLAUDE_CUSTOM_CHANGE_SOURCE=console CONSOLE_PROJECT_DIR="$project_dir" \
+  CONSOLE_TOKEN_FILE="$console_token_file" CLAUDE_CUSTOM_HOME="$repo_dir" CLAUDE_CONSOLE_STATE_DIR="$console_state_dir" CLAUDE_CUSTOM_CHANGE_SOURCE=console CONSOLE_PROJECT_DIR="$project_dir" CLAUDE_TOOL_TELEMETRY="$(telemetry_log_path)" \
     pnpm --dir "$web_dir" exec next start -H 127.0.0.1 -p "$port"
   exit 0
 }
@@ -1295,6 +1312,11 @@ warm_model
 
 unset ANTHROPIC_API_KEY ANTHROPIC_MODEL CLAUDE_OLLAMA_DRAFTS_DIR CLAUDE_OLLAMA_CMUX_BROKER CLAUDE_OLLAMA_GH_BROKER CLAUDE_OLLAMA_SHORTCUT_BROKER CLAUDE_OLLAMA_SESSION_PATH
 export CLAUDE_CUSTOM_HOME="$repo_dir"
+if [ -n "$(telemetry_log_path)" ]; then
+  prepare_telemetry_log
+  CLAUDE_TOOL_TELEMETRY="$(telemetry_log_path)"
+  export CLAUDE_TOOL_TELEMETRY
+fi
 prepare_session_config
 start_cmux_broker
 start_gh_broker
