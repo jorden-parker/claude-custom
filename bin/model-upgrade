@@ -1,0 +1,295 @@
+#!/usr/bin/env python3
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+from dataclasses import dataclass
+from pathlib import Path
+
+REPO_DIR = Path(__file__).resolve().parent.parent
+USAGE = "usage: bin/model-upgrade SIZE [--eval] [--keep] [--force]"
+OPTION_FLAGS = {"--eval", "--keep", "--force"}
+GGUF_REFUSAL = "GGUF sizes are pinned by file; update sizes.json by hand"
+THINKING_TITLE = "Thinking check (plan 066)"
+
+
+class Refusal(Exception):
+    pass
+
+
+class StageFailure(Exception):
+    pass
+
+
+@dataclass
+class Upgrade:
+    size: str
+    base: str
+    model: str
+    keep: bool
+    run_eval: bool
+    force: bool
+
+    @property
+    def candidate(self):
+        return f"{self.model}-next"
+
+
+@dataclass
+class Outdated:
+    line: str
+    word: str
+    registry_digest: str
+
+    @property
+    def current(self):
+        return self.word == "current"
+
+
+def tool_path(variable, default_name):
+    return os.environ.get(variable) or str(REPO_DIR / "bin" / default_name)
+
+
+def ollama_base_url():
+    host = os.environ.get("OLLAMA_HOST") or "localhost:11434"
+    return host if "://" in host else f"http://{host}"
+
+
+def read_json(relative_path):
+    return json.loads((REPO_DIR / relative_path).read_text())
+
+
+def announce(title):
+    print(f"[{title}]", flush=True)
+
+
+def refuse(condition, fix):
+    if not condition:
+        raise Refusal(fix)
+
+
+def require(condition, fix):
+    if not condition:
+        raise StageFailure(fix)
+
+
+def command_output(command):
+    return subprocess.run(command, check=False, capture_output=True, text=True)
+
+
+def run_captured(command):
+    print("+ " + " ".join(command), flush=True)
+    return subprocess.run(command, check=False, stdout=subprocess.PIPE, text=True)
+
+
+def run_ollama(arguments):
+    command = ["ollama", *arguments]
+    print("+ " + " ".join(command), flush=True)
+    result = subprocess.run(command, check=False)
+    require(result.returncode == 0, f"{' '.join(command)} failed; see the error above")
+
+
+def ollama_answers():
+    result = command_output(["curl", "-sf", "--max-time", "5", f"{ollama_base_url()}/api/version"])
+    return result.returncode == 0
+
+
+def model_installed(model):
+    return command_output(["ollama", "show", model]).returncode == 0
+
+
+def upgrade_from_argv(argv):
+    positional = [arg for arg in argv if not arg.startswith("--")]
+    flags = [arg for arg in argv if arg.startswith("--")]
+    refuse(len(positional) == 1 and set(flags) <= OPTION_FLAGS, USAGE)
+    size = positional[0]
+    sizes = read_json("ollama/sizes.json")
+    refuse(size in sizes, f"unknown size {size}; sizes are {', '.join(sizes)}")
+    base = sizes[size]["base"]
+    refuse("/" not in base, GGUF_REFUSAL)
+    settings_file = f"ollama/settings.{size}.json"
+    refuse((REPO_DIR / settings_file).exists(), f"{settings_file} is missing")
+    return Upgrade(
+        size=size,
+        base=base,
+        model=read_json(settings_file)["model"],
+        keep="--keep" in flags,
+        run_eval="--eval" in flags,
+        force="--force" in flags,
+    )
+
+
+def outdated_check(base):
+    result = command_output([tool_path("MODEL_UPGRADE_MODELS", "ollama-models"), "outdated", base])
+    line = result.stdout.strip()
+    refuse(line != "", f"ollama-models outdated {base} printed nothing; see the error above")
+    match = re.search(r"registry ([0-9a-f]+)", line)
+    return Outdated(line=line, word=line.split()[0], registry_digest=match.group(1) if match else None)
+
+
+def preflight(upgrade):
+    refuse(ollama_answers(), f"Ollama is not answering at {ollama_base_url()}: start it, then rerun")
+    outdated = outdated_check(upgrade.base)
+    refuse(outdated.word != "unknown", f"{upgrade.base} has no manifest in the registry: check the network, then rerun")
+    return outdated
+
+
+def pull_base(upgrade):
+    announce(f"Pull {upgrade.base} into the local model")
+    run_ollama(["pull", upgrade.base])
+
+
+def create_candidate(upgrade):
+    modelfile = REPO_DIR / "ollama" / f"Modelfile.{upgrade.size}"
+    run_ollama(["create", upgrade.candidate, "-f", str(modelfile)])
+
+
+def run_thinking(upgrade):
+    result = run_captured([
+        tool_path("MODEL_UPGRADE_SPEED_CHECK", "speed-check"), "--thinking-only", "--model", upgrade.candidate,
+    ])
+    print(result.stdout, end="")
+    return {"exit_code": result.returncode, "output": result.stdout}
+
+
+def run_json(command, label):
+    result = run_captured(command)
+    require(result.returncode == 0, f"{label} failed; see the error above")
+    try:
+        return json.loads(result.stdout)
+    except ValueError:
+        raise StageFailure(f"{label} printed no JSON")
+
+
+def run_cache_probe(upgrade):
+    return run_json([tool_path("MODEL_UPGRADE_PROBE", "ollama-cache-probe"), upgrade.candidate, "--json"],
+                    "ollama-cache-probe")
+
+
+def run_review_eval(upgrade):
+    return run_json([tool_path("MODEL_UPGRADE_EVAL", "pr-review-eval"), "--model", upgrade.candidate, "--json"],
+                    "pr-review-eval")
+
+
+def gather_evidence(upgrade):
+    create_candidate(upgrade)
+    announce(THINKING_TITLE)
+    evidence = {"thinking": run_thinking(upgrade)}
+    announce("Cache probe")
+    evidence["cache_probe"] = run_cache_probe(upgrade)
+    evidence["review_eval"] = None
+    if upgrade.run_eval:
+        announce("Review eval (pr-review-eval)")
+        evidence["review_eval"] = run_review_eval(upgrade)
+    return evidence
+
+
+def eval_summary(review):
+    if review is None:
+        return "skipped"
+    total = review["total"]
+    return (f"{total['caught']} of {total['bugs']} bugs caught, "
+            f"{total['false_blockers']} false blockers, {total['unparsable']} unparsable")
+
+
+def judge(evidence):
+    thinking_ok = evidence["thinking"]["exit_code"] == 0
+    cache_ok = bool(evidence["cache_probe"].get("cache_reused"))
+    review = evidence["review_eval"]
+    review_ok = review is None or review["total"]["unparsable"] == 0
+    return {
+        "thinking": "PASS" if thinking_ok else "FAIL",
+        "cache": "reused" if cache_ok else "not reused",
+        "eval": eval_summary(review),
+        "passed": thinking_ok and cache_ok and review_ok,
+    }
+
+
+def short_digest(upgrade, outdated):
+    if outdated.registry_digest:
+        return outdated.registry_digest[:12]
+    return read_json("ollama/model-digests.json")[upgrade.base][:12]
+
+
+def save_report(upgrade, outdated, evidence, verdict):
+    folder = Path.home() / "bench-results"
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / f"upgrade-{upgrade.size}-{time.strftime('%Y%m%d-%H%M')}.json"
+    report = {
+        "size": upgrade.size,
+        "base": upgrade.base,
+        "candidate": upgrade.candidate,
+        "outdated": outdated.line,
+        "registry_digest": outdated.registry_digest,
+        **evidence,
+        "verdict": verdict,
+    }
+    path.write_text(json.dumps(report, indent=2) + "\n")
+    return path
+
+
+def print_verdict(upgrade, outdated, verdict, report_path):
+    print()
+    print(f"thinking: {verdict['thinking']}")
+    print(f"cache: {verdict['cache']}")
+    print(f"eval: {verdict['eval']}")
+    if verdict["passed"]:
+        print(f"Next: bin/ollama-models pin {upgrade.base} && git add ollama/model-digests.json && "
+              f"git commit -m 'chore: pin {upgrade.base} at {short_digest(upgrade, outdated)}'")
+    else:
+        print(f"Not pinning; {upgrade.base} stays at its current pin.")
+    print(f"report: {report_path}")
+
+
+def promote(upgrade):
+    announce(f"Promote {upgrade.candidate} to {upgrade.model}")
+    run_ollama(["cp", upgrade.candidate, upgrade.model])
+    run_ollama(["rm", upgrade.candidate])
+
+
+def rollback(upgrade):
+    announce("Roll back: restore the local base to its pin")
+    if not upgrade.keep and model_installed(upgrade.candidate):
+        run_ollama(["rm", upgrade.candidate])
+    run_ollama(["rm", upgrade.base])
+
+
+def run_upgrade(argv):
+    upgrade = upgrade_from_argv(argv)
+    announce("Preflight: Ollama, size and registry")
+    outdated = preflight(upgrade)
+    if outdated.current and not upgrade.force:
+        print(f"{upgrade.base} is current; nothing to upgrade")
+        return 0
+    pull_base(upgrade)
+    try:
+        evidence = gather_evidence(upgrade)
+        verdict = judge(evidence)
+        announce("Report")
+        report_path = save_report(upgrade, outdated, evidence, verdict)
+    except StageFailure:
+        rollback(upgrade)
+        raise
+    print_verdict(upgrade, outdated, verdict, report_path)
+    if verdict["passed"]:
+        promote(upgrade)
+        return 0
+    rollback(upgrade)
+    return 1
+
+
+def main(argv):
+    try:
+        return run_upgrade(argv)
+    except Refusal as refusal:
+        print(f"model-upgrade: {refusal}", file=sys.stderr)
+        return 2
+    except StageFailure as failure:
+        print(f"model-upgrade stopped: {failure}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
