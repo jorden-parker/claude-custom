@@ -53,6 +53,11 @@ export const CONSOLE_SECTIONS: readonly ConsoleSection[] = [
     summary: "Hosts claude-ollama sessions may fetch",
   },
   {
+    href: "/machine",
+    title: "Machine policy",
+    summary: "gh repos, command rules, enabled tools and sandbox-off on this machine",
+  },
+  {
     href: "/history",
     title: "History",
     summary: "Every settings change, with diffs and restore",
