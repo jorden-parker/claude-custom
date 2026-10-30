@@ -332,9 +332,13 @@ refs) and `page_act` (click, fill, type, press, select, check or scroll one ref,
 then the errors it caused). `dev_start` and `dev_stop` ask before they run; the
 others do not. Servers a session starts stop when it ends. The server reads
 `.next/dev/lock` for its port and `/_next/mcp` on Next.js 16+; other frameworks
-get log errors only. The session has no cmux command. The page tools reach the
-browser only through the cmux broker, which drives one browser REPL session
-locked to `localhost`, `127.0.0.1` and `[::1]`: navigations, new tabs, `fetch`,
+get log errors only. The tools keep the scheme the server prints, so a server
+started with `--experimental-https` (or whose `.next/dev/lock` `appUrl` is
+`https://`) is probed and opened over `https://localhost:PORT`; the probe
+accepts the local self-signed certificate, and candidates are still `localhost`
+only. The session has no cmux command. The page tools reach the browser only
+through the cmux broker, which drives one browser REPL session locked to
+`localhost`, `127.0.0.1` and `[::1]`: navigations, new tabs, `fetch`,
 subresources and websockets. The broker takes only structured page requests and
 proves the lock before the session gets its socket. `page_check` needs the cmux
 browser, which is on by default when claude-ollama runs in a cmux terminal;

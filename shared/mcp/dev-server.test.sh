@@ -52,8 +52,10 @@ section() {
 }
 
 mkdir -p "$tmp/project/app" "$tmp/bin" "$tmp/state"
+openssl req -x509 -newkey rsa:2048 -nodes -keyout "$tmp/key.pem" -out "$tmp/cert.pem" -subj /CN=localhost -days 1 >/dev/null 2>&1
+export FAKE_TLS_CERT="$tmp/cert.pem" FAKE_TLS_KEY="$tmp/key.pem"
 printf '{"name":"root","private":true}\n' > "$tmp/project/package.json"
-printf '{"name":"app","scripts":{"dev":"fake-server","dev:web":"fake-server","build":"next build"}}\n' > "$tmp/project/app/package.json"
+printf '{"name":"app","scripts":{"dev":"fake-server","dev:web":"fake-server","dev:https":"fake-server --experimental-https","build":"next build"}}\n' > "$tmp/project/app/package.json"
 git -C "$tmp/project" init -q
 git -C "$tmp/project" add -A
 git -C "$tmp/project" -c user.name=test -c user.email=test@example.test commit -qm init
@@ -62,6 +64,7 @@ cat > "$tmp/bin/npm" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$DEV_TEST_DIR/npm.log"
 case "$*" in
+  "run dev:https") FAKE_TLS=1 exec python3 "$DEV_TEST_DIR/fake-next.py" ;;
   "run dev" | "run dev:"*) exec python3 "$DEV_TEST_DIR/fake-next.py" ;;
 esac
 exit 1
@@ -117,6 +120,7 @@ import http.server
 import json
 import os
 import socketserver
+import ssl
 
 ports_log = os.environ["FAKE_PORTS_LOG"]
 SSE_REPLY = 'event: message\ndata: {"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"# Found errors in 1 browser session(s)\\nHydration failed"}]}}\n\n'
@@ -146,13 +150,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
 
 server = socketserver.ThreadingTCPServer(("127.0.0.1", 0), Handler)
+scheme = "https" if os.environ.get("FAKE_TLS") else "http"
+if scheme == "https":
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(os.environ["FAKE_TLS_CERT"], os.environ["FAKE_TLS_KEY"])
+    server.socket = context.wrap_socket(server.socket, server_side=True)
 port = server.server_address[1]
 os.makedirs(".next/dev", exist_ok=True)
 with open(".next/dev/lock", "w") as lock:
-    json.dump({"pid": os.getpid(), "port": port, "hostname": "localhost", "appUrl": "http://localhost:%d" % port, "startedAt": 0}, lock)
+    json.dump({"pid": os.getpid(), "port": port, "hostname": "localhost", "appUrl": "%s://localhost:%d" % (scheme, port), "startedAt": 0}, lock)
 with open(ports_log, "a") as log:
     log.write("%d\n" % port)
-print("   \x1b[1m- Local:\x1b[0m        http://localhost:%d%s" % (port, os.environ.get("FAKE_LOCAL_SUFFIX", "")), flush=True)
+print("   \x1b[1m- Local:\x1b[0m        %s://localhost:%d%s" % (scheme, port, os.environ.get("FAKE_LOCAL_SUFFIX", "")), flush=True)
 print("Error: Cannot find module './missing'", flush=True)
 print("    at Object.<anonymous> (app/page.tsx:3:1)", flush=True)
 server.serve_forever()
@@ -258,6 +267,19 @@ check "dev_start returns the real URL and says ready" \
   contains "$started" "ready at http://localhost:$port"
 check "dev_status reports the same URL, a pid and that it answers" \
   contains "$(section dev_status "$start_out")" "http://localhost:$port answers (HTTP 200), pid"
+https_out="$tmp/session-https.out"
+session "$https_out" \
+  '["dev_start",{"dir":"app","script":"dev:https"}]' \
+  '["dev_status",{"dir":"app"}]' \
+  '["dev_errors",{"dir":"app"}]' \
+  '["dev_stop",{"dir":"app"}]'
+https_port="$(tail -n 1 "$tmp/ports.log")"
+check "dev_start keeps the https scheme the server printed" \
+  contains "$(section dev_start "$https_out")" "ready at https://localhost:$https_port"
+check "dev_status probes the https URL" \
+  contains "$(section dev_status "$https_out")" "https://localhost:$https_port answers (HTTP 200), pid"
+check "dev_errors reaches /_next/mcp over https" \
+  contains "$(section dev_errors "$https_out")" "Hydration failed"
 logs="$(section dev_logs "$start_out")"
 check "dev_logs errors_only keeps the error line" contains "$logs" "Cannot find module"
 check "and its stack line" contains "$logs" "at Object.<anonymous>"
@@ -331,6 +353,13 @@ check "the first page_check asks the broker to open the page" \
   requested "{\"page\": {\"op\": \"open\", \"url\": \"http://localhost:$browser_port/settings\"}}"
 check "a later page_check asks the broker to open its path on the same session" \
   requested "{\"page\": {\"op\": \"open\", \"url\": \"http://localhost:$browser_port/other\"}}"
+https_browser_out="$tmp/session-https-browser.out"
+BROKER="$tmp/broker.sock" session "$https_browser_out" \
+  '["dev_start",{"dir":"app","script":"dev:https"}]' \
+  '["page_check",{"dir":"app","path":"/secure"}]'
+https_browser_port="$(tail -n 1 "$tmp/ports.log")"
+check "page_check opens the https URL" \
+  requested "{\"page\": {\"op\": \"open\", \"url\": \"https://localhost:$https_browser_port/secure\"}}"
 
 act_out="$tmp/session-act.out"
 BROKER="$tmp/broker.sock" session "$act_out" \
@@ -390,6 +419,10 @@ check "and the lock's appUrl host is never reported" lacks "$lock_status" "evil.
 printf '{"pid":%s,"port":"%s","hostname":"localhost","appUrl":"http://localhost:%s/","startedAt":0}' "$fake_pid" "$fake_port" "$fake_port" > "$tmp/project/app/.next/dev/lock"
 check "a lock whose port is a string is ignored" contains "$(call dev_status '{"dir":"app"}')" "no dev server answers"
 stop_fake_next
+FAKE_TLS=1 start_fake_next
+check "a lock whose appUrl is https gives an https candidate" \
+  contains "$(call dev_status '{"dir":"app"}')" "https://localhost:$fake_port answers"
+stop_fake_next
 
 cat > "$tmp/silent-port.py" <<'PY'
 import socket
@@ -440,7 +473,7 @@ check "dev_start finds a server on the requested script's own port" \
   contains "$(call dev_start '{"dir":"app","script":"dev:held"}')" "already running at http://localhost:$fake_port"
 check "and it launches nothing beside that server" [ "$(launches_of_held_script)" = "0" ]
 stop_fake_next
-printf '{"name":"app","scripts":{"dev":"fake-server","dev:web":"fake-server","build":"next build"}}\n' > "$tmp/project/app/package.json"
+printf '{"name":"app","scripts":{"dev":"fake-server","dev:web":"fake-server","dev:https":"fake-server --experimental-https","build":"next build"}}\n' > "$tmp/project/app/package.json"
 
 cat > "$tmp/framework-port.py" <<'PY'
 import importlib.util

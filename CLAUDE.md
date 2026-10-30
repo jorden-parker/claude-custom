@@ -538,13 +538,16 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
 - `shared/mcp/dev-server.py` is the `dev` MCP server the Ollama profiles start
   beside `repo`. It reads `.next/dev/lock` (only its port), the dev script's
   port flag and `/_next/mcp` (Next.js 16+), and the session's own log; it never
-  trusts a lock's URL. `dev_start` launches nothing while the lock's or the
-  requested script's port is held, even by a server too busy to answer HTTP; a
-  held framework default doesn't count, since the framework moves to the next
-  port. It stops only the servers its session started. The read-only tools are
-  allowed by full name (`mcp__dev__dev_status`, `dev_logs`, `dev_errors`,
-  `page_check`, `page_snapshot`, `page_act`; the page tools call the cmux broker
-  through `CLAUDE_OLLAMA_CMUX_BROKER`, never a `cmux` command); `dev_start` and
+  trusts a lock's URL. It keeps the scheme the server prints (an `https` log
+  line, `--experimental-https` in the script, or an `https://` lock `appUrl`),
+  and probes https with certificate checks off, since the host is always
+  `localhost`. `dev_start` launches nothing while the lock's or the requested
+  script's port is held, even by a server too busy to answer HTTP; a held
+  framework default doesn't count, since the framework moves to the next port.
+  It stops only the servers its session started. The read-only tools are allowed
+  by full name (`mcp__dev__dev_status`, `dev_logs`, `dev_errors`, `page_check`,
+  `page_snapshot`, `page_act`; the page tools call the cmux broker through
+  `CLAUDE_OLLAMA_CMUX_BROKER`, never a `cmux` command); `dev_start` and
   `dev_stop` still ask, and no bare `mcp__dev` may be allowed.
   `shared/hooks/dev-server-guard.py` (Ollama-only, PreToolUse on Bash) denies
   `pnpm dev`-style starts and points the model at `dev_start`.

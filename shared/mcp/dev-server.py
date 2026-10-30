@@ -6,6 +6,7 @@ import os
 import re
 import signal
 import socket
+import ssl
 import subprocess
 import sys
 import time
@@ -31,7 +32,8 @@ MAX_APP_DIRS = 20
 MAX_OUTPUT_CHARS = 20000
 SCRIPT_PATTERN = re.compile(r"^dev:[A-Za-z0-9_.-]{1,48}$")
 START_SCRIPT_NAMES = {"dev", "start"}
-LOCAL_URL = re.compile(r"https?://(?:localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0):(\d+)\S*")
+LOCAL_URL = re.compile(r"(https?)://(?:localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0):(\d+)\S*")
+HTTPS_FLAG = re.compile(r"--(?:experimental-)?https\b")
 ANSI_CODES = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 ERROR_LINE = re.compile(r"error|warn|⨯|failed|unhandled|exception|cannot |EADDRINUSE|ELIFECYCLE", re.IGNORECASE)
 STACK_LINE = re.compile(r"^\s+at ")
@@ -48,7 +50,17 @@ NOT_NEXT = "not a Next.js 16+ dev server"
 NO_PAGE_ORIGIN = "unknown: this session has not run page_check"
 BROKER_MISSING = "the cmux browser broker is not running; launch claude-ollama from a cmux terminal"
 
-NO_PROXY_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+def loopback_tls_context():
+    context = ssl.create_default_context()
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+    return context
+
+
+NO_PROXY_OPENER = urllib.request.build_opener(
+    urllib.request.ProxyHandler({}), urllib.request.HTTPSHandler(context=loopback_tls_context())
+)
 DEV_SERVER_ENV = {"NO_COLOR": "1", "FORCE_COLOR": "0", "CI": ""}
 
 Candidate = namedtuple("Candidate", "url source pid")
@@ -240,17 +252,33 @@ def log_url(log_path):
     for line in clean_lines(log_path):
         match = LOCAL_URL.search(line)
         if match:
-            return url_for_port(match.group(1))
+            return url_for_port(match.group(2), match.group(1))
     return None
 
 
-def url_for_port(text):
+def loopback_url(scheme, port):
+    return f"{scheme}://localhost:{port}"
+
+
+def url_for_port(text, scheme):
     port = int(text)
-    return f"http://localhost:{port}" if 1 <= port <= 65535 else None
+    return loopback_url(scheme, port) if 1 <= port <= 65535 else None
+
+
+def script_scheme(script_text):
+    return "https" if HTTPS_FLAG.search(script_text or "") else "http"
+
+
+def lock_scheme(lock, script_text):
+    app_url = lock.get("appUrl")
+    if isinstance(app_url, str) and app_url.startswith("https://"):
+        return "https"
+    return script_scheme(script_text)
 
 
 def dir_candidates(dir_text, script_text):
     found = []
+    scheme = script_scheme(script_text)
     server = STARTED.get(dir_text)
     if server is not None:
         url = log_url(server.log_path)
@@ -260,13 +288,13 @@ def dir_candidates(dir_text, script_text):
     lock_number = lock_port(lock) if lock is not None else None
     if lock_number is not None:
         pid = lock.get("pid")
-        found.append(Candidate(f"http://localhost:{lock_number}", ".next/dev/lock", pid if isinstance(pid, int) else None))
+        found.append(Candidate(loopback_url(lock_scheme(lock, script_text), lock_number), ".next/dev/lock", pid if isinstance(pid, int) else None))
     port = script_port(script_text)
     if port is not None:
-        found.append(Candidate(f"http://localhost:{port}", "the dev script", None))
+        found.append(Candidate(loopback_url(scheme, port), "the dev script", None))
     fallback = framework_port(script_text)
     if fallback is not None:
-        found.append(Candidate(f"http://localhost:{fallback}", FRAMEWORK_DEFAULT, None))
+        found.append(Candidate(loopback_url(scheme, fallback), FRAMEWORK_DEFAULT, None))
     return found
 
 
