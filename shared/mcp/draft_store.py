@@ -5,7 +5,7 @@ import tempfile
 import time
 from pathlib import Path, PurePath
 
-CONSOLE_DRAFT_URL = "http://127.0.0.1:8765/drafts/"
+DRAFT_ID = re.compile(r"^\d{8}-\d{6}-(pr|review)-[a-z0-9-]{1,60}$")
 LABELS = ("issue", "suggestion", "question", "nitpick", "praise", "todo", "chore", "thought")
 DECORATIONS = ("blocking", "non-blocking", "if-minor", "security", "test")
 EVENTS = ("COMMENT", "REQUEST_CHANGES", "APPROVE")
@@ -70,6 +70,15 @@ DRAFT_TOOLS = [
                 "comments": {"type": "array", "items": COMMENT},
             },
             "required": ["pr", "event", "summary", "comments"],
+        },
+    },
+    {
+        "name": "draft_open",
+        "description": "Show a saved draft in the user's browser again. Use when the user says the page did not open. Never open a console URL yourself: it answers Unauthorized here.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"id": text_property("The draft id from the save reply")},
+            "required": ["id"],
         },
     },
 ]
@@ -194,7 +203,21 @@ def saved(draft):
     if not folder:
         raise DraftRefused("drafts are off in this session")
     write_private_json(folder, draft)
-    return f"saved draft {draft['id']}; the user edits and posts it at {CONSOLE_DRAFT_URL}{draft['id']}"
+    return f"saved draft {draft['id']}; the page opens in the user's browser on its own. Share no console link: the console needs a token this session never holds."
+
+
+def draft_open(values):
+    args = checked_object(values, {"id"}, "arguments")
+    folder = drafts_dir()
+    if not folder:
+        raise DraftRefused("drafts are off in this session")
+    requested = args.get("id")
+    if not isinstance(requested, str) or not DRAFT_ID.fullmatch(requested):
+        raise DraftRefused("id must be a saved draft")
+    if not (Path(folder) / f"{requested}.json").is_file():
+        raise DraftRefused("id must be a saved draft")
+    (Path(folder) / f"{requested}.open").touch(mode=0o600)
+    return f"asked for draft {requested}; it opens in the user's browser in a few seconds. If it does not, the user can run claude-ollama ui and pick Drafts."
 
 
 def created_now():

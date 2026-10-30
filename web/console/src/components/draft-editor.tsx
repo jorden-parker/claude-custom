@@ -6,7 +6,9 @@ import {
   DraftActionBar,
   type DraftStatus,
 } from "@/components/draft-action-bar";
+import { DraftPreview } from "@/components/draft-preview";
 import { PrFields, ReviewFields } from "@/components/draft-fields";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { isDirty } from "@/lib/draft-edits";
 import {
   editableFieldsOf,
@@ -16,6 +18,7 @@ import {
 } from "@/lib/draft-schema";
 
 type Saved = { draft: Draft; hash: string; repo: string | null };
+type DraftView = "edit" | "preview";
 type RequestResult = { ok: true; body: Saved } | { ok: false; message: string };
 
 const IDLE_STATUS: DraftStatus = { notice: null, error: null, busy: null };
@@ -27,6 +30,7 @@ export function DraftEditor({ id }: { id: string }) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [status, setStatus] = useState<DraftStatus>(IDLE_STATUS);
   const [asDraft, setAsDraft] = useState(false);
+  const [view, setView] = useState<DraftView>("edit");
 
   useEffect(() => {
     let active = true;
@@ -88,25 +92,38 @@ export function DraftEditor({ id }: { id: string }) {
     router.push("/drafts");
   }
 
+  const fields =
+    current.kind === "pr" ? (
+      <PrFields
+        draft={current}
+        asDraft={asDraft}
+        onAsDraftChange={setAsDraft}
+        onChange={(patch: Partial<PrDraft>) =>
+          setDraft(withPatch(current, patch))
+        }
+      />
+    ) : (
+      <ReviewFields
+        draft={current}
+        onChange={(patch: Partial<ReviewDraft>) =>
+          setDraft(withPatch(current, patch))
+        }
+      />
+    );
+
   return (
     <div className="flex flex-col gap-4">
       <p className="text-xs text-muted-foreground">{current.id}</p>
-      {current.kind === "pr" ? (
-        <PrFields
-          draft={current}
-          asDraft={asDraft}
-          onAsDraftChange={setAsDraft}
-          onChange={(patch: Partial<PrDraft>) =>
-            setDraft(withPatch(current, patch))
-          }
-        />
+      <Tabs value={view} onValueChange={(next) => setView(next as DraftView)}>
+        <TabsList>
+          <TabsTrigger value="edit">Edit</TabsTrigger>
+          <TabsTrigger value="preview">Preview</TabsTrigger>
+        </TabsList>
+      </Tabs>
+      {view === "edit" ? (
+        fields
       ) : (
-        <ReviewFields
-          draft={current}
-          onChange={(patch: Partial<ReviewDraft>) =>
-            setDraft(withPatch(current, patch))
-          }
-        />
+        <DraftPreview draft={current} asDraft={asDraft} />
       )}
       <DraftActionBar
         draft={current}

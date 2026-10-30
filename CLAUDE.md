@@ -149,7 +149,9 @@ before changing how any file gets applied.
   (reinstalled when `pnpm-lock.yaml` is newer than `node_modules/.modules.yaml`,
   rebuilt when a source is newer than `.next/BUILD_ID`). The reviews list is at
   `/reviews`; `claude-ollama reviews [--port N]` runs the same server and prints
-  that link. Its tests run with `make test-web`.
+  that link. A start on a port that already answers prints the running console's
+  tokened link and starts nothing, writing a new token file if the old one was
+  lost. Its tests run with `make test-web`.
 - Console smoke check: `bin/console-smoke [--port N] [--keep]` starts
   `claude-ollama ui` on a temp state dir, checks every page, the token gate and
   the same-origin rule, then prints `all passed` (`make smoke-console`; `--keep`
@@ -589,13 +591,16 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   the newest new draft, at most one every 5 s, at `/drafts/<id>` through a 0600
   redirect page under the console state dir, so the console token never lands in
   argv; it uses `cmux browser open-split` in a cmux terminal, else `open`, and
-  starts `claude-ollama ui` when `/health` fails. The console's `/drafts` pages
-  edit each item's markdown, save, and post with your own `gh` (`gh pr create`,
-  or `gh api .../pulls/N/reviews` with inline comments): the click is the
-  approval. The console derives `owner/name` from the project's `origin` (the
-  session can't write `.git/config`), never from the draft, and a post carries
-  the draft's hash, so a draft changed after you loaded it is refused (409).
-  Tests: `ollama/drafts/opener.test.sh` (stub `open`, `cmux`, console),
+  starts `claude-ollama ui` when `/health` fails. The `draft_open` tool asks for
+  a page again by writing `<id>.open` beside the draft, which the opener claims;
+  the save and open replies carry no link, since the session never holds the
+  console token. The console's `/drafts` pages edit each item's markdown, save,
+  and post with your own `gh` (`gh pr create`, or `gh api .../pulls/N/reviews`
+  with inline comments): the click is the approval. The console derives
+  `owner/name` from the project's `origin` (the session can't write
+  `.git/config`), never from the draft, and a post carries the draft's hash, so
+  a draft changed after you loaded it is refused (409). Tests:
+  `ollama/drafts/opener.test.sh` (stub `open`, `cmux`, console),
   `shared/mcp/repo-tools.test.sh`, the console's vitest suite.
 - `shared/mcp/code-search.py` is the `semantic_search` MCP server (JSON-RPC over
   stdio, stdlib only). It ranks 40-line chunks by their words (BM25) on every

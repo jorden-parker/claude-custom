@@ -218,10 +218,11 @@ check "and says how to narrow it" contains "$big" "[truncated: showed 20000 of"
 drafts="$tmp/drafts"
 export CLAUDE_OLLAMA_DRAFTS_DIR="$drafts"
 check "with a drafts folder the draft tools are listed too" \
-  [ "$(call list)" = "git_status git_diff git_log git_show draft_pr draft_review" ]
+  [ "$(call list)" = "git_status git_diff git_log git_show draft_pr draft_review draft_open" ]
 pr_draft='{"title":"Add notes","base":"main","sections":[{"heading":"Summary","body":"Adds **notes**."},{"heading":"Testing","body":"- [x] ran it"}]}'
 drafted="$(call draft_pr "$pr_draft")"
-check "draft_pr links the draft in the console" contains "$drafted" "http://127.0.0.1:8765/drafts/"
+check "draft_pr reply carries no console link the session cannot open" lacks "$drafted" "http://"
+check "draft_pr says the page opens in the user's browser" contains "$drafted" "opens in the user's browser"
 pr_file="$(find "$drafts" -name '*-pr-*.json' 2>/dev/null | head -n 1)"
 check "draft_pr writes one draft file" [ -f "$pr_file" ]
 check "the drafts folder is private" [ "$(stat -f %Lp "$drafts" 2>/dev/null || stat -c %a "$drafts")" = 700 ]
@@ -243,6 +244,11 @@ check "draft_review writes a draft named after the PR" [ -f "$review_file" ]
 check "a review draft keeps the event" [ "$(draft_field "$review_file" event)" = REQUEST_CHANGES ]
 check "a review draft keeps inline and general comments" \
   [ "$(draft_field "$review_file" comments)" = '[{"label": "issue", "decorations": ["blocking"], "path": "notes.txt", "line": 2, "body": "Off by one."}, {"label": "praise", "decorations": [], "body": "Nice tests."}]' ]
+pr_id="$(basename "$pr_file" .json)"
+check "draft_open asks the opener to open a saved draft" contains "$(call draft_open "{\"id\":\"$pr_id\"}")" "asked for draft $pr_id"
+check "draft_open leaves a request file the opener claims" [ -f "$drafts/$pr_id.open" ]
+check "draft_open refuses an id that is not saved" contains "$(call draft_open '{"id":"20261029-000000-pr-none"}')" "ERROR id must be a saved draft"
+check "draft_open refuses a path that climbs out of the drafts folder" contains "$(call draft_open '{"id":"../x"}')" "ERROR id must be a saved draft"
 
 refused() {
   contains "$(call "$1" "$2")" "ERROR $3"
@@ -267,7 +273,7 @@ check "a section needs a heading" \
   refused draft_pr '{"title":"t","base":"main","sections":[{"body":"b"}]}' "heading is required"
 check "a base that looks like an option is refused" \
   refused draft_pr '{"title":"t","base":"--force","sections":[{"heading":"h","body":"b"}]}' "base must be a branch name"
-check "a refused draft writes no file" [ "$(find "$drafts" -type f | wc -l | tr -d ' ')" = 2 ]
+check "a refused draft writes no file" [ "$(find "$drafts" -name '*.json' | wc -l | tr -d ' ')" = 2 ]
 unset CLAUDE_OLLAMA_DRAFTS_DIR
 
 socket="$tmp/b.sock"

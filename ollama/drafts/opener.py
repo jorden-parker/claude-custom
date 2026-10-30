@@ -42,13 +42,27 @@ def process_alive(pid):
     return True
 
 
-def draft_ids(folder):
+def ids_ending_in(folder, suffix):
     try:
         names = os.listdir(folder)
     except FileNotFoundError:
         return set()
-    stems = (name[: -len(".json")] for name in names if name.endswith(".json"))
+    stems = (name[: -len(suffix)] for name in names if name.endswith(suffix))
     return {stem for stem in stems if DRAFT_ID.match(stem)}
+
+
+def draft_ids(folder):
+    return ids_ending_in(folder, ".json")
+
+
+def claim_open_requests(folder):
+    requested = ids_ending_in(folder, ".open")
+    for draft_id in requested:
+        try:
+            Path(folder, f"{draft_id}.open").unlink(missing_ok=True)
+        except OSError:
+            pass
+    return requested & draft_ids(folder)
 
 
 def console_up(console_url):
@@ -72,13 +86,17 @@ def start_console(options):
     )
 
 
+def console_ready(options):
+    return console_up(options.console_url) and Path(options.token_file).is_file()
+
+
 def wait_for_console(options):
-    if console_up(options.console_url):
+    if console_ready(options):
         return True
     start_console(options)
     deadline = time.monotonic() + options.console_wait
     while time.monotonic() < deadline:
-        if console_up(options.console_url):
+        if console_ready(options):
             return True
         time.sleep(0.5)
     return False
@@ -125,8 +143,9 @@ def watch(options):
     while process_alive(options.watch_pid):
         fresh = draft_ids(options.drafts) - seen
         seen |= fresh
-        if fresh:
-            pending = max(fresh)
+        wanted = fresh | claim_open_requests(options.drafts)
+        if wanted:
+            pending = max(wanted)
         if pending and time.monotonic() - last_opened >= options.min_gap:
             open_draft(options, pending)
             last_opened = time.monotonic()

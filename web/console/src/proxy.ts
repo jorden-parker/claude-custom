@@ -31,7 +31,9 @@ function isSameOriginWrite(request: NextRequest): boolean {
   if (READ_METHODS.includes(request.method)) {
     return true;
   }
-  return request.headers.get("origin") === `http://${request.headers.get("host")}`;
+  return (
+    request.headers.get("origin") === `http://${request.headers.get("host")}`
+  );
 }
 
 function expectedToken(): string {
@@ -63,7 +65,11 @@ function tokensMatch(candidate: string, expected: string): boolean {
 }
 
 function escapeAttribute(text: string): string {
-  return text.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+  return text
+    .replaceAll("&", "&amp;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
 }
 
 function urlWithoutToken(request: NextRequest): string {
@@ -74,9 +80,12 @@ function urlWithoutToken(request: NextRequest): string {
 
 function grantCookieAndHop(request: NextRequest, token: string) {
   const target = escapeAttribute(urlWithoutToken(request));
-  const response = new NextResponse(`<!doctype html><meta http-equiv="refresh" content="0;url=${target}">\n`, {
-    headers: { "content-type": "text/html; charset=utf-8" },
-  });
+  const response = new NextResponse(
+    `<!doctype html><meta http-equiv="refresh" content="0;url=${target}">\n`,
+    {
+      headers: { "content-type": "text/html; charset=utf-8" },
+    },
+  );
   response.cookies.set(TOKEN_COOKIE, token, {
     httpOnly: true,
     sameSite: "strict",
@@ -86,5 +95,8 @@ function grantCookieAndHop(request: NextRequest, token: string) {
 }
 
 function unauthorized() {
-  return new NextResponse("Unauthorized", { status: 401 });
+  return new NextResponse(
+    "Unauthorized. Open the console from the link `claude-ollama ui` prints.\n",
+    { status: 401 },
+  );
 }

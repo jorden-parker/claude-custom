@@ -66,5 +66,6 @@ Done when every heading has a body.
 
 Call `mcp__repo__draft_pr` with `title`, `base` and `sections`
 (`[{heading, body}]`). A refusal names the bad field: fix that field and call
-again. Reply with the link the tool returns, in one line. The page opens on its
-own.
+again. Reply in one line that the draft is saved, with its id. The page opens on
+its own: share no console link. If the user says it did not open, call
+`mcp__repo__draft_open` with the id.

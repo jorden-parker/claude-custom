@@ -236,4 +236,80 @@ describe("DraftEditor", () => {
       ).toBe(false),
     );
   });
+
+  it("previews a PR the way it will land on GitHub", async () => {
+    stubApi({ draft: prDraft(), repo: "jorden/claude-custom" });
+    render(<DraftEditor id={PR_ID} />);
+    await screen.findByDisplayValue("Add drafts");
+
+    fireEvent.click(screen.getByRole("tab", { name: "Preview" }));
+
+    expect(screen.getByText("feature-x into main")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Summary" })).toBeTruthy();
+    expect(screen.getByText("Adds drafts.")).toBeTruthy();
+  });
+
+  it("previews an unsaved title, and Edit keeps it", async () => {
+    stubApi({ draft: prDraft(), repo: "jorden/claude-custom" });
+    render(<DraftEditor id={PR_ID} />);
+    fireEvent.change(await screen.findByLabelText("Title"), {
+      target: { value: "Renamed" },
+    });
+
+    fireEvent.click(screen.getByRole("tab", { name: "Preview" }));
+    expect(screen.getByText("Renamed")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Edit" }));
+    expect(screen.getByDisplayValue("Renamed")).toBeTruthy();
+  });
+
+  it("previews a review with its inline comment at the line and unplaced comments in the body", async () => {
+    stubApi({
+      draft: {
+        ...reviewDraft(),
+        comments: [
+          {
+            label: "issue",
+            decorations: [],
+            path: "src/a.ts",
+            line: 3,
+            body: "Off by one.",
+          },
+          { label: "todo", decorations: [], body: "Add a test." },
+        ],
+      } as Draft,
+      repo: "jorden/claude-custom",
+    });
+    render(<DraftEditor id={REVIEW_ID} />);
+    await screen.findByLabelText("Label 1");
+
+    fireEvent.click(screen.getByRole("tab", { name: "Preview" }));
+
+    expect(screen.getByText("src/a.ts:3")).toBeTruthy();
+    expect(screen.getByText("Off by one.")).toBeTruthy();
+    expect(screen.getByText("Add a test.")).toBeTruthy();
+  });
+
+  it("says in the preview that the PR opens as a draft when the box is ticked", async () => {
+    stubApi({ draft: prDraft(), repo: "jorden/claude-custom" });
+    render(<DraftEditor id={PR_ID} />);
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Draft PR" }));
+
+    fireEvent.click(screen.getByRole("tab", { name: "Preview" }));
+
+    expect(screen.getByText("Opens as a draft PR")).toBeTruthy();
+  });
+
+  it("keeps Save and Create PR on the page while previewing", async () => {
+    stubApi({ draft: prDraft(), repo: "jorden/claude-custom" });
+    render(<DraftEditor id={PR_ID} />);
+    await screen.findByDisplayValue("Add drafts");
+
+    fireEvent.click(screen.getByRole("tab", { name: "Preview" }));
+
+    expect(screen.getByRole("button", { name: "Save" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Create PR on GitHub" }),
+    ).toBeTruthy();
+  });
 });

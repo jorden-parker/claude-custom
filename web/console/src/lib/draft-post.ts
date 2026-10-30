@@ -1,30 +1,16 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type {
-  Draft,
-  PrDraft,
-  ReviewComment,
-  ReviewDraft,
-  Section,
-} from "./draft-schema";
+import type { Draft, PrDraft, ReviewDraft } from "./draft-schema";
+import { pullRequestBody, reviewPayload } from "./draft-render";
 import { draftForWrite, repoFor, saveDraft } from "./drafts";
 import { runOnce, type RunOnceResult } from "./run-once";
 
 const GH_OPTIONS = { timeoutMs: 120_000, maxBytes: 1024 * 1024 };
 const TEMP_FOLDER_PREFIX = "claude-draft-";
 const TEMP_FILE_MODE = 0o600;
-const INLINE_SIDE = "RIGHT";
 
 type PostResult = { ok: true; url: string } | { ok: false; message: string };
-type PlacedComment = ReviewComment & { path: string; line: number };
-type InlineComment = {
-  path: string;
-  line: number;
-  side: typeof INLINE_SIDE;
-  body: string;
-};
-type ReviewPayload = { event: string; body: string; comments: InlineComment[] };
 
 export type PostOutcome =
   | { kind: "posted"; draft: Draft; hash: string; repo: string }
@@ -129,38 +115,6 @@ function pullRequestArgs(
     bodyFile,
   ];
   return asDraft ? [...args, "--draft"] : args;
-}
-
-function pullRequestBody(sections: Section[]): string {
-  return sections
-    .map((section) => `## ${section.heading}\n\n${section.body}`)
-    .join("\n\n");
-}
-
-function reviewPayload(draft: ReviewDraft): ReviewPayload {
-  const unplaced = draft.comments.filter((comment) => !isPlaced(comment));
-  return {
-    event: draft.event,
-    body: [draft.summary, ...unplaced.map(renderComment)]
-      .filter((part) => part.trim() !== "")
-      .join("\n\n"),
-    comments: draft.comments.filter(isPlaced).map((comment) => ({
-      path: comment.path,
-      line: comment.line,
-      side: INLINE_SIDE,
-      body: renderComment(comment),
-    })),
-  };
-}
-
-function isPlaced(comment: ReviewComment): comment is PlacedComment {
-  return comment.path !== undefined && comment.line !== undefined;
-}
-
-function renderComment(comment: ReviewComment): string {
-  const tags = comment.decorations.join(", ");
-  const heading = tags === "" ? comment.label : `${comment.label} (${tags})`;
-  return `**${heading}:** ${comment.body}`;
 }
 
 function reviewUrl(stdout: string, repo: string, pr: number): string {
