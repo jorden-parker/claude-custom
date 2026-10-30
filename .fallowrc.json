@@ -1,9 +1,5 @@
 {
-  "entry": [
-    "shared/mcp/page.js",
-    "ollama/qwen-raw-mode.cjs",
-    "ollama/qwen-dir-watch.cjs"
-  ],
+  "entry": ["shared/mcp/page.js"],
   "ignoreFindings": [
     "web/console/src/components/ui/**",
     "web/console/src/components/ai-elements/**"
