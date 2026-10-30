@@ -69,12 +69,11 @@ describe("/api/machine", () => {
     fs.rmSync(repoDir, { recursive: true, force: true });
   });
 
-  it("lists the three editable files, fetch-domains and sandbox-off", async () => {
+  it("lists the two editable files, fetch-domains and sandbox-off", async () => {
     const body = await (await GET()).json();
 
     expect(Object.keys(body.files)).toEqual([
       "gh-repos",
-      "command-rules",
       "enabled-tools",
       "fetch-domains",
     ]);
@@ -92,7 +91,7 @@ describe("/api/machine", () => {
 
   it("answers a missing file as null text and each line with its reason", async () => {
     const empty = await (await GET()).json();
-    expect(empty.files["command-rules"]).toMatchObject({
+    expect(empty.files["enabled-tools"]).toMatchObject({
       text: null,
       valid: [],
       invalid: [],
@@ -105,18 +104,18 @@ describe("/api/machine", () => {
     expect(body.files["gh-repos"]).toMatchObject({
       text: "acme/web\nacme\n",
       valid: ["acme/web"],
-      invalid: [{ line: "acme", reason: "expected owner/name or owner/*" }],
+      invalid: [{ line: "acme", reason: "expected owner/name" }],
     });
   });
 
   it("saves gh-repos 0600 and records one machine-gh-repos history entry", async () => {
     const response = await PUT(
-      jsonRequest({ file: "gh-repos", lines: ["acme/web", "acme/*"] }),
+      jsonRequest({ file: "gh-repos", lines: ["acme/web", "acme/api"] }),
     );
 
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
-      files: { "gh-repos": { text: "acme/web\nacme/*\n" } },
+      files: { "gh-repos": { text: "acme/web\nacme/api\n" } },
     });
     expect(fs.statSync(ghReposPath).mode & 0o777).toBe(0o600);
     const entries = listHistory();
@@ -144,7 +143,7 @@ describe("/api/machine", () => {
 
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({
-      message: "owner: expected owner/name or owner/*",
+      message: "owner: expected owner/name",
     });
     expect(fs.existsSync(ghReposPath)).toBe(false);
     expect(listHistory()).toEqual([]);
@@ -169,8 +168,7 @@ describe("/api/machine", () => {
 
       expect(response.status).toBe(400);
       expect(await response.json()).toEqual({
-        message:
-          "Expected file to be one of gh-repos, command-rules, enabled-tools",
+        message: "Expected file to be one of gh-repos, enabled-tools",
       });
       expect(listHistory()).toEqual([]);
     },

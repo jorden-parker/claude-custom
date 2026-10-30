@@ -20,12 +20,6 @@ const MACHINE = {
       valid: ["acme/web"],
       invalid: [],
     },
-    "command-rules": {
-      path: `${DIR}/command-rules`,
-      text: null,
-      valid: [],
-      invalid: [],
-    },
     "enabled-tools": {
       path: `${DIR}/enabled-tools`,
       text: "Artifact\n",
@@ -79,15 +73,15 @@ describe("MachinePolicyEditor", () => {
     cleanup();
   });
 
-  it("renders a card for each of the five files, with the sandbox-off commands", async () => {
+  it("renders a card for each of the two editable files, with the sandbox-off commands", async () => {
     stubApi();
     render(<MachinePolicyEditor />);
 
     expect(
       await screen.findByRole("region", { name: "gh-repos" }),
     ).toBeTruthy();
-    expect(screen.getByRole("region", { name: "command-rules" })).toBeTruthy();
     expect(screen.getByRole("region", { name: "enabled-tools" })).toBeTruthy();
+    expect(screen.queryAllByRole("region", { name: /command/ })).toEqual([]);
     expect(
       within(screen.getByRole("region", { name: "fetch-domains" })).getByText(
         "3 hosts listed. Edited on its own page.",
@@ -116,16 +110,14 @@ describe("MachinePolicyEditor", () => {
           ...MACHINE.files["gh-repos"],
           text: "acme\n",
           valid: [],
-          invalid: [{ line: "acme", reason: "expected owner/name or owner/*" }],
+          invalid: [{ line: "acme", reason: "expected owner/name" }],
         },
       },
     });
     render(<MachinePolicyEditor />);
 
     const card = await screen.findByRole("region", { name: "gh-repos" });
-    expect(
-      within(card).getByText("expected owner/name or owner/*"),
-    ).toBeTruthy();
+    expect(within(card).getByText("expected owner/name")).toBeTruthy();
     expect(within(card).getByText("acme", { selector: "code" })).toBeTruthy();
   });
 
@@ -135,13 +127,13 @@ describe("MachinePolicyEditor", () => {
 
     const card = await screen.findByRole("region", { name: "gh-repos" });
     fireEvent.change(within(card).getByLabelText("Lines for gh-repos"), {
-      target: { value: "acme/web\nacme/*" },
+      target: { value: "acme/web\nacme/api" },
     });
     fireEvent.click(within(card).getByRole("button", { name: "Save" }));
 
     await waitFor(() =>
       expect(saves).toEqual([
-        { file: "gh-repos", lines: ["acme/web", "acme/*"] },
+        { file: "gh-repos", lines: ["acme/web", "acme/api"] },
       ]),
     );
     expect(
@@ -154,10 +146,7 @@ describe("MachinePolicyEditor", () => {
   it("shows the server's message when a save is refused", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       if (init?.method === "PUT") {
-        return jsonResponse(
-          { message: "owner: expected owner/name or owner/*" },
-          400,
-        );
+        return jsonResponse({ message: "owner: expected owner/name" }, 400);
       }
       if (String(input) === "/api/history") {
         return jsonResponse({ entries: [] });
@@ -172,9 +161,7 @@ describe("MachinePolicyEditor", () => {
     });
     fireEvent.click(within(card).getByRole("button", { name: "Save" }));
 
-    expect(
-      await screen.findByText("owner: expected owner/name or owner/*"),
-    ).toBeTruthy();
+    expect(await screen.findByText("owner: expected owner/name")).toBeTruthy();
   });
 
   it("lists only the history of its own file, each with a restore button that posts to the restore route", async () => {

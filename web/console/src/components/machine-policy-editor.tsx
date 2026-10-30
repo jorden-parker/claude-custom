@@ -31,19 +31,13 @@ type HistoryEntry = {
   source: string;
 };
 
-const EDITABLE_FILES: readonly PolicyFile[] = [
-  "gh-repos",
-  "command-rules",
-  "enabled-tools",
-];
+const EDITABLE_FILES: readonly PolicyFile[] = ["gh-repos", "enabled-tools"];
 const HISTORY_KIND_PREFIX = "machine-";
 const SAVED_MESSAGE = "saved; applies to the next claude-ollama launch";
 const RESTORED_MESSAGE = "restored; applies to the next claude-ollama launch";
 const DESCRIPTIONS: Record<PolicyFile, string> = {
   "gh-repos":
-    "Repositories beyond the project's origin that sessions may use with gh, one owner/name or owner/* per line.",
-  "command-rules":
-    "Rules for gh and short writes: allow or deny, program, action and an optional scope. A # line is a comment.",
+    "Repositories beyond the project's origin that the repo server's GitHub tools may read in claude-ollama sessions, one owner/name per line. A # line is a comment.",
   "enabled-tools":
     "Bare tool names taken off the overlay's deny list, one per line.",
 };

@@ -53,6 +53,5 @@ To turn Claude Code's sandbox off on one machine only, create an empty
 `~/.config/claude-custom/sandbox-off`. The machine copy then sets
 `sandbox.enabled` to false, `personal/launch` leaves the package caches where
 they are, and `claude` prints a warning at every launch; every other machine
-keeps it on. The console's `/machine` page shows `enabled-tools` and
-`sandbox-off`, edits `enabled-tools` with history, and never creates or deletes
-`sandbox-off`.
+keeps it on. The console's `/machine` page shows `sandbox-off`, edits `gh-repos`
+and `enabled-tools` with history, and never creates or deletes `sandbox-off`.
