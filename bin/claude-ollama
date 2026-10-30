@@ -1,6 +1,4 @@
 #!/bin/bash
-launch_path="$PATH"
-PATH=/usr/bin:/bin:/usr/sbin:/sbin
 set -euo pipefail
 
 repo_dir="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
@@ -15,16 +13,11 @@ case "$ollama_url" in http://*|https://*) ;; *) ollama_url="http://$ollama_url" 
 keep_alive="${CLAUDE_OLLAMA_KEEP_ALIVE:-30m}"
 ollama_agent="${CLAUDE_OLLAMA_AGENT:-$repo_dir/bin/ollama-agent}"
 gguf_inspect="${CLAUDE_OLLAMA_GGUF_INSPECT:-$repo_dir/bin/gguf-inspect}"
-sandbox_runtime="$HOME/.local/share/claude-custom/sandbox-runtime/node_modules/.bin/srt"
 session_config_dir="$HOME/.claude-ollama"
 drafts_dir="$session_config_dir/drafts"
 qwen_home="$session_config_dir/qwen"
-sandbox_policy="$session_config_dir/sandbox-policy.json"
 append_prompt="$session_config_dir/append-prompt.md"
 fetch_domains_file="${XDG_CONFIG_HOME:-$HOME/.config}/claude-custom/fetch-domains"
-gh_repos_file="${XDG_CONFIG_HOME:-$HOME/.config}/claude-custom/gh-repos"
-command_rules_file="${XDG_CONFIG_HOME:-$HOME/.config}/claude-custom/command-rules"
-gh_repo_pattern='^[A-Za-z0-9][A-Za-z0-9-]*/([A-Za-z0-9_][A-Za-z0-9._-]*|\*)$'
 fetch_settings="$session_config_dir/fetch-settings.json"
 fetch_domain_pattern='^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z][a-z0-9-]*[a-z0-9]$'
 review_log_dir="${PR_REVIEW_LOG_DIR:-$HOME/.local/share/claude-custom/reviews}"
@@ -33,10 +26,6 @@ console_port=8765
 launcher_log="$console_state_dir/launcher.log"
 launcher_log_max_bytes=1048576
 launcher_log_open=""
-github_keychain_item=claude-ollama-github
-shortcut_cli="$HOME/.local/share/claude-custom/shortcut-cli/node_modules/.bin/short"
-raw_terminal_mode=(-brkint -icrnl -inpck -istrip -ixon cs8 -echo -icanon -iexten -isig min 1 time 0)
-saved_terminal_mode=""
 
 configured_sizes() {
   local settings size
@@ -253,30 +242,6 @@ warm_search_index() {
   nohup python3 "$repo_dir/shared/mcp/code-search.py" --index --watch-pid "$$" >/dev/null 2>&1 &
 }
 
-sandbox_wanted() {
-  [ "${CLAUDE_OLLAMA_SANDBOX:-1}" != 0 ]
-}
-
-require_sandbox_runtime() {
-  [ -x "$sandbox_runtime" ] && return 0
-  echo "claude-ollama: sandbox-runtime is missing; run claude-custom install" >&2
-  exit 1
-}
-
-restore_terminal() {
-  stty "$saved_terminal_mode"
-}
-
-run_in_raw_terminal() {
-  [ -t 0 ] || exec "$@"
-  saved_terminal_mode="$(stty -g)"
-  trap restore_terminal EXIT
-  trap 'exit 129' HUP
-  trap 'exit 143' TERM
-  stty "${raw_terminal_mode[@]}"
-  "$@"
-}
-
 rotate_launcher_log() {
   [ -f "$launcher_log" ] || return 0
   [ "$(wc -c < "$launcher_log")" -gt "$launcher_log_max_bytes" ] || return 0
@@ -298,115 +263,11 @@ stop_launcher_log() {
   exec 2>&3 3>&-
 }
 
-git_common_dir() {
-  git rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true
-}
-
-item_replacement_dir() {
-  local user_temp
-  user_temp="$(getconf DARWIN_USER_TEMP_DIR 2>/dev/null || true)"
-  [ -n "$user_temp" ] && echo "${user_temp%/}/TemporaryItems"
-}
-
-project_root() {
-  git rev-parse --show-toplevel 2>/dev/null || pwd -P
-}
-
-real_folder() {
-  (cd -P "$1" 2>/dev/null && pwd -P)
-}
-
-real_file() {
-  local path="$1" link
-  while [ -L "$path" ]; do
-    link="$(readlink "$path")"
-    case "$link" in
-      /*) path="$link" ;;
-      *) path="$(dirname "$path")/$link" ;;
-    esac
-  done
-  printf '%s/%s\n' "$(real_folder "$(dirname "$path")")" "$(basename "$path")"
-}
-
-enclosing_repo_root() {
-  local folder
-  folder="$(pwd -P)"
-  while [ -n "$folder" ]; do
-    [ -e "$folder/.git" ] && break
-    folder="${folder%/*}"
-  done
-  printf '%s\n' "${folder:-$(pwd -P)}"
-}
-
-session_writable_folders() {
-  local folder
-  for folder in "$(enclosing_repo_root)" "$session_config_dir"; do
-    real_folder "$folder"
-  done
-  [ -n "${path_is_safe:-}" ] || return 0
-  for folder in "$(project_root)" "$(git_common_dir)" "$(item_replacement_dir)"; do
-    [ -n "$folder" ] && real_folder "$folder"
-  done
-  return 0
-}
-
-session_can_write() {
-  local folder
-  while IFS= read -r folder; do
-    case "$1/" in
-      "$folder"/*) return 0 ;;
-    esac
-  done < <(session_writable_folders)
-  return 1
-}
-
-safe_path() {
-  local entry folder safe=""
-  local IFS=:
-  for entry in $launch_path; do
-    case "$entry" in
-      /*) ;;
-      *) continue ;;
-    esac
-    folder="$(real_folder "$entry")" || continue
-    session_can_write "$folder" && continue
-    safe="${safe:+$safe:}$entry"
-  done
-  printf '%s\n' "$safe"
-}
-
-trusted_command() {
-  local found resolved
-  found="$(command -v "$1" 2>/dev/null)" || return 1
-  resolved="$(real_file "$found")"
-  if session_can_write "$(dirname "$resolved")"; then
-    echo "claude-ollama: not using $found: the session can write there" >&2
-    return 1
-  fi
-  printf '%s\n' "$resolved"
-}
-
-require_plain_project_root() {
-  local root
-  root="$(project_root)"
-  case "$root" in
-    *'*'* | *'?'* | *'['*)
-      echo "claude-ollama: $root has glob characters (*?[]), which would break the sandbox's write rules" >&2
-      exit 1
-      ;;
-  esac
-}
-
 in_cmux_terminal() {
   case "${CMUX_SOCKET_PATH:-}" in
-    /*) [ -S "$CMUX_SOCKET_PATH" ] && trusted_command cmux >/dev/null ;;
+    /*) [ -S "$CMUX_SOCKET_PATH" ] && command -v cmux >/dev/null ;;
     *) return 1 ;;
   esac
-}
-
-cmux_broker_wanted() {
-  [ "${CLAUDE_OLLAMA_CMUX:-}" = 0 ] && return 1
-  in_cmux_terminal
 }
 
 prepare_drafts_dir() {
@@ -417,7 +278,7 @@ prepare_drafts_dir() {
 
 draft_browser_args() {
   if in_cmux_terminal; then
-    printf '%s\n' --cmux "$(trusted_command cmux)"
+    printf '%s\n' --cmux "$(command -v cmux)"
   else
     printf '%s\n' --open /usr/bin/open
   fi
@@ -433,158 +294,6 @@ start_draft_opener() {
     --console-url "http://127.0.0.1:$console_port" --token-file "$console_state_dir/tokens/$console_port" \
     --pages "$console_state_dir/open-drafts" --start-console "$repo_dir/bin/claude-ollama" \
     "${browser_args[@]}" >/dev/null 2>&1 &
-}
-
-wait_for_socket() {
-  local attempts=0
-  while [ "$attempts" -lt 75 ]; do
-    [ -S "$1" ] && return 0
-    sleep 0.2
-    attempts=$((attempts + 1))
-  done
-  return 1
-}
-
-start_cmux_broker() {
-  cmux_broker_wanted || return 0
-  cmux_broker_socket="$session_config_dir/cmux-broker.$$.sock"
-  rm -f "$cmux_broker_socket"
-  nohup "$profile_dir/cmux/broker.py" --socket "$cmux_broker_socket" \
-    --cmux "$(trusted_command cmux)" --watch-pid "$$" >/dev/null 2>&1 &
-  if wait_for_socket "$cmux_broker_socket"; then
-    export CLAUDE_OLLAMA_CMUX_BROKER="$cmux_broker_socket"
-  else
-    cmux_broker_socket=""
-    echo "claude-ollama: the cmux browser is off for this session: the browser could not be locked to localhost (run claude-ollama browser-check)" >&2
-  fi
-}
-
-github_repo_slug() {
-  local remote
-  remote="$(git -C "$(project_root)" remote get-url origin 2>/dev/null)" || return 0
-  case "$remote" in
-    https://github.com/*) remote="${remote#https://github.com/}" ;;
-    git@github.com:*) remote="${remote#git@github.com:}" ;;
-    *) return 0 ;;
-  esac
-  printf '%s' "${remote%.git}"
-}
-
-ssh_origin_fix() {
-  local remote slug
-  remote="$(git -C "$(project_root)" remote get-url origin 2>/dev/null)" || return 0
-  case "$remote" in
-    git@github.com:*|ssh://*) ;;
-    *) return 0 ;;
-  esac
-  slug="$(github_repo_slug)"
-  echo "git remote set-url origin https://github.com/${slug:-OWNER/NAME}.git"
-}
-
-warn_ssh_origin() {
-  local fix
-  fix="$(ssh_origin_fix)"
-  [ -n "$fix" ] || return 0
-  echo "claude-ollama: origin is an SSH remote; sandboxed pushes need HTTPS: $fix" >&2
-}
-
-check_ssh_origin() {
-  local fix
-  fix="$(ssh_origin_fix)"
-  [ -n "$fix" ] || return 0
-  report warn "origin is an SSH remote; sandboxed pushes need HTTPS: $fix"
-}
-
-gh_repo_allow_flags() {
-  local line repo
-  [ -r "$gh_repos_file" ] || return 0
-  while IFS= read -r line || [ -n "$line" ]; do
-    repo="$(printf '%s' "$line" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
-    [ -n "$repo" ] || continue
-    if [[ ! "$repo" =~ $gh_repo_pattern ]]; then
-      echo "claude-ollama: ignoring gh repo '$repo' (expected owner/name or owner/*)" >&2
-      continue
-    fi
-    printf -- '--allow-repo\n%s\n' "$repo"
-  done < "$gh_repos_file"
-}
-
-start_gh_broker() {
-  local gh token allow_flags=()
-  gh="$(trusted_command gh)" || return 0
-  token="$(gh_login_token)" || return 0
-  gh_broker_socket="$session_config_dir/gh-broker.$$.sock"
-  rm -f "$gh_broker_socket"
-  while IFS= read -r flag; do allow_flags+=("$flag"); done < <(gh_repo_allow_flags)
-  GH_TOKEN="$token" nohup "$profile_dir/gh/broker.py" --socket "$gh_broker_socket" --gh "$gh" \
-    --repo "$(github_repo_slug)" --watch-pid "$$" --rules "$command_rules_file" \
-    --approve-with "$profile_dir/approve-dialog" ${allow_flags[@]+"${allow_flags[@]}"} >/dev/null 2>&1 &
-  if wait_for_socket "$gh_broker_socket"; then
-    export CLAUDE_OLLAMA_GH_BROKER="$gh_broker_socket"
-  else
-    gh_broker_socket=""
-    echo "claude-ollama: GitHub reads are off for this session: the gh broker did not start" >&2
-  fi
-}
-
-shortcut_config_dirs() {
-  printf '%s\n' "${XDG_CONFIG_HOME:-$HOME/.config}/shortcut-cli" "$HOME/.config/shortcut-cli" \
-    "$HOME/.config/clubhouse-cli" "$HOME/.clubhouse-cli"
-  [ -z "${XDG_DATA_HOME:-}" ] || printf '%s\n' "$XDG_DATA_HOME/.config/shortcut-cli"
-}
-
-shortcut_command() {
-  if [ -x "$shortcut_cli" ]; then
-    printf '%s\n' "$shortcut_cli"
-    return 0
-  fi
-  trusted_command short
-}
-
-start_shortcut_broker() {
-  local short
-  short="$(shortcut_command)" || return 0
-  shortcut_broker_socket="$session_config_dir/shortcut-broker.$$.sock"
-  rm -f "$shortcut_broker_socket"
-  nohup "$profile_dir/shortcut/broker.py" --socket "$shortcut_broker_socket" --short "$short" \
-    --watch-pid "$$" --rules "$command_rules_file" --approve-with "$profile_dir/approve-dialog" >/dev/null 2>&1 &
-  if wait_for_socket "$shortcut_broker_socket"; then
-    export CLAUDE_OLLAMA_SHORTCUT_BROKER="$shortcut_broker_socket"
-  else
-    shortcut_broker_socket=""
-    echo "claude-ollama: short is off for this session: the Shortcut broker did not start" >&2
-  fi
-}
-
-write_sandbox_policy() {
-  local protected_policy_path="$sandbox_policy"
-  jq --arg repo "$repo_dir" --arg config "$session_config_dir" --arg policy "$protected_policy_path" --arg git "$(git_common_dir)" \
-    --arg items "$(item_replacement_dir)" --arg root "$(project_root)" --arg cmux_broker "${cmux_broker_socket:-}" --arg gh_broker "${gh_broker_socket:-}" \
-    --arg shortcut_broker "${shortcut_broker_socket:-}" \
-    --arg reviews "$review_log_dir" --arg console_state "$console_state_dir" --arg fetch_settings "$fetch_settings" \
-    --arg rules "$command_rules_file" --arg rules_dir "$(dirname "$command_rules_file")" \
-    --argjson shortcut_configs "$(shortcut_config_dirs | jq -R . | jq -s 'unique')" \
-    --argjson fetch_domains "$(printf '%s' "${launch_fetch_domains:-}" | fetch_domains_json)" \
-    --argjson config_sources '["CLAUDE.md", "skills", "settings.json", "settings.local.json", "commands", "agents", "plugins", "rules", "output-styles", "keybindings.json", ".config.json", "append-prompt.md"]' \
-    --arg qwen_home "$qwen_home" \
-    --argjson qwen_sources '["settings.json", "QWEN.md", "system.md", ".env", "skills", "agents", "extensions", "rules", "commands", "hooks", "mcpApprovals.json"]' '
-    ($git | if . == "" then [] else [.] end) as $git_dirs
-    | ($items | if . == "" then [] else [.] end) as $item_dirs
-    | .filesystem.allowWrite += [$config] + $item_dirs + $git_dirs
-    | .filesystem.denyWrite += [$repo, $policy, $rules, $rules_dir, {path: "\($root)/.claude", literal: true}, "\($root)/**/.claude", "\($root)/**/.claude/**", {path: "\($root)/.qwen", literal: true}, "\($root)/**/.qwen", "\($root)/**/.qwen/**"]
-        + ["\($config)/gh-broker.*.sock", "\($config)/cmux-broker.*.sock", "\($config)/shortcut-broker.*.sock"]
-        + [$config_sources[] as $source | "\($config)/\($source)"]
-        + [$qwen_sources[] as $source | "\($qwen_home)/\($source)"]
-        + [$git_dirs[] | "\(.)/hooks", "\(.)/config"]
-    | .filesystem.denyRead += [$reviews, $console_state] + $shortcut_configs
-    | ([$cmux_broker, $gh_broker, $shortcut_broker] | map(select(. != ""))) as $broker_sockets
-    | if $broker_sockets == [] then . else .network.allowUnixSockets = $broker_sockets | .filesystem.denyWrite += $broker_sockets end
-    | if ($fetch_domains | length) == 0 then . else
-        .network.allowedDomains += $fetch_domains
-        | .network.tlsTerminate.excludeDomains += $fetch_domains
-        | .filesystem.denyWrite += [$fetch_settings]
-      end
-  ' "$profile_dir/sandbox.json" > "$sandbox_policy"
 }
 
 fetch_domains() {
@@ -636,32 +345,18 @@ launch_tools() {
   if [ -n "${launch_fetch_domains:-}" ]; then echo "$tools,WebFetch"; else echo "$tools"; fi
 }
 
+seed_session_state() {
+  local session_state="$session_config_dir/.claude.json"
+  [ -s "$session_state" ] || echo '{"hasCompletedOnboarding":true}' > "$session_state"
+}
+
 prepare_session_config() {
   mkdir -p "$session_config_dir/tmp"
   if [ -f "$HOME/.claude/CLAUDE.md" ]; then
     cp "$HOME/.claude/CLAUDE.md" "$session_config_dir/CLAUDE.md"
   fi
-  rebuild_session_state
+  seed_session_state
   copy_user_skills
-}
-
-cleaned_session_state() {
-  local taken="$1"
-  if [ ! -L "$taken" ] && [ -s "$taken" ] &&
-    jq -e --arg root "$(project_root)" -f "$profile_dir/session-state.jq" "$taken" 2>/dev/null; then
-    return 0
-  fi
-  echo '{"hasCompletedOnboarding":true}'
-}
-
-rebuild_session_state() {
-  local session_state="$session_config_dir/.claude.json" taken rebuilt
-  taken="$(mktemp "$session_state.XXXXXX")"
-  mv -f "$session_state" "$taken" 2>/dev/null || true
-  rebuilt="$(mktemp "$session_state.XXXXXX")"
-  cleaned_session_state "$taken" > "$rebuilt"
-  rm -f "$taken"
-  mv -f "$rebuilt" "$session_state"
 }
 
 copy_user_skills() {
@@ -670,73 +365,17 @@ copy_user_skills() {
   cp -RL "$HOME/.claude/skills" "$session_config_dir/skills"
 }
 
-github_token() {
-  security find-generic-password -s "$github_keychain_item" -w 2>/dev/null
-}
-
 gh_login_token() {
   gh auth token --hostname github.com 2>/dev/null
 }
 
-store_push_token() {
-  local page="https://github.com/settings/personal-access-tokens/new?name=claude-ollama-push&description=git+push+from+claude-ollama+sessions&expires_in=90&metadata=read&contents=write&pull_requests=write"
-  echo "claude-ollama: create the push token in your browser, choose its repositories, then paste it below"
-  echo "$page"
-  open "$page" 2>/dev/null || true
-  security add-generic-password -U -s "$github_keychain_item" -a "$USER" -w || exit 1
-  echo "claude-ollama: stored the push token in the keychain item $github_keychain_item"
-}
-
-setup_github_tokens() {
-  case "${1:-}" in
-    push|'') store_push_token ;;
-    *) echo "usage: claude-ollama github-token [push]" >&2; exit 2 ;;
-  esac
-  exit 0
-}
-
-github_basic_auth() {
-  local token
-  token="$(github_token)" || return 0
-  printf 'x-access-token:%s' "$token" | base64 | tr -d '\n'
-}
-
 claude_command() {
-  if sandbox_wanted; then
-    printf '%s -s %s -- %s ' "$sandbox_runtime" "$sandbox_policy" "$profile_dir/sandbox-entry"
-  fi
   printf 'claude --settings %s --system-prompt-file %s --append-system-prompt-file %s --strict-mcp-config --mcp-config %s --model %s --tools %s' \
     "$(launch_settings_file)" "$profile_dir/system-prompt.md" "$append_prompt" "$(mcp_config)" "$model" "$(launch_tools)"
 }
 
-sandbox_label() {
-  if sandbox_wanted; then
-    echo on
-  else
-    echo off
-  fi
-}
-
 write_append_prompt() {
-  if sandbox_wanted; then
-    cat "$profile_dir/CLAUDE.local.md" "$profile_dir/CLAUDE.sandbox.md" > "$append_prompt"
-  else
-    cat "$profile_dir/CLAUDE.local.md" > "$append_prompt"
-  fi
-}
-
-launch_sandboxed() {
-  unset GH_TOKEN GITHUB_TOKEN
-  warn_ssh_origin
-  start_shortcut_broker
-  unset SHORTCUT_API_TOKEN SHORTCUT_URL_SLUG SHORTCUT_MENTION_NAME CLUBHOUSE_API_TOKEN
-  write_sandbox_policy
-  GH_BASIC="$(github_basic_auth)"
-  export GH_BASIC
-  export CLAUDE_OLLAMA_SESSION_PATH="$launch_path"
-  stop_launcher_log "$1"
-  run_in_raw_terminal "$sandbox_runtime" -s "$sandbox_policy" -- "$profile_dir/sandbox-entry" "$@"
-  exit
+  cat "$profile_dir/CLAUDE.local.md" > "$append_prompt"
 }
 
 print_config() {
@@ -749,7 +388,6 @@ print_config() {
   echo "settings: $(launch_settings_file)"
   echo "fetch domains: $(fetch_domains_label)"
   echo "tools: $(launch_tools)"
-  echo "sandbox: $(sandbox_label)"
   echo "command: $(claude_command)"
 }
 
@@ -764,9 +402,6 @@ qwen_args() {
 }
 
 qwen_command() {
-  if sandbox_wanted; then
-    printf '%s -s %s -- %s ' "$sandbox_runtime" "$sandbox_policy" "$profile_dir/sandbox-entry"
-  fi
   printf 'qwen %s' "$(qwen_args | tr '\n' ' ' | sed 's/ $//')"
 }
 
@@ -785,11 +420,7 @@ write_qwen_settings() {
 }
 
 write_qwen_context() {
-  if sandbox_wanted; then
-    cat "$repo_dir/shared/preferences/PREFERENCES.md" "$profile_dir/QWEN.local.md" "$profile_dir/CLAUDE.sandbox.md" > "$qwen_home/QWEN.md"
-  else
-    cat "$repo_dir/shared/preferences/PREFERENCES.md" "$profile_dir/QWEN.local.md" > "$qwen_home/QWEN.md"
-  fi
+  cat "$repo_dir/shared/preferences/PREFERENCES.md" "$profile_dir/QWEN.local.md" > "$qwen_home/QWEN.md"
 }
 
 print_qwen_config() {
@@ -801,7 +432,6 @@ print_qwen_config() {
   echo "context window: $(modelfile_num_ctx)"
   echo "qwen home: $qwen_home"
   echo "settings template: $profile_dir/qwen-settings.template.json"
-  echo "sandbox: $(sandbox_label)"
   echo "command: $(qwen_command)"
 }
 
@@ -815,14 +445,8 @@ launch_qwen() {
   create_qwen_home
   write_qwen_settings
   write_qwen_context
-  if sandbox_wanted; then
-    export SANDBOX=claude-ollama
-    export NODE_OPTIONS="--require \"$profile_dir/qwen-raw-mode.cjs\" --require \"$profile_dir/qwen-dir-watch.cjs\"${NODE_OPTIONS:+ $NODE_OPTIONS}"
-    launch_sandboxed qwen "${launch_args[@]}" "$@"
-  fi
-  echo "claude-ollama: sandbox OFF (CLAUDE_OLLAMA_SANDBOX=0): the session runs as you, with your gh, short, git credentials and env" >&2
+  echo "claude-ollama: qwen runs without a sandbox: its commands run as you" >&2
   stop_launcher_log qwen
-  PATH="$launch_path"
   exec qwen "${launch_args[@]}" "$@"
 }
 
@@ -959,24 +583,6 @@ check_model_allowed() {
   fi
 }
 
-check_sandbox() {
-  if ! sandbox_wanted; then
-    report warn "sandbox off (CLAUDE_OLLAMA_SANDBOX=0); unset it to sandbox the session"
-    return 0
-  fi
-  report ok "sandbox on (CLAUDE_OLLAMA_SANDBOX=0 turns it off)"
-  check_ssh_origin
-  check_sandbox_runtime
-}
-
-check_sandbox_runtime() {
-  if [ -x "$sandbox_runtime" ]; then
-    report ok "sandbox-runtime installed"
-  else
-    report fail "sandbox-runtime missing (run claude-custom install)"
-  fi
-}
-
 check_fetch_domains() {
   local domains
   domains="$(fetch_domains | paste -sd' ' -)"
@@ -987,40 +593,22 @@ check_fetch_domains() {
   fi
 }
 
-check_shortcut() {
-  local short
-  if short="$(shortcut_command)"; then
-    report ok "short (Shortcut CLI) found: $short"
-  else
-    report warn "short (Shortcut CLI) missing (run claude-custom install)"
-  fi
-}
-
-check_github_token() {
-  if github_token >/dev/null; then
-    report ok "GitHub token in the keychain item $github_keychain_item"
-  else
-    report warn "no GitHub token in the keychain item $github_keychain_item (git push from the session will fail; run claude-ollama github-token push)"
-  fi
-}
-
 check_gh_login() {
-  if trusted_command gh >/dev/null && gh_login_token >/dev/null; then
-    report ok "gh logged in to github.com (the session's GitHub tools use it through the broker)"
+  if command -v gh >/dev/null && gh_login_token >/dev/null; then
+    report ok "gh logged in to github.com (the session's GitHub tools run your gh)"
   else
-    report warn "gh is not logged in to github.com (the session's GitHub tools will be missing; run gh auth login)"
+    report warn "gh is not logged in to github.com (the session's GitHub tools will fail; run gh auth login)"
   fi
 }
 
-check_command_rules() {
-  local allowed denied
-  if [ ! -r "$command_rules_file" ]; then
-    report ok "command rules: none ($command_rules_file); writes ask in a dialog"
-    return 0
+check_browser() {
+  if [ "${CLAUDE_OLLAMA_CMUX:-}" = 0 ]; then
+    report ok "browser tools off (CLAUDE_OLLAMA_CMUX=0)"
+  elif in_cmux_terminal; then
+    report ok "browser tools on (cmux terminal; the dev MCP server runs cmux browser repl)"
+  else
+    report warn "browser tools off: not a cmux terminal (CMUX_SOCKET_PATH unset or cmux missing); page_check will say so"
   fi
-  allowed="$(grep -c '^allow[[:space:]]' "$command_rules_file" || true)"
-  denied="$(grep -c '^deny[[:space:]]' "$command_rules_file" || true)"
-  report ok "command rules: $allowed allow, $denied deny ($command_rules_file)"
 }
 
 doctor() {
@@ -1033,14 +621,9 @@ doctor() {
   check_hooks_present || status=1
   check_reachable || status=1
   check_server_env || status=1
-  check_sandbox || status=1
   check_fetch_domains
-  if sandbox_wanted; then
-    check_github_token
-    check_shortcut
-  fi
   check_gh_login
-  check_command_rules
+  check_browser
   check_model_allowed
   exit "$status"
 }
@@ -1199,51 +782,35 @@ serve_console() {
 case "${1:-}" in
   -h|--help)
     echo "usage: claude-ollama [size] [claude args...]"
-    echo "qwen [size] [qwen args...]: launch Qwen Code (brew install qwen-code) on the size's model, in the same sandbox, with the same MCP servers"
+    echo "qwen [size] [qwen args...]: launch Qwen Code (brew install qwen-code) on the size's model, without a sandbox, with the same MCP servers"
     echo "qwen --print-config [size]: print the resolved settings and the qwen command"
     echo "sizes: $(configured_sizes | tr '\n' ' ' | sed 's/ $//')"
     echo "no size: pick one in a menu (or $default_size without a terminal)"
-    echo "sandbox: on by default (sandbox-runtime); CLAUDE_OLLAMA_SANDBOX=0 claude-ollama ... runs the session as you"
+    echo "sandbox: Bash runs in Claude Code's sandbox (cmux, gh, short and git push run outside it, each after a prompt)"
     echo "doctor [size]: check models, context sizes, hooks, Ollama and the server env"
     echo "--print-config [size]: print the resolved settings and the claude command"
     echo "logs [-n LINES|--path]: follow the Ollama server log (LaunchAgent, Homebrew service or app), or print its path"
     echo "review [size] PR [--post]: review a pull request with the size's model, one file per request"
     echo "ui [--port N]: serve the console (runs, health, logs, models, reviews) at http://127.0.0.1:8765/"
     echo "reviews [--port N]: serve live and past reviews at http://127.0.0.1:8765/"
-    echo "github-token [push]: create the git push token in the browser and store it in the keychain"
     echo "fetch domains: list hostnames in ~/.config/claude-custom/fetch-domains to give sessions WebFetch for them"
     echo "prepare [size]: pull or import the size's model and stop, without starting claude"
     echo "prepare-embedding: pull the semantic_search embedding model and stop, without starting claude"
     echo "speed-check: check thinking is off and bench the GGUF sizes against the MLX ones, then print a verdict"
     echo "thinking-check: check thinking is off on the MLX sizes and print PASS or FAIL"
-    echo "browser-check: prove the session browser stays on localhost (run from a cmux terminal)"
     exit 0 ;;
 esac
-
-run_browser_check() {
-  if [ -z "${CMUX_SOCKET_PATH:-}" ] || ! command -v cmux >/dev/null 2>&1; then
-    echo "claude-ollama browser-check: run this from a cmux terminal" >&2
-    exit 1
-  fi
-  exec python3 "$repo_dir/ollama/cmux/broker.py" --self-test --cmux "$(command -v cmux)"
-}
-
-PATH="$(safe_path)"
-path_is_safe=1
-PATH="$(safe_path)"
 
 harness=claude
 mode=launch
 case "${1:-}" in
   doctor) mode=doctor; shift ;;
-  browser-check) mode=browser-check; shift ;;
   --print-config) mode=print-config; shift ;;
   logs) mode=logs; shift ;;
   prepare-embedding) mode=prepare-embedding; shift ;;
   review) mode=review; shift ;;
   ui) mode=ui; shift ;;
   reviews) mode=reviews; shift ;;
-  github-token) mode=github-token; shift ;;
   prepare) mode=prepare; shift ;;
   qwen)
     harness=qwen
@@ -1257,8 +824,6 @@ esac
 [ "$mode" != prepare-embedding ] || prepare_embedding
 [ "$mode" != ui ] || serve_console ui console / "$@"
 [ "$mode" != reviews ] || serve_console reviews reviews /reviews "$@"
-[ "$mode" != github-token ] || setup_github_tokens "$@"
-[ "$mode" != browser-check ] || run_browser_check
 
 if ! command -v jq >/dev/null 2>&1; then
   echo "claude-ollama: jq is required (brew install jq)" >&2
@@ -1312,10 +877,6 @@ case "$mode" in
 esac
 
 start_launcher_log
-if sandbox_wanted; then
-  require_sandbox_runtime
-  require_plain_project_root
-fi
 [ "$harness" != qwen ] || require_qwen
 apply_server_env
 ensure_model
@@ -1326,11 +887,9 @@ warm_embedding_model
 warm_search_index
 warm_model
 
-unset ANTHROPIC_API_KEY ANTHROPIC_MODEL CLAUDE_OLLAMA_DRAFTS_DIR CLAUDE_OLLAMA_CMUX_BROKER CLAUDE_OLLAMA_GH_BROKER CLAUDE_OLLAMA_SHORTCUT_BROKER CLAUDE_OLLAMA_SESSION_PATH
+unset ANTHROPIC_API_KEY ANTHROPIC_MODEL CLAUDE_OLLAMA_DRAFTS_DIR
 export CLAUDE_CUSTOM_HOME="$repo_dir"
 prepare_session_config
-start_cmux_broker
-start_gh_broker
 prepare_drafts_dir
 start_draft_opener
 export CLAUDE_CONFIG_DIR="$session_config_dir"
@@ -1350,10 +909,5 @@ claude_args=(
   --model "$model"
   --tools "$(launch_tools)"
 )
-if sandbox_wanted; then
-  launch_sandboxed claude "${claude_args[@]}" "$@"
-fi
-echo "claude-ollama: sandbox OFF (CLAUDE_OLLAMA_SANDBOX=0): the session runs as you, with your gh, short, git credentials and env" >&2
 stop_launcher_log claude
-PATH="$launch_path"
 exec claude "${claude_args[@]}" "$@"

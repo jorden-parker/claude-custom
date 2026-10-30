@@ -66,7 +66,7 @@ new_sandbox() {
   mkdir -p "$HOME" "$sandbox/stubbin"
   unset ZDOTDIR XDG_CONFIG_HOME CLAUDE_CONFIG_DIR STUB_OLLAMA_SHOW_EXIT STUB_OLLAMA_PULL_EXIT
   unset STUB_OLLAMA_PID STUB_OLLAMA_ENV STUB_CURL_EXIT STUB_OLLAMA_NUM_CTX STUB_AGENT_EXIT CMUX_SOCKET_PATH CLAUDE_OLLAMA_CMUX
-  unset STUB_SHASUM_DIGEST STUB_INSPECT_EXIT STUB_CLAUDE_STDERR CLAUDE_CONSOLE_STATE_DIR CLAUDE_OLLAMA_SANDBOX
+  unset STUB_SHASUM_DIGEST STUB_INSPECT_EXIT STUB_CLAUDE_STDERR CLAUDE_CONSOLE_STATE_DIR
   export SHELL=/bin/zsh
   record_installed_num_ctx
   export CLAUDE_OLLAMA_MANAGED_SETTINGS="$sandbox/managed-settings.json"
@@ -78,51 +78,15 @@ echo "\${CLAUDE_CUSTOM_HOME-unset}" > "$sandbox/custom-home-env"
 echo "\${CODE_SEARCH_EMBED-unset}" > "$sandbox/embed-env"
 echo "\${CLAUDE_CONFIG_DIR-unset}" > "$sandbox/config-dir-env"
 echo "\${CLAUDE_CODE_TMPDIR-unset}" > "$sandbox/tmpdir-env"
-echo "\${GIT_CONFIG_COUNT-unset} \${GIT_CONFIG_KEY_0-unset} \${GIT_CONFIG_VALUE_0-unset}" > "$sandbox/git-config-env"
 env > "$sandbox/claude-env"
 [ -n "\${STUB_CLAUDE_STDERR:-}" ] && echo "\$STUB_CLAUDE_STDERR" >&2
-if [ -n "\${STUB_RUN_GH:-}" ]; then
-  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
-    [ -S "\$CLAUDE_OLLAMA_GH_BROKER" ] && break
-    sleep 0.2
-  done
-  gh_args="\${STUB_GH_ARGS:-}"
-  [ -n "\$gh_args" ] || gh_args='{}'
-  printf '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"pr_list","arguments":%s}}\n' "\$gh_args" \
-    | python3 "\$CLAUDE_CUSTOM_HOME/shared/mcp/repo-tools.py" > "$sandbox/session-gh.out" 2>&1
-  gh pr diff 5 --name-only > "$sandbox/session-gh-shim.out" 2>&1
-fi
-if [ -n "\${STUB_RUN_SHORT:-}" ]; then
-  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
-    [ -S "\$CLAUDE_OLLAMA_SHORTCUT_BROKER" ] && break
-    sleep 0.2
-  done
-  short search owner:me -s Done > "$sandbox/session-short.out" 2>&1
-  short story 12 -O >> "$sandbox/session-short.out" 2>&1
-fi
+exit 0
 EOF
   cat > "$sandbox/stubbin/qwen" <<EOF
 #!/bin/sh
 echo "QWEN ARGS: \$*"
 env > "$sandbox/qwen-env"
 EOF
-  install_sandbox_runtime_stub
-  cat > "$sandbox/stubbin/getconf" <<EOF
-#!/bin/sh
-[ "\$1" = DARWIN_USER_TEMP_DIR ] && echo "$sandbox/darwin-temp/"
-EOF
-  chmod +x "$sandbox/stubbin/getconf"
-  cat > "$sandbox/stubbin/security" <<'EOF'
-#!/bin/sh
-if [ "$1" = add-generic-password ]; then
-  echo "$*" >> "$(dirname "$0")/../security.log"
-  exit "${STUB_SECURITY_ADD_STATUS:-0}"
-fi
-token="${STUB_GITHUB_TOKEN:-}"
-[ -n "$token" ] || exit 44
-printf '%s\n' "$token"
-EOF
-  chmod +x "$sandbox/stubbin/security"
   cat > "$sandbox/stubbin/open" <<EOF
 #!/bin/sh
 echo "\$*" >> "$sandbox/open.log"
@@ -165,11 +129,6 @@ EOF
   pinned_tags > "$sandbox/tags.json"
   cat > "$sandbox/stubbin/python3" <<EOF
 #!/bin/sh
-case "\$1" in
-  *gh/broker.py) echo "\$*" >> "$sandbox/gh-broker.log"; exec /usr/bin/python3 "\$@" ;;
-  *shortcut/broker.py) echo "\$*" >> "$sandbox/shortcut-broker.log"; exec /usr/bin/python3 "\$@" ;;
-  *cmux/broker.py) exec /usr/bin/python3 "\$@" ;;
-esac
 echo "\$*" >> "$sandbox/python.log"
 EOF
   cat > "$sandbox/stubbin/ollama-agent" <<EOF
@@ -197,25 +156,6 @@ EOF
   chmod +x "$sandbox/stubbin/draft-opener"
   export CLAUDE_OLLAMA_DRAFT_OPENER="$sandbox/stubbin/draft-opener"
   unset CLAUDE_OLLAMA_OPEN_DRAFTS CLAUDE_OLLAMA_DRAFTS_DIR
-}
-
-sandbox_runtime_path() {
-  echo "$HOME/.local/share/claude-custom/sandbox-runtime/node_modules/.bin/srt"
-}
-
-install_sandbox_runtime_stub() {
-  local runtime
-  runtime="$(sandbox_runtime_path)"
-  mkdir -p "$(dirname "$runtime")"
-  cat > "$runtime" <<EOF
-#!/bin/sh
-echo "\$*" >> "$sandbox/srt.log"
-[ "\$1" = -s ] && cp "\$2" "$sandbox/policy.json"
-shift 2
-[ "\$1" = -- ] && shift
-exec "\$@"
-EOF
-  chmod +x "$runtime"
 }
 
 link_system_tools() {
@@ -273,8 +213,7 @@ check_that "claude-ollama 35b passes the 35b model" grep -qF -- "--model qwen3.6
 append_prompt="$HOME/.claude-ollama/append-prompt.md"
 check_that "claude-ollama replaces the default system prompt and appends its own" \
   grep -qF -- "--system-prompt-file $repo/ollama/system-prompt.md --append-system-prompt-file $append_prompt" "$sandbox/out"
-check_eq "the sandboxed prompt is the shared prompt plus the sandbox's gh and short rules" \
-  "$(cat "$repo/ollama/CLAUDE.local.md" "$repo/ollama/CLAUDE.sandbox.md")" "$(cat "$append_prompt")"
+check_eq "the appended prompt is the shared local prompt" "$(cat "$repo/ollama/CLAUDE.local.md")" "$(cat "$append_prompt")"
 check_that "claude-ollama 35b passes claude args through" grep -qF -- "--tools Bash,Read,Edit,Write,Skill,TaskStop -p hi" "$sandbox/out"
 check_that "claude-ollama warms the main model" grep -q '127.0.0.1:11434/api/generate' "$sandbox/curl.log"
 check_that "claude-ollama warm-up names the model" grep -q '"model":"qwen3.6-35b-cc"' "$sandbox/curl.log"
@@ -339,9 +278,6 @@ check_not "the launcher log leaves out claude's own stderr" grep -qF "claude own
 check_that "claude's own stderr still reaches the terminal" grep -qxF "claude own stderr" "$sandbox/err"
 check_that "launcher messages still reach the terminal" grep -qF "claude-ollama: launch 35b" "$sandbox/err"
 check_eq "the launcher log is private" 600 "$(stat -c %a "$launcher_log" 2>/dev/null || stat -f %Lp "$launcher_log")"
-mkdir -p "$sandbox/glob*root"
-(cd "$sandbox/glob*root" && run_capture "$repo/bin/claude-ollama" 35b -p hi)
-check_that "a failed launch's error lands in the launcher log" wait_for_launcher_log "has glob characters (*?[])"
 head -c 1100000 /dev/zero | tr '\0' x > "$launcher_log"
 run_capture "$repo/bin/claude-ollama" 35b -p hi
 check_that "a launcher log over 1 MiB moves aside" test "$(wc -c < "$launcher_log.1")" -ge 1100000
@@ -542,8 +478,7 @@ check_that "print-config shows num_ctx" grep -qxF "num_ctx: 98304" "$sandbox/out
 check_that "print-config shows context tokens" grep -qxF "max context tokens: 98304" "$sandbox/out"
 check_that "print-config shows the settings path" grep -qxF "settings: $repo/ollama/settings.35b.json" "$sandbox/out"
 check_that "print-config shows the tools, Skill included so your skills load" grep -qxF "tools: Bash,Read,Edit,Write,Skill,TaskStop" "$sandbox/out"
-check_that "print-config shows the sandboxed command" \
-  grep -qF "command: $HOME/.local/share/claude-custom/sandbox-runtime/node_modules/.bin/srt -s $HOME/.claude-ollama/sandbox-policy.json -- $repo/ollama/sandbox-entry claude --settings " "$sandbox/out"
+check_not "print-config has no sandbox line" grep -q '^sandbox:' "$sandbox/out"
 run_capture "$repo/bin/claude-ollama" --print-config </dev/null
 check_that "print-config without a size uses the default" grep -qxF "size: 27b" "$sandbox/out"
 
@@ -849,60 +784,18 @@ run_capture "$repo/bin/claude-ollama" --help
 check_that "claude-ollama help lists reviews" grep -qF -- "reviews [--port N]: serve live and past reviews at http://127.0.0.1:8765/" "$sandbox/out"
 check_that "claude-ollama help lists ui" grep -qF -- "ui [--port N]: serve the console (runs, health, logs, models, reviews) at http://127.0.0.1:8765/" "$sandbox/out"
 
-policy_lists() {
-  jq -e --arg entry "$2" ".filesystem.$1 | index(\$entry) != null" "$sandbox/policy.json" >/dev/null
-}
-
 new_sandbox /tmp
-export PR_REVIEW_LOG_DIR="$sandbox/reviews"
-export CLAUDE_CONSOLE_STATE_DIR="$sandbox/console"
 session_config="$HOME/.claude-ollama"
 run_capture "$repo/bin/claude-ollama" 27b -p hi
-check_that "claude-ollama runs claude inside sandbox-runtime" \
-  grep -qF -- "-s $session_config/sandbox-policy.json -- $repo/ollama/sandbox-entry claude --settings" "$sandbox/srt.log"
-check_that "claude-ollama still passes claude args through the sandbox" grep -qF -- "--tools Bash,Read,Edit,Write,Skill,TaskStop -p hi" "$sandbox/out"
-check_that "the sandbox lets the session write the project" policy_lists allowWrite .
-check_that "the sandbox never writes claude-custom" policy_lists denyWrite "$repo"
-check_that "the sandbox never rewrites its own policy" policy_lists denyWrite "$session_config/sandbox-policy.json"
-check_that "the session never writes the command rules file, which pre-approves writes" policy_lists denyWrite "$HOME/.config/claude-custom/command-rules"
-check_that "nor its folder, so it cannot plant one" policy_lists denyWrite "$HOME/.config/claude-custom"
-check_that "no session can plant or remove another launch's gh broker socket" policy_lists denyWrite "$session_config/gh-broker.*.sock"
-check_that "nor its cmux broker socket" policy_lists denyWrite "$session_config/cmux-broker.*.sock"
-home_in_policy='~'
-check_that "the sandbox hides SSH keys" policy_lists denyRead "$home_in_policy/.ssh"
-check_that "the sandbox hides the normal Claude config" policy_lists denyRead "$home_in_policy/.claude"
-check_that "the sandbox hides the normal Qwen Code config, which holds keys" policy_lists denyRead "$home_in_policy/.qwen"
-check_that "the sandbox hides the reviews and their console link" policy_lists denyRead "$PR_REVIEW_LOG_DIR"
-check_that "the sandbox hides the console token" policy_lists denyRead "$CLAUDE_CONSOLE_STATE_DIR"
-unset PR_REVIEW_LOG_DIR CLAUDE_CONSOLE_STATE_DIR
-run_capture "$repo/bin/claude-ollama" 27b -p hi
-default_console_folders_denied() {
-  policy_lists denyRead "$HOME/.local/share/claude-custom/reviews" && policy_lists denyRead "$HOME/.local/share/claude-custom/console"
-}
-check_that "the sandbox hides the default reviews and console folders" default_console_folders_denied
+check_that "claude-ollama runs claude directly, with no sandbox-runtime" grep -q '^ARGS: --settings' "$sandbox/out"
+check_that "claude-ollama still passes claude args through" grep -qF -- "--tools Bash,Read,Edit,Write,Skill,TaskStop -p hi" "$sandbox/out"
 check_eq "claude-ollama gives the session its own Claude config" "$session_config" "$(cat "$sandbox/config-dir-env")"
 check_eq "a new session config skips first-run setup" true "$(jq -r .hasCompletedOnboarding "$session_config/.claude.json")"
 check_eq "the session keeps its temp files in its own config" "$session_config/tmp" "$(cat "$sandbox/tmpdir-env")"
 check_that "the session temp folder exists" test -d "$session_config/tmp"
-check_not "the sandbox never writes the shared /private/tmp" policy_lists allowWrite /private/tmp
-check_eq "the sandbox writes only the project, the session config and the macOS item-replacement folder" \
-  "[\".\",\"$session_config\",\"$sandbox/darwin-temp/TemporaryItems\"]" "$(jq -c '[.filesystem.allowWrite[] | select(endswith("/.git") | not)]' "$sandbox/policy.json")"
 session_env() {
   grep -x "$1=.*" "$sandbox/claude-env" | cut -d= -f2-
 }
-broker_socket_is_per_launch() {
-  case "$2" in
-    "$session_config/$1".[0-9]*.sock) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-check_eq "the session's temp dir is its own" "$session_config/tmp" "$(session_env TMPDIR)"
-for variable in XDG_CACHE_HOME XDG_STATE_HOME XDG_DATA_HOME npm_config_cache GOCACHE GOMODCACHE EDIT_CHECK_CACHE_DIR STOP_VERIFY_STATE_DIR; do
-  check_that "the session keeps $variable inside its own config" test "$(session_env "$variable" | cut -c1-${#session_config})" = "$session_config"
-done
-check_eq "the session never auto-updates the shared Claude Code install" 1 "$(session_env DISABLE_AUTOUPDATER)"
-check_eq "outside cmux the sandbox allows no Unix sockets" null "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
-check_eq "outside cmux the session gets no cmux broker" "" "$(session_env CLAUDE_OLLAMA_CMUX_BROKER)"
 check_eq "the session saves drafts in its own config" "$session_config/drafts" "$(session_env CLAUDE_OLLAMA_DRAFTS_DIR)"
 check_eq "the drafts folder is private" 700 "$(stat -f %Lp "$session_config/drafts" 2>/dev/null || stat -c %a "$session_config/drafts")"
 draft_opener_args="$(for _ in $(seq 25); do [ -s "$sandbox/opener-args" ] && break; sleep 0.2; done; cat "$sandbox/opener-args" 2>/dev/null)"
@@ -911,8 +804,6 @@ check_that "the opener watches the session's drafts" contains "$draft_opener_arg
 check_that "the opener reads the console token the session cannot" contains "$draft_opener_args" "--token-file $sandbox/home/.local/share/claude-custom/console/tokens/8765"
 check_that "the opener's redirect pages sit where the session cannot read" contains "$draft_opener_args" "--pages $sandbox/home/.local/share/claude-custom/console/open-drafts"
 check_that "the opener stops with the launch" contains "$draft_opener_args" "--watch-pid "
-run_capture env CLAUDE_OLLAMA_CMUX_BROKER=/tmp/stale.sock "$repo/bin/claude-ollama" 27b -p hi
-check_eq "an inherited cmux broker address never reaches the session" "" "$(session_env CLAUDE_OLLAMA_CMUX_BROKER)"
 cmux_socket="$sandbox/cmux.sock"
 /usr/bin/python3 -c 'import socket, sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])' "$cmux_socket"
 cat > "$sandbox/stubbin/cmux" <<'EOF'
@@ -925,17 +816,10 @@ case "$*" in
 esac
 EOF
 chmod +x "$sandbox/stubbin/cmux"
-run_capture env CMUX_SOCKET_PATH="$cmux_socket" "$repo/bin/claude-ollama" 27b -p hi
-broker_socket="$(session_env CLAUDE_OLLAMA_CMUX_BROKER)"
-check_that "the cmux broker's socket is named for its launch" broker_socket_is_per_launch cmux-broker "$broker_socket"
-check_eq "inside cmux with no CLAUDE_OLLAMA_CMUX the sandbox allows the broker's socket" "[\"$broker_socket\"]" "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
-run_capture env CLAUDE_OLLAMA_CMUX=0 CMUX_SOCKET_PATH="$cmux_socket" "$repo/bin/claude-ollama" 27b -p hi
-check_eq "CLAUDE_OLLAMA_CMUX=0 turns the broker off" null "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
-run_capture env CLAUDE_OLLAMA_CMUX=1 CMUX_SOCKET_PATH="$cmux_socket" "$repo/bin/claude-ollama" 27b -p hi
-broker_socket="$(session_env CLAUDE_OLLAMA_CMUX_BROKER)"
-check_eq "CLAUDE_OLLAMA_CMUX=1 allows only the cmux broker's socket" "[\"$broker_socket\"]" "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
-check_that "the session cannot replace the cmux broker's socket" policy_lists denyWrite "$broker_socket"
-check_not "the session has no cmux client on its PATH" grep -qF "$repo/ollama/cmux/" "$sandbox/claude-env"
+run_capture env CMUX_SOCKET_PATH="$cmux_socket" CLAUDE_OLLAMA_CMUX=0 GH_TOKEN=t0ken "$repo/bin/claude-ollama" 27b -p hi
+check_eq "the session sees the cmux socket path" "$cmux_socket" "$(session_env CMUX_SOCKET_PATH)"
+check_eq "the session sees CLAUDE_OLLAMA_CMUX" 0 "$(session_env CLAUDE_OLLAMA_CMUX)"
+check_eq "the session keeps GH_TOKEN for the repo server (the sandbox hides it from Bash)" t0ken "$(session_env GH_TOKEN)"
 opener_args() {
   for _ in $(seq 25); do
     [ -s "$sandbox/opener-args" ] && break
@@ -948,60 +832,12 @@ rm -f "$sandbox/opener-args"
 run_capture env CLAUDE_OLLAMA_OPEN_DRAFTS=0 CMUX_SOCKET_PATH="$cmux_socket" "$repo/bin/claude-ollama" 27b -p hi
 sleep 1
 check_not "CLAUDE_OLLAMA_OPEN_DRAFTS=0 opens no drafts" test -e "$sandbox/opener-args"
-run_capture env CMUX_SOCKET_PATH="$sandbox/not-a-socket" "$repo/bin/claude-ollama" 27b -p hi
-check_eq "inside cmux the broker ignores a path that is not a socket" null "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
-run_capture env CMUX_SOCKET_PATH="cmux.sock" "$repo/bin/claude-ollama" 27b -p hi
-check_eq "inside cmux the broker ignores a relative socket path" null "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
-cat > "$sandbox/stubbin/cmux" <<'EOF'
-#!/bin/sh
-case "$*" in
-  "browser repl "*)
-    echo '"{\"allowed\":[\"*\"]}"'
-    echo '[ok | 1ms]'
-    ;;
-esac
-EOF
-while /usr/bin/pgrep -f "broker.py --socket $broker_socket" >/dev/null; do sleep 0.1; done
-/usr/bin/python3 -c 'import socket, sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])' "$broker_socket"
-run_capture env CMUX_SOCKET_PATH="$cmux_socket" "$repo/bin/claude-ollama" 27b -p hi
-cat > "$sandbox/stubbin/cmux" <<'EOF'
-#!/bin/sh
-case "$*" in
-  "browser repl "*)
-    echo '"{\"allowed\":[\"localhost\",\"127.0.0.1\",\"[::1]\"]}"'
-    echo '[ok | 1ms]'
-    ;;
-esac
-EOF
-check_eq "a broker that cannot lock the browser gives the sandbox no socket" null "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
-check_eq "a broker that cannot lock the browser gives the session no broker address" "" "$(session_env CLAUDE_OLLAMA_CMUX_BROKER)"
-check_that "the launch says how to check the browser" grep -qF "run claude-ollama browser-check" "$sandbox/err"
-run_capture env -u CMUX_SOCKET_PATH "$repo/bin/claude-ollama" browser-check
-check_eq "browser-check outside a cmux terminal exits 1" 1 "$?"
-check_that "browser-check outside a cmux terminal says to run it from one" grep -qF "run this from a cmux terminal" "$sandbox/err"
-check_eq "without a GitHub token git gets no auth header" "unset unset unset" "$(cat "$sandbox/git-config-env")"
-check_not "without a terminal claude-ollama leaves the terminal mode alone" test -e "$sandbox/stty.log"
-if [ "$(uname)" = Darwin ]; then
-  cat > "$sandbox/stubbin/stty" <<EOF
-#!/bin/sh
-echo "\$*" >> "$sandbox/stty.log"
-[ "\$1" = -g ] && echo saved-mode
-exit 0
-EOF
-  chmod +x "$sandbox/stubbin/stty"
-  /bin/sleep 3 | /usr/bin/script -q /dev/null "$repo/bin/claude-ollama" 27b -p hi >/dev/null 2>&1
-  check_eq "on a terminal claude-ollama sets raw mode for the sandbox, which cannot, and restores it after" \
-    "-g|-brkint -icrnl -inpck -istrip -ixon cs8 -echo -icanon -iexten -isig min 1 time 0|saved-mode" \
-    "$(paste -sd'|' "$sandbox/stty.log")"
-  rm -f "$sandbox/stubbin/stty"
-fi
 
 mkdir -p "$HOME/.claude"
 echo "@preferences" > "$HOME/.claude/CLAUDE.md"
 echo '{"hasCompletedOnboarding":true,"theme":"light"}' > "$session_config/.claude.json"
 run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_eq "the session reads a copy of your CLAUDE.md" "@preferences" "$(cat "$session_config/CLAUDE.md")"
-check_that "the sandbox never rewrites that copy" policy_lists denyWrite "$session_config/CLAUDE.md"
 check_eq "an existing session config is kept" light "$(jq -r .theme "$session_config/.claude.json")"
 check_not "without your skills the session gets none" test -e "$session_config/skills"
 
@@ -1016,328 +852,23 @@ check_eq "a symlinked skill is copied as files, since the sandbox cannot read ~/
   "$(cat "$session_config/skills/linked/SKILL.md")"
 check_not "the copy is a plain folder, not a link" test -L "$session_config/skills/linked"
 check_not "a skill you removed is gone from the copy" test -e "$session_config/skills/retired"
-check_that "the sandbox never rewrites the skills copy" policy_lists denyWrite "$session_config/skills"
-for source in settings.json settings.local.json commands agents plugins rules output-styles keybindings.json .config.json; do
-  check_that "the session never writes its own $source, which could pre-approve tools" policy_lists denyWrite "$session_config/$source"
-done
 
-jq '.projects = {"/some/project": {"allowedTools": ["Bash"], "hasTrustDialogAccepted": true, "mcpServers": {"planted": {}}, "enabledMcpjsonServers": ["planted"]}}
-  | .mcpServers = {"planted": {}} | .bypassPermissionsModeAccepted = true | .customApiKeyResponses = {"approved": ["planted"]}' \
-  "$session_config/.claude.json" > "$sandbox/claude.json.new" && mv "$sandbox/claude.json.new" "$session_config/.claude.json"
-run_capture "$repo/bin/claude-ollama" 27b -p hi
-check_eq "each launch rebuilds .claude.json from known-safe keys only, without trust for other folders" \
-  '{"hasCompletedOnboarding":true,"theme":"light"}' "$(jq -c . "$session_config/.claude.json")"
-launch_root="$(git rev-parse --show-toplevel)"
-jq --arg root "$launch_root" '.projects = {($root): {"hasTrustDialogAccepted": true, "allowedTools": ["Bash"]}, "/some/project": {"hasTrustDialogAccepted": true}}' \
-  "$session_config/.claude.json" > "$sandbox/claude.json.new" && mv "$sandbox/claude.json.new" "$session_config/.claude.json"
-run_capture "$repo/bin/claude-ollama" 27b -p hi
-check_eq "trust survives only for the folder being launched, so a session cannot pre-trust another repo" \
-  "{\"$launch_root\":{\"hasTrustDialogAccepted\":true}}" "$(jq -c .projects "$session_config/.claude.json")"
 
-echo '{"keep": "me"}' > "$sandbox/outside-target.json"
-rm "$session_config/.claude.json"
-ln -s "$sandbox/outside-target.json" "$session_config/.claude.json"
-run_capture "$repo/bin/claude-ollama" 27b -p hi
-check_eq "the launcher never writes through a .claude.json symlink the session planted" '{"keep": "me"}' "$(cat "$sandbox/outside-target.json")"
-check_not "and replaces the symlink with a plain file" test -L "$session_config/.claude.json"
-check_eq "a replaced .claude.json starts from first-run state" true "$(jq -r .hasCompletedOnboarding "$session_config/.claude.json")"
 
-echo 'not json {' > "$session_config/.claude.json"
-run_capture "$repo/bin/claude-ollama" 27b -p hi
-check_eq "an unreadable .claude.json is reset, so nothing unchecked survives" '{"hasCompletedOnboarding":true}' \
-  "$(jq -c . "$session_config/.claude.json")"
 
-STUB_GITHUB_TOKEN=secret run_capture "$repo/bin/claude-ollama" 27b -p hi
-check_eq "a keychain GitHub token reaches git as a ready-encoded header" \
-  "1 http.https://github.com/.extraHeader Authorization: Basic $(printf 'x-access-token:secret' | base64)" \
-  "$(cat "$sandbox/git-config-env")"
 
-run_capture "$repo/bin/claude-ollama" 27b -p hi
-for shortcut_config in "$HOME/.config/shortcut-cli" "$HOME/.config/clubhouse-cli" "$HOME/.clubhouse-cli"; do
-  check_that "the session can't read short's config at $shortcut_config" policy_lists denyRead "$shortcut_config"
-done
-XDG_CONFIG_HOME="$sandbox/xdg-config" XDG_DATA_HOME="$sandbox/xdg-data" run_capture "$repo/bin/claude-ollama" 27b -p hi
-check_that "nor at its XDG config home" policy_lists denyRead "$sandbox/xdg-config/shortcut-cli"
-check_that "nor under its XDG data home" policy_lists denyRead "$sandbox/xdg-data/.config/shortcut-cli"
-check_that "no session can plant or remove another launch's Shortcut broker socket" policy_lists denyWrite "$session_config/shortcut-broker.*.sock"
-SHORTCUT_API_TOKEN=outer CLUBHOUSE_API_TOKEN=outer SHORTCUT_URL_SLUG=acme run_capture "$repo/bin/claude-ollama" 27b -p hi
-check_not "a Shortcut token from the outer shell never reaches the session" grep -q '^SHORTCUT_API_TOKEN=' "$sandbox/claude-env"
-check_not "nor a Clubhouse one" grep -q '^CLUBHOUSE_API_TOKEN=' "$sandbox/claude-env"
-check_not "nor the workspace" grep -q '^SHORTCUT_URL_SLUG=' "$sandbox/claude-env"
-check_eq "without short the session gets no Shortcut broker" "" "$(session_env CLAUDE_OLLAMA_SHORTCUT_BROKER)"
-session_path_has_short_client() {
-  session_env PATH | tr ':' '\n' | grep -qxF "$repo/ollama/shortcut/bin"
-}
-check_not "nor the short command" session_path_has_short_client
-run_capture env CLAUDE_OLLAMA_SHORTCUT_BROKER=/tmp/elsewhere.sock "$repo/bin/claude-ollama" 27b -p hi
-check_eq "an inherited Shortcut broker address never reaches the session" "" "$(session_env CLAUDE_OLLAMA_SHORTCUT_BROKER)"
-shortcut_bin="$HOME/.local/share/claude-custom/shortcut-cli/node_modules/.bin"
-mkdir -p "$shortcut_bin"
-printf '#!/bin/sh\n' > "$shortcut_bin/short"
-chmod +x "$shortcut_bin/short"
 run_capture "$repo/bin/claude-ollama" doctor 27b
-check_that "doctor reports the pinned Shortcut CLI" grep -qxF "ok   short (Shortcut CLI) found: $shortcut_bin/short" "$sandbox/out"
-rm -r "$HOME/.local/share/claude-custom/shortcut-cli"
+check_that "doctor reports the browser tools" grep -q 'browser tools' "$sandbox/out"
+check_not "doctor never mentions sandbox-runtime" grep -q 'sandbox-runtime' "$sandbox/out"
 
-cat > "$sandbox/stubbin/gh" <<EOF
-#!/bin/sh
-if [ "\$*" = "auth token --hostname github.com" ]; then
-  [ -n "\${STUB_GH_AUTH_TOKEN:-}" ] || exit 1
-  printf '%s\\n' "\$STUB_GH_AUTH_TOKEN"
-  exit 0
-fi
-echo "\$* \${GH_TOKEN-unset} \${GH_REPO-unset}" >> "$sandbox/gh.log"
-EOF
-chmod +x "$sandbox/stubbin/gh"
-STUB_GH_AUTH_TOKEN=readsecret run_capture "$repo/bin/claude-ollama" 27b -p hi
-gh_socket="$(session_env CLAUDE_OLLAMA_GH_BROKER)"
-check_that "the gh broker's socket is named for its launch" broker_socket_is_per_launch gh-broker "$gh_socket"
-STUB_GH_AUTH_TOKEN=readsecret run_capture "$repo/bin/claude-ollama" 27b -p hi
-check_not "two launches never share a gh broker socket" test "$gh_socket" = "$(session_env CLAUDE_OLLAMA_GH_BROKER)"
-STUB_GH_AUTH_TOKEN=readsecret run_capture "$repo/bin/claude-ollama" 27b -p hi
-gh_socket="$(session_env CLAUDE_OLLAMA_GH_BROKER)"
-check_eq "a gh login allows only the gh broker's socket" "[\"$gh_socket\"]" "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
-check_that "the session cannot replace the gh broker's socket" policy_lists denyWrite "$gh_socket"
-check_that "the gh broker reads the command rules file" grep -qE -- '--rules [^ ]*/claude-custom/command-rules( |$)' "$sandbox/gh-broker.log"
-check_that "and asks writes through the approval dialog" grep -qE -- '--approve-with [^ ]*/ollama/approve-dialog( |$)' "$sandbox/gh-broker.log"
-session_path_has_gh_client() {
-  session_env PATH | tr ':' '\n' | grep -qxF "$repo/ollama/gh/bin"
-}
-check_that "the session gets the read-only gh command" session_path_has_gh_client
-check_eq "the session never holds the gh login's token" "" "$(session_env GH_TOKEN)"
-run_capture env CLAUDE_OLLAMA_CMUX=1 CMUX_SOCKET_PATH="$cmux_socket" STUB_GH_AUTH_TOKEN=readsecret "$repo/bin/claude-ollama" 27b -p hi
-check_eq "with cmux too the session reaches both brokers" "[\"$(session_env CLAUDE_OLLAMA_CMUX_BROKER)\",\"$(session_env CLAUDE_OLLAMA_GH_BROKER)\"]" \
-  "$(jq -c .network.allowUnixSockets "$sandbox/policy.json")"
-run_capture "$repo/bin/claude-ollama" 27b -p hi
-check_eq "without a gh login the session gets no gh broker" "" "$(session_env CLAUDE_OLLAMA_GH_BROKER)"
-check_not "nor the gh command" session_path_has_gh_client
-rm "$sandbox/stubbin/gh"
-STUB_GH_AUTH_TOKEN=readsecret run_capture "$repo/bin/claude-ollama" 27b -p hi
-check_eq "without gh installed the session gets no gh broker" "" "$(session_env CLAUDE_OLLAMA_GH_BROKER)"
-run_capture env CLAUDE_OLLAMA_GH_BROKER=/tmp/elsewhere.sock "$repo/bin/claude-ollama" 27b -p hi
-check_eq "an inherited gh broker address never reaches the session" "" "$(session_env CLAUDE_OLLAMA_GH_BROKER)"
-GH_TOKEN=outer GITHUB_TOKEN=outer run_capture "$repo/bin/claude-ollama" 27b -p hi
-check_not "a GH_TOKEN from the outer shell never reaches the session" grep -q '^GH_TOKEN=' "$sandbox/claude-env"
-check_not "nor a GITHUB_TOKEN" grep -q '^GITHUB_TOKEN=' "$sandbox/claude-env"
-
-project="$sandbox/project"
-git init -q "$project"
-(cd "$project" && run_capture "$repo/bin/claude-ollama" 27b -p hi)
-check_that "the sandbox lets the session commit to the project's git directory" policy_lists allowWrite "$project/.git"
-check_that "the sandbox never writes git hooks" policy_lists denyWrite "$project/.git/hooks"
-check_that "the sandbox never writes the repo's git config" policy_lists denyWrite "$project/.git/config"
-mkdir -p "$project/src/deep"
-ln -s "$project" "$sandbox/project-link"
-(cd "$sandbox/project-link/src/deep" && run_capture "$repo/bin/claude-ollama" 27b -p hi)
-check_that "from a subfolder the session still never writes the repo root's .claude" policy_lists denyWrite "$project/**/.claude"
-check_that "nor anything inside any .claude in the repo" policy_lists denyWrite "$project/**/.claude/**"
-check_that "from a subfolder the session still never writes the repo root's .qwen" policy_lists denyWrite "$project/**/.qwen"
-check_that "nor anything inside any .qwen in the repo" policy_lists denyWrite "$project/**/.qwen/**"
-outside="$sandbox/outside"
-mkdir -p "$outside"
-(cd "$outside" && run_capture "$repo/bin/claude-ollama" 27b -p hi)
-check_that "outside a repo the current folder's .claude is protected" policy_lists denyWrite "$outside/**/.claude"
-check_eq "the root's own .claude is also denied as a literal path, whatever glob matching does" true \
-  "$(jq --arg path "$outside/.claude" '.filesystem.denyWrite | any(. == {path: $path, literal: true})' "$sandbox/policy.json")"
-globbed="$sandbox/odd[ab]dir"
-mkdir -p "$globbed"
-(cd "$globbed" && run_capture "$repo/bin/claude-ollama" 27b -p hi)
-check_eq "claude-ollama refuses a project path with glob characters" 1 "$?"
-check_that "and says why" grep -qF "claude-ollama: $globbed has glob characters (*?[]), which would break the sandbox's write rules" "$sandbox/err"
-check_not "and never runs claude there" grep -q '^ARGS:' "$sandbox/out"
-
-rm "$(sandbox_runtime_path)"
-run_capture "$repo/bin/claude-ollama" 27b -p hi
-check_eq "claude-ollama without sandbox-runtime exits 1" 1 "$?"
-check_that "claude-ollama without sandbox-runtime says how to install it" \
-  grep -qxF "claude-ollama: sandbox-runtime is missing; run claude-custom install" "$sandbox/err"
-check_not "with CLAUDE_OLLAMA_SANDBOX=1 claude-ollama never falls back to running claude unsandboxed" grep -q "^ARGS:" "$sandbox/out"
-run_capture "$repo/bin/claude-ollama" doctor 27b
-check_that "doctor reports a missing sandbox-runtime" grep -qxF "fail sandbox-runtime missing (run claude-custom install)" "$sandbox/out"
-check_that "doctor says the sandbox is on" grep -qxF "ok   sandbox on (CLAUDE_OLLAMA_SANDBOX=0 turns it off)" "$sandbox/out"
-check_that "doctor warns when no GitHub token is stored" \
-  grep -qxF "warn no GitHub token in the keychain item claude-ollama-github (git push from the session will fail; run claude-ollama github-token push)" "$sandbox/out"
-install_sandbox_runtime_stub
-STUB_GITHUB_TOKEN=secret run_capture "$repo/bin/claude-ollama" doctor 27b
-check_that "doctor reports sandbox-runtime" grep -qxF "ok   sandbox-runtime installed" "$sandbox/out"
-check_that "doctor reports a stored GitHub token" grep -qxF "ok   GitHub token in the keychain item claude-ollama-github" "$sandbox/out"
-check_that "doctor warns when the Shortcut CLI is missing" \
-  grep -qxF "warn short (Shortcut CLI) missing (run claude-custom install)" "$sandbox/out"
-check_that "doctor warns when gh is not logged in" \
-  grep -qxF "warn gh is not logged in to github.com (the session's GitHub tools will be missing; run gh auth login)" "$sandbox/out"
-cat > "$sandbox/stubbin/gh" <<'EOF'
-#!/bin/sh
-[ "$*" = "auth token --hostname github.com" ] && [ -n "${STUB_GH_AUTH_TOKEN:-}" ] && echo "$STUB_GH_AUTH_TOKEN"
-EOF
-chmod +x "$sandbox/stubbin/gh"
-STUB_GH_AUTH_TOKEN=readsecret run_capture "$repo/bin/claude-ollama" doctor 27b
-check_that "doctor reports the gh login the GitHub tools use" \
-  grep -qxF "ok   gh logged in to github.com (the session's GitHub tools use it through the broker)" "$sandbox/out"
-rm "$sandbox/stubbin/gh"
-
-run_capture "$repo/bin/claude-ollama" github-token push
-check_that "github-token push opens a pre-filled push token page" grep -qxF \
-  "https://github.com/settings/personal-access-tokens/new?name=claude-ollama-push&description=git+push+from+claude-ollama+sessions&expires_in=90&metadata=read&contents=write&pull_requests=write" \
-  "$sandbox/open.log"
-check_that "github-token push stores the token in the push keychain item" \
-  grep -qxF "add-generic-password -U -s claude-ollama-github -a $USER -w" "$sandbox/security.log"
-rm -f "$sandbox/open.log" "$sandbox/security.log"
-run_capture "$repo/bin/claude-ollama" github-token
-check_eq "github-token with no kind sets up the push token" \
-  "add-generic-password -U -s claude-ollama-github -a $USER -w" "$(cat "$sandbox/security.log")"
-STUB_SECURITY_ADD_STATUS=1 run_capture "$repo/bin/claude-ollama" github-token push
-check_eq "github-token exits 1 when the keychain refuses the token" 1 "$?"
-run_capture "$repo/bin/claude-ollama" github-token read
-check_eq "github-token rejects the retired read kind" 2 "$?"
-check_that "and names the kinds" grep -qxF "usage: claude-ollama github-token [push]" "$sandbox/err"
 run_capture "$repo/bin/claude-ollama" --help
-check_that "help lists github-token" grep -qF "github-token [push]:" "$sandbox/out"
+check_not "help no longer offers github-token" grep -q 'github-token' "$sandbox/out"
+check_not "help no longer offers browser-check" grep -q 'browser-check' "$sandbox/out"
 
-short_unix_socket_parent=/tmp
-
-new_sandbox
-export CLAUDE_OLLAMA_SANDBOX=0
-GH_TOKEN=outer SHORTCUT_API_TOKEN=outer STUB_GITHUB_TOKEN=secret run_capture "$repo/bin/claude-ollama" 27b -p hi
-check_that "with CLAUDE_OLLAMA_SANDBOX=0 claude runs without sandbox-runtime" grep -q "^ARGS:" "$sandbox/out"
-check_not "and never through it" test -e "$sandbox/srt.log"
-check_that "the launch says the sandbox is off and what that gives up" \
-  grep -qxF "claude-ollama: sandbox OFF (CLAUDE_OLLAMA_SANDBOX=0): the session runs as you, with your gh, short, git credentials and env" "$sandbox/err"
-check_not "with no sandbox policy" test -e "$HOME/.claude-ollama/sandbox-policy.json"
-check_eq "the unsandboxed session keeps your GitHub token" outer "$(session_env GH_TOKEN)"
-check_eq "and your Shortcut token" outer "$(session_env SHORTCUT_API_TOKEN)"
-check_eq "and your own git credentials, not the keychain header" "unset unset unset" "$(cat "$sandbox/git-config-env")"
-check_eq "and your PATH" "$PATH" "$(session_env PATH)"
-check_eq "and gets no Shortcut broker" "" "$(session_env CLAUDE_OLLAMA_SHORTCUT_BROKER)"
-check_eq "the unsandboxed prompt leaves out the sandbox's gh and short rules" \
-  "$(cat "$repo/ollama/CLAUDE.local.md")" "$(cat "$HOME/.claude-ollama/append-prompt.md")"
-run_capture "$repo/bin/claude-ollama" doctor 27b
-check_that "doctor says the sandbox is off and how to turn it on" \
-  grep -qxF "warn sandbox off (CLAUDE_OLLAMA_SANDBOX=0); unset it to sandbox the session" "$sandbox/out"
-check_not "and doesn't fail on a missing sandbox-runtime" grep -qF "sandbox-runtime missing" "$sandbox/out"
 run_capture "$repo/bin/claude-ollama" --print-config 27b
-check_that "print-config says the sandbox is off" grep -qxF "sandbox: off" "$sandbox/out"
-check_that "and prints the command without sandbox-runtime" grep -qF "command: claude --settings " "$sandbox/out"
-unset CLAUDE_OLLAMA_SANDBOX
-run_capture "$repo/bin/claude-ollama" --print-config 27b
-check_that "print-config says the sandbox is on by default" grep -qxF "sandbox: on" "$sandbox/out"
-export CLAUDE_OLLAMA_SANDBOX=
-run_capture "$repo/bin/claude-ollama" --print-config 27b
-check_that "an empty CLAUDE_OLLAMA_SANDBOX leaves the sandbox on" grep -qxF "sandbox: on" "$sandbox/out"
-export CLAUDE_OLLAMA_SANDBOX=yes
-run_capture "$repo/bin/claude-ollama" --print-config 27b
-check_that "CLAUDE_OLLAMA_SANDBOX=yes leaves the sandbox on" grep -qxF "sandbox: on" "$sandbox/out"
+check_not "print-config has no sandbox line" grep -q '^sandbox:' "$sandbox/out"
+check_that "print-config prints the claude command" grep -qF "command: claude --settings " "$sandbox/out"
 
-new_sandbox "$short_unix_socket_parent"
-cat > "$sandbox/stubbin/gh" <<EOF
-#!/bin/sh
-if [ "\$*" = "auth token --hostname github.com" ]; then
-  [ -n "\${STUB_GH_AUTH_TOKEN:-}" ] || exit 1
-  printf '%s\\n' "\$STUB_GH_AUTH_TOKEN"
-  exit 0
-fi
-echo "\$* \${GH_TOKEN-unset} \${GH_REPO-unset}" >> "$sandbox/gh.log"
-EOF
-chmod +x "$sandbox/stubbin/gh"
-gh_project="$sandbox/gh-project"
-git init -q "$gh_project"
-git -C "$gh_project" remote add origin git@github.com:owner/project.git
-cat > "$sandbox/stubbin/python3" <<EOF
-#!/bin/sh
-case "\$1" in
-  *shortcut/broker.py) echo "\$*" >> "$sandbox/shortcut-broker.log" ;;
-esac
-exec /usr/bin/python3 "\$@"
-EOF
-chmod +x "$sandbox/stubbin/python3"
-(cd "$gh_project" && CLAUDE_OLLAMA_NO_INDEX=1 STUB_GH_AUTH_TOKEN=readsecret STUB_RUN_GH=1 run_capture "$repo/bin/claude-ollama" 27b -p hi)
-check_eq "the session's pr_list tool runs gh outside it, through the broker, with the gh login's token and the project's repo" \
-  "pr list --state open --limit 20 --json number,title,author,headRefName,isDraft,updatedAt readsecret owner/project" \
-  "$(head -n 1 "$sandbox/gh.log" 2>/dev/null)"
-check_eq "the session's gh command reads the diff through the same broker" \
-  "pr diff 5 --name-only readsecret owner/project" "$(sed -n 2p "$sandbox/gh.log" 2>/dev/null)"
-gh_repos_list="$HOME/.config/claude-custom/gh-repos"
-mkdir -p "$(dirname "$gh_repos_list")"
-printf 'friend/tool\n  Team/*  \nnot a repo\n' > "$gh_repos_list"
-: > "$sandbox/gh.log"
-(cd "$gh_project" && CLAUDE_OLLAMA_NO_INDEX=1 STUB_GH_AUTH_TOKEN=readsecret STUB_RUN_GH=1 STUB_GH_ARGS='{"repo":"friend/tool"}' \
-  run_capture "$repo/bin/claude-ollama" 27b -p hi)
-check_that "a repo on the gh-repos list can be read" grep -qF "readsecret friend/tool" "$sandbox/gh.log"
-check_that "a line that is not owner/name or owner/* is ignored with a warning" grep -qF "ignoring gh repo 'not a repo'" "$sandbox/err"
-: > "$sandbox/gh.log"
-(cd "$gh_project" && CLAUDE_OLLAMA_NO_INDEX=1 STUB_GH_AUTH_TOKEN=readsecret STUB_RUN_GH=1 STUB_GH_ARGS='{"repo":"team/anything"}' \
-  run_capture "$repo/bin/claude-ollama" 27b -p hi)
-check_that "an owner/* line allows that owner's repos" grep -qF "readsecret team/anything" "$sandbox/gh.log"
-: > "$sandbox/gh.log"
-(cd "$gh_project" && CLAUDE_OLLAMA_NO_INDEX=1 STUB_GH_AUTH_TOKEN=readsecret STUB_RUN_GH=1 STUB_GH_ARGS='{"repo":"stranger/secret"}' \
-  run_capture "$repo/bin/claude-ollama" 27b -p hi)
-check_that "a repo off the list is refused" grep -qF "stranger/secret is not on this machine's gh-repos list" "$sandbox/session-gh.out"
-rm "$gh_repos_list"
-
-cat > "$sandbox/stubbin/short" <<EOF
-#!/bin/sh
-echo "\$* \${SHORTCUT_API_TOKEN-unset}" >> "$sandbox/short.log"
-echo "story 12"
-EOF
-chmod +x "$sandbox/stubbin/short"
-session_config="$HOME/.claude-ollama"
-(cd "$gh_project" && CLAUDE_OLLAMA_SANDBOX=1 CLAUDE_OLLAMA_NO_INDEX=1 SHORTCUT_API_TOKEN=shortsecret STUB_RUN_SHORT=1 \
-  run_capture "$repo/bin/claude-ollama" 27b -p hi)
-check_that "a sandboxed launch warns that an SSH origin cannot push" \
-  grep -qxF "claude-ollama: origin is an SSH remote; sandboxed pushes need HTTPS: git remote set-url origin https://github.com/owner/project.git" "$sandbox/err"
-(cd "$gh_project" && run_capture "$repo/bin/claude-ollama" doctor 27b)
-check_that "doctor warns that an SSH origin cannot push" \
-  grep -qxF "warn origin is an SSH remote; sandboxed pushes need HTTPS: git remote set-url origin https://github.com/owner/project.git" "$sandbox/out"
-check_that "the Shortcut broker's socket is named for its launch" \
-  broker_socket_is_per_launch shortcut-broker "$(session_env CLAUDE_OLLAMA_SHORTCUT_BROKER)"
-check_that "the Shortcut broker reads the command rules file" grep -qE -- '--rules [^ ]*/claude-custom/command-rules( |$)' "$sandbox/shortcut-broker.log"
-check_that "and asks Shortcut writes through the approval dialog" grep -qE -- '--approve-with [^ ]*/ollama/approve-dialog( |$)' "$sandbox/shortcut-broker.log"
-check_that "the session gets the short command" session_path_has_short_client
-check_eq "the session's short runs your short outside it, through the broker, with your token" \
-  "search owner:me --state=Done shortsecret" "$(cat "$sandbox/short.log" 2>/dev/null)"
-check_that "and prints what it printed" grep -qxF "story 12" "$sandbox/session-short.out"
-check_that "a short command the broker refuses never runs" grep -qF "short broker: -O is not allowed here" "$sandbox/session-short.out"
-rm "$sandbox/stubbin/short"
-
-git -C "$gh_project" remote set-url origin https://github.com/owner/project.git
-(cd "$gh_project" && CLAUDE_OLLAMA_NO_INDEX=1 run_capture "$repo/bin/claude-ollama" 27b -p hi)
-check_not "a sandboxed launch with an HTTPS origin does not warn about SSH" grep -qF "origin is an SSH remote" "$sandbox/err"
-git -C "$gh_project" remote set-url origin git@github.com:owner/project.git
-
-mkdir -p "$gh_project/bin"
-for planted in short gh bash readlink dirname; do
-  printf '#!/bin/sh\necho planted >> "%s/planted.log"\n' "$sandbox" > "$gh_project/bin/$planted"
-  chmod +x "$gh_project/bin/$planted"
-done
-(cd "$gh_project" && PATH="$gh_project/bin:$PATH" CLAUDE_OLLAMA_NO_INDEX=1 STUB_GH_AUTH_TOKEN=readsecret \
-  run_capture "$repo/bin/claude-ollama" 27b -p hi)
-check_eq "a short the session could plant in the project never gets a broker" "" "$(session_env CLAUDE_OLLAMA_SHORTCUT_BROKER)"
-check_not "and nothing planted there runs outside the sandbox, not even bash or what finds the repo" test -e "$sandbox/planted.log"
-session_path_has_entry() {
-  session_env PATH | tr ':' '\n' | grep -qxF "$1"
-}
-check_that "the session still gets your PATH back inside the sandbox" session_path_has_entry "$gh_project/bin"
-check_eq "without the launcher's copy of it" "" "$(session_env CLAUDE_OLLAMA_SESSION_PATH)"
-rm "$gh_project/bin/gh" "$gh_project/bin/short" "$gh_project/bin/bash" "$gh_project/bin/readlink" "$gh_project/bin/dirname"
-ln -s "$gh_project/planted-short" "$sandbox/stubbin/short"
-printf '#!/bin/sh\necho planted >> "%s/planted.log"\n' "$sandbox" > "$gh_project/planted-short"
-chmod +x "$gh_project/planted-short"
-(cd "$gh_project" && CLAUDE_OLLAMA_NO_INDEX=1 run_capture "$repo/bin/claude-ollama" 27b -p hi)
-check_eq "nor a short that links into the project" "" "$(session_env CLAUDE_OLLAMA_SHORTCUT_BROKER)"
-check_not "which never runs" test -e "$sandbox/planted.log"
-check_that "and the launch says why" grep -qF "claude-ollama: not using $sandbox/stubbin/short: the session can write there" "$sandbox/err"
-rm "$sandbox/stubbin/short" "$gh_project/planted-short"
-cat > "$sandbox/stubbin/short" <<EOF
-#!/bin/sh
-echo "\$PATH" > "$sandbox/short-path.log"
-EOF
-chmod +x "$sandbox/stubbin/short"
-(cd "$gh_project" && PATH="$gh_project/bin:./bin:$PATH" CLAUDE_OLLAMA_NO_INDEX=1 STUB_RUN_SHORT=1 \
-  run_capture "$repo/bin/claude-ollama" 27b -p hi)
-check_that "the Shortcut broker starts from a safe short" test -s "$sandbox/short-path.log"
-check_not "and runs it without the project's folders on PATH, so a planted node never runs" \
-  grep -qF "$gh_project" "$sandbox/short-path.log"
-check_not "nor relative ones" grep -qE '(^|:)\./bin(:|$)' "$sandbox/short-path.log"
-rm "$sandbox/stubbin/short"
 
 write_fetch_list() {
   mkdir -p "$(dirname "$fetch_list")"
@@ -1347,11 +878,9 @@ write_fetch_list() {
 new_sandbox
 fetch_list="$HOME/.config/claude-custom/fetch-domains"
 fetch_settings_file="$HOME/.claude-ollama/fetch-settings.json"
-base_allowed_domains='["github.com","registry.npmjs.org"]'
 run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "without a fetch list the launch keeps the base tools" grep -qF -- "--tools Bash,Read,Edit,Write,Skill,TaskStop -p hi" "$sandbox/out"
 check_that "without a fetch list the launch keeps the profile settings" grep -qF -- "--settings $repo/ollama/settings.27b.json" "$sandbox/out"
-check_eq "without a fetch list the policy allows only the base domains" "$base_allowed_domains" "$(jq -c .network.allowedDomains "$sandbox/policy.json")"
 check_not "without a fetch list no derived settings are written" test -e "$fetch_settings_file"
 
 new_sandbox
@@ -1360,7 +889,6 @@ fetch_settings_file="$HOME/.claude-ollama/fetch-settings.json"
 write_fetch_list '  \nlocalhost\n127.0.0.1\n*\nhttps://x.org/\nexample.com:8080\n'
 run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "a fetch list with only invalid lines keeps the base tools" grep -qF -- "--tools Bash,Read,Edit,Write,Skill,TaskStop -p hi" "$sandbox/out"
-check_eq "a fetch list with only invalid lines allows only the base domains" "$base_allowed_domains" "$(jq -c .network.allowedDomains "$sandbox/policy.json")"
 check_not "a fetch list with only invalid lines writes no derived settings" test -e "$fetch_settings_file"
 check_that "an invalid fetch line says why it is ignored" grep -qxF "claude-ollama: ignoring fetch domain 'localhost' (expected a hostname like docs.python.org)" "$sandbox/err"
 
@@ -1371,9 +899,6 @@ write_fetch_list '  Docs.Python.org \npkg.go.dev\npkg.go.dev\nbad_host\n'
 run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "a fetch list adds WebFetch to the tools" grep -qF -- "--tools Bash,Read,Edit,Write,Skill,TaskStop,WebFetch -p hi" "$sandbox/out"
 check_that "a fetch list passes the derived settings" grep -qF -- "--settings $fetch_settings_file" "$sandbox/out"
-check_eq "a fetch list allows the listed domains through the proxy" '["github.com","registry.npmjs.org","docs.python.org","pkg.go.dev"]' "$(jq -c .network.allowedDomains "$sandbox/policy.json")"
-check_eq "a fetch list tunnels the listed domains without decrypting them" '["registry.npmjs.org","docs.python.org","pkg.go.dev"]' "$(jq -c .network.tlsTerminate.excludeDomains "$sandbox/policy.json")"
-check_that "the session cannot rewrite the derived settings" policy_lists denyWrite "$fetch_settings_file"
 check_that "an invalid fetch line is ignored with a message" grep -qxF "claude-ollama: ignoring fetch domain 'bad_host' (expected a hostname like docs.python.org)" "$sandbox/err"
 check_eq "a fetch list allows WebFetch for exactly the listed hosts" '["mcp__code-search__semantic_search","mcp__repo","mcp__dev__dev_status","mcp__dev__dev_logs","mcp__dev__dev_errors","mcp__dev__page_check","mcp__dev__page_snapshot","mcp__dev__page_act","WebFetch(domain:docs.python.org)","WebFetch(domain:pkg.go.dev)"]' "$(jq -c .permissions.allow "$fetch_settings_file")"
 check_that "the derived settings lift the bare WebFetch deny" jq -e '.permissions.deny | index("WebFetch") == null' "$fetch_settings_file"
@@ -1390,7 +915,7 @@ new_sandbox
 mkdir -p "$sandbox/xdg/claude-custom"
 printf 'docs.rs\n' > "$sandbox/xdg/claude-custom/fetch-domains"
 run_capture env XDG_CONFIG_HOME="$sandbox/xdg" "$repo/bin/claude-ollama" 27b -p hi
-check_that "XDG_CONFIG_HOME moves the fetch list" jq -e '.network.allowedDomains | index("docs.rs") != null' "$sandbox/policy.json"
+check_that "XDG_CONFIG_HOME moves the fetch list" test -e "$HOME/.claude-ollama/fetch-settings.json"
 
 new_sandbox
 fetch_list="$HOME/.config/claude-custom/fetch-domains"
@@ -1414,8 +939,7 @@ new_sandbox /tmp
 qwen_home="$HOME/.claude-ollama/qwen"
 SANDBOX=outer run_capture "$repo/bin/claude-ollama" qwen 27b -p hi
 check_eq "claude-ollama qwen exit status" 0 "$?"
-check_that "claude-ollama qwen runs qwen inside sandbox-runtime" \
-  grep -qF -- "-s $HOME/.claude-ollama/sandbox-policy.json -- $repo/ollama/sandbox-entry qwen --auth-type openai --openai-base-url http://127.0.0.1:11434/v1 --openai-api-key ollama -m qwen3.8-27b-cc --approval-mode auto-edit --mcp-config " "$sandbox/srt.log"
+check_that "claude-ollama qwen passes the model and args to qwen" grep -qF -- "-m qwen3.8-27b-cc --approval-mode auto-edit" "$sandbox/out"
 check_that "claude-ollama qwen passes the MCP servers and the user's args" grep -qF -- 'repo-tools.py"]}' "$sandbox/out"
 check_that "and the user's args last" grep -q -- '-p hi$' "$sandbox/out"
 check_not "claude-ollama qwen never runs claude" grep -q '^ARGS:' "$sandbox/out"
@@ -1423,12 +947,9 @@ check_that "claude-ollama qwen warms the model" warm_up_logged
 check_eq "claude-ollama qwen gives Qwen Code its own home under the session folder" "QWEN_HOME=$qwen_home" "$(grep '^QWEN_HOME=' "$sandbox/qwen-env")"
 check_that "and turns usage statistics off" grep -qx 'QWEN_USAGE_STATISTICS_ENABLED=false' "$sandbox/qwen-env"
 check_that "and the models.dev download" grep -qx 'QWEN_CODE_MODELS_DEV_REFRESH=off' "$sandbox/qwen-env"
-check_eq "claude-ollama qwen preloads the raw-mode and directory-watch shims, since the sandbox denies the terminal ioctl and FSEvents" \
-  "NODE_OPTIONS=--require \"$repo/ollama/qwen-raw-mode.cjs\" --require \"$repo/ollama/qwen-dir-watch.cjs\"" "$(grep '^NODE_OPTIONS=' "$sandbox/qwen-env")"
 for folder in skills agents extensions rules commands hooks; do
   check_that "claude-ollama qwen creates $folder under its home before the launch, since Qwen Code's startup mkdir is denied inside the sandbox" test -d "$qwen_home/$folder"
 done
-check_eq "claude-ollama qwen tells Qwen Code it is sandboxed, so its footer and /about say so" "SANDBOX=claude-ollama" "$(grep '^SANDBOX=' "$sandbox/qwen-env")"
 launcher_log="$HOME/.local/share/claude-custom/console/launcher.log"
 check_that "and the launcher log records the hand-off to qwen" wait_for_launcher_log "claude-ollama: starting qwen"
 check_not "an outer OPENAI_API_KEY never reaches the session" grep -q '^OPENAI_API_KEY=' "$sandbox/qwen-env"
@@ -1441,34 +962,20 @@ check_eq "and turn cross-session messaging off, whose socket the sandbox would r
 check_that "the global QWEN.md starts with the preferences" \
   test "$(head -1 "$qwen_home/QWEN.md")" = "$(head -1 "$repo/shared/preferences/PREFERENCES.md")"
 check_that "and carries the Qwen rules" grep -qF 'mcp__code-search__semantic_search answers' "$qwen_home/QWEN.md"
-check_that "and, sandboxed, the broker forms" grep -qF 'gh pr list' "$qwen_home/QWEN.md"
-check_that "the session never rewrites Qwen Code's settings" policy_lists denyWrite "$qwen_home/settings.json"
-check_that "nor its global QWEN.md" policy_lists denyWrite "$qwen_home/QWEN.md"
-check_that "nor a system.md that QWEN_SYSTEM_MD would load as the system prompt" policy_lists denyWrite "$qwen_home/system.md"
 check_that "the rendered settings keep QWEN_SYSTEM_MD out of a project .env" \
   jq -e '.advanced.excludedEnvVars | index("QWEN_SYSTEM_MD")' "$qwen_home/settings.json"
-check_that "nor plants a .env for the next launch" policy_lists denyWrite "$qwen_home/.env"
-check_that "nor skills, agents or extensions" policy_lists denyWrite "$qwen_home/extensions"
-check_that "the sandbox still hides the user's own Qwen config" policy_lists denyRead "$home_in_policy/.qwen"
 
 OPENAI_API_KEY=outer run_capture "$repo/bin/claude-ollama" qwen 35b -p hi
-check_that "claude-ollama qwen 35b uses the 35b model" grep -qF -- "-m qwen3.6-35b-cc" "$sandbox/srt.log"
+check_that "claude-ollama qwen 35b uses the 35b model" grep -qF -- "-m qwen3.6-35b-cc" "$sandbox/out"
 check_eq "and its context window" 98304 "$(jq -r '.modelProviders.openai[0].generationConfig.contextWindowSize' "$qwen_home/settings.json")"
 check_not "an outer OPENAI_API_KEY is dropped" grep -q '^OPENAI_API_KEY=' "$sandbox/qwen-env"
 
 run_capture "$repo/bin/claude-ollama" qwen -p hi </dev/null
-check_that "claude-ollama qwen without a size uses the default" grep -qF -- "-m qwen3.8-27b-cc" "$sandbox/srt.log"
+check_that "claude-ollama qwen without a size uses the default" grep -qF -- "-m qwen3.8-27b-cc" "$sandbox/out"
 
-rm -f "$sandbox/srt.log"
-SANDBOX=outer CLAUDE_OLLAMA_SANDBOX=0 run_capture "$repo/bin/claude-ollama" qwen 27b -p hi
-check_that "with CLAUDE_OLLAMA_SANDBOX=0 qwen runs without sandbox-runtime" grep -q '^QWEN ARGS: --auth-type openai' "$sandbox/out"
-check_not "and never through it" test -e "$sandbox/srt.log"
-check_that "and says so" grep -qF 'sandbox OFF (CLAUDE_OLLAMA_SANDBOX=0)' "$sandbox/err"
-check_not "and needs no raw-mode shim outside the sandbox" grep -q 'qwen-raw-mode' "$sandbox/qwen-env"
-check_not "nor the directory-watch shim" grep -q 'qwen-dir-watch' "$sandbox/qwen-env"
-check_not "and never claims a sandbox it does not have" grep -q '^SANDBOX=' "$sandbox/qwen-env"
+run_capture "$repo/bin/claude-ollama" qwen 27b -p hi
+check_that "claude-ollama qwen says it runs without a sandbox" grep -qF "qwen runs without a sandbox" "$sandbox/err"
 check_that "and still names the program" grep -qxF "claude-ollama: starting qwen" "$sandbox/err"
-check_not "and leaves the broker forms out of QWEN.md" grep -qF 'gh pr list' "$qwen_home/QWEN.md"
 
 run_capture "$repo/bin/claude-ollama" qwen --print-config 35b
 check_eq "qwen print-config exit status" 0 "$?"
@@ -1476,8 +983,7 @@ check_not "qwen print-config does not launch qwen" grep -q '^QWEN ARGS:' "$sandb
 check_that "qwen print-config names the harness" grep -qxF "harness: qwen" "$sandbox/out"
 check_that "qwen print-config shows the model" grep -qxF "model: qwen3.6-35b-cc" "$sandbox/out"
 check_that "qwen print-config shows the context window" grep -qxF "context window: 98304" "$sandbox/out"
-check_that "qwen print-config shows the sandboxed command" \
-  grep -qF "command: $HOME/.local/share/claude-custom/sandbox-runtime/node_modules/.bin/srt -s $HOME/.claude-ollama/sandbox-policy.json -- $repo/ollama/sandbox-entry qwen --auth-type openai" "$sandbox/out"
+check_not "qwen print-config has no sandbox line" grep -q '^sandbox:' "$sandbox/out"
 
 rm -f "$sandbox/stubbin/qwen"
 run_capture "$repo/bin/claude-ollama" qwen 27b -p hi
