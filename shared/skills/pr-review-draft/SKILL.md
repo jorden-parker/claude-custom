@@ -9,8 +9,19 @@ description:
 # PR review draft
 
 The draft is a save, never a post: `mcp__repo__draft_review` writes it, the
-console opens it, and the user edits each comment and posts the review there. No
-PR number in the arguments: ask for one.
+console opens it, and the user edits each comment and posts the review there.
+
+## 0. Find the PR
+
+A number in the arguments is the PR: go to step 1. Otherwise:
+
+1. `mcp__repo__git_status` gives the current branch. On `main` or `master` there
+   is no branch to look up: ask for a number.
+2. `mcp__repo__pr_list` with `state: "open"` and `search: "head:BRANCH"`.
+3. Exactly one result: that `number` is the PR. Several: ask which one. None:
+   say no open PR has this branch and ask for a number.
+
+Done when you have a PR number.
 
 ## 1. Read the intent
 

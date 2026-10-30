@@ -261,6 +261,7 @@ for draft_skill in pr-draft pr-review-draft; do
   check_that "the $draft_skill skill saves through its MCP tool" grep -qF "mcp__repo__draft_" "$repo/shared/skills/$draft_skill/SKILL.md"
   check_that "claude-custom install links the $draft_skill skill" grep -qF "shared/skills/$draft_skill" "$repo/bin/claude-custom"
 done
+check_that "the pr-review-draft skill finds the PR from the current branch" grep -qF 'head:BRANCH' "$repo/shared/skills/pr-review-draft/SKILL.md"
 check_that "CLAUDE.local.md points the model at the draft skills" grep -qF "/pr-draft" "$repo/ollama/CLAUDE.local.md"
 check_that "the launcher and the console agree on the drafts folder" grep -qF '.claude-ollama/drafts' "$repo/web/console/src/lib/drafts.ts"
 check_that "the launcher keeps drafts in the session config" grep -qF "drafts_dir=\"\$session_config_dir/drafts\"" "$repo/bin/claude-ollama"
