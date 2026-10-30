@@ -479,6 +479,7 @@ print_qwen_config() {
   echo "context window: $(modelfile_num_ctx)"
   echo "qwen home: $qwen_home"
   echo "settings template: $profile_dir/qwen-settings.template.json"
+  echo "sandbox: $(qwen_sandbox_label)"
   echo "command: $(qwen_command)"
 }
 
@@ -500,6 +501,24 @@ check_qwen_template() {
   fi
 }
 
+check_qwen_sandbox() {
+  local setting
+  setting="$(jq -r '.tools.sandbox' "$profile_dir/qwen-settings.template.json" 2>/dev/null)"
+  if [ "$setting" != sandbox-exec ]; then
+    report fail "qwen settings template does not set tools.sandbox to sandbox-exec"
+    return 1
+  fi
+  if [ ! -f "$profile_dir/qwen-sandbox.sb" ]; then
+    report fail "ollama/qwen-sandbox.sb missing"
+    return 1
+  fi
+  if [ -n "$(qwen_sandbox_exec)" ]; then
+    report ok "qwen sandbox: sandbox-exec with profile $qwen_profile_name"
+  else
+    report warn "qwen sandbox: sandbox-exec not found on this OS; Qwen Code runs as you"
+  fi
+}
+
 check_qwen_hooks() {
   if jq -e '.hooks' "$profile_dir/qwen-settings.template.json" >/dev/null 2>&1; then
     report ok "qwen hooks wired in the settings template"
@@ -516,6 +535,7 @@ qwen_doctor() {
   check_digests || status=1
   check_context_sizes || status=1
   check_qwen_template || status=1
+  check_qwen_sandbox || status=1
   check_qwen_hooks
   check_reachable || status=1
   check_server_env || status=1
@@ -523,17 +543,56 @@ qwen_doctor() {
   exit "$status"
 }
 
+qwen_profile_name="claude-ollama"
+
+qwen_sandbox_exec() {
+  local candidate="${CLAUDE_OLLAMA_SANDBOX_EXEC:-$(command -v sandbox-exec 2>/dev/null || true)}"
+  [ -n "$candidate" ] && [ -x "$candidate" ] && printf '%s\n' "$candidate"
+}
+
+exclude_from_git() {
+  local exclude_file
+  exclude_file="$(git rev-parse --git-path info/exclude 2>/dev/null)" || return 0
+  [ -n "$exclude_file" ] || return 0
+  mkdir -p "$(dirname "$exclude_file")"
+  grep -qxF "$1" "$exclude_file" 2>/dev/null || printf '%s\n' "$1" >> "$exclude_file"
+}
+
+write_qwen_seatbelt_profile() {
+  local target=".qwen/sandbox-macos-$qwen_profile_name.sb"
+  mkdir -p .qwen
+  cp "$profile_dir/qwen-sandbox.sb" "$target"
+  chmod 0644 "$target"
+  exclude_from_git "/$target"
+}
+
+qwen_sandbox_label() {
+  if [ -n "$(qwen_sandbox_exec)" ]; then
+    echo "sandbox-exec (Seatbelt profile $qwen_profile_name, from ollama/qwen-sandbox.sb)"
+  else
+    echo "none (sandbox-exec not found: Qwen Code's commands run as you)"
+  fi
+}
+
 launch_qwen() {
   local launch_args=()
   while IFS= read -r arg; do launch_args+=("$arg"); done < <(qwen_args)
   unset OPENAI_API_KEY OPENAI_BASE_URL OPENAI_MODEL QWEN_MODEL QWEN_SANDBOX QWEN_RUNTIME_DIR SANDBOX
+  unset GH_TOKEN GITHUB_TOKEN SHORTCUT_API_TOKEN
+  if [ -n "$(qwen_sandbox_exec)" ]; then
+    export QWEN_SANDBOX=sandbox-exec
+    export SEATBELT_PROFILE="$qwen_profile_name"
+    write_qwen_seatbelt_profile
+    echo "claude-ollama: qwen runs in macOS Seatbelt (profile $qwen_profile_name); gh and git push need your own terminal" >&2
+  else
+    echo "claude-ollama: qwen runs without a sandbox: its commands run as you (sandbox-exec not found)" >&2
+  fi
   export QWEN_HOME="$qwen_home"
   export QWEN_USAGE_STATISTICS_ENABLED=false
   export QWEN_CODE_MODELS_DEV_REFRESH=off
   create_qwen_home
   write_qwen_settings
   write_qwen_context
-  echo "claude-ollama: qwen runs without a sandbox: its commands run as you" >&2
   stop_launcher_log qwen
   exec qwen "${launch_args[@]}" "$@"
 }
@@ -870,7 +929,7 @@ serve_console() {
 case "${1:-}" in
   -h|--help)
     echo "usage: claude-ollama [size] [claude args...]"
-    echo "qwen [size] [qwen args...]: launch Qwen Code (brew install qwen-code) on the size's model, without a sandbox, with the same MCP servers"
+    echo "qwen [size] [qwen args...]: launch Qwen Code (brew install qwen-code) on the size's model, in macOS Seatbelt with ollama/qwen-sandbox.sb, with the same MCP servers"
     echo "qwen --print-config [size]: print the resolved settings and the qwen command"
     echo "qwen doctor [size]: check qwen, the model, context sizes, the settings template and Ollama"
     echo "sizes: $(configured_sizes | tr '\n' ' ' | sed 's/ $//')"

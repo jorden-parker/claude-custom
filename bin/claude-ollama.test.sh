@@ -468,7 +468,7 @@ with_tty "$sandbox/repo/bin/claude-ollama" >"$sandbox/out" 2>&1 </dev/null
 check_not "claude-ollama cancelled picker does not launch claude" grep -q 'ARGS:' "$sandbox/out"
 run_capture "$installer" ollama -p hi
 check_that "claude-custom ollama runs claude-ollama" grep -qF -- "$ollama_settings" "$sandbox/out"
-run_capture "$installer" qwen 27b -p hi
+(cd "$sandbox" && run_capture "$installer" qwen 27b -p hi)
 check_that "claude-custom qwen runs claude-ollama qwen" grep -q '^QWEN ARGS: --auth-type openai' "$sandbox/out"
 
 new_sandbox
@@ -974,7 +974,11 @@ check_that "doctor says web fetch is off without a fetch list" grep -qxF "ok   w
 
 new_sandbox /tmp
 qwen_home="$HOME/.claude-ollama/qwen"
-SANDBOX=outer run_capture "$repo/bin/claude-ollama" qwen 27b -p hi
+qwen_project="$sandbox/qwen-project"
+mkdir -p "$qwen_project" && git -C "$qwen_project" init -q
+qwen_return_dir="$(pwd -P)"
+cd "$qwen_project" || exit 1
+SANDBOX=outer CLAUDE_OLLAMA_SANDBOX_EXEC=/usr/bin/true GH_TOKEN=secret SHORTCUT_API_TOKEN=secret run_capture "$repo/bin/claude-ollama" qwen 27b -p hi
 check_eq "claude-ollama qwen exit status" 0 "$?"
 check_that "claude-ollama qwen passes the model and args to qwen" grep -qF -- "-m qwen3.8-27b-cc --approval-mode auto-edit" "$sandbox/out"
 check_that "claude-ollama qwen passes the MCP servers and the user's args" grep -qF -- 'repo-tools.py"]}' "$sandbox/out"
@@ -1001,6 +1005,15 @@ check_that "the global QWEN.md starts with the preferences" \
 check_that "and carries the Qwen rules" grep -qF 'mcp__code-search__semantic_search answers' "$qwen_home/QWEN.md"
 check_that "the rendered settings keep QWEN_SYSTEM_MD out of a project .env" \
   jq -e '.advanced.excludedEnvVars | index("QWEN_SYSTEM_MD")' "$qwen_home/settings.json"
+check_that "claude-ollama qwen asks Qwen Code for its Seatbelt sandbox" grep -qx 'QWEN_SANDBOX=sandbox-exec' "$sandbox/qwen-env"
+check_that "and names the repo's profile" grep -qx 'SEATBELT_PROFILE=claude-ollama' "$sandbox/qwen-env"
+check_not "and never hands Qwen Code an outer SANDBOX, which would turn its sandbox off" grep -q '^SANDBOX=' "$sandbox/qwen-env"
+check_that "claude-ollama qwen installs the profile where Qwen Code looks for it" \
+  cmp -s "$repo/ollama/qwen-sandbox.sb" "$qwen_project/.qwen/sandbox-macos-claude-ollama.sb"
+check_that "and keeps it out of the project's git status" grep -qxF '/.qwen/sandbox-macos-claude-ollama.sb' "$qwen_project/.git/info/exclude"
+check_that "claude-ollama qwen says it runs in Seatbelt" grep -qF "qwen runs in macOS Seatbelt (profile claude-ollama)" "$sandbox/err"
+check_not "an outer GH_TOKEN never reaches Qwen Code" grep -q '^GH_TOKEN=' "$sandbox/qwen-env"
+check_not "an outer SHORTCUT_API_TOKEN never reaches Qwen Code" grep -q '^SHORTCUT_API_TOKEN=' "$sandbox/qwen-env"
 
 OPENAI_API_KEY=outer run_capture "$repo/bin/claude-ollama" qwen 35b -p hi
 check_that "claude-ollama qwen 35b uses the 35b model" grep -qF -- "-m qwen3.6-35b-cc" "$sandbox/out"
@@ -1010,8 +1023,9 @@ check_not "an outer OPENAI_API_KEY is dropped" grep -q '^OPENAI_API_KEY=' "$sand
 run_capture "$repo/bin/claude-ollama" qwen -p hi </dev/null
 check_that "claude-ollama qwen without a size uses the default" grep -qF -- "-m qwen3.8-27b-cc" "$sandbox/out"
 
-run_capture "$repo/bin/claude-ollama" qwen 27b -p hi
-check_that "claude-ollama qwen says it runs without a sandbox" grep -qF "qwen runs without a sandbox" "$sandbox/err"
+CLAUDE_OLLAMA_SANDBOX_EXEC=/nonexistent/sandbox-exec run_capture "$repo/bin/claude-ollama" qwen 27b -p hi
+check_that "claude-ollama qwen without sandbox-exec says its commands run as you" grep -qF "qwen runs without a sandbox: its commands run as you (sandbox-exec not found)" "$sandbox/err"
+check_not "and sets no QWEN_SANDBOX" grep -q '^QWEN_SANDBOX=' "$sandbox/qwen-env"
 check_that "and still names the program" grep -qxF "claude-ollama: starting qwen" "$sandbox/err"
 
 run_capture "$repo/bin/claude-ollama" qwen --print-config 35b
@@ -1020,7 +1034,7 @@ check_not "qwen print-config does not launch qwen" grep -q '^QWEN ARGS:' "$sandb
 check_that "qwen print-config names the harness" grep -qxF "harness: qwen" "$sandbox/out"
 check_that "qwen print-config shows the model" grep -qxF "model: qwen3.6-35b-cc" "$sandbox/out"
 check_that "qwen print-config shows the context window" grep -qxF "context window: 98304" "$sandbox/out"
-check_not "qwen print-config has no sandbox line" grep -q '^sandbox:' "$sandbox/out"
+check_that "print-config names the Qwen sandbox" grep -q '^sandbox: ' "$sandbox/out"
 
 QWEN_DOCTOR_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2"
 STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$QWEN_DOCTOR_ENV" run_capture "$repo/bin/claude-ollama" qwen doctor 27b
@@ -1033,6 +1047,7 @@ check_not "qwen doctor skips the Claude hook check" grep -q '^ok   hook ' "$sand
 check_not "qwen doctor skips the Claude model allowlist check" grep -q 'availableModels' "$sandbox/out"
 check_not "qwen doctor never launches qwen" grep -q '^QWEN ARGS:' "$sandbox/out"
 check_not "qwen doctor never launches claude" grep -q '^ARGS:' "$sandbox/out"
+check_that "qwen doctor reports the sandbox" grep -q 'qwen sandbox: ' "$sandbox/out"
 mv "$sandbox/stubbin/qwen" "$sandbox/stubbin/qwen.off"
 STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$QWEN_DOCTOR_ENV" run_capture "$repo/bin/claude-ollama" qwen doctor 27b
 check_eq "qwen doctor without qwen exit status" 1 "$?"
@@ -1044,6 +1059,7 @@ run_capture "$repo/bin/claude-ollama" qwen 27b -p hi
 check_eq "claude-ollama qwen without qwen exits 1" 1 "$?"
 check_that "and says how to install it" grep -qxF "claude-ollama: qwen is missing (brew install qwen-code)" "$sandbox/err"
 check_not "and pulls no model first" grep -sqE '^(pull|create) ' "$sandbox/ollama.log"
+cd "$qwen_return_dir" || exit 1
 
 run_capture "$repo/bin/claude-ollama" --help
 check_that "claude-ollama help lists qwen" grep -qF -- "qwen [size] [qwen args...]: launch Qwen Code" "$sandbox/out"

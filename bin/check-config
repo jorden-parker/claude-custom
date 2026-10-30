@@ -87,8 +87,15 @@ check_eq "the Qwen Code profile waits the full 30 minutes for a silent Ollama st
   "$(jq -r '.modelProviders.openai[0].generationConfig | [.timeout, .streamIdleTimeoutMs] | join(" ")' "$qwen_template")"
 check_eq "the Qwen Code profile sends nothing home and never self-updates" "false false false" \
   "$(jq -r '[.privacy.usageStatisticsEnabled, .telemetry.enabled, .general.enableAutoUpdate] | map(tostring) | join(" ")' "$qwen_template")"
-check_eq "the Qwen Code profile has no subagent, web or notebook tools and no sandbox of its own (Qwen Code runs as you)" "true false" \
+check_eq "the Qwen Code profile has no subagent, web or notebook tools and runs the whole CLI under macOS Seatbelt" "true sandbox-exec" \
   "$(jq -r '[((["agent", "web_fetch", "web_search", "notebook_edit"] - .tools.disabled) == []), .tools.sandbox] | map(tostring) | join(" ")' "$qwen_template")"
+qwen_profile="$repo/ollama/qwen-sandbox.sb"
+check_that "the Qwen Seatbelt profile denies every path the Claude profiles deny reading" \
+  bash -c 'for path in $(jq -r ".sandbox.filesystem.denyRead[]" "$1" | sed "s|^~||"); do grep -qF "\"$path\"" "$2" || exit 1; done' _ "$repo/ollama/settings.27b.json" "$qwen_profile"
+check_that "the Qwen Seatbelt profile closes outbound TCP except loopback, 443 and 80" \
+  bash -c 'grep -qF "(deny network-outbound (remote tcp \"*:*\"))" "$1" && grep -qF "(remote tcp \"localhost:*\")" "$1" && grep -qF "(remote tcp \"*:443\")" "$1" && grep -qF "(remote tcp \"*:80\")" "$1" && ! grep -qF "/.gitconfig" "$1"' _ "$qwen_profile"
+check_that "the Qwen Seatbelt profile keeps the Stop hook's log unwritable" \
+  grep -qF '(deny file-write* (subpath (string-append (param "HOME_DIR") "/.cache/claude-custom")))' "$qwen_profile"
 check_eq "the Qwen Code profile allows semantic_search and the repo tools without a prompt, like the Claude profiles" true \
   "$(jq '(.permissions.allow | index("mcp__code-search__semantic_search") != null) and (.permissions.allow | index("mcp__repo") != null)' "$qwen_template")"
 check_eq "the Qwen Code profile keeps a project .env, which the session can write, from choosing the next session's system prompt, model, key or Seatbelt profile, or claiming a sandbox" true \

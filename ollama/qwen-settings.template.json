@@ -42,7 +42,7 @@
     "enableManagedAutoMemory": false
   },
   "tools": {
-    "sandbox": false,
+    "sandbox": "sandbox-exec",
     "disabled": ["agent", "web_fetch", "web_search", "notebook_edit"],
     "eager": [
       "read_file",
