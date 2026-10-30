@@ -190,6 +190,7 @@ check_apis() {
 /api/server
 /api/server/ping
 /api/logs/path
+/api/machine
 APIS
 }
 
