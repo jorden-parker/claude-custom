@@ -1,0 +1,20 @@
+#!/bin/sh
+set -u
+if [ "$#" -eq 0 ]; then
+  echo "usage: sandbox-env COMMAND [ARG...]: run COMMAND with every package cache under the sandbox cache folder" >&2
+  exit 2
+fi
+cache_root="${CLAUDE_SANDBOX_CACHE_DIR:-$HOME/.cache/claude-sandbox}"
+mkdir -p "$cache_root"
+export CLAUDE_SANDBOX_CACHE_DIR="$cache_root"
+export GOMODCACHE="$cache_root/go/mod"
+export GOCACHE="$cache_root/go/build"
+export npm_config_cache="$cache_root/npm"
+export npm_config_store_dir="$cache_root/pnpm/store"
+export npm_config_cache_dir="$cache_root/pnpm/cache"
+export npm_config_state_dir="$cache_root/pnpm/state"
+export PIP_CACHE_DIR="$cache_root/pip"
+export UV_CACHE_DIR="$cache_root/uv"
+export YARN_CACHE_FOLDER="$cache_root/yarn"
+export BUN_INSTALL_CACHE_DIR="$cache_root/bun"
+exec "$@"

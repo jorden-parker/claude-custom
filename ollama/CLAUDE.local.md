@@ -20,7 +20,8 @@
   for a full local URL such as https://127.0.0.1:4000/; never Bash open),
   mcp__dev__page_snapshot lists elements with refs, mcp__dev__page_act
   clicks/fills/presses by ref. Fix every error and warning they return.
-- Bash runs in a sandbox: it writes this project, a temp dir and your package
-  caches, and reaches localhost, github.com and the npm, Go and PyPI registries;
-  other hosts prompt. `gh`, `cmux`, `short` and `git push` run outside it, each
-  after a prompt.
+- Bash runs in a sandbox without prompts: it writes this project, a temp dir and
+  ~/.cache/claude-sandbox (where Go, npm, pnpm, pip and uv keep their caches),
+  and reaches localhost, github.com and the npm, Go and PyPI registries; other
+  hosts prompt. `gh`, `cmux`, `short`, `git push` and `git commit` each ask
+  first.

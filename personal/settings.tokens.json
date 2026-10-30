@@ -9,16 +9,8 @@
       "allowLocalBinding": true
     },
     "filesystem": {
-      "allowWrite": [
-        "~/.npm",
-        "~/.cache",
-        "~/Library/pnpm",
-        "~/Library/Caches/pnpm",
-        "~/Library/Caches/go-build",
-        "~/Library/Caches/pip",
-        "~/go/pkg/mod"
-      ],
-      "denyWrite": ["~/.cache/claude-custom"]
+      "allowWrite": ["~/.cache/claude-sandbox"],
+      "denyRead": ["~/.local/share/claude-custom"]
     }
   },
   "env": {

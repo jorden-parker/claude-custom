@@ -11,8 +11,10 @@ four parts:
 - **Personal setup** (`personal/`, `project/`): loaded with `--settings` by the
   `claude` shell function, and `shared/preferences/PREFERENCES.md` is
   `@`-imported into `~/.claude/CLAUDE.md`, to cut token usage on the normal
-  Anthropic-backed `claude`; the overlay also turns Claude Code's own sandbox on
-  and asks before any unsandboxed retry.
+  Anthropic-backed `claude`; the overlay also turns Claude Code's own sandbox
+  on, runs `claude` through `shared/sandbox-env` (`personal/launch`), which
+  points package caches at `~/.cache/claude-sandbox`, and asks before any
+  unsandboxed retry.
 - **Preference enforcement** (`shared/hooks/`, `shared/preferences/`): hooks and
   a short rules file that both the personal setup and the work harness load, so
   the same checks run whichever model is driving.
@@ -331,17 +333,21 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   backstop. `bin/check-config` fails when the Ollama deny lists differ. A local
   model's weights are not trusted, so Bash runs in Claude Code's own sandbox,
   configured by the `sandbox` block in `ollama/profile-template.json` (rendered
-  per size). Sandboxed commands write the project, a temp dir and the pnpm, npm,
-  Go, pip and `~/.cache` caches (never `~/.cache/claude-custom`), reach loopback
-  addresses, `github.com`, the npm, Go and PyPI registries and GitHub downloads,
-  and cannot read credentials or `~/.claude`. `bin/check-config` asserts the
-  block's exact values, and a misspelled key is silently ignored, so the check
-  must change with the block. `excludedCommands` (`cmux`, `gh`, `short`,
-  `git push`) run outside the sandbox, each after the `Bash` prompt. The
-  profiles set `sandbox.enabled` and `autoAllowBashIfSandboxed: false`, so the
-  `Bash` prompt holds for sandboxed commands too. The profiles also ask before
-  every Bash command, commit and push (`permissions.ask`, which includes
-  `Bash(dangerouslyDisableSandbox:true)`); `bin/check-config` checks both. The
+  per size). Sandboxed commands write the project, a temp dir and
+  `~/.cache/claude-sandbox`, reach loopback addresses, `github.com`, the npm, Go
+  and PyPI registries and GitHub downloads, and cannot read credentials or
+  `~/.claude`. The launcher execs `claude` and `qwen` through
+  `shared/sandbox-env`, which points Go, npm, pnpm, pip, uv, yarn and bun at
+  caches under that one folder, so no cache an unsandboxed process executes from
+  (`~/.npm/_npx`, `~/Library/pnpm`, `~/go/pkg/mod`, `~/.cache/claude-custom`) is
+  writable. `bin/check-config` asserts the block's exact values, and a
+  misspelled key is silently ignored, so the check must change with the block.
+  The profiles set `sandbox.enabled` and `autoAllowBashIfSandboxed: true`, so
+  sandboxed commands run without a prompt (a skill's `!` commands included);
+  `excludedCommands` (`cmux`, `gh`, `short`, `git push`) run outside the
+  sandbox, each after the `Bash` prompt, and `permissions.ask` holds only
+  `Bash(git commit *)`, `Bash(git push *)` and
+  `Bash(dangerouslyDisableSandbox:true)`; `bin/check-config` checks both. The
   profiles also set `CLAUDE_CODE_EXTRA_BODY` to
   `{"thinking":{"type":"disabled"}}` so Ollama skips reasoning;
   `bin/check-config` checks it. `shared/hooks/git-push-guard.py` (Ollama-only,
@@ -526,10 +532,15 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `Bash(dangerouslyDisableSandbox:true)`, so every personal session (subagents
   and `--agent pr-review` included) runs Claude's shell commands inside Claude
   Code's sandbox and asks before one runs outside it; `bin/check-config` checks
-  both. The Ollama profiles use the same sandbox with their own `sandbox` block;
-  `claude-ollama qwen` runs Qwen Code without a sandbox, and the launcher unsets
-  an outer `SANDBOX`, which `advanced.excludedEnvVars` keeps a project `.env`
-  from setting.
+  both. It lets sandboxed commands write only `~/.cache/claude-sandbox` beyond
+  the project and the temp dir, reach loopback addresses, and never read
+  `~/.local/share/claude-custom` (the console token); `personal/launch` runs
+  `claude` through `shared/sandbox-env` unless `sandbox-off` exists. The Ollama
+  profiles use the same sandbox with their own `sandbox` block;
+  `claude-ollama qwen` runs Qwen Code inside macOS Seatbelt
+  (`ollama/qwen-sandbox.sb`, the same cache folder), and the launcher unsets an
+  outer `SANDBOX`, which `advanced.excludedEnvVars` keeps a project `.env` from
+  setting.
 - `go/internal/picker/` has two packages: `profiles` (`Load` reads the
   configured sizes from `ollama/`, `EmbeddingModel` the search model) and `ui`
   (the Bubble Tea model).

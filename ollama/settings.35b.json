@@ -61,7 +61,6 @@
     "defaultMode": "default",
     "disableAutoMode": "disable",
     "ask": [
-      "Bash",
       "Bash(git commit *)",
       "Bash(git push *)",
       "Bash(dangerouslyDisableSandbox:true)"
@@ -79,7 +78,7 @@
   },
   "sandbox": {
     "enabled": true,
-    "autoAllowBashIfSandboxed": false,
+    "autoAllowBashIfSandboxed": true,
     "excludedCommands": ["cmux *", "gh *", "short *", "git push *"],
     "network": {
       "allowedDomains": [
@@ -97,16 +96,7 @@
       "allowLocalBinding": true
     },
     "filesystem": {
-      "allowWrite": [
-        "~/.npm",
-        "~/.cache",
-        "~/Library/pnpm",
-        "~/Library/Caches/pnpm",
-        "~/Library/Caches/go-build",
-        "~/Library/Caches/pip",
-        "~/go/pkg/mod"
-      ],
-      "denyWrite": ["~/.cache/claude-custom"],
+      "allowWrite": ["~/.cache/claude-sandbox"],
       "denyRead": [
         "~/.ssh",
         "~/.aws",

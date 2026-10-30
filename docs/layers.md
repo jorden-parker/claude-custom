@@ -35,9 +35,13 @@ commands Claude runs can write only the working directory, the per-user temp
 folder and added directories, and reach only hosts you allow (the first use of a
 new host prompts). When Claude wants to retry a command outside the sandbox, the
 overlay's ask rule `Bash(dangerouslyDisableSandbox:true)` prompts you in every
-permission mode. Both overlays let sandboxed commands write the pnpm, npm, Go,
-pip and `~/.cache` caches and reach loopback addresses; `claude-ollama` adds its
-own `excludedCommands`, `denyRead`, credential and registry lists.
+permission mode. Both overlays let sandboxed commands write
+`~/.cache/claude-sandbox` and reach loopback addresses, and both the `claude`
+function (`personal/launch`) and `claude-ollama` run Claude through
+`shared/sandbox-env`, which points Go, npm, pnpm, pip, uv, yarn and bun at
+caches under that folder; `claude-ollama` adds its own `excludedCommands`,
+`denyRead`, credential and registry lists, and the personal overlay hides the
+console state folder.
 
 To get a tool back on one machine only, list its name (one per line) in
 `~/.config/claude-custom/enabled-tools`. `personal/settings-path` then writes a
@@ -47,7 +51,8 @@ that copy instead (or the shared overlay if `jq` fails).
 
 To turn Claude Code's sandbox off on one machine only, create an empty
 `~/.config/claude-custom/sandbox-off`. The machine copy then sets
-`sandbox.enabled` to false and `claude` prints a warning at every launch; every
-other machine keeps it on. The console's `/machine` page shows `enabled-tools`
-and `sandbox-off`, edits `enabled-tools` with history, and never creates or
-deletes `sandbox-off`.
+`sandbox.enabled` to false, `personal/launch` leaves the package caches where
+they are, and `claude` prints a warning at every launch; every other machine
+keeps it on. The console's `/machine` page shows `enabled-tools` and
+`sandbox-off`, edits `enabled-tools` with history, and never creates or deletes
+`sandbox-off`.

@@ -1,0 +1,8 @@
+#!/bin/sh
+set -u
+repo_dir="$(cd "$(dirname "$0")/.." && pwd -P)"
+settings="$("$repo_dir/personal/settings-path")"
+if [ -e "${XDG_CONFIG_HOME:-$HOME/.config}/claude-custom/sandbox-off" ]; then
+  exec claude --settings "$settings" "$@"
+fi
+exec "$repo_dir/shared/sandbox-env" claude --settings "$settings" "$@"

@@ -594,7 +594,7 @@ launch_qwen() {
   write_qwen_settings
   write_qwen_context
   stop_launcher_log qwen
-  exec qwen "${launch_args[@]}" "$@"
+  exec "$repo_dir/shared/sandbox-env" qwen "${launch_args[@]}" "$@"
 }
 
 report() {
@@ -1069,4 +1069,4 @@ claude_args=(
   --tools "$(launch_tools)"
 )
 stop_launcher_log claude
-exec claude "${claude_args[@]}" "$@"
+exec "$repo_dir/shared/sandbox-env" claude "${claude_args[@]}" "$@"
