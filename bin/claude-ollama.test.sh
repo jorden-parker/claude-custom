@@ -1459,7 +1459,7 @@ check_that "qwen doctor reports qwen on PATH" grep -q '^ok   qwen on PATH' "$san
 check_that "qwen doctor reports the main model" grep -qxF "ok   model qwen3.8-27b-cc" "$sandbox/out"
 check_that "qwen doctor reports the settings template parses" grep -qxF "ok   qwen settings template parses" "$sandbox/out"
 check_that "qwen doctor reports the raw-mode preload" grep -qxF "ok   preload qwen-raw-mode.cjs present" "$sandbox/out"
-check_that "qwen doctor warns that no hooks are wired" grep -q '^warn qwen hooks: none wired' "$sandbox/out"
+check_that "qwen doctor warns that no hooks are wired" grep -qxF "warn qwen hooks: none wired (docs/ollama.md)" "$sandbox/out"
 check_not "qwen doctor skips the Claude hook check" grep -q '^ok   hook ' "$sandbox/out"
 check_not "qwen doctor skips the Claude model allowlist check" grep -q 'availableModels' "$sandbox/out"
 check_not "qwen doctor never launches qwen" grep -q '^QWEN ARGS:' "$sandbox/out"

@@ -840,7 +840,7 @@ check_qwen_hooks() {
   if jq -e '.hooks' "$profile_dir/qwen-settings.template.json" >/dev/null 2>&1; then
     report ok "qwen hooks wired in the settings template"
   else
-    report warn "qwen hooks: none wired (docs/qwen-hooks.md)"
+    report warn "qwen hooks: none wired (docs/ollama.md)"
   fi
 }
 
