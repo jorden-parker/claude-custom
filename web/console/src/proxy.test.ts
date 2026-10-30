@@ -47,12 +47,22 @@ describe("proxy token gate", () => {
     expect(proxy(requestFor(`${PAGE}?token=not-the-token`)).status).toBe(401);
   });
 
-  it("accepts the tokened link and redirects to the page without the token", () => {
+  it("accepts the tokened link with a same-origin hop, since a redirect would keep a cross-site chain", async () => {
     const response = proxy(requestFor(`${PAGE}?token=${TOKEN}`));
-    const location = new URL(response.headers.get("location") ?? "");
-    expect(response.status).toBe(307);
-    expect(location.pathname).toBe("/reviews/20261021-174512-pr-7");
-    expect(location.searchParams.has("token")).toBe(false);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("location")).toBeNull();
+    expect(response.headers.get("content-type")).toContain("text/html");
+    expect(await response.text()).toContain(`content="0;url=${PAGE}"`);
+  });
+
+  it("keeps other query parameters in the hop, escaped for the attribute", async () => {
+    const response = proxy(requestFor(`${PAGE}?a=1&token=${TOKEN}&b='2`));
+    expect(await response.text()).toContain(`content="0;url=${PAGE}?a=1&amp;b=%272"`);
+  });
+
+  it("hops to the host the browser asked for, so a path of two slashes stays on it", async () => {
+    const response = proxy(requestFor(`http://127.0.0.1:8765//evil.test/?token=${TOKEN}`));
+    expect(await response.text()).toContain('content="0;url=http://127.0.0.1:8765//evil.test/"');
   });
 
   it("sets an HttpOnly SameSite=Strict cookie when the tokened link is accepted", () => {

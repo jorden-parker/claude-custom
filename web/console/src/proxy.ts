@@ -19,7 +19,7 @@ export function proxy(request: NextRequest) {
     return unauthorized();
   }
   if (linkCarriesToken(request, expected)) {
-    return grantCookieAndRedirect(request, expected);
+    return grantCookieAndHop(request, expected);
   }
   if (cookieCarriesToken(request, expected)) {
     return NextResponse.next();
@@ -62,10 +62,21 @@ function tokensMatch(candidate: string, expected: string): boolean {
   return given.length === wanted.length && timingSafeEqual(given, wanted);
 }
 
-function grantCookieAndRedirect(request: NextRequest, token: string) {
+function escapeAttribute(text: string): string {
+  return text.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+}
+
+function urlWithoutToken(request: NextRequest): string {
   const target = request.nextUrl.clone();
   target.searchParams.delete(TOKEN_PARAM);
-  const response = NextResponse.redirect(target);
+  return `http://${request.headers.get("host")}${target.pathname}${target.search}`;
+}
+
+function grantCookieAndHop(request: NextRequest, token: string) {
+  const target = escapeAttribute(urlWithoutToken(request));
+  const response = new NextResponse(`<!doctype html><meta http-equiv="refresh" content="0;url=${target}">\n`, {
+    headers: { "content-type": "text/html; charset=utf-8" },
+  });
   response.cookies.set(TOKEN_COOKIE, token, {
     httpOnly: true,
     sameSite: "strict",
