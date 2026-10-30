@@ -3,9 +3,10 @@ import { describe, expect, it } from "vitest";
 import { TelemetryCard } from "./telemetry-card";
 
 describe("TelemetryCard", () => {
-  it("explains how to opt in when telemetry is not configured", () => {
+  it("says telemetry is on by default and names the switch when it is not configured", () => {
     const markup = renderToStaticMarkup(<TelemetryCard report={{ configured: false }} />);
     expect(markup).toContain("CLAUDE_TOOL_TELEMETRY");
+    expect(markup).toContain("CLAUDE_OLLAMA_TELEMETRY");
     expect(markup).toContain("claude-ollama ui");
   });
 
