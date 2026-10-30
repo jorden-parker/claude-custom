@@ -97,11 +97,11 @@ run_check() {
   : > "$CALLS"
   env PATH="$stubs:$PATH" HOME="$run_dir/home" \
     SPEED_CHECK_LAUNCHER="$stubs/launcher" SPEED_CHECK_BENCH="$stubs/bench" SPEED_CHECK_PROBE="$stubs/probe" \
-    "$@" "$check_script" $check_args > "$run_dir/out" 2> "$run_dir/err"
+    "$@" "$check_script" ${check_args[@]+"${check_args[@]}"} > "$run_dir/out" 2> "$run_dir/err"
   status=$?
 }
 
-check_args=""
+check_args=()
 
 has() { grep -qF -- "$1" "$run_dir/$2"; }
 
@@ -162,7 +162,7 @@ run_check STUB_SLOW_GGUF=1
 has "27b: GGUF is not better" out || fail "a slower GGUF is not better"
 has "warm TTFT" out || fail "a slower GGUF names the TTFT condition"
 
-check_args="--thinking-only"
+check_args=(--thinking-only)
 run_check STUB_ON_BATTERY=1
 [ "$status" -eq 0 ] || fail "a thinking-only run exits 0 when thinking is off (got $status)"
 has "Plan 066 (thinking off): PASS" out || fail "a thinking-only run prints the thinking verdict"
@@ -175,6 +175,19 @@ has "Paste this block" out && fail "a thinking-only run prints no paste block"
 run_check STUB_NO_THINKING=1
 [ "$status" -eq 1 ] || fail "a thinking-only run exits 1 when the check fails"
 has "Plan 066 (thinking off): FAIL" out || fail "a failed thinking-only run says FAIL"
+
+check_args=(--thinking-only --model qwen3.8-27b-mlx-next)
+run_check
+[ "$status" -eq 0 ] || fail "a named thinking-only run exits 0 when thinking is off (got $status)"
+grep -q -- '--model qwen3.8-27b-mlx-next --thinking claude-code' "$CALLS" || fail "a named thinking-only run checks only that model"
+grep -q -- '--model qwen3.8-27b-cc ' "$CALLS" && fail "a named thinking-only run skips the MLX sizes"
+grep -q '^launcher ' "$CALLS" && fail "a named thinking-only run prepares no model"
+has "Plan 066 (thinking off): PASS" out || fail "a named thinking-only run prints the thinking verdict"
+
+check_args=(--thinking-only --model)
+run_check
+[ "$status" -eq 1 ] || fail "--model without a name exits 1 (got $status)"
+has "give --model a model name" err || fail "--model without a name says what to give"
 
 if [ "$failures" -eq 0 ]; then
   echo "all passed"
