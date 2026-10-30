@@ -209,8 +209,10 @@ What this gives up, compared with the older session sandbox:
   cmux's WKWebView does not support request routes, so there is no allowlist.
   The page opens in a cmux browser profile named `claude-ollama` (its own
   cookies and storage, added when missing), never in your own.
-- The GitHub read tools work for any repository the user's `gh` can read. Writes
-  such as `gh pr comment` are plain Bash commands behind the `Bash` prompt.
+- The GitHub read tools reach the project's `origin` and the repositories listed
+  one `owner/name` per line in `~/.config/claude-custom/gh-repos` (`#` starts a
+  comment; the sandboxed session cannot write the file). Writes such as
+  `gh pr comment` are plain Bash commands behind the `Bash` prompt.
 - `short` runs as the user's own command after the `Bash` prompt.
 - `git fetch`, `pull` and `push` use the user's own git credentials.
 - Qwen Code runs with no sandbox at all.
