@@ -55,13 +55,23 @@ before changing how any file gets applied.
   `make test-console`)
 - Launcher tests: `bin/claude-ollama.test.sh` (prints `all passed`; covers
   `bin/claude-ollama` and the `claude-custom ollama|qwen|tools` subcommands)
-- Model manager: `bin/ollama-models list|prune [--yes]|pin NAME[:TAG]` marks
+- Model manager:
+  `bin/ollama-models list|outdated [NAME...]|prune [--yes]|pin NAME[:TAG]` marks
   installed models (pinned, mismatch, profile, orphan, third-party, other),
-  removes third-party and orphan `-cc` models after asking
-  (`prune --yes --only NAME...` removes just the named models that are still
-  prunable, for the console's Models page), and writes a registry manifest
-  sha256 to `ollama/model-digests.json`; tests: `bin/ollama-models.test.sh`
-  (stub `ollama`, stub `curl`)
+  `outdated` compares each pin with the registry (current, behind, unknown,
+  skipped; exit 1 when one is behind), removes third-party and orphan `-cc`
+  models after asking (`prune --yes --only NAME...` removes just the named
+  models that are still prunable, for the console's Models page), and writes a
+  registry manifest sha256 to `ollama/model-digests.json`; tests:
+  `bin/ollama-models.test.sh` (stub `ollama`, stub `curl`)
+- Model upgrade: `bin/model-upgrade SIZE [--eval] [--keep] [--force]` pulls a
+  behind base into `MODEL-next`, runs `speed-check --thinking-only --model`, the
+  cache probe and (with `--eval`) `pr-review-eval`, saves
+  `~/bench-results/upgrade-SIZE-*.json`, then promotes the candidate to the
+  size's `-cc` model on a pass or removes it and the local base on a fail
+  (`--keep` keeps the candidate). It prints the `pin` command and never writes
+  the pin; GGUF sizes are refused. Tests: `bin/model-upgrade.test.sh` (stub
+  `ollama`, stub tools)
 - Config check: `bin/check-config` (prints `all passed`; static checks that the
   `ollama/` and `personal/` config files agree with each other)
 - Profile generator: `bin/ollama-profiles` renders `ollama/settings.<size>.json`
