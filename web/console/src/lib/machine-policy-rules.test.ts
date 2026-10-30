@@ -3,6 +3,8 @@ import {
   GH_REPO_PATTERN,
   MAX_LINES,
   RULE_FIELD_PATTERN,
+  bareToolNames,
+  isPolicyFile,
   parseLines,
   planLines,
 } from "./machine-policy-rules";
@@ -165,5 +167,29 @@ describe("planLines", () => {
     );
 
     expect(planLines("gh-repos", lines).lines).toHaveLength(MAX_LINES);
+  });
+});
+
+describe("isPolicyFile", () => {
+  it.each(["gh-repos", "command-rules", "enabled-tools"])(
+    "accepts %s",
+    (name) => {
+      expect(isPolicyFile(name)).toBe(true);
+    },
+  );
+
+  it.each(["fetch-domains", "sandbox-off", "gh-repo", ""])(
+    "rejects %s",
+    (name) => {
+      expect(isPolicyFile(name)).toBe(false);
+    },
+  );
+});
+
+describe("bareToolNames", () => {
+  it("keeps only the bare tool names of a deny list", () => {
+    expect(bareToolNames(["Artifact", "Read(**/dist/**)", "Workflow"])).toEqual(
+      ["Artifact", "Workflow"],
+    );
   });
 });

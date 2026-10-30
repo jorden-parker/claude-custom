@@ -8,7 +8,11 @@ const RULE_PROGRAMS = {
   short: ["create", "story-edit"],
 } as const;
 export const MAX_LINES = 200;
-const POLICY_FILES = ["gh-repos", "command-rules", "enabled-tools"] as const;
+export const POLICY_FILES = [
+  "gh-repos",
+  "command-rules",
+  "enabled-tools",
+] as const;
 
 const COMMENT_PREFIX = "#";
 const COMMAND_RULE_FIELD_COUNTS = { min: 3, max: 4 };
@@ -25,6 +29,14 @@ const CHECKS: Record<PolicyFile, LineCheck> = {
   "command-rules": checkCommandRule,
   "enabled-tools": checkEnabledTool,
 };
+
+export function isPolicyFile(name: string): name is PolicyFile {
+  return (POLICY_FILES as readonly string[]).includes(name);
+}
+
+export function bareToolNames(rules: readonly string[]): string[] {
+  return rules.filter((rule) => BARE_TOOL_PATTERN.test(rule));
+}
 
 export function parseLines(
   file: PolicyFile,
