@@ -19,7 +19,6 @@ tests_for() {
     bin/claude-tools | bin/ollama-agent | ollama/*) printf '%s\n' bin/claude-ollama.test.sh ;;
     personal/* | shared/settings/* | shared/agents/*) printf '%s\n' personal/install.test.sh ;;
     shared/hooks/fallow-lib.sh | shared/hooks/fallow-test-lib.sh) printf '%s\n' shared/hooks/fallow-*.test.sh ;;
-    shared/mcp/page.js) printf '%s\n' shared/mcp/dev-server.test.sh ;;
     shared/hooks/hook_telemetry.py) printf '%s\n' shared/hooks/bash-output-guard.test.sh shared/hooks/read-range-guard.test.sh shared/hooks/tool-nudge.test.sh shared/hooks/git-push-guard.test.sh shared/hooks/dev-server-guard.test.sh ;;
     *) sibling_test "$1" ;;
   esac

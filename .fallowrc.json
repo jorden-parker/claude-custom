@@ -1,5 +1,4 @@
 {
-  "entry": ["shared/mcp/page.js"],
   "ignoreFindings": [
     "web/console/src/components/ui/**",
     "web/console/src/components/ai-elements/**"

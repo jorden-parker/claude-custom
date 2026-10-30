@@ -43,14 +43,8 @@ port_refuses() {
   ! curl --noproxy '*' -sf "http://localhost:$1/" >/dev/null
 }
 
-requested() {
-  grep -qF -- "$1" "$tmp/cmux.requests"
-}
-
-single_browser_session() {
-  local sessions
-  sessions="$(grep -o 'claude-ollama-[0-9a-f]*' "$tmp/cmux.log" | sort -u | wc -l | tr -d ' ')"
-  [ "$(grep -c '^browser repl' "$tmp/cmux.log")" -ge 2 ] && [ "$sessions" = 1 ]
+commanded() {
+  grep -qF -- "$1" "$tmp/cmux.log"
 }
 
 section() {
@@ -81,40 +75,58 @@ chmod +x "$tmp/bin/npm"
 cat > "$tmp/bin/cmux" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$DEV_TEST_DIR/cmux.log"
-case "$1 $2" in
-  "browser repl") ;;
-  *) exit 2 ;;
+[ "$1" = "--json" ] && shift
+[ "$1" = "browser" ] || exit 2
+shift
+surface=""
+if [ "$1" = "--surface" ]; then
+  surface="$2"
+  shift 2
+fi
+verb="$1"
+shift
+state="$DEV_TEST_DIR/cmux.surface"
+url_file="$DEV_TEST_DIR/cmux.url"
+if [ "$verb" = "open-split" ]; then
+  printf 'surface:7\n' > "$state"
+  printf '%s\n' "$1" > "$url_file"
+  printf '{"surface_ref":"surface:7","created_split":true}\n'
+  exit 0
+fi
+if [ ! -f "$state" ] || [ "$surface" != "$(cat "$state")" ]; then
+  echo "Error: invalid_params: Missing or invalid surface_id"
+  exit 1
+fi
+case "$verb ${1:-}" in
+  "goto "*) printf '%s\n' "$1" > "$url_file"; echo OK ;;
+  "get url") cat "$url_file" ;;
+  "console list") printf '{"count":2,"entries":[{"level":"warn","text":"If you do not provide a visible label, you must specify an aria-label or aria-labelledby attribute for accessibility"},{"level":"log","text":"noise"}]}\n' ;;
+  "errors list") printf '{"count":1,"errors":[{"message":"TypeError: x is undefined","source":"http://localhost:1/x","line":3}]}\n' ;;
+  "snapshot --interactive") printf -- '- document "App"\n  - button "Save" [ref=e1]\n  - textbox "Name" [ref=e2]\n' ;;
+  "click "*)
+    if [ -n "${STUB_CMUX_LEAVE:-}" ]; then
+      cp "$url_file" "$DEV_TEST_DIR/cmux.previous"
+      printf 'https://example.com/\n' > "$url_file"
+    fi
+    echo OK ;;
+  "back "*) mv "$DEV_TEST_DIR/cmux.previous" "$url_file"; echo OK ;;
+  "wait "*|"console clear"|"errors clear"|"fill "*|"type "*|"press "*|"select "*|"scroll "*|"dblclick "*|"hover "*|"focus "*|"check "*|"uncheck "*) echo OK ;;
+  *) echo "Error: unknown $verb ${1:-}"; exit 1 ;;
 esac
-cat > "$DEV_TEST_DIR/cmux.stdin"
-tail -n 1 "$DEV_TEST_DIR/cmux.stdin" >> "$DEV_TEST_DIR/cmux.requests"
-exec python3 "$DEV_TEST_DIR/cmux-reply.py" "$DEV_TEST_DIR/cmux.stdin" "$DEV_TEST_DIR/opened"
 SH
 chmod +x "$tmp/bin/cmux"
-cat > "$tmp/cmux-reply.py" <<'PY'
-import json
-import os
-import re
-import sys
-
-stdin_path, opened_flag = sys.argv[1:3]
-CONSOLE_LINE = "[warn] If you do not provide a visible label, you must specify an aria-label or aria-labelledby attribute for accessibility"
-ELEMENTS = '- button "Save" [ref=e1]\n- textbox "Name" [ref=e2]'
-program = open(stdin_path).read()
-request = json.loads(re.search(r"await __cc_run\((.*)\)\s*$", program).group(1))
-operation = request["op"]
-if operation == "open":
-    open(opened_flag, "w").close()
-    result = {"url": request["url"], "errors": ["TypeError: x is undefined"], "console": [CONSOLE_LINE], "surface": "S-1"}
-elif not os.path.exists(opened_flag):
-    print("call page_check first", file=sys.stderr)
-    sys.exit(1)
-elif operation == "snapshot":
-    result = {"elements": ELEMENTS}
-else:
-    result = {"url": "http://localhost:1/settings", "errors": [], "console": [], "elements": ELEMENTS}
-print(json.dumps(json.dumps(result)))
-print("[ok | 1ms]")
-PY
+cat > "$tmp/bin/lsof" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$DEV_TEST_DIR/lsof.log"
+[ -z "${STUB_LSOF_FAIL:-}" ] || exit 1
+[ -f "$DEV_TEST_DIR/fake.cwd" ] || exit 1
+pid="$(cat "$DEV_TEST_DIR/fake.pid")"
+case "$*" in
+  *LISTEN*) printf 'p%s\nf5\nn127.0.0.1:%s\np99999\nf3\nn*:1\n' "$pid" "$(tail -n 1 "$DEV_TEST_DIR/ports.log")" ;;
+  *cwd*) printf 'p%s\nfcwd\nn%s\np99999\nfcwd\nn/elsewhere\n' "$pid" "$(cat "$DEV_TEST_DIR/fake.cwd")" ;;
+esac
+SH
+chmod +x "$tmp/bin/lsof"
 export CMUX="$tmp/cmux.sock"
 
 cat > "$tmp/fake-next.py" <<'PY'
@@ -359,25 +371,27 @@ check "page_check reports browser errors" contains "$page" "Browser errors:"
 check "and the TypeError from errors list" contains "$page" "TypeError: x is undefined"
 check "and the console warning from console list" contains "$page" "aria-label"
 check "and the Next.js error from get_errors" contains "$page" "Hydration failed"
-check "page_check names the surface it uses" contains "$page" "Surface: S-1"
-check "the first page_check asks the browser to open the page" \
-  requested "{\"op\": \"open\", \"url\": \"http://localhost:$browser_port/settings\"}"
-check "a later page_check asks the browser to open its path on the same session" \
-  requested "{\"op\": \"open\", \"url\": \"http://localhost:$browser_port/other\"}"
+check "page_check names the surface it uses" contains "$page" "Surface: surface:7"
+check "the first page_check opens a browser split on the page without taking focus" \
+  commanded "--json browser open-split http://localhost:$browser_port/settings --focus false"
+check "a later page_check navigates the same surface" \
+  commanded "browser --surface surface:7 goto http://localhost:$browser_port/other"
+check "and clears the browser's console and errors first" commanded "browser --surface surface:7 errors clear"
+check "page_check waits for the page to load" commanded "wait --load-state complete --timeout-ms 15000"
 https_browser_out="$tmp/session-https-browser.out"
 session "$https_browser_out" \
   '["dev_start",{"dir":"app","script":"dev:https"}]' \
   '["page_check",{"dir":"app","path":"/secure"}]'
 https_browser_port="$(tail -n 1 "$tmp/ports.log")"
 check "page_check opens the https URL" \
-  requested "{\"op\": \"open\", \"url\": \"https://localhost:$https_browser_port/secure\"}"
+  commanded "open-split https://localhost:$https_browser_port/secure --focus false"
 url_page="$(call page_check '{"url":"https://127.0.0.1:4000/settings"}')"
 check "page_check with url opens that URL without probing" \
-  requested '{"op": "open", "url": "https://127.0.0.1:4000/settings"}'
+  commanded "open-split https://127.0.0.1:4000/settings --focus false"
 check "and reports the page it opened" contains "$url_page" "Page: https://127.0.0.1:4000/settings"
 check "and says the origin is not a Next.js server when nothing answers /_next/mcp" contains "$url_page" "not a Next.js 16+ dev server"
-check "page_check with an IPv6 loopback url opens it" \
-  requested "$(call page_check '{"url":"http://[::1]:5173/"}' >/dev/null; printf '{"op": "open", "url": "http://[::1]:5173/"}')"
+call page_check '{"url":"http://[::1]:5173/"}' >/dev/null
+check "page_check with an IPv6 loopback url opens it" commanded "open-split http://[::1]:5173/ --focus false"
 check "page_check refuses a url on another host" \
   error_with "$(call page_check '{"url":"https://evil.test/x"}')" "url must start with http:// or https://"
 check "page_check refuses a url whose userinfo names localhost" \
@@ -398,26 +412,30 @@ session "$act_out" \
   '["page_act",{"action":"scroll","text":"300"}]'
 snapshot="$(section page_snapshot "$act_out")"
 check "page_snapshot lists elements with refs" contains "$snapshot" "[ref=e1]"
-check "page_snapshot asks the browser for the elements" requested '{"op": "snapshot"}'
+check "page_snapshot asks the browser for the interactive elements" commanded "browser --surface surface:7 snapshot --interactive"
 fill="$(section page_act "$act_out")"
 check "page_act fill asks the browser to fill the ref with the text" \
-  requested '{"op": "act", "action": "fill", "target": "e2", "text": "Ada"}'
+  commanded "browser --surface surface:7 fill e2 --text Ada"
 check "page_act reports the URL, browser errors, console and elements" \
   [ "$(printf '%s\n' "$fill" | grep -c -e '^URL now:' -e '^Browser errors:' -e '^Console:' -e '^Elements:')" -ge 4 ]
-check "page_act press asks the browser for the key" \
-  requested '{"op": "act", "action": "press", "text": "Enter"}'
-check "page_act scroll asks the browser for the pixels" \
-  requested '{"op": "act", "action": "scroll", "text": "300"}'
-check "the page program locks the browser to localhost before every request" \
-  grep -q '__cc_lock' "$tmp/cmux.stdin"
-check "the dev server runs one cmux browser REPL session" \
-  grep -Eq '^browser repl --session claude-ollama-[0-9a-f]{16} --timeout 60000 --eval -$' "$tmp/cmux.log"
-check "and the same session for every request" single_browser_session
+check "page_act press asks the browser for the key" commanded "press --key Enter"
+check "page_act scroll asks the browser for the pixels" commanded "scroll --dy 300"
+leave_out="$tmp/session-leave.out"
+(export STUB_CMUX_LEAVE=1; session "$leave_out" '["dev_start",{"dir":"app"}]' '["page_check",{"dir":"app"}]' '["page_act",{"action":"click","target":"e3"}]')
+left="$(section page_act "$leave_out")"
+check "page_act that leaves the local server goes back and says so" \
+  contains "$left" "left the local server for https://example.com/; went back"
+check "and reports the local URL again" contains "$left" "URL now: http://localhost:"
+check "and asked the browser to go back" commanded "browser --surface surface:7 back"
+: > "$tmp/cmux.log"
+reopen_out="$tmp/session-reopen.out"
+session "$reopen_out" '["dev_start",{"dir":"app"}]' '["page_check",{"dir":"app"}]' "sh:rm \"\$DEV_TEST_DIR/cmux.surface\"" '["page_check",{"dir":"app","path":"/again"}]'
+check "a surface the user closed is opened again" [ "$(grep -c 'browser open-split' "$tmp/cmux.log")" = 2 ]
+check "and the new page is opened on it" commanded "open-split http://localhost:$(tail -n 1 "$tmp/ports.log")/again --focus false"
 check "page_act click without a target is refused" \
   error_with "$(call page_act '{"action":"click"}')" "target is required"
-call page_act '{"action":"click","target":"--surface x"}' >/dev/null
-check "page_act click takes a target that looks like a flag, sent as data" \
-  requested '{"op": "act", "action": "click", "target": "--surface x"}'
+check "page_act before any page in this session says to call page_check first" \
+  error_with "$(call page_act '{"action":"click","target":"--surface x"}')" "call page_check first"
 check "page_act has no eval action" \
   error_with "$(call page_act '{"action":"eval","target":"x"}')" "action must be one of"
 
@@ -436,6 +454,7 @@ start_fake_next() {
     sleep 0.25
   done
   fake_port="$(tail -n 1 "$tmp/ports.log")"
+  printf '%s' "$fake_pid" > "$tmp/fake.pid"
 }
 
 stop_fake_next() {
@@ -462,6 +481,20 @@ start_fake_next
 printf '{"pid":%s,"port":%s,"hostname":"localhost","appUrl":"https://localhost:%s/","startedAt":0}' "$fake_pid" "$fake_port" "$fake_port" > "$tmp/project/app/.next/dev/lock"
 check "an http server whose lock says https is found over http" \
   contains "$(call dev_status '{"dir":"app"}')" "http://localhost:$fake_port answers (HTTP 200)"
+stop_fake_next
+start_fake_next
+rm -f "$tmp/project/app/.next/dev/lock"
+(cd "$tmp/project/app" && pwd -P) > "$tmp/fake.cwd"
+listening="$(call dev_status '{"dir":"app"}')"
+check "a server listening from the app dir is found without a lock or port flag" \
+  contains "$listening" "http://localhost:$fake_port answers (HTTP 200), pid $fake_pid, from a server listening from app"
+check "the listener lookup asks lsof for the listening sockets' owners' folders" grep -q -- '-a -d cwd -p' "$tmp/lsof.log"
+(cd "$tmp/project" && pwd -P) > "$tmp/fake.cwd"
+check "a server listening from another folder is not reported" \
+  contains "$(call dev_status '{"dir":"app"}')" "no dev server answers"
+check "dev_status survives a failing lsof" \
+  contains "$(STUB_LSOF_FAIL=1 call dev_status '{"dir":"app"}')" "no dev server answers"
+rm -f "$tmp/fake.cwd"
 stop_fake_next
 
 cat > "$tmp/silent-port.py" <<'PY'

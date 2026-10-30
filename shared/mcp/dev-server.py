@@ -4,14 +4,12 @@ import http.client
 import json
 import os
 import re
-import secrets
 import shutil
 import signal
 import socket
 import ssl
 import subprocess
 import sys
-import tempfile
 import time
 import urllib.error
 import urllib.parse
@@ -52,14 +50,17 @@ URL_RULE = "url must start with http:// or https:// and name localhost, 127.0.0.
 LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
 CMUX_OFF = "the cmux browser is off (CLAUDE_OLLAMA_CMUX=0); relaunch without it. dev_errors still works."
 NO_CMUX = "no cmux browser: launch claude-ollama from a cmux terminal (cmux on PATH and CMUX_SOCKET_PATH set). dev_errors still works."
-REPL_TIMEOUT_MS = 60000
+LOAD_TIMEOUT_MS = 15000
+LSOF_TIMEOUT_SECONDS = 5
+CONSOLE_LEVELS = {"warn", "warning", "error"}
 COMMAND_TIMEOUT_SECONDS = 120
 REPLY_TAIL_LINES = 20
-STATUS_LINE = re.compile(r"^\[(ok|error) \|.*\]$")
-PAGE_PROGRAM = Path(__file__).resolve().with_name("page.js")
 NO_SERVER = "no dev server answers for {}; call dev_status"
 NOT_NEXT = "not a Next.js 16+ dev server"
 NO_PAGE_ORIGIN = "unknown: this session has not run page_check"
+NO_PAGE = "no page open: call page_check first"
+LEFT_LOCAL = "the page left the local server for {}; went back"
+LISTENING_FROM = "a server listening from "
 
 
 def loopback_tls_context():
@@ -153,7 +154,7 @@ def git_root():
 
 ROOT = git_root()
 STARTED = {}
-BROWSER = {"origin": None, "session": f"claude-ollama-{secrets.token_hex(8)}", "workdir": None}
+BROWSER = {"origin": None, "surface": None}
 PAGE_ACTIONS = {"click", "dblclick", "hover", "focus", "fill", "type", "press", "select", "check", "uncheck", "scroll"}
 
 
@@ -286,6 +287,52 @@ def lock_scheme(lock, script_text):
     return script_scheme(script_text)
 
 
+def lsof_records(arguments):
+    try:
+        completed = subprocess.run(["lsof", "-nP", "-F", "pn", *arguments], stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=LSOF_TIMEOUT_SECONDS, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return {}
+    records, pid = {}, None
+    for line in completed.stdout.splitlines():
+        if line.startswith("p") and line[1:].isdigit():
+            pid = int(line[1:])
+            records.setdefault(pid, [])
+        elif line.startswith("n") and pid is not None:
+            records[pid].append(line[1:])
+    return records
+
+
+def listening_ports():
+    ports = {}
+    for pid, names in lsof_records(["-iTCP", "-sTCP:LISTEN"]).items():
+        for name in names:
+            port = name.rpartition(":")[2]
+            if port.isdigit():
+                ports.setdefault(pid, set()).add(int(port))
+    return ports
+
+
+def working_folders(pids):
+    if not pids:
+        return {}
+    records = lsof_records(["-a", "-d", "cwd", "-p", ",".join(str(pid) for pid in sorted(pids))])
+    return {pid: names[0] for pid, names in records.items() if names}
+
+
+def is_inside_folder(path, folder):
+    return path == folder or path.startswith(folder + os.sep)
+
+
+def listening_candidates(dir_text, scheme):
+    folder = str((ROOT / dir_text).resolve())
+    ports = listening_ports()
+    found = []
+    for pid, cwd in working_folders(ports).items():
+        if is_inside_folder(cwd, folder):
+            found.extend(Candidate(loopback_url(scheme, port), LISTENING_FROM + dir_text, pid) for port in sorted(ports[pid]))
+    return found
+
+
 def dir_candidates(dir_text, script_text):
     found = []
     scheme = script_scheme(script_text)
@@ -299,6 +346,7 @@ def dir_candidates(dir_text, script_text):
     if lock_number is not None:
         pid = lock.get("pid")
         found.append(Candidate(loopback_url(lock_scheme(lock, script_text), lock_number), ".next/dev/lock", pid if isinstance(pid, int) else None))
+    found.extend(listening_candidates(dir_text, scheme))
     port = script_port(script_text)
     if port is not None:
         found.append(Candidate(loopback_url(scheme, port), "the dev script", None))
@@ -351,9 +399,13 @@ def port_is_open(url):
         return False
 
 
+def would_use_port(candidate):
+    return candidate.source != FRAMEWORK_DEFAULT and not candidate.source.startswith(LISTENING_FROM)
+
+
 def busy_candidate(dir_text, script_text):
     for candidate in dir_candidates(dir_text, script_text):
-        if candidate.source != FRAMEWORK_DEFAULT and port_is_open(candidate.url):
+        if would_use_port(candidate) and port_is_open(candidate.url):
             return candidate
     return None
 
@@ -595,46 +647,86 @@ def cmux_command():
     return cmux
 
 
-def browser_workdir():
-    if BROWSER["workdir"] is None:
-        BROWSER["workdir"] = tempfile.TemporaryDirectory(prefix="claude-ollama-browser-")
-    return BROWSER["workdir"].name
-
-
-def loads_or_none(text):
-    try:
-        return json.loads(text)
-    except ValueError:
-        return None
-
-
-def repl_result(output):
-    lines = [line for line in output.splitlines() if not STATUS_LINE.match(line)]
-    for line in reversed(lines):
-        value = loads_or_none(line)
-        if isinstance(value, str):
-            value = loads_or_none(value)
-        if isinstance(value, dict):
-            return value
-    return None
-
-
 def tail_text(output):
     return "\n".join(output.strip().splitlines()[-REPLY_TAIL_LINES:])
 
 
-def ask_browser(request):
-    cmux = cmux_command()
-    program = PAGE_PROGRAM.read_text() + f"\nawait __cc_run({json.dumps(request)})\n"
-    argv = [cmux, "browser", "repl", "--session", BROWSER["session"], "--timeout", str(REPL_TIMEOUT_MS), "--eval", "-"]
+def run_cmux(arguments, as_json=False):
+    argv = [cmux_command(), *(["--json"] if as_json else []), "browser", *arguments]
     try:
-        completed = subprocess.run(argv, input=program, cwd=browser_workdir(), capture_output=True, text=True, timeout=COMMAND_TIMEOUT_SECONDS, check=False)
+        completed = subprocess.run(argv, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=COMMAND_TIMEOUT_SECONDS, check=False)
     except subprocess.TimeoutExpired:
         raise ToolError("the cmux browser did not answer in time") from None
-    result = repl_result(completed.stdout)
-    if completed.returncode != 0 or result is None:
+    if completed.returncode != 0 or completed.stdout.startswith("Error:"):
         raise ToolError(tail_text(completed.stderr + completed.stdout) or "the cmux browser failed")
-    return result
+    return json.loads(completed.stdout) if as_json else completed.stdout.strip()
+
+
+def surface_command(*arguments, as_json=False):
+    if BROWSER["surface"] is None:
+        raise ToolError(NO_PAGE)
+    return run_cmux(["--surface", BROWSER["surface"], *arguments], as_json)
+
+
+def surface_is_open():
+    try:
+        surface_command("get", "url")
+    except ToolError:
+        return False
+    return True
+
+
+def open_surface(url):
+    reply = run_cmux(["open-split", url, "--focus", "false"], as_json=True)
+    surface = reply.get("surface_ref") if isinstance(reply, dict) else None
+    if not surface:
+        raise ToolError("the cmux browser opened no surface")
+    BROWSER["surface"] = surface
+
+
+def clear_browser_logs():
+    surface_command("console", "clear")
+    surface_command("errors", "clear")
+
+
+def settle():
+    notes = []
+    try:
+        surface_command("wait", "--load-state", "complete", "--timeout-ms", str(LOAD_TIMEOUT_MS))
+    except ToolError:
+        notes.append(f"the page did not finish loading within {LOAD_TIMEOUT_MS // 1000}s")
+    time.sleep(POLL_SECONDS)
+    return notes
+
+
+def show_page(url):
+    if surface_is_open():
+        clear_browser_logs()
+        surface_command("goto", url)
+    else:
+        open_surface(url)
+    return settle()
+
+
+def console_line(entry):
+    return f"[{entry.get('level', 'log')}] {entry.get('text', '')}"
+
+
+def error_line(error):
+    source = error.get("source") or ""
+    line = error.get("line")
+    place = f" ({source}:{line})" if source and line is not None else f" ({source})" if source else ""
+    return f"{error.get('message', '')}{place}"
+
+
+def browser_errors():
+    reply = surface_command("errors", "list", as_json=True)
+    return [error_line(error) for error in reply.get("errors") or []]
+
+
+def browser_warnings():
+    reply = surface_command("console", "list", as_json=True)
+    return [console_line(entry) for entry in reply.get("entries") or [] if entry.get("level") in CONSOLE_LEVELS]
 
 
 def valid_path(path):
@@ -681,19 +773,15 @@ def next_errors_text(origin):
     return next_errors(origin) or NOT_NEXT
 
 
-def browser_sections(page, origin):
+def browser_sections(notes, origin):
     return [
         "Browser errors:",
-        listing(page.get("errors")),
+        listing(notes + browser_errors()),
         "Console:",
-        listing(page.get("console")),
+        listing(browser_warnings()),
         "Next.js:",
         next_errors_text(origin),
     ]
-
-
-def surface_lines(page):
-    return [f"Surface: {page['surface']}"] if page.get("surface") else []
 
 
 def page_check(arguments):
@@ -701,12 +789,16 @@ def page_check(arguments):
     cmux_command()
     origin, url = page_target(arguments, dir_text)
     BROWSER["origin"] = origin
-    page = ask_browser({"op": "open", "url": url})
-    return "\n".join([f"Page: {url}", *surface_lines(page), *browser_sections(page, origin)])
+    notes = show_page(url)
+    return "\n".join([f"Page: {url}", f"Surface: {BROWSER['surface']}", *browser_sections(notes, origin)])
+
+
+def snapshot_text():
+    return surface_command("snapshot", "--interactive") or "(no interactive elements)"
 
 
 def page_snapshot(arguments):
-    return ask_browser({"op": "snapshot"})["elements"]
+    return snapshot_text()
 
 
 def required_text(text, meaning):
@@ -715,38 +807,53 @@ def required_text(text, meaning):
     return text
 
 
-def scroll_request(target, text):
-    request = {"op": "act", "action": "scroll"}
+def scroll_arguments(target, text):
+    arguments = ["scroll"]
     if target:
-        request["target"] = target
+        arguments += ["--selector", target]
     if text is not None:
         if not text.isdigit():
             raise ToolError("text must be a whole number of pixels for scroll")
-        request["text"] = text
-    return request
+        arguments += ["--dy", text]
+    return arguments
 
 
-def action_request(action, target, text):
+def action_arguments(action, target, text):
     if action == "press":
-        return {"op": "act", "action": action, "text": required_text(text, "the key, e.g. Enter")}
+        return ["press", "--key", required_text(text, "the key, e.g. Enter")]
     if action == "scroll":
-        return scroll_request(target, text)
+        return scroll_arguments(target, text)
     if not target:
         raise ToolError("target is required for this action (a ref like e3, or a CSS selector)")
-    request = {"op": "act", "action": action, "target": target}
-    if action in ("type", "select"):
-        request["text"] = required_text(text, "the text or value")
-    elif action == "fill" and text is not None:
-        request["text"] = text
-    return request
+    if action == "type":
+        return ["type", target, "--text", required_text(text, "the text to type")]
+    if action == "fill":
+        return ["fill", target, "--text", text or ""]
+    if action == "select":
+        return ["select", target, "--value", required_text(text, "the value to select")]
+    return [action, target]
+
+
+def back_to_local():
+    url = surface_command("get", "url")
+    if loopback_origin(url) is not None:
+        return url, []
+    try:
+        surface_command("back")
+    except ToolError:
+        surface_command("goto", BROWSER["origin"])
+    settle()
+    return surface_command("get", "url"), [LEFT_LOCAL.format(url)]
 
 
 def page_act(arguments):
     action = arguments.choice("action", PAGE_ACTIONS)
-    page = ask_browser(action_request(action, arguments.text("target"), arguments.text("text")))
-    return "\n".join(
-        [f"URL now: {page.get('url', '')}", *browser_sections(page, BROWSER["origin"]), "Elements:", page.get("elements", "")]
-    )
+    command = action_arguments(action, arguments.text("target"), arguments.text("text"))
+    clear_browser_logs()
+    surface_command(*command)
+    notes = settle()
+    url, left = back_to_local()
+    return "\n".join([f"URL now: {url}", *browser_sections(notes + left, BROWSER["origin"]), "Elements:", snapshot_text()])
 
 
 def truncated(text):

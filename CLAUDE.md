@@ -369,9 +369,11 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `~/.claude/skills`, and makes the `tmp` folder that `CLAUDE_CODE_TMPDIR`
   names. `CLAUDE_OLLAMA_CMUX=0` turns the browser tools off; a cmux terminal
   (`CMUX_SOCKET_PATH` set and `cmux` on `PATH`) turns them on. The `dev` server
-  runs `cmux browser repl` itself with `shared/mcp/page.js`, which locks the
-  REPL session to `localhost`, `127.0.0.1` and `[::1]` before each request. The
-  `repo` server runs `gh` itself (`shared/mcp/github_tools.py`: nine read tools,
+  drives one cmux browser surface with plain `cmux browser` commands
+  (`open-split`, `goto`, `wait`, `console list`, `errors list`,
+  `snapshot --interactive`, `click` and friends); `page_check` opens only
+  loopback URLs and `page_act` goes back when an action leaves them. The `repo`
+  server runs `gh` itself (`shared/mcp/github_tools.py`: nine read tools,
   `GH_REPO` from `origin` or the `repo` argument, `--flag=value` argv, `Refused`
   for bad arguments); its GitHub tools are listed only while `gh` is on `PATH`.
 - There is no side model: each Ollama profile sets
@@ -391,10 +393,12 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   flag is dropped so it doesn't reach `claude` as a prompt.
 - `shared/mcp/dev-server.py` is the `dev` MCP server the Ollama profiles start
   beside `repo`. It reads `.next/dev/lock` (only its port), the dev script's
-  port flag and `/_next/mcp` (Next.js 16+), and the session's own log; it never
-  trusts a lock's URL. It keeps the scheme the server prints (an `https` log
-  line, `--experimental-https` in the script, or an `https://` lock `appUrl`),
-  tries the other scheme when a candidate does not answer, and probes https with
+  port flag and `/_next/mcp` (Next.js 16+), the session's own log, and through
+  `lsof` the listening ports of processes whose working folder is inside the
+  project folder (those never block `dev_start`); it never trusts a lock's URL.
+  It keeps the scheme the server prints (an `https` log line,
+  `--experimental-https` in the script, or an `https://` lock `appUrl`), tries
+  the other scheme when a candidate does not answer, and probes https with
   certificate checks off, since the host is always `localhost`. `page_check`
   takes `path` on the probed server or `url`, a full `http(s)://` URL on
   `localhost`, `127.0.0.1` or `[::1]` opened without probing. `dev_start`
@@ -403,12 +407,12 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   since the framework moves to the next port. It stops only the servers its
   session started. The read-only tools are allowed by full name
   (`mcp__dev__dev_status`, `dev_logs`, `dev_errors`, `page_check`,
-  `page_snapshot`, `page_act`; the page tools run `cmux browser repl` through
-  `shared/mcp/page.js`, never a bare `cmux` command); `dev_start` and `dev_stop`
-  still ask, and no bare `mcp__dev` may be allowed.
-  `shared/hooks/dev-server-guard.py` (Ollama-only, PreToolUse on Bash) denies
-  `pnpm dev`-style starts and points the model at `dev_start`, and denies `open`
-  on a loopback URL and points it at `page_check`.
+  `page_snapshot`, `page_act`; the page tools run `cmux browser` subcommands
+  themselves, never a bare `cmux` command); `dev_start` and `dev_stop` still
+  ask, and no bare `mcp__dev` may be allowed. `shared/hooks/dev-server-guard.py`
+  (Ollama-only, PreToolUse on Bash) denies `pnpm dev`-style starts and points
+  the model at `dev_start`, and denies `open` on a loopback URL and points it at
+  `page_check`.
 - `shared/mcp/repo-tools.py` is the `repo` MCP server the Ollama profiles start
   beside code-search and allow without a prompt (`mcp__repo` in
   `permissions.allow`; `bin/check-config` checks it and that

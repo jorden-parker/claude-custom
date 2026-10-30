@@ -203,9 +203,9 @@ run outside the sandbox too, as they do in the personal overlay.
 
 What this gives up, compared with the older session sandbox:
 
-- The browser has no live proof of its localhost lock. `shared/mcp/page.js`
-  still locks the REPL session to `localhost`, `127.0.0.1` and `[::1]` before
-  every request.
+- The browser is not locked to localhost. `page_check` opens only loopback URLs
+  and `page_act` goes back when an action leaves the local server, but the page
+  itself may load anything.
 - The GitHub read tools work for any repository the user's `gh` can read. Writes
   such as `gh pr comment` are plain Bash commands behind the `Bash` prompt.
 - `short` runs as the user's own command after the `Bash` prompt.
@@ -289,14 +289,15 @@ and candidates are still `localhost` only. `page_check` also takes `url`, any
 `http://` or `https://` URL on `localhost`, `127.0.0.1` or `[::1]`, and opens it
 without probing, for servers `dev_status` cannot see. Bash `open` on a local URL
 is denied by `shared/hooks/dev-server-guard.py`, which points the model at
-`page_check`. The page tools run `cmux browser repl` themselves with
-`shared/mcp/page.js`, which locks the REPL session to `localhost`, `127.0.0.1`
-and `[::1]` before each request: navigations, new tabs, `fetch`, subresources
-and websockets. They need a cmux terminal (`CMUX_SOCKET_PATH` set and `cmux` on
-`PATH`); `CLAUDE_OLLAMA_CMUX=0` turns them off. WebRTC (STUN/TURN) and DNS
-prefetch are outside WebKit's content rules and are not covered by the lock. In
-claude-ollama sessions the Bash guard denies `pnpm dev` and similar starts, and
-only there.
+`page_check`. `dev_status` also finds servers listening from the project folder
+through `lsof`, whatever their port; those listeners never block `dev_start`.
+The page tools run plain `cmux browser` commands: the first `page_check` opens a
+browser split beside the terminal without taking focus, later calls navigate
+that surface (or open a new one when it was closed), and the tools read its
+`console list`, `errors list` and `snapshot --interactive`. They need a cmux
+terminal (`CMUX_SOCKET_PATH` set and `cmux` on `PATH`); `CLAUDE_OLLAMA_CMUX=0`
+turns them off. In claude-ollama sessions the Bash guard denies `pnpm dev` and
+similar starts, and only there.
 
 ### Reviewing a pull request locally
 
