@@ -258,9 +258,14 @@ others do not. Servers a session starts stop when it ends. The server reads
 `.next/dev/lock` for its port and `/_next/mcp` on Next.js 16+; other frameworks
 get log errors only. The tools keep the scheme the server prints, so a server
 started with `--experimental-https` (or whose `.next/dev/lock` `appUrl` is
-`https://`) is probed and opened over `https://localhost:PORT`; the probe
-accepts the local self-signed certificate, and candidates are still `localhost`
-only. The page tools run `cmux browser repl` themselves with
+`https://`) is probed and opened over `https://localhost:PORT`; when a candidate
+does not answer over one scheme the other is tried, so an https server with no
+https hint is still found; the probe accepts the local self-signed certificate,
+and candidates are still `localhost` only. `page_check` also takes `url`, any
+`http://` or `https://` URL on `localhost`, `127.0.0.1` or `[::1]`, and opens it
+without probing, for servers `dev_status` cannot see. Bash `open` on a local URL
+is denied by `shared/hooks/dev-server-guard.py`, which points the model at
+`page_check`. The page tools run `cmux browser repl` themselves with
 `shared/mcp/page.js`, which locks the REPL session to `localhost`, `127.0.0.1`
 and `[::1]` before each request: navigations, new tabs, `fetch`, subresources
 and websockets. They need a cmux terminal (`CMUX_SOCKET_PATH` set and `cmux` on

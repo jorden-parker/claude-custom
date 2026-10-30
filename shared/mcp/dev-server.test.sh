@@ -371,6 +371,21 @@ session "$https_browser_out" \
 https_browser_port="$(tail -n 1 "$tmp/ports.log")"
 check "page_check opens the https URL" \
   requested "{\"op\": \"open\", \"url\": \"https://localhost:$https_browser_port/secure\"}"
+url_page="$(call page_check '{"url":"https://127.0.0.1:4000/settings"}')"
+check "page_check with url opens that URL without probing" \
+  requested '{"op": "open", "url": "https://127.0.0.1:4000/settings"}'
+check "and reports the page it opened" contains "$url_page" "Page: https://127.0.0.1:4000/settings"
+check "and says the origin is not a Next.js server when nothing answers /_next/mcp" contains "$url_page" "not a Next.js 16+ dev server"
+check "page_check with an IPv6 loopback url opens it" \
+  requested "$(call page_check '{"url":"http://[::1]:5173/"}' >/dev/null; printf '{"op": "open", "url": "http://[::1]:5173/"}')"
+check "page_check refuses a url on another host" \
+  error_with "$(call page_check '{"url":"https://evil.test/x"}')" "url must start with http:// or https://"
+check "page_check refuses a url whose userinfo names localhost" \
+  error_with "$(call page_check '{"url":"http://localhost@evil.test:4000/x"}')" "url must start with"
+check "page_check refuses a url with a bad port" \
+  error_with "$(call page_check '{"url":"http://localhost:port/x"}')" "url must start with"
+check "page_check refuses a file url" \
+  error_with "$(call page_check '{"url":"file:///etc/hosts"}')" "url must start with"
 
 : > "$tmp/cmux.log"
 act_out="$tmp/session-act.out"
@@ -439,6 +454,14 @@ stop_fake_next
 FAKE_TLS=1 start_fake_next
 check "a lock whose appUrl is https gives an https candidate" \
   contains "$(call dev_status '{"dir":"app"}')" "https://localhost:$fake_port answers"
+printf '{"pid":%s,"port":%s,"hostname":"localhost","appUrl":"http://localhost:%s/","startedAt":0}' "$fake_pid" "$fake_port" "$fake_port" > "$tmp/project/app/.next/dev/lock"
+check "an https server with no https hint is found over https" \
+  contains "$(call dev_status '{"dir":"app"}')" "https://localhost:$fake_port answers (HTTP 200)"
+stop_fake_next
+start_fake_next
+printf '{"pid":%s,"port":%s,"hostname":"localhost","appUrl":"https://localhost:%s/","startedAt":0}' "$fake_pid" "$fake_port" "$fake_port" > "$tmp/project/app/.next/dev/lock"
+check "an http server whose lock says https is found over http" \
+  contains "$(call dev_status '{"dir":"app"}')" "http://localhost:$fake_port answers (HTTP 200)"
 stop_fake_next
 
 cat > "$tmp/silent-port.py" <<'PY'

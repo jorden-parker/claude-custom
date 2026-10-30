@@ -375,17 +375,21 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   port flag and `/_next/mcp` (Next.js 16+), and the session's own log; it never
   trusts a lock's URL. It keeps the scheme the server prints (an `https` log
   line, `--experimental-https` in the script, or an `https://` lock `appUrl`),
-  and probes https with certificate checks off, since the host is always
-  `localhost`. `dev_start` launches nothing while the lock's or the requested
-  script's port is held, even by a server too busy to answer HTTP; a held
-  framework default doesn't count, since the framework moves to the next port.
-  It stops only the servers its session started. The read-only tools are allowed
-  by full name (`mcp__dev__dev_status`, `dev_logs`, `dev_errors`, `page_check`,
+  tries the other scheme when a candidate does not answer, and probes https with
+  certificate checks off, since the host is always `localhost`. `page_check`
+  takes `path` on the probed server or `url`, a full `http(s)://` URL on
+  `localhost`, `127.0.0.1` or `[::1]` opened without probing. `dev_start`
+  launches nothing while the lock's or the requested script's port is held, even
+  by a server too busy to answer HTTP; a held framework default doesn't count,
+  since the framework moves to the next port. It stops only the servers its
+  session started. The read-only tools are allowed by full name
+  (`mcp__dev__dev_status`, `dev_logs`, `dev_errors`, `page_check`,
   `page_snapshot`, `page_act`; the page tools run `cmux browser repl` through
   `shared/mcp/page.js`, never a bare `cmux` command); `dev_start` and `dev_stop`
   still ask, and no bare `mcp__dev` may be allowed.
   `shared/hooks/dev-server-guard.py` (Ollama-only, PreToolUse on Bash) denies
-  `pnpm dev`-style starts and points the model at `dev_start`.
+  `pnpm dev`-style starts and points the model at `dev_start`, and denies `open`
+  on a loopback URL and points it at `page_check`.
 - `shared/mcp/repo-tools.py` is the `repo` MCP server the Ollama profiles start
   beside code-search and allow without a prompt (`mcp__repo` in
   `permissions.allow`; `bin/check-config` checks it and that

@@ -43,6 +43,15 @@ expect allow 'vitest run'
 expect allow 'echo pnpm dev'
 expect allow 'git commit -m "run pnpm dev"'
 expect allow 'grep -n "next dev" package.json'
+expect deny  'open http://localhost:4000'
+expect deny  'open https://127.0.0.1:4000/x'
+expect deny  'open "http://localhost:3000/settings"'
+expect deny  'pnpm build && open http://localhost:3000'
+expect deny  'xdg-open http://[::1]:5173/'
+expect allow 'open README.md'
+expect allow 'open https://github.com/anthropics/claude-code'
+expect allow 'curl -sf http://localhost:4000/health'
+expect allow 'echo open http://localhost:4000'
 
 if [ "$failures" -eq 0 ]; then
   echo "all passed"

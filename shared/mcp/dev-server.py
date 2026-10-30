@@ -14,6 +14,7 @@ import sys
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections import namedtuple
 from pathlib import Path, PurePath
@@ -47,6 +48,8 @@ LOCKFILES = [("pnpm-lock.yaml", "pnpm"), ("yarn.lock", "yarn"), ("bun.lockb", "b
 OUTSIDE_REPOSITORY = "paths must stay inside the repository"
 SCRIPT_RULE = "dev_start runs only dev, start or dev:* scripts"
 PATH_RULE = "path must start with a single /"
+URL_RULE = "url must start with http:// or https:// and name localhost, 127.0.0.1 or [::1]"
+LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
 CMUX_OFF = "the cmux browser is off (CLAUDE_OLLAMA_CMUX=0); relaunch without it. dev_errors still works."
 NO_CMUX = "no cmux browser: launch claude-ollama from a cmux terminal (cmux on PATH and CMUX_SOCKET_PATH set). dev_errors still works."
 REPL_TIMEOUT_MS = 60000
@@ -315,15 +318,27 @@ def http_status(url):
         return None
 
 
+def other_scheme(url):
+    if url.startswith("https://"):
+        return "http://" + url[len("https://"):]
+    return "https://" + url[len("http://"):]
+
+
+def either_scheme(candidate):
+    yield candidate
+    yield candidate._replace(url=other_scheme(candidate.url))
+
+
 def probe_dir(dir_text, script_text=None):
     tried = []
-    for candidate in dir_candidates(dir_text, script_text or dev_script_text(dir_text)):
-        if candidate.url in tried:
-            continue
-        tried.append(candidate.url)
-        status = http_status(candidate.url)
-        if status is not None:
-            return candidate, status, tried
+    for listed in dir_candidates(dir_text, script_text or dev_script_text(dir_text)):
+        for candidate in either_scheme(listed):
+            if candidate.url in tried:
+                continue
+            tried.append(candidate.url)
+            status = http_status(candidate.url)
+            if status is not None:
+                return candidate, status, tried
     return None, None, tried
 
 
@@ -626,6 +641,36 @@ def valid_path(path):
     return path.startswith("/") and not path.startswith("//") and "://" not in path
 
 
+def port_is_valid(parts):
+    try:
+        return parts.port is None or 1 <= parts.port <= 65535
+    except ValueError:
+        return False
+
+
+def loopback_origin(url_text):
+    parts = urllib.parse.urlsplit(url_text)
+    if parts.scheme not in ("http", "https") or parts.hostname not in LOOPBACK_HOSTS or "@" in parts.netloc:
+        return None
+    return f"{parts.scheme}://{parts.netloc}" if port_is_valid(parts) else None
+
+
+def page_target(arguments, dir_text):
+    url_text = arguments.text("url")
+    if url_text is not None:
+        origin = loopback_origin(url_text)
+        if origin is None:
+            raise ToolError(URL_RULE)
+        return origin, url_text
+    path = arguments.text("path") or "/"
+    if not valid_path(path):
+        raise ToolError(PATH_RULE)
+    candidate, _status, _tried = probe_dir(dir_text)
+    if candidate is None:
+        raise ToolError(NO_SERVER.format(dir_text))
+    return candidate.url, candidate.url + path
+
+
 def listing(items):
     return "\n".join(items) if items else "(none)"
 
@@ -653,17 +698,11 @@ def surface_lines(page):
 
 def page_check(arguments):
     dir_text = project_dir(arguments)
-    path = arguments.text("path") or "/"
-    if not valid_path(path):
-        raise ToolError(PATH_RULE)
     cmux_command()
-    candidate, _status, _tried = probe_dir(dir_text)
-    if candidate is None:
-        raise ToolError(NO_SERVER.format(dir_text))
-    url = candidate.url + path
-    BROWSER["origin"] = candidate.url
+    origin, url = page_target(arguments, dir_text)
+    BROWSER["origin"] = origin
     page = ask_browser({"op": "open", "url": url})
-    return "\n".join([f"Page: {url}", *surface_lines(page), *browser_sections(page, candidate.url)])
+    return "\n".join([f"Page: {url}", *surface_lines(page), *browser_sections(page, origin)])
 
 
 def page_snapshot(arguments):
@@ -748,8 +787,12 @@ TOOLS = [
     tool("dev_stop", "Stop a dev server this session started.", DIR_PROPERTY),
     tool(
         "page_check",
-        "Open or reload a page of the running dev server in the cmux browser and return its browser errors, console warnings and Next.js errors. Run after every UI change.",
-        {**DIR_PROPERTY, "path": text_property("Page path starting with a single / (default /)")},
+        "Open or reload a page of the running dev server in the cmux browser and return its browser errors, console warnings and Next.js errors. Run after every UI change. Use this, never Bash open, for local URLs.",
+        {
+            **DIR_PROPERTY,
+            "path": text_property("Page path starting with a single / (default /)"),
+            "url": text_property("Full local URL to open instead, such as https://127.0.0.1:4000/x, when dev_status does not find the server"),
+        },
     ),
     tool(
         "page_snapshot",
@@ -772,7 +815,7 @@ TOOL_HANDLERS = {
     "dev_logs": (dev_logs, ("dir", "errors_only", "lines")),
     "dev_errors": (dev_errors, ("dir",)),
     "dev_stop": (dev_stop, ("dir",)),
-    "page_check": (page_check, ("dir", "path")),
+    "page_check": (page_check, ("dir", "path", "url")),
     "page_snapshot": (page_snapshot, ()),
     "page_act": (page_act, ("action", "target", "text")),
 }

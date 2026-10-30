@@ -10,15 +10,30 @@ PACKAGE_MANAGERS = {"npm", "pnpm", "yarn", "bun"}
 PACKAGE_OPTIONS_WITH_VALUE = {"-C", "--dir", "--filter", "-F", "--prefix", "--cwd"}
 START_SCRIPTS = {"dev", "start"}
 VITE_SUBCOMMANDS = {"dev", "serve"}
+BROWSER_OPENERS = {"open", "xdg-open", "start"}
+LOOPBACK_URL = re.compile(r"^https?://(?:localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)(?::\d+)?(?:/|$)")
 REASON = (
     "Start dev servers with mcp__dev__dev_start: it runs the server in the background, "
     "returns the real URL and keeps the log. Check one with mcp__dev__dev_status; "
     "read errors with mcp__dev__dev_errors or mcp__dev__page_check."
 )
+OPEN_REASON = (
+    "Open local pages with mcp__dev__page_check (pass url for a full URL such as "
+    "https://127.0.0.1:4000/): it uses the cmux browser and returns the page's errors. "
+    "Then mcp__dev__page_snapshot lists its elements and mcp__dev__page_act drives them."
+)
 
 
 def segments(command):
     return SEGMENT_SEPARATOR.split(QUOTED_TEXT.sub("''", command))
+
+
+def unquoted(match):
+    return SEGMENT_SEPARATOR.sub(" ", match.group(0)[1:-1])
+
+
+def segments_with_quoted_words(command):
+    return SEGMENT_SEPARATOR.split(QUOTED_TEXT.sub(unquoted, command))
 
 
 def without_environment(words):
@@ -77,6 +92,13 @@ def starts_dev_server(segment):
     return is_framework_server(words)
 
 
+def opens_local_url(segment):
+    words = without_environment(segment.split())
+    if not words or words[0] not in BROWSER_OPENERS:
+        return False
+    return any(LOOPBACK_URL.match(word) for word in words[1:])
+
+
 def deny(reason):
     return {
         "hookSpecificOutput": {
@@ -92,6 +114,8 @@ def main():
     command = (payload.get("tool_input") or {}).get("command") or ""
     if any(starts_dev_server(segment) for segment in segments(command)):
         print(json.dumps(deny(REASON)))
+    elif any(opens_local_url(segment) for segment in segments_with_quoted_words(command)):
+        print(json.dumps(deny(OPEN_REASON)))
 
 
 if __name__ == "__main__":

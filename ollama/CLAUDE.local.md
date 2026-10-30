@@ -16,7 +16,8 @@
 - Reply in 10 lines or fewer unless asked for code.
 - Dev servers: mcp__dev__dev_status first and use the URL it returns; never
   guess a port. Start one with mcp__dev__dev_start, not Bash `pnpm dev`.
-- Test UI changes in the browser: mcp__dev__page_check opens the page,
+- Test UI changes in the browser: mcp__dev__page_check opens the page (pass url
+  for a full local URL such as https://127.0.0.1:4000/; never Bash open),
   mcp__dev__page_snapshot lists elements with refs, mcp__dev__page_act
   clicks/fills/presses by ref. Fix every error and warning they return.
 - Bash runs in a sandbox: it writes only this project and a temp dir, and
