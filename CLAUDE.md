@@ -19,10 +19,12 @@ four parts:
 - **Work harness** (`bin/claude-ollama`, `ollama/`, `go/cmd/model-picker/`):
   starts `claude` against a local Ollama server (`localhost:11434`) running Qwen
   3.8 27b or Qwen 3.6 35b. The overlay only applies to that launch.
-  `claude-ollama qwen [size]` runs Qwen Code on the same model and MCP servers,
-  without a sandbox, with `~/.claude-ollama/qwen` as its `QWEN_HOME`;
-  `qwen doctor [size]` checks that setup. Its settings come from
-  `ollama/qwen-settings.template.json` and `ollama/QWEN.local.md` (see
+  `claude-ollama qwen [size]` runs Qwen Code on the same model and MCP servers
+  inside macOS Seatbelt (`ollama/qwen-sandbox.sb`, copied to the project's
+  `.qwen/sandbox-macos-claude-ollama.sb` and excluded from git at each launch;
+  `QWEN_SANDBOX=sandbox-exec`, never `SANDBOX`), with `~/.claude-ollama/qwen` as
+  its `QWEN_HOME`; `qwen doctor [size]` checks that setup. Its settings come
+  from `ollama/qwen-settings.template.json` and `ollama/QWEN.local.md` (see
   `docs/ollama.md`). `go/cmd/model-picker/` is a Go/Bubble Tea menu for choosing
   the size.
 - **Tools TUI** (`go/cmd/claude-tools/`): a Go/Bubble Tea app that edits the
@@ -329,15 +331,16 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   backstop. `bin/check-config` fails when the Ollama deny lists differ. A local
   model's weights are not trusted, so Bash runs in Claude Code's own sandbox,
   configured by the `sandbox` block in `ollama/profile-template.json` (rendered
-  per size). Sandboxed commands write only the project and a temp dir, reach
-  only `github.com`, `registry.npmjs.org` and local ports, and cannot read
-  credentials or `~/.claude`. `bin/check-config` asserts the block's exact
-  values, and a misspelled key is silently ignored, so the check must change
-  with the block. `excludedCommands` (`cmux`, `gh`, `short`, `git push`) run
-  outside the sandbox, each after the `Bash` prompt. The profiles set
-  `sandbox.enabled` and `autoAllowBashIfSandboxed: false`, so the `Bash` prompt
-  holds for sandboxed commands too. The profiles also ask before every Bash
-  command, commit and push (`permissions.ask`, which includes
+  per size). Sandboxed commands write the project, a temp dir and the pnpm, npm,
+  Go, pip and `~/.cache` caches (never `~/.cache/claude-custom`), reach loopback
+  addresses, `github.com`, the npm, Go and PyPI registries and GitHub downloads,
+  and cannot read credentials or `~/.claude`. `bin/check-config` asserts the
+  block's exact values, and a misspelled key is silently ignored, so the check
+  must change with the block. `excludedCommands` (`cmux`, `gh`, `short`,
+  `git push`) run outside the sandbox, each after the `Bash` prompt. The
+  profiles set `sandbox.enabled` and `autoAllowBashIfSandboxed: false`, so the
+  `Bash` prompt holds for sandboxed commands too. The profiles also ask before
+  every Bash command, commit and push (`permissions.ask`, which includes
   `Bash(dangerouslyDisableSandbox:true)`); `bin/check-config` checks both. The
   profiles also set `CLAUDE_CODE_EXTRA_BODY` to
   `{"thinking":{"type":"disabled"}}` so Ollama skips reasoning;
@@ -347,7 +350,9 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   also denies unused tools by bare name (`Artifact`, `Workflow`,
   `ScheduleWakeup`, `SendFeedback` and the deferred ones), since a bare deny
   removes the tool's schema from the request; `bin/check-config` fails when an
-  Ollama profile lacks one of those bare denies.
+  Ollama profile lacks one of those bare denies. The personal overlay's sandbox
+  allows the same caches and loopback addresses; `bin/check-config` checks they
+  match the Ollama profiles.
 - `bin/claude-ollama` resolves its own symlink to find `ollama/`. It unsets
   `ANTHROPIC_API_KEY`, passes `--settings ollama/settings.<size>.json`,
   `--system-prompt-file ollama/system-prompt.md` (replacing Claude Code's

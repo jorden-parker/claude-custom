@@ -3,7 +3,23 @@
   "promptSuggestionEnabled": false,
   "skillListingMaxDescChars": 300,
   "sandbox": {
-    "enabled": true
+    "enabled": true,
+    "network": {
+      "allowedDomains": ["127.0.0.1", "[::1]"],
+      "allowLocalBinding": true
+    },
+    "filesystem": {
+      "allowWrite": [
+        "~/.npm",
+        "~/.cache",
+        "~/Library/pnpm",
+        "~/Library/Caches/pnpm",
+        "~/Library/Caches/go-build",
+        "~/Library/Caches/pip",
+        "~/go/pkg/mod"
+      ],
+      "denyWrite": ["~/.cache/claude-custom"]
+    }
   },
   "env": {
     "MAX_MCP_OUTPUT_TOKENS": "10000",

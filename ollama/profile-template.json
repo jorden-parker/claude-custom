@@ -78,10 +78,31 @@
     "autoAllowBashIfSandboxed": false,
     "excludedCommands": ["cmux *", "gh *", "short *", "git push *"],
     "network": {
-      "allowedDomains": ["github.com", "registry.npmjs.org"],
+      "allowedDomains": [
+        "github.com",
+        "registry.npmjs.org",
+        "127.0.0.1",
+        "[::1]",
+        "proxy.golang.org",
+        "sum.golang.org",
+        "pypi.org",
+        "files.pythonhosted.org",
+        "objects.githubusercontent.com",
+        "codeload.github.com"
+      ],
       "allowLocalBinding": true
     },
     "filesystem": {
+      "allowWrite": [
+        "~/.npm",
+        "~/.cache",
+        "~/Library/pnpm",
+        "~/Library/Caches/pnpm",
+        "~/Library/Caches/go-build",
+        "~/Library/Caches/pip",
+        "~/go/pkg/mod"
+      ],
+      "denyWrite": ["~/.cache/claude-custom"],
       "denyRead": [
         "~/.ssh",
         "~/.aws",
