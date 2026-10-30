@@ -202,10 +202,15 @@ pip, uv, yarn and bun at caches under `~/.cache/claude-sandbox`, so `go test`
 and `pnpm install` work inside the sandbox while the caches your own shell and
 the hooks execute from (`~/.npm/_npx`, `~/Library/pnpm`, `~/go/pkg/mod`,
 `~/.cache/claude-custom`, which holds the Stop hook's log and the machine copy
-of the personal overlay) stay unwritable. Sandboxed commands run without a
-prompt (`autoAllowBashIfSandboxed: true`), which is what lets a skill's `!`
-commands such as `git status` run; `git commit`, `git push` and
-`Bash(dangerouslyDisableSandbox:true)`, a retry outside the sandbox, still ask.
+of the personal overlay) stay unwritable. Hooks and the MCP servers run outside
+the sandbox through `shared/host-env`, which drops those cache variables again,
+so a hook's `go test` or `npx fallow` never executes from the sandbox's cache (a
+`GOMODCACHE` of your own is dropped with them for that one process). Sandboxed
+commands run without a prompt (`autoAllowBashIfSandboxed: true`), which is what
+lets a skill's `!` commands such as `git status` run; `git commit`, `git push`
+and `Bash(dangerouslyDisableSandbox:true)`, a retry outside the sandbox, still
+ask, and `git-push-guard.py` denies a push written as `git -C`, `--git-dir` or a
+path to `git`, which that ask would miss.
 
 Four command families run outside the sandbox through `excludedCommands`:
 `cmux`, `gh`, `short` and `git push`. Each still prompts. MCP servers and hooks

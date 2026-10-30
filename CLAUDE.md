@@ -312,14 +312,18 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   tool unlocks text search for the turn even when it errors, so a dead server
   can't lock the model out.
 - All settings files (`personal/settings.tokens.json`, `ollama/settings.*.json`)
-  run hooks as `"$CLAUDE_CUSTOM_HOME"/shared/hooks/<name>`. Hook commands go
-  through a shell, so the variable expands. `personal/claude.sh` and
-  `personal/claude.fish` pass it to `claude` with `env` (the rc block defines it
-  unexported), and `bin/claude-ollama` exports it from its own `repo_dir`.
-  Nothing is linked into `~/.claude/hooks`; `install` and `uninstall` remove
-  links there that point into `shared/hooks/` (`remove_stale_hook_links`).
-  `personal/install.test.sh` checks every hook command resolves to an executable
-  in `shared/hooks/`.
+  run hooks as
+  `"$CLAUDE_CUSTOM_HOME"/shared/host-env "$CLAUDE_CUSTOM_HOME"/shared/hooks/<name>`,
+  and `bin/claude-ollama` starts its MCP servers through `shared/host-env` too:
+  it unsets the cache variables `shared/sandbox-env` set, so nothing a hook or
+  server runs (`go test`, `npx fallow`) executes from the sandbox-writable cache
+  (`bin/check-config` checks both). Hook commands go through a shell, so the
+  variable expands. `personal/claude.sh` and `personal/claude.fish` pass it to
+  `claude` with `env` (the rc block defines it unexported), and
+  `bin/claude-ollama` exports it from its own `repo_dir`. Nothing is linked into
+  `~/.claude/hooks`; `install` and `uninstall` remove links there that point
+  into `shared/hooks/` (`remove_stale_hook_links`). `personal/install.test.sh`
+  checks every hook command resolves to an executable in `shared/hooks/`.
 - The Read `permissions.deny` globs and the `hooks` block live in
   `shared/settings/read-deny.json` and `shared/settings/hooks.json`;
   `bin/ollama-profiles` splices them into every rendered settings file
@@ -352,13 +356,15 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `{"thinking":{"type":"disabled"}}` so Ollama skips reasoning;
   `bin/check-config` checks it. `shared/hooks/git-push-guard.py` (Ollama-only,
   PreToolUse on Bash) denies force pushes, remote deletes, `--mirror`,
-  `--prune`, `-c alias.*` and pushes to `main` or `master`. The personal overlay
-  also denies unused tools by bare name (`Artifact`, `Workflow`,
-  `ScheduleWakeup`, `SendFeedback` and the deferred ones), since a bare deny
-  removes the tool's schema from the request; `bin/check-config` fails when an
-  Ollama profile lacks one of those bare denies. The personal overlay's sandbox
-  allows the same caches and loopback addresses; `bin/check-config` checks they
-  match the Ollama profiles.
+  `--prune`, `-c alias.*`, pushes to `main` or `master`, and any push not
+  spelled `git push ...` at the head of a command (`-C`, `--git-dir`, a path to
+  `git`), which the `Bash(git push *)` ask rule and `excludedCommands` would
+  otherwise miss. The personal overlay also denies unused tools by bare name
+  (`Artifact`, `Workflow`, `ScheduleWakeup`, `SendFeedback` and the deferred
+  ones), since a bare deny removes the tool's schema from the request;
+  `bin/check-config` fails when an Ollama profile lacks one of those bare
+  denies. The personal overlay's sandbox allows the same caches and loopback
+  addresses; `bin/check-config` checks they match the Ollama profiles.
 - `bin/claude-ollama` resolves its own symlink to find `ollama/`. It unsets
   `ANTHROPIC_API_KEY`, passes `--settings ollama/settings.<size>.json`,
   `--system-prompt-file ollama/system-prompt.md` (replacing Claude Code's

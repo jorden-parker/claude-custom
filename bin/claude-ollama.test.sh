@@ -250,7 +250,7 @@ rm -f "$sandbox/curl.log"
 OLLAMA_HOST=http://box:1 run_capture "$repo/bin/claude-ollama" 35b -p hi
 check_that "claude-ollama warm-up follows OLLAMA_HOST" grep -q 'box:1/api/generate' "$sandbox/curl.log"
 check_not "claude-ollama 35b skips pull when the model exists" grep -sqE '^(pull|create) ' "$sandbox/ollama.log"
-check_that "claude-ollama starts the code-search, repo and dev MCP servers" grep -qF -- "--strict-mcp-config --mcp-config {\"mcpServers\":{\"code-search\":{\"command\":\"python3\",\"args\":[\"$repo/shared/mcp/code-search.py\"]},\"repo\":{\"command\":\"python3\",\"args\":[\"$repo/shared/mcp/repo-tools.py\"]},\"dev\":{\"command\":\"python3\",\"args\":[\"$repo/shared/mcp/dev-server.py\"]}}}" "$sandbox/out"
+check_that "claude-ollama starts the code-search, repo and dev MCP servers" grep -qF -- "--strict-mcp-config --mcp-config {\"mcpServers\":{\"code-search\":{\"command\":\"$repo/shared/host-env\",\"args\":[\"python3\",\"$repo/shared/mcp/code-search.py\"]},\"repo\":{\"command\":\"$repo/shared/host-env\",\"args\":[\"python3\",\"$repo/shared/mcp/repo-tools.py\"]},\"dev\":{\"command\":\"$repo/shared/host-env\",\"args\":[\"python3\",\"$repo/shared/mcp/dev-server.py\"]}}}" "$sandbox/out"
 rm -f "$sandbox/python.log"
 run_capture "$repo/bin/claude-ollama" 35b -p hi
 sleep 1

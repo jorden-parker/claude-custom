@@ -47,6 +47,11 @@ expect deny  'git push origin HEAD:refs/heads/master'
 expect deny  'git status; git push -f'
 expect deny  'git -C . push --force'
 expect deny  'git -c alias.ship=push ship'
+expect deny  'git -C . push origin feature'
+expect deny  'git --git-dir=.git push origin feature'
+expect deny  '/usr/bin/git push origin feature'
+expect allow 'git -C . status'
+expect allow '/usr/bin/git status'
 
 git -C "$repo" switch -q -c main
 expect deny  'git push'

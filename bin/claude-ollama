@@ -206,8 +206,10 @@ prepare_embedding() {
 }
 
 mcp_config() {
-  printf '{"mcpServers":{"code-search":{"command":"python3","args":["%s"]},"repo":{"command":"python3","args":["%s"]},"dev":{"command":"python3","args":["%s"]}}}' \
-    "$repo_dir/shared/mcp/code-search.py" "$repo_dir/shared/mcp/repo-tools.py" "$repo_dir/shared/mcp/dev-server.py"
+  printf '{"mcpServers":{"code-search":{"command":"%s","args":["python3","%s"]},"repo":{"command":"%s","args":["python3","%s"]},"dev":{"command":"%s","args":["python3","%s"]}}}' \
+    "$repo_dir/shared/host-env" "$repo_dir/shared/mcp/code-search.py" \
+    "$repo_dir/shared/host-env" "$repo_dir/shared/mcp/repo-tools.py" \
+    "$repo_dir/shared/host-env" "$repo_dir/shared/mcp/dev-server.py"
 }
 
 warm_model() {

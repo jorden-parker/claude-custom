@@ -1,0 +1,10 @@
+#!/bin/sh
+set -u
+if [ "$#" -eq 0 ]; then
+  echo "usage: host-env COMMAND [ARG...]: run COMMAND with your own package caches, not the sandbox's" >&2
+  exit 2
+fi
+if [ -n "${CLAUDE_SANDBOX_CACHE_DIR:-}" ]; then
+  unset GOMODCACHE GOCACHE npm_config_cache npm_config_store_dir npm_config_cache_dir npm_config_state_dir PIP_CACHE_DIR UV_CACHE_DIR YARN_CACHE_FOLDER BUN_INSTALL_CACHE_DIR
+fi
+exec "$@"

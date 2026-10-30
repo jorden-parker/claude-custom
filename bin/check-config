@@ -167,6 +167,13 @@ check_eq "claude-ollama runs claude and qwen through shared/sandbox-env" 2 \
   "$(grep -cF "exec \"\$repo_dir/shared/sandbox-env\" " "$repo/bin/claude-ollama")"
 check_eq "personal/launch runs claude through shared/sandbox-env" 1 \
   "$(grep -cF "exec \"\$repo_dir/shared/sandbox-env\" claude " "$repo/personal/launch")"
+check_eq "shared/host-env unsets every cache variable shared/sandbox-env sets, so hooks and MCP servers use your own caches" \
+  "$(sed -n 's/^export \([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p' "$repo/shared/sandbox-env" | grep -v '^CLAUDE_SANDBOX_CACHE_DIR$' | sort | tr '\n' ' ')" \
+  "$(sed -n 's/^ *unset //p' "$repo/shared/host-env" | tr ' ' '\n' | sort | tr '\n' ' ')"
+check_eq "every hook command runs through shared/host-env" 0 \
+  "$(jq -r '.[][].hooks[].command' "$repo/shared/settings/hooks.json" "$repo/ollama/hooks.extra.json" | grep -vcF "/shared/host-env \"\$CLAUDE_CUSTOM_HOME\"/shared/hooks/")"
+check_eq "claude-ollama starts its three MCP servers through shared/host-env" 3 \
+  "$(grep -oF "\"\$repo_dir/shared/host-env\" " "$repo/bin/claude-ollama" | wc -l | tr -d ' ')"
 
 denies_tool() {
   jq -e --arg tool "$2" '.permissions.deny | index($tool) != null' "$1" >/dev/null

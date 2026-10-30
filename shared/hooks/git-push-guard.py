@@ -16,7 +16,8 @@ REWRITING_SHORT_FLAGS = set("fd")
 PROTECTED_BRANCHES = {"main", "master"}
 REASON = (
     "claude-ollama does not let the model force-push, delete remote branches, mirror or prune, "
-    "or push to main or master. Push your branch normally and open a pull request."
+    "or push to main or master, and a push must be spelled `git push ...` at the start of a command "
+    "(no -C, --git-dir or path to git), so it asks first. Push your branch normally and open a pull request."
 )
 
 
@@ -24,24 +25,27 @@ def segments(command):
     return SEGMENT_SEPARATOR.split(QUOTED_TEXT.sub("''", command))
 
 
+def names_git(word):
+    return word == "git" or word.endswith("/git")
+
+
 def git_subcommand(words):
-    if not words or words[0] != "git":
-        return None, None, []
-    index, directory = 1, None
+    if not words or not names_git(words[0]):
+        return None, False, []
+    index = 1
     while index < len(words) and words[index].startswith("-"):
         option = words[index]
         if option in GIT_OPTIONS_WITH_VALUE:
             value = words[index + 1] if index + 1 < len(words) else ""
             if option == "-c" and value.startswith("alias."):
-                return "alias", None, []
-            if option == "-C":
-                directory = value
+                return "alias", False, []
             index += 2
         else:
             index += 1
     if index >= len(words):
-        return None, None, []
-    return words[index], directory, words[index + 1:]
+        return None, False, []
+    plain = words[0] == "git" and index == 1
+    return words[index], plain, words[index + 1:]
 
 
 def push_arguments(arguments):
@@ -87,12 +91,12 @@ def push_is_refused(arguments, directory):
 
 
 def segment_is_refused(segment, cwd):
-    subcommand, directory, arguments = git_subcommand(segment.split())
+    subcommand, plain, arguments = git_subcommand(segment.split())
     if subcommand == "alias":
         return True
     if subcommand != "push":
         return False
-    return push_is_refused(arguments, os.path.join(cwd, directory or "."))
+    return not plain or push_is_refused(arguments, cwd)
 
 
 def deny(reason):
