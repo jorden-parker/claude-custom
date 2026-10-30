@@ -1099,8 +1099,41 @@ follow_logs() {
   exec tail -n "$lines" -F "$path"
 }
 
+console_answers() {
+  curl -s -o /dev/null --max-time 2 "http://127.0.0.1:$1/health"
+}
+
 remove_console_files() {
+  console_answers "${served_port:-}" && return 0
   rm -f "${web_url_file:-}" "${console_token_file:-}"
+}
+
+new_console_token() {
+  od -An -N24 -tx1 /dev/urandom | tr -d ' \n'
+}
+
+write_console_token_file() {
+  local port="$1" token="$2"
+  console_token_file="$console_state_dir/tokens/$port"
+  (umask 077; mkdir -p "$console_state_dir"; chmod 700 "$console_state_dir"; rm -f "$console_state_dir/token"; mkdir -p "$console_state_dir/tokens"; chmod 700 "$console_state_dir/tokens"; rm -f "$console_token_file"; printf '%s\n' "$token" > "$console_token_file")
+}
+
+write_console_files() {
+  local port="$1" token="$2"
+  mkdir -p "$review_log_dir"
+  web_url_file="$review_log_dir/.web-url"
+  (umask 077; rm -f "$web_url_file"; printf '%s\n' "http://127.0.0.1:$port/?token=$token" > "$web_url_file")
+  write_console_token_file "$port" "$token"
+}
+
+show_running_console() {
+  local port="$1" label="$2" page="$3" token
+  token="$(cat "$console_state_dir/tokens/$port" 2>/dev/null || true)"
+  if [ -z "$token" ]; then
+    token="$(new_console_token)"
+    write_console_token_file "$port" "$token"
+  fi
+  echo "claude-ollama: $label already running at http://127.0.0.1:$port$page?token=$token"
 }
 
 reviews_build_needed() {
@@ -1116,7 +1149,7 @@ console_install_needed() {
 }
 
 serve_console() {
-  local command_name="$1" label="$2" page="$3" port="$console_port" web_dir url page_url token project_dir
+  local command_name="$1" label="$2" page="$3" port="$console_port" web_dir page_url token project_dir
   project_dir="$(pwd -P)"
   shift 3
   while [ $# -gt 0 ]; do
@@ -1137,6 +1170,10 @@ serve_console() {
       exit 2
       ;;
   esac
+  if console_answers "$port"; then
+    show_running_console "$port" "$label" "$page"
+    exit 0
+  fi
   if ! command -v pnpm >/dev/null 2>&1; then
     echo "claude-ollama: pnpm is required for the reviews page (brew install pnpm)" >&2
     exit 1
@@ -1148,14 +1185,10 @@ serve_console() {
   if reviews_build_needed "$web_dir"; then
     pnpm --dir "$web_dir" build || exit 1
   fi
-  token="$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')"
-  url="http://127.0.0.1:$port/?token=$token"
+  token="$(new_console_token)"
+  served_port="$port"
   page_url="http://127.0.0.1:$port$page?token=$token"
-  mkdir -p "$review_log_dir"
-  web_url_file="$review_log_dir/.web-url"
-  (umask 077; rm -f "$web_url_file"; printf '%s\n' "$url" > "$web_url_file")
-  console_token_file="$console_state_dir/tokens/$port"
-  (umask 077; mkdir -p "$console_state_dir"; chmod 700 "$console_state_dir"; rm -f "$console_state_dir/token"; mkdir -p "$console_state_dir/tokens"; chmod 700 "$console_state_dir/tokens"; rm -f "$console_token_file"; printf '%s\n' "$token" > "$console_token_file")
+  write_console_files "$port" "$token"
   trap remove_console_files EXIT INT TERM
   echo "claude-ollama: $label at $page_url"
   CONSOLE_TOKEN_FILE="$console_token_file" CLAUDE_CUSTOM_HOME="$repo_dir" CLAUDE_CONSOLE_STATE_DIR="$console_state_dir" CLAUDE_CUSTOM_CHANGE_SOURCE=console CONSOLE_PROJECT_DIR="$project_dir" \

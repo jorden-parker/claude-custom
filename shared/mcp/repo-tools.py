@@ -4,7 +4,7 @@ import subprocess
 from pathlib import PurePath
 
 from broker_client import BrokerMissing, ask_broker
-from draft_store import DRAFT_TOOL_NAMES, DRAFT_TOOLS, DraftRefused, draft_pr, draft_review, drafts_dir
+from draft_store import DRAFT_TOOL_NAMES, DRAFT_TOOLS, DraftRefused, draft_open, draft_pr, draft_review, drafts_dir
 from mcp_stdio import serve, tool_result
 
 GIT_TIMEOUT_SECONDS = 60
@@ -253,8 +253,10 @@ def current_branch():
 
 
 def run_draft_tool(name, arguments):
-    project = run_git(["rev-parse", "--show-toplevel"]).strip()
     try:
+        if name == "draft_open":
+            return draft_open(arguments)
+        project = run_git(["rev-parse", "--show-toplevel"]).strip()
         if name == "draft_pr":
             return draft_pr(arguments, project, current_branch())
         return draft_review(arguments, project)

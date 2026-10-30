@@ -102,6 +102,8 @@ SH
 cat > "$tmp/claude-ollama" <<SH
 #!/bin/sh
 printf '%s\n' "\$*" >> "$tmp/start.log"
+printf '%s\n' "$token" > "$tmp/state/tokens/token"
+[ -e "$tmp/console-already-up" ] && exit 0
 exec python3 "$tmp/console.py" "$port_file"
 SH
 chmod +x "$tmp/open" "$tmp/cmux" "$tmp/claude-ollama"
@@ -130,7 +132,7 @@ write_draft() {
 
 reset() {
   stop_all
-  rm -rf "$tmp/drafts" "$tmp/state" "$tmp"/*.log "$tmp/opened-pages"
+  rm -rf "$tmp/drafts" "$tmp/state" "$tmp"/*.log "$tmp/opened-pages" "$tmp/console-already-up"
   mkdir -p "$tmp/drafts" "$tmp/state/tokens"
   printf '%s\n' "$token" > "$tmp/state/tokens/token"
 }
@@ -189,6 +191,45 @@ watched_pid=""
 check "the opener exits when the session does" eventually sh -c "! kill -0 $opener_pid 2>/dev/null"
 wait "$opener_pid" 2>/dev/null
 opener_pid=""
+
+reset
+start_console
+touch "$tmp/console-already-up"
+rm -f "$tmp/state/tokens/token"
+start_opener "$(cat "$port_file")" --open "$tmp/open"
+write_draft 20261029-140000-pr-healed
+check "a console that lost its token is restarted once" eventually has_lines "$tmp/start.log" 1
+check "and the draft opens once the token is back" eventually has_lines "$tmp/open.log" 1
+
+reset
+start_console
+write_draft 20261029-150000-pr-again
+start_opener "$(cat "$port_file")" --open "$tmp/open"
+touch "$tmp/drafts/20261029-150000-pr-again.open"
+check "a request for a draft that already existed opens it" eventually has_lines "$tmp/open.log" 1
+check "and the request file is removed" eventually test ! -e "$tmp/drafts/20261029-150000-pr-again.open"
+
+reset
+start_console
+start_opener "$(cat "$port_file")" --open "$tmp/open"
+touch "$tmp/drafts/20261029-160000-pr-missing.open"
+check "a request for a draft that is not saved is dropped" eventually test ! -e "$tmp/drafts/20261029-160000-pr-missing.open"
+check "and opens nothing" has_lines "$tmp/open.log" 0
+
+reset
+start_console
+start_opener "$(cat "$port_file")" --open "$tmp/open"
+touch "$tmp/drafts/not-a-draft.open"
+sleep 0.5
+check "a request with a name that is not a draft id opens nothing" has_lines "$tmp/open.log" 0
+
+reset
+start_console
+start_opener "$(cat "$port_file")" --open "$tmp/open"
+mkdir "$tmp/drafts/20261029-170000-pr-dir.open"
+write_draft 20261029-170001-pr-after
+check "a directory named like a request does not stop the opener" eventually has_lines "$tmp/open.log" 1
+
 stop_all
 
 if [ "$failures" -eq 0 ]; then

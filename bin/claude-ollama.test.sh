@@ -143,6 +143,7 @@ EOF
 #!/bin/sh
 arguments="\$*"
 echo "\$arguments" >> "$sandbox/curl.log"
+case "\$arguments" in */health*) [ -e "$sandbox/console-running" ] && exit 0; exit 7 ;; esac
 output=""
 while [ \$# -gt 0 ]; do
   [ "\$1" = -o ] && output="\$2"
@@ -724,6 +725,7 @@ check_not "doctor does not apply server.env" grep -sqxF -- "-apply" "$sandbox/ag
 export PNPM_LOG="$sandbox/pnpm.log"
 export PR_REVIEW_LOG_DIR="$sandbox/reviews"
 export CLAUDE_CONSOLE_STATE_DIR="$sandbox/console"
+export CONSOLE_RUNNING_MARKER="$sandbox/console-running"
 web="$sandbox/web"
 mkdir -p "$web/src"
 printf '{}\n' > "$web/package.json"
@@ -737,6 +739,7 @@ case "$3" in
   build) mkdir -p "$2/.next" && touch "$2/.next/BUILD_ID" ;;
   install) mkdir -p "$2/node_modules" && touch "$2/node_modules/.modules.yaml" ;;
   exec)
+    [ -z "${STUB_CONSOLE_RACE_LOST:-}" ] || touch "$CONSOLE_RUNNING_MARKER"
     cat "$PR_REVIEW_LOG_DIR/.web-url" >> "$PNPM_LOG" 2>/dev/null || true
     ls -l "$PR_REVIEW_LOG_DIR/.web-url" 2>/dev/null | cut -c1-10 >> "$PNPM_LOG"
     echo "TOKEN: ${PR_REVIEW_TOKEN:-unset}" >> "$PNPM_LOG"
@@ -792,6 +795,30 @@ check_that "the tokens folder is owner-only" grep -qxF -- "STATE_MODE: drwx-----
 check_not "ui removes its port's console token file after it exits" test -e "$CLAUDE_CONSOLE_STATE_DIR/tokens/8811"
 check_that "ui leaves another console's token file alone" grep -qxF "other-console-token" "$CLAUDE_CONSOLE_STATE_DIR/tokens/8812"
 check_not "ui removes the legacy shared token file" test -e "$CLAUDE_CONSOLE_STATE_DIR/token"
+rm -f "$CONSOLE_RUNNING_MARKER" "$PNPM_LOG"
+mkdir -p "$CLAUDE_CONSOLE_STATE_DIR/tokens"
+printf 'running-token\n' > "$CLAUDE_CONSOLE_STATE_DIR/tokens/9001"
+touch "$CONSOLE_RUNNING_MARKER"
+run_capture "$repo/bin/claude-ollama" ui --port 9001
+check_eq "a second ui exits 0 when a console already answers" 0 "$?"
+check_not "a second ui starts no pnpm command" grep -q '^PNPM:' "$PNPM_LOG"
+check_that "a second ui keeps the running console's token" grep -qxF "running-token" "$CLAUDE_CONSOLE_STATE_DIR/tokens/9001"
+check_that "a second ui prints the running console's tokened link" grep -qF "http://127.0.0.1:9001/?token=running-token" "$sandbox/out"
+rm -f "$PNPM_LOG"
+run_capture "$repo/bin/claude-ollama" reviews --port 9001
+check_eq "a second reviews exits 0 when a console already answers" 0 "$?"
+check_that "a second reviews prints the running console's tokened reviews link" grep -qF "http://127.0.0.1:9001/reviews?token=running-token" "$sandbox/out"
+rm -f "$CONSOLE_RUNNING_MARKER" "$CLAUDE_CONSOLE_STATE_DIR/tokens/9001"
+touch "$CONSOLE_RUNNING_MARKER"
+run_capture "$repo/bin/claude-ollama" ui --port 9001
+check_eq "a lost token does not stop a second ui" 0 "$?"
+check_that "a lost token is replaced by a 48-hex token" grep -qE '^[0-9a-f]{48}$' "$CLAUDE_CONSOLE_STATE_DIR/tokens/9001"
+check_that "the replacement token file is owner-only" test -n "$(find "$CLAUDE_CONSOLE_STATE_DIR/tokens/9001" -perm 600)"
+check_that "the replacement token is printed" grep -qF "$(cat "$CLAUDE_CONSOLE_STATE_DIR/tokens/9001")" "$sandbox/out"
+rm -f "$CONSOLE_RUNNING_MARKER" "$CLAUDE_CONSOLE_STATE_DIR/tokens/9002" "$PNPM_LOG"
+STUB_CONSOLE_RACE_LOST=1 run_capture "$repo/bin/claude-ollama" ui --port 9002
+check_that "a start that loses the port race keeps the token file the running console reads" test -e "$CLAUDE_CONSOLE_STATE_DIR/tokens/9002"
+rm -f "$CONSOLE_RUNNING_MARKER"
 run_capture "$repo/bin/claude-ollama" ui --port abc
 check_eq "ui rejects a port that is not a number" 2 "$?"
 check_that "ui names itself when the port is not a number" grep -qxF "claude-ollama ui: --port needs a number" "$sandbox/err"

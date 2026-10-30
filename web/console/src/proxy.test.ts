@@ -10,7 +10,11 @@ const PAGE = "http://127.0.0.1:8765/reviews/20261021-174512-pr-7";
 
 let tokenDir: string;
 
-function requestFor(url: string, cookie?: string, host = "127.0.0.1:8765"): NextRequest {
+function requestFor(
+  url: string,
+  cookie?: string,
+  host = "127.0.0.1:8765",
+): NextRequest {
   const headers: Record<string, string> = { host };
   if (cookie !== undefined) {
     headers.cookie = `console_token=${cookie}`;
@@ -19,11 +23,17 @@ function requestFor(url: string, cookie?: string, host = "127.0.0.1:8765"): Next
 }
 
 function writeRequestFor(origin: string | undefined): NextRequest {
-  const headers: Record<string, string> = { host: "127.0.0.1:8765", cookie: `console_token=${TOKEN}` };
+  const headers: Record<string, string> = {
+    host: "127.0.0.1:8765",
+    cookie: `console_token=${TOKEN}`,
+  };
   if (origin !== undefined) {
     headers.origin = origin;
   }
-  return new NextRequest("http://127.0.0.1:8765/api/runs", { method: "POST", headers });
+  return new NextRequest("http://127.0.0.1:8765/api/runs", {
+    method: "POST",
+    headers,
+  });
 }
 
 beforeEach(() => {
@@ -43,6 +53,10 @@ describe("proxy token gate", () => {
     expect(proxy(requestFor(PAGE)).status).toBe(401);
   });
 
+  it("tells the refused reader how to get in", async () => {
+    expect(await proxy(requestFor(PAGE)).text()).toContain("claude-ollama ui");
+  });
+
   it("refuses a wrong token in the link", () => {
     expect(proxy(requestFor(`${PAGE}?token=not-the-token`)).status).toBe(401);
   });
@@ -57,16 +71,24 @@ describe("proxy token gate", () => {
 
   it("keeps other query parameters in the hop, escaped for the attribute", async () => {
     const response = proxy(requestFor(`${PAGE}?a=1&token=${TOKEN}&b='2`));
-    expect(await response.text()).toContain(`content="0;url=${PAGE}?a=1&amp;b=%272"`);
+    expect(await response.text()).toContain(
+      `content="0;url=${PAGE}?a=1&amp;b=%272"`,
+    );
   });
 
   it("hops to the host the browser asked for, so a path of two slashes stays on it", async () => {
-    const response = proxy(requestFor(`http://127.0.0.1:8765//evil.test/?token=${TOKEN}`));
-    expect(await response.text()).toContain('content="0;url=http://127.0.0.1:8765//evil.test/"');
+    const response = proxy(
+      requestFor(`http://127.0.0.1:8765//evil.test/?token=${TOKEN}`),
+    );
+    expect(await response.text()).toContain(
+      'content="0;url=http://127.0.0.1:8765//evil.test/"',
+    );
   });
 
   it("sets an HttpOnly SameSite=Strict cookie when the tokened link is accepted", () => {
-    const cookie = proxy(requestFor(`${PAGE}?token=${TOKEN}`)).headers.get("set-cookie") ?? "";
+    const cookie =
+      proxy(requestFor(`${PAGE}?token=${TOKEN}`)).headers.get("set-cookie") ??
+      "";
     expect(cookie).toContain(`console_token=${TOKEN}`);
     expect(cookie).toMatch(/HttpOnly/i);
     expect(cookie).toMatch(/SameSite=strict/i);
@@ -96,15 +118,29 @@ describe("proxy token gate", () => {
 
 describe("proxy host gate", () => {
   it("answers 403 to a request whose Host is a rebound domain, even with the token", () => {
-    expect(proxy(requestFor(`${PAGE}?token=${TOKEN}`, undefined, "attacker.example:8765")).status).toBe(403);
+    expect(
+      proxy(
+        requestFor(
+          `${PAGE}?token=${TOKEN}`,
+          undefined,
+          "attacker.example:8765",
+        ),
+      ).status,
+    ).toBe(403);
   });
 
   it("answers 403 to a request without a loopback Host", () => {
-    expect(proxy(requestFor(PAGE, TOKEN, "192.168.1.20:8765")).status).toBe(403);
+    expect(proxy(requestFor(PAGE, TOKEN, "192.168.1.20:8765")).status).toBe(
+      403,
+    );
   });
 
   it("lets a tokened request addressed to localhost through", () => {
-    expect(proxy(requestFor(PAGE, TOKEN, "localhost:8765")).headers.get("x-middleware-next")).toBe("1");
+    expect(
+      proxy(requestFor(PAGE, TOKEN, "localhost:8765")).headers.get(
+        "x-middleware-next",
+      ),
+    ).toBe("1");
   });
 });
 
