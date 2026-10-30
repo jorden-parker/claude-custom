@@ -240,6 +240,20 @@ check_eq "the console's fetch-domain pattern equals the launcher's" \
   "$(sed -n "s/^fetch_domain_pattern='\(.*\)'\$/\1/p" "$repo/bin/claude-ollama")" \
   "$(sed -n 's|^export const FETCH_DOMAIN_PATTERN = /\(.*\)/;$|\1|p' "$repo/web/console/src/lib/fetch-domain-rules.ts")"
 
+machine_rules="$repo/web/console/src/lib/machine-policy-rules.ts"
+check_eq "the console's gh-repo pattern equals the launcher's" \
+  "$(sed -n "s/^gh_repo_pattern='\(.*\)'\$/\1/p" "$repo/bin/claude-ollama")" \
+  "$(sed -n '/^export const GH_REPO_PATTERN =$/{N;s/.*\n *\/\(.*\)\/;$/\1/p;}' "$machine_rules" | sed 's|\\/|/|g')"
+
+gh_write_tools() {
+  sed -n '/^WRITE_TOOLS = {/,/^}/p' "$repo/ollama/gh/broker.py" | sed -n 's/^ *"\([a-z_]*\)":.*/\1/p' | sort
+}
+console_gh_rule_programs() {
+  sed -n '/^const RULE_PROGRAMS = {/,/^} as const;/p' "$machine_rules" | sed -n 's/^ *gh: \[\(.*\)\],$/\1/p' | tr -d '" ' | tr ',' '\n' | sort
+}
+check_that "every gh write tool the broker takes has a console command-rule program" \
+  test -z "$(comm -23 <(gh_write_tools) <(console_gh_rule_programs))"
+
 agent="$repo/shared/agents/pr-review.md"
 agent_frontmatter() {
   sed -n '2,/^---$/p' "$agent" | sed '$d'

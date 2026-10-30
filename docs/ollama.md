@@ -255,7 +255,9 @@ it again replaces the stored token.
   body, and run only when you click Allow. A line
   `allow|deny gh TOOL [owner/name]` in `~/.config/claude-custom/command-rules`
   (per machine, outside the sandbox) answers without asking; `deny` wins, and
-  "Always allow" appends an `allow` line for that repo.
+  "Always allow" appends an `allow` line for that repo. The console's `/machine`
+  page lists these rules and edits them with history, checking each line against
+  the launcher's grammar.
 
 `bin/ollama-models` manages the installed models:
 

@@ -497,10 +497,13 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   `WebFetch` deny, allows exactly those domains, denies loopback hosts and sets
   `skipWebFetchPreflight`; with no valid line the launch is unchanged. The
   console's Fetch domains page (`/fetch-domains`) edits this file; its host
-  pattern must equal the launcher's, which `bin/check-config` checks.
-  `allowMachLookup` lets the session reach the `com.apple.pasteboard.1` Mach
-  service, which Claude Code's osascript image paste needs; it also lets the
-  session read and write the clipboard. The session never reaches the cmux
+  pattern must equal the launcher's, which `bin/check-config` checks. The
+  console's `/machine` page edits `gh-repos`, `command-rules` and
+  `enabled-tools` with history and shows `sandbox-off`; `bin/check-config`
+  checks its gh-repo pattern and gh write tools against the launcher and the
+  broker. `allowMachLookup` lets the session reach the `com.apple.pasteboard.1`
+  Mach service, which Claude Code's osascript image paste needs; it also lets
+  the session read and write the clipboard. The session never reaches the cmux
   socket, which would let it type into terminals outside the sandbox. When
   `$CMUX_SOCKET_PATH` is an absolute path to a socket and `cmux` is on PATH (a
   cmux terminal), the launcher starts by default, and `CLAUDE_OLLAMA_CMUX=0`
