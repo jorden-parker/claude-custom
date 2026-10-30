@@ -772,6 +772,7 @@ case "$3" in
     echo "RUN_STATE_DIR: ${CLAUDE_CONSOLE_STATE_DIR:-unset}" >> "$PNPM_LOG"
     echo "PROJECT: ${CONSOLE_PROJECT_DIR:-unset}" >> "$PNPM_LOG"
     echo "SOURCE: ${CLAUDE_CUSTOM_CHANGE_SOURCE:-unset}" >> "$PNPM_LOG"
+    echo "TELEMETRY: ${CLAUDE_TOOL_TELEMETRY:-unset}" >> "$PNPM_LOG"
     ;;
 esac
 EOF
@@ -802,6 +803,17 @@ check_that "ui serves the console on loopback at the port" grep -qxF -- "PNPM: -
 check_that "the console marks its changes with its own source" grep -qxF -- "SOURCE: console" "$PNPM_LOG"
 check_that "ui prints its tokened console URL" grep -qxE "claude-ollama: console at http://127\.0\.0\.1:9000/\?token=[0-9a-f]{48}" "$sandbox/out"
 check_not "ui removes .web-url after it exits" test -e "$PR_REVIEW_LOG_DIR/.web-url"
+rm -f "$PNPM_LOG"
+run_capture "$repo/bin/claude-ollama" ui --port 9000
+check_that "ui hands the console the default telemetry file" grep -qxF -- "TELEMETRY: $HOME/.claude-ollama/telemetry/tool-calls.jsonl" "$PNPM_LOG"
+mkdir -p "$HOME/.claude-ollama" "$sandbox/moved-telemetry"
+rm -rf "$HOME/.claude-ollama/telemetry"
+ln -s "$sandbox/moved-telemetry" "$HOME/.claude-ollama/telemetry"
+rm -f "$PNPM_LOG"
+run_capture "$repo/bin/claude-ollama" ui --port 9000
+check_that "ui gives the console no telemetry file when its folder is a symlink" grep -qxF -- "TELEMETRY: unset" "$PNPM_LOG"
+check_that "ui warns when the telemetry folder is a symlink" grep -qF -- "claude-ollama: telemetry: $HOME/.claude-ollama/telemetry is a symlink or not a regular file; telemetry off" "$sandbox/err"
+rm -f "$HOME/.claude-ollama/telemetry"
 mkdir -p "$sandbox/started-here"
 (cd "$sandbox/started-here" && run_capture "$repo/bin/claude-ollama" ui --port 9000)
 check_that "ui hands the server the folder it was started from" grep -qxF -- "PROJECT: $sandbox/started-here" "$PNPM_LOG"

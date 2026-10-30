@@ -299,13 +299,29 @@ telemetry_unsafe_path() {
   fi
 }
 
+telemetry_warn_unsafe() {
+  echo "claude-ollama: telemetry: $1 is a symlink or not a regular file; telemetry off" >&2
+}
+
+console_telemetry_log_path() {
+  local path unsafe
+  path="$(telemetry_log_path)"
+  [ -n "$path" ] || return 0
+  unsafe="$(telemetry_unsafe_path "$path")"
+  if [ -n "$unsafe" ]; then
+    telemetry_warn_unsafe "$unsafe"
+    return 0
+  fi
+  printf '%s\n' "$path"
+}
+
 prepare_telemetry_log() {
   local path unsafe
   path="$(telemetry_log_path)"
   [ -n "$path" ] || return 0
   unsafe="$(telemetry_unsafe_path "$path")"
   if [ -n "$unsafe" ]; then
-    echo "claude-ollama: telemetry: $unsafe is a symlink or not a regular file; telemetry off" >&2
+    telemetry_warn_unsafe "$unsafe"
     return 1
   fi
   (umask 077; mkdir -p "${path%/*}") || return 0
@@ -1189,7 +1205,7 @@ serve_console() {
   (umask 077; mkdir -p "$console_state_dir"; chmod 700 "$console_state_dir"; rm -f "$console_state_dir/token"; mkdir -p "$console_state_dir/tokens"; chmod 700 "$console_state_dir/tokens"; rm -f "$console_token_file"; printf '%s\n' "$token" > "$console_token_file")
   trap remove_console_files EXIT INT TERM
   echo "claude-ollama: $label at $page_url"
-  CONSOLE_TOKEN_FILE="$console_token_file" CLAUDE_CUSTOM_HOME="$repo_dir" CLAUDE_CONSOLE_STATE_DIR="$console_state_dir" CLAUDE_CUSTOM_CHANGE_SOURCE=console CONSOLE_PROJECT_DIR="$project_dir" CLAUDE_TOOL_TELEMETRY="$(telemetry_log_path)" \
+  CONSOLE_TOKEN_FILE="$console_token_file" CLAUDE_CUSTOM_HOME="$repo_dir" CLAUDE_CONSOLE_STATE_DIR="$console_state_dir" CLAUDE_CUSTOM_CHANGE_SOURCE=console CONSOLE_PROJECT_DIR="$project_dir" CLAUDE_TOOL_TELEMETRY="$(console_telemetry_log_path)" \
     pnpm --dir "$web_dir" exec next start -H 127.0.0.1 -p "$port"
   exit 0
 }
