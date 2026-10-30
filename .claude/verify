@@ -23,6 +23,7 @@ tests_for() {
     bin/claude-tools | bin/ollama-agent | ollama/*) printf '%s\n' bin/claude-ollama.test.sh ;;
     personal/* | shared/settings/* | shared/agents/*) printf '%s\n' personal/install.test.sh ;;
     shared/hooks/fallow-lib.sh | shared/hooks/fallow-test-lib.sh) printf '%s\n' shared/hooks/fallow-*.test.sh ;;
+    shared/mcp/page.js) printf '%s\n' shared/mcp/dev-server.test.sh ;;
     *) sibling_test "$1" ;;
   esac
 }

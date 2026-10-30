@@ -1,6 +1,6 @@
 {
   "entry": [
-    "ollama/cmux/page.js",
+    "shared/mcp/page.js",
     "ollama/qwen-raw-mode.cjs",
     "ollama/qwen-dir-watch.cjs"
   ],
