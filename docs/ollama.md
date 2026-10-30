@@ -189,13 +189,18 @@ not used, so image paste does not work on them.
 ### The command sandbox
 
 Bash runs in Claude Code's own sandbox. Each `ollama/settings.<size>.json` sets
-it: writes go only to the project and a temp dir, the network reaches only
-`github.com`, `registry.npmjs.org` and local ports, and sandboxed commands
-cannot read SSH keys, cloud credentials, the keychain, `~/.claude`, `~/.qwen` or
-the console state folder. `GH_TOKEN`, `GITHUB_TOKEN` and `SHORTCUT_API_TOKEN`
-are unset for sandboxed commands. The `Bash` ask rule still prompts before each
-sandboxed command, and `Bash(dangerouslyDisableSandbox:true)` prompts before a
-retry outside the sandbox.
+it: writes go to the project, a temp dir and the pnpm, npm, Go, pip and
+`~/.cache` caches (`~/.cache/claude-custom`, which holds the Stop hook's log and
+the machine copy of the personal overlay, stays unwritable); the network reaches
+loopback addresses, `github.com`, `registry.npmjs.org`, `proxy.golang.org`,
+`sum.golang.org`, `pypi.org`, `files.pythonhosted.org`,
+`objects.githubusercontent.com` and `codeload.github.com`, and any other host
+prompts first; sandboxed commands cannot read SSH keys, cloud credentials, the
+keychain, `~/.claude`, `~/.qwen` or the console state folder. `GH_TOKEN`,
+`GITHUB_TOKEN` and `SHORTCUT_API_TOKEN` are unset for sandboxed commands. The
+`Bash` ask rule still prompts before each sandboxed command, and
+`Bash(dangerouslyDisableSandbox:true)` prompts before a retry outside the
+sandbox.
 
 Four command families run outside the sandbox through `excludedCommands`:
 `cmux`, `gh`, `short` and `git push`. Each still prompts. MCP servers and hooks
@@ -210,7 +215,8 @@ What this gives up, compared with the older session sandbox:
   such as `gh pr comment` are plain Bash commands behind the `Bash` prompt.
 - `short` runs as the user's own command after the `Bash` prompt.
 - `git fetch`, `pull` and `push` use the user's own git credentials.
-- Qwen Code runs with no sandbox at all.
+- Qwen Code's Seatbelt profile cannot name hosts: outbound TCP is loopback plus
+  ports 443 and 80 anywhere.
 
 `bin/ollama-models` manages the installed models:
 
@@ -250,22 +256,36 @@ Qwen Code reads `~/.claude-ollama/qwen` as its home (`QWEN_HOME`), never your
 `reasoning_effort: none` in `extra_body` so Ollama skips thinking, 30-minute
 timeouts, `agent`, `web_fetch`, `web_search` and `notebook_edit` off, usage
 statistics and auto-update off) and `QWEN.md` (the preferences file,
-`ollama/QWEN.local.md`). The session cannot write those files, `system.md`,
-`.env`, `skills`, `agents`, `extensions`, `rules` or `commands` there, nor any
-`.qwen` folder in the project. Qwen Code also reads the project's `.env`, which
-a session can write, so the profile's `advanced.excludedEnvVars` keeps
-`QWEN_SYSTEM_MD` (a replacement system prompt), the model and key variables and
-`SEATBELT_PROFILE` out of it; `QWEN_SANDBOX`, `QWEN_HOME` and the approvals and
-trust paths are excluded by Qwen Code itself. `--approval-mode auto-edit`
-approves edits and asks before every shell command, as the Claude profiles do.
-An outer `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`, `QWEN_MODEL` or
+`ollama/QWEN.local.md`). Each launch rewrites `settings.json`, `QWEN.md` and the
+Seatbelt profile from the repo, so a change the session makes to them lasts one
+session at most. Qwen Code also reads the project's `.env`, which a session can
+write, so the profile's `advanced.excludedEnvVars` keeps `QWEN_SYSTEM_MD` (a
+replacement system prompt), the model and key variables and `SEATBELT_PROFILE`
+out of it; `QWEN_SANDBOX`, `QWEN_HOME` and the approvals and trust paths are
+excluded by Qwen Code itself. `--approval-mode auto-edit` approves edits and
+asks before every shell command, as the Claude profiles do. An outer
+`OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`, `QWEN_MODEL` or
 `QWEN_SANDBOX` never reaches the session.
 
 Not yet wired for Qwen Code: the hooks (Qwen Code's hook contract matches Claude
 Code's, but the hooks match Claude tool names), the picker and the console.
 `claude-ollama qwen doctor [size]` checks qwen, the model, context sizes, the
 settings template and Ollama, and warns while no hooks are wired. Qwen Code runs
-with no sandbox of its own, so its commands run as you.
+as a whole inside macOS Seatbelt (`tools.sandbox: "sandbox-exec"` in the
+template and `QWEN_SANDBOX=sandbox-exec` from the launcher; `SANDBOX` is never
+exported, since Qwen Code turns its sandbox off when it is set). The profile is
+`ollama/qwen-sandbox.sb`; Qwen Code looks a custom profile up only at
+`.qwen/sandbox-macos-<name>.sb` under the current folder, so each launch copies
+it to `.qwen/sandbox-macos-claude-ollama.sb` in the project and lists that path
+in `.git/info/exclude`. Inside: the project, the temp dir, `QWEN_HOME` and the
+same caches as the Claude profiles are writable, `~/.ssh`, `~/.aws`,
+`~/.config/gh`, `~/.npmrc`, the keychain, `~/.claude`, `~/.qwen` and the console
+state are unreadable, and outbound TCP reaches loopback (Ollama, dev servers)
+plus ports 443 and 80 anywhere. `GH_TOKEN`, `GITHUB_TOKEN` and
+`SHORTCUT_API_TOKEN` are unset for the launch. `gh` and `git push` fail inside
+(no keychain, no SSH): run them from your own terminal. Without `sandbox-exec`
+(Linux), the launcher says so and Qwen Code runs as you.
+`claude-ollama qwen --print-config` and `qwen doctor` report the sandbox.
 
 ### Dev servers and the browser
 

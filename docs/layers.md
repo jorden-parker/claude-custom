@@ -35,8 +35,9 @@ commands Claude runs can write only the working directory, the per-user temp
 folder and added directories, and reach only hosts you allow (the first use of a
 new host prompts). When Claude wants to retry a command outside the sandbox, the
 overlay's ask rule `Bash(dangerouslyDisableSandbox:true)` prompts you in every
-permission mode. `claude-ollama` uses the same sandbox with its own
-`excludedCommands` and `denyRead` lists.
+permission mode. Both overlays let sandboxed commands write the pnpm, npm, Go,
+pip and `~/.cache` caches and reach loopback addresses; `claude-ollama` adds its
+own `excludedCommands`, `denyRead`, credential and registry lists.
 
 To get a tool back on one machine only, list its name (one per line) in
 `~/.config/claude-custom/enabled-tools`. `personal/settings-path` then writes a
