@@ -105,5 +105,13 @@ printf '{"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"Bash","to
   | env -u CLAUDE_TOOL_TELEMETRY python3 "$hook" >/dev/null
 expect_eq "nothing is recorded when CLAUDE_TOOL_TELEMETRY is unset" no "$([ -e "$telemetry_log" ] && echo yes || echo no)"
 
+mkdir -p "$sandbox/as-directory"
+blocked_output="$(printf '%s' '{"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"grep -rn foo src"}}' | CLAUDE_TOOL_TELEMETRY="$sandbox/as-directory" python3 "$hook")"
+blocked_status=$?
+if ! grep -qF '"permissionDecision": "deny"' <<<"$blocked_output" || [ "$blocked_status" -ne 0 ]; then
+  echo "FAIL: a telemetry path that cannot be written still denies, with exit 0"
+  failures=$((failures + 1))
+fi
+
 [ "$failures" -eq 0 ] && echo "all passed" && exit 0
 exit 1

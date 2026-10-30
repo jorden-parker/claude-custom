@@ -17,5 +17,8 @@ def record_denial(hook, event, reason):
         "tool": event.get("tool_name", ""),
         "reason": reason[:REASON_LIMIT],
     }
-    with open(log_path, "a", encoding="utf-8") as log:
-        log.write(json.dumps(entry) + "\n")
+    try:
+        with open(log_path, "a", encoding="utf-8") as log:
+            log.write(json.dumps(entry) + "\n")
+    except OSError:
+        return

@@ -88,6 +88,14 @@ if [ -e "$telemetry_log" ]; then
   failures=$((failures + 1))
 fi
 
+mkdir -p "$telemetry_log"
+blocked_output="$(printf '{"tool_name":"Bash","session_id":"s1","cwd":"%s","tool_input":{"command":"git push"}}' "$repo" | CLAUDE_TOOL_TELEMETRY="$telemetry_log" python3 "$guard")"
+blocked_status=$?
+if ! grep -qF '"permissionDecision": "deny"' <<<"$blocked_output" || [ "$blocked_status" -ne 0 ]; then
+  echo "FAIL: a telemetry path that cannot be written still denies, with exit 0"
+  failures=$((failures + 1))
+fi
+
 if [ "$failures" -eq 0 ]; then
   echo "all passed"
 else

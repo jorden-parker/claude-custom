@@ -83,6 +83,14 @@ if [ -e "$telemetry_log" ]; then
   failures=$((failures + 1))
 fi
 
+mkdir -p "$tmp/as-directory"
+blocked_output="$(printf '{"tool_name":"Read","tool_input":{"file_path":"%s"}}' "$tmp/big.py" | CLAUDE_TOOL_TELEMETRY="$tmp/as-directory" python3 "$guard")"
+blocked_status=$?
+if ! grep -qF '"permissionDecision": "deny"' <<<"$blocked_output" || [ "$blocked_status" -ne 0 ]; then
+  echo "FAIL: a telemetry path that cannot be written still denies, with exit 0"
+  failures=$((failures + 1))
+fi
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures failed"
   exit 1
