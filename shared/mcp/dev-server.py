@@ -13,6 +13,7 @@ import urllib.error
 import urllib.request
 from collections import namedtuple
 from pathlib import Path, PurePath
+from urllib.parse import urlsplit
 
 from mcp_stdio import serve, tool_result
 
@@ -36,6 +37,7 @@ ERROR_LINE = re.compile(r"error|warn|⨯|failed|unhandled|exception|cannot |EADD
 STACK_LINE = re.compile(r"^\s+at ")
 PORT_FLAG = re.compile(r"(?:-p|--port)[ =](\d+)")
 FRAMEWORK_PORTS = {"next": 3000, "vite": 5173}
+FRAMEWORK_DEFAULT = "the framework default"
 LOCKFILES = [("pnpm-lock.yaml", "pnpm"), ("yarn.lock", "yarn"), ("bun.lockb", "bun"), ("bun.lock", "bun")]
 OUTSIDE_REPOSITORY = "paths must stay inside the repository"
 SCRIPT_RULE = "dev_start runs only dev, start or dev:* scripts"
@@ -247,7 +249,7 @@ def url_for_port(text):
     return f"http://localhost:{port}" if 1 <= port <= 65535 else None
 
 
-def dir_candidates(dir_text):
+def dir_candidates(dir_text, script_text):
     found = []
     server = STARTED.get(dir_text)
     if server is not None:
@@ -259,13 +261,12 @@ def dir_candidates(dir_text):
     if lock_number is not None:
         pid = lock.get("pid")
         found.append(Candidate(f"http://localhost:{lock_number}", ".next/dev/lock", pid if isinstance(pid, int) else None))
-    script = dev_script_text(dir_text)
-    port = script_port(script)
+    port = script_port(script_text)
     if port is not None:
         found.append(Candidate(f"http://localhost:{port}", "the dev script", None))
-    fallback = framework_port(script)
+    fallback = framework_port(script_text)
     if fallback is not None:
-        found.append(Candidate(f"http://localhost:{fallback}", "the framework default", None))
+        found.append(Candidate(f"http://localhost:{fallback}", FRAMEWORK_DEFAULT, None))
     return found
 
 
@@ -279,9 +280,9 @@ def http_status(url):
         return None
 
 
-def probe_dir(dir_text):
+def probe_dir(dir_text, script_text=None):
     tried = []
-    for candidate in dir_candidates(dir_text):
+    for candidate in dir_candidates(dir_text, script_text or dev_script_text(dir_text)):
         if candidate.url in tried:
             continue
         tried.append(candidate.url)
@@ -289,6 +290,22 @@ def probe_dir(dir_text):
         if status is not None:
             return candidate, status, tried
     return None, None, tried
+
+
+def port_is_open(url):
+    parts = urlsplit(url)
+    try:
+        with socket.create_connection((parts.hostname, parts.port), timeout=PROBE_TIMEOUT_SECONDS):
+            return True
+    except OSError:
+        return False
+
+
+def busy_candidate(dir_text, script_text):
+    for candidate in dir_candidates(dir_text, script_text):
+        if candidate.source != FRAMEWORK_DEFAULT and port_is_open(candidate.url):
+            return candidate
+    return None
 
 
 def pid_text(pid):
@@ -398,6 +415,15 @@ def is_allowed_script(script):
     return script in START_SCRIPT_NAMES or SCRIPT_PATTERN.match(script) is not None
 
 
+def held_port_text(candidate):
+    port = urlsplit(candidate.url).port
+    return (
+        f"port {port} is in use (from {candidate.source}){pid_text(candidate.pid)} "
+        f"but gave no HTTP reply within {PROBE_TIMEOUT_SECONDS}s; not starting another. "
+        "Call dev_status shortly, or free the port."
+    )
+
+
 def dev_start(arguments):
     dir_text = project_dir(arguments)
     script = arguments.text("script") or "dev"
@@ -405,11 +431,15 @@ def dev_start(arguments):
         raise ToolError(SCRIPT_RULE)
     require_app_dir(dir_text)
     require_directory(dir_text)
-    if script not in package_scripts(dir_text):
+    scripts = package_scripts(dir_text)
+    if script not in scripts:
         raise ToolError(f'no script "{script}" in {dir_text}/package.json')
-    candidate, _status, _tried = probe_dir(dir_text)
+    candidate, _status, _tried = probe_dir(dir_text, scripts[script])
     if candidate is not None:
         return f"already running at {candidate.url}{pid_text(candidate.pid)}; not starting another. Use dev_status / page_check."
+    held = busy_candidate(dir_text, scripts[script])
+    if held is not None:
+        return held_port_text(held)
     server = launch_dev_server(dir_text, script)
     STARTED[dir_text] = server
     return wait_until_ready(dir_text, server)
@@ -633,7 +663,7 @@ TOOLS = [
     ),
     tool(
         "dev_start",
-        "Start a package.json script (default dev) in the background, wait until it serves, return its real URL and first errors. Refuses if one already answers.",
+        "Start a package.json script (default dev) in the background, wait until it serves, return its real URL and first errors. Refuses if one already answers or its port is held.",
         {**DIR_PROPERTY, "script": text_property("package.json script to run (default dev)")},
     ),
     tool(

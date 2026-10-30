@@ -391,6 +391,70 @@ printf '{"pid":%s,"port":"%s","hostname":"localhost","appUrl":"http://localhost:
 check "a lock whose port is a string is ignored" contains "$(call dev_status '{"dir":"app"}')" "no dev server answers"
 stop_fake_next
 
+cat > "$tmp/silent-port.py" <<'PY'
+import socket
+import sys
+import time
+
+listener = socket.socket()
+listener.bind(("127.0.0.1", 0))
+listener.listen(8)
+with open(sys.argv[1], "w") as port_file:
+    port_file.write(str(listener.getsockname()[1]))
+time.sleep(120)
+PY
+
+start_silent_port() {
+  rm -f "$tmp/silent.port"
+  python3 "$tmp/silent-port.py" "$tmp/silent.port" &
+  silent_pid=$!
+  for _ in $(seq 1 40); do
+    [ -s "$tmp/silent.port" ] && break
+    sleep 0.1
+  done
+  silent_port="$(cat "$tmp/silent.port")"
+}
+
+use_held_script() {
+  printf '{"name":"app","scripts":{"dev":"fake-server","dev:held":"fake-server --port %s"}}\n' "$1" > "$tmp/project/app/package.json"
+}
+
+launches_of_held_script() {
+  grep -cxF "run dev:held" "$tmp/npm.log"
+}
+
+rm -f "$tmp/project/app/.next/dev/lock"
+start_silent_port
+use_held_script "$silent_port"
+held_out="$(call dev_start '{"dir":"app","script":"dev:held"}')"
+check "dev_start refuses a script's port that is held but silent" \
+  contains "$held_out" "port $silent_port is in use (from the dev script)"
+check "and it launches nothing over the held port" [ "$(launches_of_held_script)" = "0" ]
+kill "$silent_pid" 2>/dev/null
+wait "$silent_pid" 2>/dev/null
+
+start_fake_next
+rm -f "$tmp/project/app/.next/dev/lock"
+use_held_script "$fake_port"
+check "dev_start finds a server on the requested script's own port" \
+  contains "$(call dev_start '{"dir":"app","script":"dev:held"}')" "already running at http://localhost:$fake_port"
+check "and it launches nothing beside that server" [ "$(launches_of_held_script)" = "0" ]
+stop_fake_next
+printf '{"name":"app","scripts":{"dev":"fake-server","dev:web":"fake-server","build":"next build"}}\n' > "$tmp/project/app/package.json"
+
+cat > "$tmp/framework-port.py" <<'PY'
+import importlib.util
+import sys
+
+spec = importlib.util.spec_from_file_location("dev_server", sys.argv[1])
+dev_server = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(dev_server)
+dev_server.port_is_open = lambda url: True
+print(dev_server.busy_candidate("app", "next dev"))
+PY
+check "a held framework default port does not block a start, since the framework moves on" \
+  [ "$(PYTHONPATH="$(dirname "$server")" run_in_project python3 "$tmp/framework-port.py" "$server")" = "None" ]
+
 mkdir -p "$tmp/project/scratch"
 printf '{"name":"scratch","scripts":{"dev":"fake-server"}}\n' > "$tmp/project/scratch/package.json"
 check "dev_start refuses a package.json that is not an app dir in git" \
