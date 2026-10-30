@@ -212,6 +212,28 @@ What this gives up, compared with the older session sandbox:
 - `git fetch`, `pull` and `push` use the user's own git credentials.
 - Qwen Code runs with no sandbox at all.
 
+`bin/ollama-models` manages the installed models:
+
+- `list` marks each one `pinned`, `mismatch` (pinned, different digest),
+  `profile` (a `-cc` model a profile uses), `orphan` (a `-cc` model no profile
+  uses), `third-party` (not from the Ollama library) or `other`.
+- `prune` lists the `third-party` and `orphan` models, asks, then runs
+  `ollama rm` on them (`--yes` skips the question).
+- `outdated [NAME...]` compares each pin with the manifest the registry serves
+  now and prints `current`, `behind`, `unknown` (no manifest), `skipped` (a GGUF
+  file pin, checked by hand) or `unpinned` (a name with no pin). It exits 1 when
+  a pin is behind or a name is unpinned.
+- `pin NAME[:TAG]` fetches the manifest from `registry.ollama.ai`, writes its
+  sha256 to `ollama/model-digests.json` and prints it.
+
+To move a base to a newer upstream tag, run `bin/ollama-models outdated` to see
+which pins are behind, then `bin/model-upgrade SIZE`. It pulls the new base into
+`MODEL-next`, runs the thinking check and the cache probe (and the review eval
+with `--eval`), saves `~/bench-results/upgrade-SIZE-*.json` and prints the `pin`
+command. It never writes the pin: run that command, review the diff and commit.
+
+To compare Ollama with other servers, see [backend-bench](backend-bench.md).
+
 ### Qwen Code
 
 `claude-ollama qwen [size] [qwen args...]` (or `claude-custom qwen ...`) runs
@@ -240,8 +262,10 @@ An outer `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`, `QWEN_MODEL` or
 `QWEN_SANDBOX` never reaches the session.
 
 Not yet wired for Qwen Code: the hooks (Qwen Code's hook contract matches Claude
-Code's, but the hooks match Claude tool names), `doctor`, the picker and the
-console. Qwen Code runs with no sandbox of its own, so its commands run as you.
+Code's, but the hooks match Claude tool names), the picker and the console.
+`claude-ollama qwen doctor [size]` checks qwen, the model, context sizes, the
+settings template and Ollama, and warns while no hooks are wired. Qwen Code runs
+with no sandbox of its own, so its commands run as you.
 
 ### Dev servers and the browser
 
@@ -467,4 +491,6 @@ same way. Remove unused models opens a panel that lists exactly the third-party
 and orphan models it would remove, with their total size, and starts
 `ollama-models prune --yes --only NAME...` only after you press Remove these.
 The page only previews: the script re-checks each name when it removes it, so a
-model that stopped being prunable is skipped. Pinning stays in the terminal.
+model that stopped being prunable is skipped. The Models page shows each model
+as pinned or mismatch; `model-upgrade` and `pin` are terminal commands, so the
+page never changes a pin.

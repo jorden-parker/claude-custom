@@ -67,6 +67,7 @@ new_sandbox() {
   unset ZDOTDIR XDG_CONFIG_HOME CLAUDE_CONFIG_DIR STUB_OLLAMA_SHOW_EXIT STUB_OLLAMA_PULL_EXIT
   unset STUB_OLLAMA_PID STUB_OLLAMA_ENV STUB_CURL_EXIT STUB_OLLAMA_NUM_CTX STUB_AGENT_EXIT CMUX_SOCKET_PATH CLAUDE_OLLAMA_CMUX
   unset STUB_SHASUM_DIGEST STUB_INSPECT_EXIT STUB_CLAUDE_STDERR CLAUDE_CONSOLE_STATE_DIR
+  unset CLAUDE_TOOL_TELEMETRY CLAUDE_OLLAMA_TELEMETRY
   export SHELL=/bin/zsh
   record_installed_num_ctx
   export CLAUDE_OLLAMA_MANAGED_SETTINGS="$sandbox/managed-settings.json"
@@ -75,6 +76,7 @@ new_sandbox() {
 echo "ARGS: \$*"
 echo "\${ANTHROPIC_MODEL-unset}" > "$sandbox/model-env"
 echo "\${CLAUDE_CUSTOM_HOME-unset}" > "$sandbox/custom-home-env"
+echo "\${CLAUDE_TOOL_TELEMETRY-unset}" > "$sandbox/telemetry-env"
 echo "\${CODE_SEARCH_EMBED-unset}" > "$sandbox/embed-env"
 echo "\${CLAUDE_CONFIG_DIR-unset}" > "$sandbox/config-dir-env"
 echo "\${CLAUDE_CODE_TMPDIR-unset}" > "$sandbox/tmpdir-env"
@@ -207,6 +209,28 @@ ANTHROPIC_MODEL=claude-opus-5-5 run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "claude-ollama 27b ignores ANTHROPIC_MODEL" grep -qF -- "--model qwen3.8-27b-cc --tools" "$sandbox/out"
 check_that "claude-ollama unsets ANTHROPIC_MODEL" grep -qxF "unset" "$sandbox/model-env"
 check_eq "claude-ollama exports CLAUDE_CUSTOM_HOME to claude" "$repo" "$(cat "$sandbox/custom-home-env")"
+check_eq "claude-ollama records tool telemetry under the session folder by default" "$HOME/.claude-ollama/telemetry/tool-calls.jsonl" "$(cat "$sandbox/telemetry-env")"
+run_capture env CLAUDE_OLLAMA_TELEMETRY=0 "$repo/bin/claude-ollama" 27b -p hi
+check_eq "CLAUDE_OLLAMA_TELEMETRY=0 turns tool telemetry off" unset "$(cat "$sandbox/telemetry-env")"
+run_capture env CLAUDE_TOOL_TELEMETRY="$sandbox/mine.jsonl" "$repo/bin/claude-ollama" 27b -p hi
+check_eq "CLAUDE_TOOL_TELEMETRY overrides the telemetry file" "$sandbox/mine.jsonl" "$(cat "$sandbox/telemetry-env")"
+telemetry_dir="$HOME/.claude-ollama/telemetry"
+mkdir -p "$telemetry_dir"
+head -c 1048577 /dev/zero > "$telemetry_dir/tool-calls.jsonl"
+run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_that "claude-ollama rotates a telemetry file past 1 MiB" test -f "$telemetry_dir/tool-calls.jsonl.1"
+new_sandbox
+mkdir -p "$HOME/.claude-ollama" "$sandbox/elsewhere"
+ln -s "$sandbox/elsewhere" "$HOME/.claude-ollama/telemetry"
+run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_eq "a symlinked telemetry folder turns telemetry off" unset "$(cat "$sandbox/telemetry-env")"
+check_that "a symlinked telemetry folder is reported" grep -qF "claude-ollama: telemetry: $HOME/.claude-ollama/telemetry is a symlink or not a regular file; telemetry off" "$sandbox/err"
+new_sandbox
+mkdir -p "$HOME/.claude-ollama/telemetry" "$sandbox/elsewhere"
+ln -s "$sandbox/elsewhere/tool-calls.jsonl" "$HOME/.claude-ollama/telemetry/tool-calls.jsonl"
+run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_eq "a symlinked tool-calls.jsonl turns telemetry off" unset "$(cat "$sandbox/telemetry-env")"
+check_that "a symlinked tool-calls.jsonl is reported" grep -qF "claude-ollama: telemetry: $HOME/.claude-ollama/telemetry/tool-calls.jsonl is a symlink or not a regular file; telemetry off" "$sandbox/err"
 run_capture "$repo/bin/claude-ollama" 35b -p hi
 check_that "claude-ollama 35b uses the 35b settings" grep -qF -- "--settings $repo/ollama/settings.35b.json" "$sandbox/out"
 check_that "claude-ollama 35b passes the 35b model" grep -qF -- "--model qwen3.6-35b-cc --tools" "$sandbox/out"
@@ -380,6 +404,7 @@ jq '.models[0].digest = "0000"' "$sandbox/tags.json" > "$sandbox/tags.new" && mv
 STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_eq "claude-ollama exits when a pulled base misses its pin" 1 "$?"
 check_that "claude-ollama names the base that misses its pin" grep -qF "qwen3.8:27b-mlx has digest 0000" "$sandbox/err"
+check_that "claude-ollama names the upgrade command when a base misses its pin" grep -qF "or run bin/model-upgrade SIZE to test the new base and print the pin command" "$sandbox/err"
 check_not "claude-ollama does not create from a base that misses its pin" grep -sq '^create ' "$sandbox/ollama.log"
 check_not "claude-ollama does not launch with a base that misses its pin" grep -q '^ARGS:' "$sandbox/out"
 run_capture "$repo/bin/claude-ollama" 27b -p hi
@@ -686,6 +711,7 @@ case "$3" in
     echo "RUN_STATE_DIR: ${CLAUDE_CONSOLE_STATE_DIR:-unset}" >> "$PNPM_LOG"
     echo "PROJECT: ${CONSOLE_PROJECT_DIR:-unset}" >> "$PNPM_LOG"
     echo "SOURCE: ${CLAUDE_CUSTOM_CHANGE_SOURCE:-unset}" >> "$PNPM_LOG"
+    echo "TELEMETRY: ${CLAUDE_TOOL_TELEMETRY:-unset}" >> "$PNPM_LOG"
     ;;
 esac
 EOF
@@ -716,6 +742,17 @@ check_that "ui serves the console on loopback at the port" grep -qxF -- "PNPM: -
 check_that "the console marks its changes with its own source" grep -qxF -- "SOURCE: console" "$PNPM_LOG"
 check_that "ui prints its tokened console URL" grep -qxE "claude-ollama: console at http://127\.0\.0\.1:9000/\?token=[0-9a-f]{48}" "$sandbox/out"
 check_not "ui removes .web-url after it exits" test -e "$PR_REVIEW_LOG_DIR/.web-url"
+rm -f "$PNPM_LOG"
+run_capture "$repo/bin/claude-ollama" ui --port 9000
+check_that "ui hands the console the default telemetry file" grep -qxF -- "TELEMETRY: $HOME/.claude-ollama/telemetry/tool-calls.jsonl" "$PNPM_LOG"
+mkdir -p "$HOME/.claude-ollama" "$sandbox/moved-telemetry"
+rm -rf "$HOME/.claude-ollama/telemetry"
+ln -s "$sandbox/moved-telemetry" "$HOME/.claude-ollama/telemetry"
+rm -f "$PNPM_LOG"
+run_capture "$repo/bin/claude-ollama" ui --port 9000
+check_that "ui gives the console no telemetry file when its folder is a symlink" grep -qxF -- "TELEMETRY: unset" "$PNPM_LOG"
+check_that "ui warns when the telemetry folder is a symlink" grep -qF -- "claude-ollama: telemetry: $HOME/.claude-ollama/telemetry is a symlink or not a regular file; telemetry off" "$sandbox/err"
+rm -f "$HOME/.claude-ollama/telemetry"
 mkdir -p "$sandbox/started-here"
 (cd "$sandbox/started-here" && run_capture "$repo/bin/claude-ollama" ui --port 9000)
 check_that "ui hands the server the folder it was started from" grep -qxF -- "PROJECT: $sandbox/started-here" "$PNPM_LOG"
@@ -985,6 +1022,23 @@ check_that "qwen print-config shows the model" grep -qxF "model: qwen3.6-35b-cc"
 check_that "qwen print-config shows the context window" grep -qxF "context window: 98304" "$sandbox/out"
 check_not "qwen print-config has no sandbox line" grep -q '^sandbox:' "$sandbox/out"
 
+QWEN_DOCTOR_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2"
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$QWEN_DOCTOR_ENV" run_capture "$repo/bin/claude-ollama" qwen doctor 27b
+check_eq "claude-ollama qwen doctor exit status" 0 "$?"
+check_that "qwen doctor reports qwen on PATH" grep -q '^ok   qwen on PATH' "$sandbox/out"
+check_that "qwen doctor reports the main model" grep -qxF "ok   model qwen3.8-27b-cc" "$sandbox/out"
+check_that "qwen doctor reports the settings template parses" grep -qxF "ok   qwen settings template parses" "$sandbox/out"
+check_that "qwen doctor warns that no hooks are wired" grep -qxF "warn qwen hooks: none wired (docs/ollama.md)" "$sandbox/out"
+check_not "qwen doctor skips the Claude hook check" grep -q '^ok   hook ' "$sandbox/out"
+check_not "qwen doctor skips the Claude model allowlist check" grep -q 'availableModels' "$sandbox/out"
+check_not "qwen doctor never launches qwen" grep -q '^QWEN ARGS:' "$sandbox/out"
+check_not "qwen doctor never launches claude" grep -q '^ARGS:' "$sandbox/out"
+mv "$sandbox/stubbin/qwen" "$sandbox/stubbin/qwen.off"
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$QWEN_DOCTOR_ENV" run_capture "$repo/bin/claude-ollama" qwen doctor 27b
+check_eq "qwen doctor without qwen exit status" 1 "$?"
+check_that "qwen doctor fails a missing qwen" grep -q '^fail qwen missing' "$sandbox/out"
+mv "$sandbox/stubbin/qwen.off" "$sandbox/stubbin/qwen"
+
 rm -f "$sandbox/stubbin/qwen"
 run_capture "$repo/bin/claude-ollama" qwen 27b -p hi
 check_eq "claude-ollama qwen without qwen exits 1" 1 "$?"
@@ -993,6 +1047,7 @@ check_not "and pulls no model first" grep -sqE '^(pull|create) ' "$sandbox/ollam
 
 run_capture "$repo/bin/claude-ollama" --help
 check_that "claude-ollama help lists qwen" grep -qF -- "qwen [size] [qwen args...]: launch Qwen Code" "$sandbox/out"
+check_that "claude-ollama help lists qwen doctor" grep -qF -- "qwen doctor [size]: check qwen" "$sandbox/out"
 
 if [ "$failures" -eq 0 ]; then
   echo "all passed"

@@ -30,6 +30,7 @@ cat >"$sandbox/stubbin/curl" <<EOF
 case "\$*" in
   *api/tags*) cat "$sandbox/tags.json" ;;
   *registry.test/v2/library/qwen3/manifests/8b*) printf 'manifest-body' ;;
+  *registry.test/v2/library/qwen3/manifests/4b*) printf 'a-newer-manifest' ;;
   *) exit 22 ;;
 esac
 EOF
@@ -111,6 +112,34 @@ check "pin refuses a model outside the Ollama library" test "$("$script" pin hf.
 check "pin fails when the registry has no such tag" test "$("$script" pin qwen3:nope 2>/dev/null; echo $?)" = 1
 check "a failed pin writes nothing" test "$(pin_of qwen3:nope)" = null
 check "an unknown command is a usage error" test "$("$script" frobnicate 2>/dev/null; echo $?)" = 2
+
+outdated_profile="$sandbox/outdated"
+mkdir -p "$outdated_profile"
+cat >"$outdated_profile/model-digests.json" <<EOF
+{
+  "qwen3:8b": "$(printf 'manifest-body' | shasum -a 256 | cut -c1-64)",
+  "qwen3:4b": "0000",
+  "qwen3:nope": "1111",
+  "./weights/Qwen3.8-27B.gguf": "2222"
+}
+EOF
+
+outdated_listing="$(OLLAMA_PROFILE_DIR="$outdated_profile" "$script" outdated 2>&1)"
+outdated_status=$?
+check "outdated marks a pin the registry still matches as current" grep -Eq '^current +qwen3:8b$' <<<"$outdated_listing"
+check "outdated marks a pin the registry moved past as behind" grep -Eq '^behind +qwen3:4b \(registry [0-9a-f]{12}, pin 0000\)$' <<<"$outdated_listing"
+check "outdated marks a name with no registry manifest as unknown" grep -Eq '^unknown +qwen3:nope \(no manifest at ' <<<"$outdated_listing"
+check "outdated skips a GGUF pin" grep -Fxq 'skipped  ./weights/Qwen3.8-27B.gguf (GGUF, pinned by file sha256)' <<<"$outdated_listing"
+check "outdated checks every pin after a behind one" grep -Eq '^unknown +qwen3:nope ' <<<"$outdated_listing"
+check "outdated exits 1 when a pin is behind" test "$outdated_status" = 1
+check "outdated NAME exits 0 when that pin is current" test "$(OLLAMA_PROFILE_DIR="$outdated_profile" "$script" outdated qwen3:8b >/dev/null 2>&1; echo $?)" = 0
+check "outdated NAME exits 1 when that pin is behind" test "$(OLLAMA_PROFILE_DIR="$outdated_profile" "$script" outdated qwen3:4b >/dev/null 2>&1; echo $?)" = 1
+check "outdated exits 0 when no pin is behind" test "$(OLLAMA_PROFILE_DIR="$outdated_profile" "$script" outdated qwen3:8b qwen3:nope >/dev/null 2>&1; echo $?)" = 0
+
+unpinned_listing="$(OLLAMA_PROFILE_DIR="$outdated_profile" "$script" outdated qwen3:none 2>&1)"
+unpinned_status=$?
+check "outdated marks a name with no pin as unpinned" grep -Fxq 'unpinned qwen3:none (not in ollama/model-digests.json)' <<<"$unpinned_listing"
+check "outdated exits 1 for a name with no pin" test "$unpinned_status" = 1
 
 if [ "$failures" -eq 0 ]; then
   echo "all passed"

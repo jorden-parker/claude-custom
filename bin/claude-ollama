@@ -26,6 +26,8 @@ console_port=8765
 launcher_log="$console_state_dir/launcher.log"
 launcher_log_max_bytes=1048576
 launcher_log_open=""
+telemetry_log="$session_config_dir/telemetry/tool-calls.jsonl"
+telemetry_log_max_bytes=1048576
 
 configured_sizes() {
   local settings size
@@ -110,7 +112,7 @@ check_pin() {
   local name="$1" actual="$2" pin
   pin="$(pinned_digest "$name")"
   [ -z "$pin" ] || [ "$actual" = "$pin" ] && return 0
-  echo "claude-ollama: $name has digest ${actual:-none}, but ollama/model-digests.json pins $pin; remove it with 'ollama rm $name' and relaunch, or update the pin" >&2
+  echo "claude-ollama: $name has digest ${actual:-none}, but ollama/model-digests.json pins $pin; remove it with 'ollama rm $name' and relaunch, or run bin/model-upgrade SIZE to test the new base and print the pin command" >&2
   return 1
 }
 
@@ -246,6 +248,51 @@ rotate_launcher_log() {
   [ -f "$launcher_log" ] || return 0
   [ "$(wc -c < "$launcher_log")" -gt "$launcher_log_max_bytes" ] || return 0
   mv -f "$launcher_log" "$launcher_log.1"
+}
+
+telemetry_log_path() {
+  [ "${CLAUDE_OLLAMA_TELEMETRY:-1}" != 0 ] || return 0
+  printf '%s\n' "${CLAUDE_TOOL_TELEMETRY:-$telemetry_log}"
+}
+
+telemetry_unsafe_path() {
+  local path="$1"
+  if [ -L "${path%/*}" ]; then
+    printf '%s\n' "${path%/*}"
+  elif [ -L "$path" ] || { [ -e "$path" ] && [ ! -f "$path" ]; }; then
+    printf '%s\n' "$path"
+  fi
+}
+
+telemetry_warn_unsafe() {
+  echo "claude-ollama: telemetry: $1 is a symlink or not a regular file; telemetry off" >&2
+}
+
+console_telemetry_log_path() {
+  local path unsafe
+  path="$(telemetry_log_path)"
+  [ -n "$path" ] || return 0
+  unsafe="$(telemetry_unsafe_path "$path")"
+  if [ -n "$unsafe" ]; then
+    telemetry_warn_unsafe "$unsafe"
+    return 0
+  fi
+  printf '%s\n' "$path"
+}
+
+prepare_telemetry_log() {
+  local path unsafe
+  path="$(telemetry_log_path)"
+  [ -n "$path" ] || return 0
+  unsafe="$(telemetry_unsafe_path "$path")"
+  if [ -n "$unsafe" ]; then
+    telemetry_warn_unsafe "$unsafe"
+    return 1
+  fi
+  (umask 077; mkdir -p "${path%/*}") || return 0
+  if [ -f "$path" ] && [ "$(wc -c < "$path")" -gt "$telemetry_log_max_bytes" ]; then
+    mv -f "$path" "$path.1"
+  fi
 }
 
 start_launcher_log() {
@@ -433,6 +480,47 @@ print_qwen_config() {
   echo "qwen home: $qwen_home"
   echo "settings template: $profile_dir/qwen-settings.template.json"
   echo "command: $(qwen_command)"
+}
+
+check_qwen_on_path() {
+  if command -v qwen >/dev/null 2>&1; then
+    report ok "qwen on PATH ($(command -v qwen))"
+  else
+    report fail "qwen missing (brew install qwen-code)"
+    return 1
+  fi
+}
+
+check_qwen_template() {
+  if jq -e . "$profile_dir/qwen-settings.template.json" >/dev/null 2>&1; then
+    report ok "qwen settings template parses"
+  else
+    report fail "qwen settings template is not valid JSON"
+    return 1
+  fi
+}
+
+check_qwen_hooks() {
+  if jq -e '.hooks' "$profile_dir/qwen-settings.template.json" >/dev/null 2>&1; then
+    report ok "qwen hooks wired in the settings template"
+  else
+    report warn "qwen hooks: none wired (docs/ollama.md)"
+  fi
+}
+
+qwen_doctor() {
+  local status=0
+  report ok "jq on PATH"
+  check_qwen_on_path || status=1
+  check_model_present model "$model" "run claude-ollama qwen $size to pull and create it" || status=1
+  check_digests || status=1
+  check_context_sizes || status=1
+  check_qwen_template || status=1
+  check_qwen_hooks
+  check_reachable || status=1
+  check_server_env || status=1
+  check_gh_login
+  exit "$status"
 }
 
 launch_qwen() {
@@ -774,7 +862,7 @@ serve_console() {
   write_console_files "$port" "$token"
   trap remove_console_files EXIT INT TERM
   echo "claude-ollama: $label at $page_url"
-  CONSOLE_TOKEN_FILE="$console_token_file" CLAUDE_CUSTOM_HOME="$repo_dir" CLAUDE_CONSOLE_STATE_DIR="$console_state_dir" CLAUDE_CUSTOM_CHANGE_SOURCE=console CONSOLE_PROJECT_DIR="$project_dir" \
+  CONSOLE_TOKEN_FILE="$console_token_file" CLAUDE_CUSTOM_HOME="$repo_dir" CLAUDE_CONSOLE_STATE_DIR="$console_state_dir" CLAUDE_CUSTOM_CHANGE_SOURCE=console CONSOLE_PROJECT_DIR="$project_dir" CLAUDE_TOOL_TELEMETRY="$(console_telemetry_log_path)" \
     pnpm --dir "$web_dir" exec next start -H 127.0.0.1 -p "$port"
   exit 0
 }
@@ -784,6 +872,7 @@ case "${1:-}" in
     echo "usage: claude-ollama [size] [claude args...]"
     echo "qwen [size] [qwen args...]: launch Qwen Code (brew install qwen-code) on the size's model, without a sandbox, with the same MCP servers"
     echo "qwen --print-config [size]: print the resolved settings and the qwen command"
+    echo "qwen doctor [size]: check qwen, the model, context sizes, the settings template and Ollama"
     echo "sizes: $(configured_sizes | tr '\n' ' ' | sed 's/ $//')"
     echo "no size: pick one in a menu (or $default_size without a terminal)"
     echo "sandbox: Bash runs in Claude Code's sandbox (cmux, gh, short and git push run outside it, each after a prompt)"
@@ -815,7 +904,10 @@ case "${1:-}" in
   qwen)
     harness=qwen
     shift
-    case "${1:-}" in --print-config) mode=print-config; shift ;; esac ;;
+    case "${1:-}" in
+      --print-config) mode=print-config; shift ;;
+      doctor) mode=doctor; shift ;;
+    esac ;;
   speed-check) exec "${CLAUDE_OLLAMA_SPEED_CHECK:-$repo_dir/bin/speed-check}" "${@:2}" ;;
   thinking-check) exec "${CLAUDE_OLLAMA_SPEED_CHECK:-$repo_dir/bin/speed-check}" --thinking-only ;;
 esac
@@ -871,7 +963,7 @@ case "$mode" in
       print_config
     fi
     exit 0 ;;
-  doctor) doctor ;;
+  doctor) if [ "$harness" = qwen ]; then qwen_doctor; else doctor; fi ;;
   review) run_review "$review_target" "$@" ;;
   prepare) ensure_model; exit 0 ;;
 esac
@@ -889,6 +981,14 @@ warm_model
 
 unset ANTHROPIC_API_KEY ANTHROPIC_MODEL CLAUDE_OLLAMA_DRAFTS_DIR
 export CLAUDE_CUSTOM_HOME="$repo_dir"
+if [ -n "$(telemetry_log_path)" ]; then
+  if prepare_telemetry_log; then
+    CLAUDE_TOOL_TELEMETRY="$(telemetry_log_path)"
+    export CLAUDE_TOOL_TELEMETRY
+  else
+    unset CLAUDE_TOOL_TELEMETRY
+  fi
+fi
 prepare_session_config
 prepare_drafts_dir
 start_draft_opener

@@ -76,5 +76,42 @@ expect_eq "state follows CLAUDE_CONFIG_DIR" yes \
   "$([ -f "$CLAUDE_CONFIG_DIR/cache/tool-nudge/s1.json" ] && echo yes || echo no)"
 unset CLAUDE_CONFIG_DIR
 
+telemetry_log="$sandbox/telemetry.jsonl"
+
+telemetry_for() {
+  printf '{"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":%s}}' \
+    "$(printf '%s' "$1" | python3 -c 'import json,sys;print(json.dumps(sys.stdin.read()))')" \
+    | CLAUDE_TOOL_TELEMETRY="$telemetry_log" python3 "$hook" >/dev/null
+}
+
+recorded_lines() {
+  if [ -f "$telemetry_log" ]; then wc -l < "$telemetry_log" | tr -d ' '; else echo 0; fi
+}
+
+expect_recorded_lines() {
+  local want="$1" command="$2"
+  rm -f "$telemetry_log"
+  telemetry_for "$command"
+  expect_eq "telemetry lines for: $command" "$want" "$(recorded_lines)"
+}
+
+expect_recorded_lines 1 'grep -rn foo src'
+expect_recorded_lines 0 'ls -la'
+rm -f "$telemetry_log"
+telemetry_for 'grep -rn foo src'
+expect_eq "denial line names the kind and hook" yes "$(mentions "$(cat "$telemetry_log")" '"kind": "deny", "hook": "tool-nudge"')"
+rm -f "$telemetry_log"
+printf '{"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"grep -rn foo src"}}' \
+  | env -u CLAUDE_TOOL_TELEMETRY python3 "$hook" >/dev/null
+expect_eq "nothing is recorded when CLAUDE_TOOL_TELEMETRY is unset" no "$([ -e "$telemetry_log" ] && echo yes || echo no)"
+
+mkdir -p "$sandbox/as-directory"
+blocked_output="$(printf '%s' '{"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"grep -rn foo src"}}' | CLAUDE_TOOL_TELEMETRY="$sandbox/as-directory" python3 "$hook")"
+blocked_status=$?
+if ! grep -qF '"permissionDecision": "deny"' <<<"$blocked_output" || [ "$blocked_status" -ne 0 ]; then
+  echo "FAIL: a telemetry path that cannot be written still denies, with exit 0"
+  failures=$((failures + 1))
+fi
+
 [ "$failures" -eq 0 ] && echo "all passed" && exit 0
 exit 1

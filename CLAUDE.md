@@ -20,10 +20,11 @@ four parts:
   starts `claude` against a local Ollama server (`localhost:11434`) running Qwen
   3.8 27b or Qwen 3.6 35b. The overlay only applies to that launch.
   `claude-ollama qwen [size]` runs Qwen Code on the same model and MCP servers,
-  without a sandbox, with `~/.claude-ollama/qwen` as its `QWEN_HOME`; its
-  settings come from `ollama/qwen-settings.template.json` and
-  `ollama/QWEN.local.md` (see `docs/ollama.md`). `go/cmd/model-picker/` is a
-  Go/Bubble Tea menu for choosing the size.
+  without a sandbox, with `~/.claude-ollama/qwen` as its `QWEN_HOME`;
+  `qwen doctor [size]` checks that setup. Its settings come from
+  `ollama/qwen-settings.template.json` and `ollama/QWEN.local.md` (see
+  `docs/ollama.md`). `go/cmd/model-picker/` is a Go/Bubble Tea menu for choosing
+  the size.
 - **Tools TUI** (`go/cmd/claude-tools/`): a Go/Bubble Tea app that edits the
   bare-tool-name permission rules in a Claude Code settings file. `-json` prints
   the rules and `-set NAME=perm[,off]` saves them without the TUI (scope last).
@@ -57,13 +58,23 @@ before changing how any file gets applied.
   `make test-console`)
 - Launcher tests: `bin/claude-ollama.test.sh` (prints `all passed`; covers
   `bin/claude-ollama` and the `claude-custom ollama|qwen|tools` subcommands)
-- Model manager: `bin/ollama-models list|prune [--yes]|pin NAME[:TAG]` marks
+- Model manager:
+  `bin/ollama-models list|outdated [NAME...]|prune [--yes]|pin NAME[:TAG]` marks
   installed models (pinned, mismatch, profile, orphan, third-party, other),
-  removes third-party and orphan `-cc` models after asking
-  (`prune --yes --only NAME...` removes just the named models that are still
-  prunable, for the console's Models page), and writes a registry manifest
-  sha256 to `ollama/model-digests.json`; tests: `bin/ollama-models.test.sh`
-  (stub `ollama`, stub `curl`)
+  `outdated` compares each pin with the registry (current, behind, unknown,
+  skipped, unpinned; exit 1 when one is behind or unpinned), removes third-party
+  and orphan `-cc` models after asking (`prune --yes --only NAME...` removes
+  just the named models that are still prunable, for the console's Models page),
+  and writes a registry manifest sha256 to `ollama/model-digests.json`; tests:
+  `bin/ollama-models.test.sh` (stub `ollama`, stub `curl`)
+- Model upgrade: `bin/model-upgrade SIZE [--eval] [--keep] [--force]` pulls a
+  behind base into `MODEL-next`, runs `speed-check --thinking-only --model`, the
+  cache probe and (with `--eval`) `pr-review-eval`, saves
+  `~/bench-results/upgrade-SIZE-*.json`, then promotes the candidate to the
+  size's `-cc` model on a pass or removes it and the local base on a fail
+  (`--keep` keeps the candidate). It prints the `pin` command and never writes
+  the pin; GGUF sizes are refused. Tests: `bin/model-upgrade.test.sh` (stub
+  `ollama`, stub tools)
 - Config check: `bin/check-config` (prints `all passed`; static checks that the
   `ollama/` and `personal/` config files agree with each other)
 - Profile generator: `bin/ollama-profiles` renders `ollama/settings.<size>.json`
@@ -233,12 +244,20 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   adds the edited file's audit findings as context. Tests stub `fallow` on PATH
   through `fallow-test-lib.sh`; `.shellcheckrc` lets shellcheck follow the
   sourced library.
-- `shared/hooks/tool-telemetry.py` is an opt-in `PostToolUse` hook on every
-  tool. With `CLAUDE_TOOL_TELEMETRY=<file>` set it appends one JSON line per
-  call (time, session, tool, bytes, lines, over the trim limit; never the tool
-  input). `bin/tool-telemetry-report LOG` summarises a log; its test is
-  `bin/tool-telemetry-report.test.sh`. Its `TRIM_LINE_LIMIT` must equal
-  `MAX_LINES` in `bash-output-trim.py` (`bin/check-config` checks it).
+- `shared/hooks/tool-telemetry.py` is a `PostToolUse` hook on every tool. With
+  `CLAUDE_TOOL_TELEMETRY=<file>` set it appends one JSON line per call (time,
+  session, tool, bytes, lines, over the trim limit; never the tool input).
+  `claude-ollama` sets that variable to
+  `~/.claude-ollama/telemetry/tool-calls.jsonl` unless
+  `CLAUDE_OLLAMA_TELEMETRY=0`, and a symlinked folder or file turns it off for
+  that launch. The five deny hooks add one `"kind": "deny"` line per denial
+  through `shared/hooks/hook_telemetry.py` (hook name and reason, never the
+  command; a path that cannot be written never changes the decision), and
+  `.claude/verify` maps that module to their tests.
+  `bin/tool-telemetry-report LOG` summarises calls and denials and refuses a
+  symlink; its test is `bin/tool-telemetry-report.test.sh`. Its
+  `TRIM_LINE_LIMIT` must equal `MAX_LINES` in `bash-output-trim.py`
+  (`bin/check-config` checks it).
 - `shared/preferences/PREFERENCES.md` holds the prose rules no tool can check,
   including token discipline. `bin/claude-custom install` `@`-imports it into
   `~/.claude/CLAUDE.md`, so both backends load it. Keep it short: Ollama has
