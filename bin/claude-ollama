@@ -552,19 +552,28 @@ qwen_sandbox_exec() {
   [ -n "$candidate" ] && [ -x "$candidate" ] && printf '%s\n' "$candidate"
 }
 
+refuse_link() {
+  if [ -L "$1" ]; then
+    echo "claude-ollama: $1 is a symbolic link; a session could point it anywhere, so move it aside" >&2
+    return 1
+  fi
+}
+
 exclude_from_git() {
   local exclude_file
   exclude_file="$(git rev-parse --git-path info/exclude 2>/dev/null)" || return 0
   [ -n "$exclude_file" ] || return 0
+  refuse_link "$(dirname "$exclude_file")" && refuse_link "$exclude_file" || return 1
   mkdir -p "$(dirname "$exclude_file")"
   grep -qxF "$1" "$exclude_file" 2>/dev/null || printf '%s\n' "$1" >> "$exclude_file"
 }
 
 write_qwen_seatbelt_profile() {
-  local target=".qwen/sandbox-macos-$qwen_profile_name.sb"
+  local target=".qwen/sandbox-macos-$qwen_profile_name.sb" staged
+  refuse_link .qwen || return 1
   mkdir -p .qwen
-  cp "$profile_dir/qwen-sandbox.sb" "$target"
-  chmod 0644 "$target"
+  staged="$(mktemp ".qwen/.sandbox-macos-$qwen_profile_name.XXXXXX")" || return 1
+  cp "$profile_dir/qwen-sandbox.sb" "$staged" && chmod 0644 "$staged" && mv -f "$staged" "$target" || return 1
   exclude_from_git "/$target"
 }
 

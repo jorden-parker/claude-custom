@@ -1021,6 +1021,35 @@ check_that "claude-ollama qwen says it runs in Seatbelt" grep -qF "qwen runs in 
 check_not "an outer GH_TOKEN never reaches Qwen Code" grep -q '^GH_TOKEN=' "$sandbox/qwen-env"
 check_not "an outer SHORTCUT_API_TOKEN never reaches Qwen Code" grep -q '^SHORTCUT_API_TOKEN=' "$sandbox/qwen-env"
 
+link_project="$sandbox/qwen-link-project"
+mkdir -p "$link_project" "$sandbox/elsewhere" && git -C "$link_project" init -q
+ln -s "$sandbox/elsewhere" "$link_project/.qwen"
+cd "$link_project" || exit 1
+CLAUDE_OLLAMA_SANDBOX_EXEC=/usr/bin/true run_capture "$repo/bin/claude-ollama" qwen 27b -p hi
+check_eq "claude-ollama qwen refuses a .qwen that is a symbolic link, which a session could point anywhere" 1 "$?"
+check_that "and says so" grep -qF ".qwen is a symbolic link" "$sandbox/err"
+check_not "and writes nothing through the link" test -e "$sandbox/elsewhere/sandbox-macos-claude-ollama.sb"
+check_not "and never starts qwen" grep -q '^QWEN ARGS:' "$sandbox/out"
+
+victim_project="$sandbox/qwen-victim-project"
+mkdir -p "$victim_project/.qwen" && git -C "$victim_project" init -q
+echo keep > "$sandbox/elsewhere/victim"
+ln -s "$sandbox/elsewhere/victim" "$victim_project/.qwen/sandbox-macos-claude-ollama.sb"
+cd "$victim_project" || exit 1
+CLAUDE_OLLAMA_SANDBOX_EXEC=/usr/bin/true run_capture "$repo/bin/claude-ollama" qwen 27b -p hi
+check_eq "a profile path that is a symbolic link is replaced, never written through" keep "$(cat "$sandbox/elsewhere/victim")"
+check_not "and the profile is a plain file afterwards" test -L "$victim_project/.qwen/sandbox-macos-claude-ollama.sb"
+check_that "with the profile's content" cmp -s "$repo/ollama/qwen-sandbox.sb" "$victim_project/.qwen/sandbox-macos-claude-ollama.sb"
+
+exclude_project="$sandbox/qwen-exclude-project"
+mkdir -p "$exclude_project" && git -C "$exclude_project" init -q && mkdir -p "$exclude_project/.git/info"
+rm -f "$exclude_project/.git/info/exclude" && ln -s "$sandbox/elsewhere/victim" "$exclude_project/.git/info/exclude"
+cd "$exclude_project" || exit 1
+CLAUDE_OLLAMA_SANDBOX_EXEC=/usr/bin/true run_capture "$repo/bin/claude-ollama" qwen 27b -p hi
+check_eq "claude-ollama qwen refuses a .git/info/exclude that is a symbolic link" 1 "$?"
+check_eq "and appends nothing through it" keep "$(cat "$sandbox/elsewhere/victim")"
+cd "$qwen_project" || exit 1
+
 OPENAI_API_KEY=outer run_capture "$repo/bin/claude-ollama" qwen 35b -p hi
 check_that "claude-ollama qwen 35b uses the 35b model" grep -qF -- "-m qwen3.6-35b-cc" "$sandbox/out"
 check_eq "and its context window" 98304 "$(jq -r '.modelProviders.openai[0].generationConfig.contextWindowSize' "$qwen_home/settings.json")"
