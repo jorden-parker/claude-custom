@@ -1453,6 +1453,24 @@ check_that "qwen print-config shows the context window" grep -qxF "context windo
 check_that "qwen print-config shows the sandboxed command" \
   grep -qF "command: $HOME/.local/share/claude-custom/sandbox-runtime/node_modules/.bin/srt -s $HOME/.claude-ollama/sandbox-policy.json -- $repo/ollama/sandbox-entry qwen --auth-type openai" "$sandbox/out"
 
+QWEN_DOCTOR_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2"
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$QWEN_DOCTOR_ENV" run_capture "$repo/bin/claude-ollama" qwen doctor 27b
+check_eq "claude-ollama qwen doctor exit status" 0 "$?"
+check_that "qwen doctor reports qwen on PATH" grep -q '^ok   qwen on PATH' "$sandbox/out"
+check_that "qwen doctor reports the main model" grep -qxF "ok   model qwen3.8-27b-cc" "$sandbox/out"
+check_that "qwen doctor reports the settings template parses" grep -qxF "ok   qwen settings template parses" "$sandbox/out"
+check_that "qwen doctor reports the raw-mode preload" grep -qxF "ok   preload qwen-raw-mode.cjs present" "$sandbox/out"
+check_that "qwen doctor warns that no hooks are wired" grep -qxF "warn qwen hooks: none wired (docs/ollama.md)" "$sandbox/out"
+check_not "qwen doctor skips the Claude hook check" grep -q '^ok   hook ' "$sandbox/out"
+check_not "qwen doctor skips the Claude model allowlist check" grep -q 'availableModels' "$sandbox/out"
+check_not "qwen doctor never launches qwen" grep -q '^QWEN ARGS:' "$sandbox/out"
+check_not "qwen doctor never launches claude" grep -q '^ARGS:' "$sandbox/out"
+mv "$sandbox/stubbin/qwen" "$sandbox/stubbin/qwen.off"
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$QWEN_DOCTOR_ENV" run_capture "$repo/bin/claude-ollama" qwen doctor 27b
+check_eq "qwen doctor without qwen exit status" 1 "$?"
+check_that "qwen doctor fails a missing qwen" grep -q '^fail qwen missing' "$sandbox/out"
+mv "$sandbox/stubbin/qwen.off" "$sandbox/stubbin/qwen"
+
 rm -f "$sandbox/stubbin/qwen"
 run_capture "$repo/bin/claude-ollama" qwen 27b -p hi
 check_eq "claude-ollama qwen without qwen exits 1" 1 "$?"
@@ -1461,6 +1479,7 @@ check_not "and pulls no model first" grep -sqE '^(pull|create) ' "$sandbox/ollam
 
 run_capture "$repo/bin/claude-ollama" --help
 check_that "claude-ollama help lists qwen" grep -qF -- "qwen [size] [qwen args...]: launch Qwen Code" "$sandbox/out"
+check_that "claude-ollama help lists qwen doctor" grep -qF -- "qwen doctor [size]: check qwen" "$sandbox/out"
 
 if [ "$failures" -eq 0 ]; then
   echo "all passed"
