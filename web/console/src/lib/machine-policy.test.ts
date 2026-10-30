@@ -68,7 +68,7 @@ describe("machine policy files", () => {
   });
 
   it("reads null for a file that does not exist", () => {
-    expect(readPolicyText("command-rules")).toBeNull();
+    expect(readPolicyText("enabled-tools")).toBeNull();
   });
 
   it("round trips the text and writes the file 0600 in a 0700 folder", () => {

@@ -51,7 +51,6 @@ function machineState() {
     dir: machineConfigDir(),
     files: {
       "gh-repos": policyFileState("gh-repos", knownTools),
-      "command-rules": policyFileState("command-rules", knownTools),
       "enabled-tools": policyFileState("enabled-tools", knownTools),
       "fetch-domains": fetchDomainsState(),
     },

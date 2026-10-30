@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   GH_REPO_PATTERN,
   MAX_LINES,
-  RULE_FIELD_PATTERN,
   bareToolNames,
   isPolicyFile,
   parseLines,
@@ -12,12 +11,9 @@ import {
 const KNOWN_TOOLS = ["Artifact", "CronCreate", "Workflow"];
 
 describe("GH_REPO_PATTERN", () => {
-  it.each(["owner/name", "owner/*", "Some-Owner/repo.name_1"])(
-    "accepts %s",
-    (repo) => {
-      expect(GH_REPO_PATTERN.test(repo)).toBe(true);
-    },
-  );
+  it.each(["owner/name", "Some-Owner/repo.name_1"])("accepts %s", (repo) => {
+    expect(GH_REPO_PATTERN.test(repo)).toBe(true);
+  });
 
   it.each(["owner", "owner/name/extra", "owner name/repo", "-owner/repo"])(
     "rejects %s",
@@ -27,27 +23,18 @@ describe("GH_REPO_PATTERN", () => {
   );
 });
 
-describe("RULE_FIELD_PATTERN", () => {
-  it("accepts the characters a rule field may hold", () => {
-    expect(RULE_FIELD_PATTERN.test("owner/name.x_y-z")).toBe(true);
-  });
-
-  it("rejects a semicolon", () => {
-    expect(RULE_FIELD_PATTERN.test("owner/name;rm")).toBe(false);
-  });
-});
-
 describe("parseLines for gh-repos", () => {
-  it("keeps owner/name and owner/* lines and reports the others with a reason", () => {
+  it("keeps owner/name lines and reports the others with a reason", () => {
     const parsed = parseLines(
       "gh-repos",
       "acme/web\nacme/*\nacme\n  \nacme/web/extra\n",
     );
 
-    expect(parsed.valid).toEqual(["acme/web", "acme/*"]);
+    expect(parsed.valid).toEqual(["acme/web"]);
     expect(parsed.invalid).toEqual([
-      { line: "acme", reason: "expected owner/name or owner/*" },
-      { line: "acme/web/extra", reason: "expected owner/name or owner/*" },
+      { line: "acme/*", reason: "expected owner/name" },
+      { line: "acme", reason: "expected owner/name" },
+      { line: "acme/web/extra", reason: "expected owner/name" },
     ]);
   });
 
@@ -57,45 +44,11 @@ describe("parseLines for gh-repos", () => {
     ]);
   });
 
-  it("treats a # line as invalid, since the launcher ignores comments in gh-repos", () => {
+  it("accepts a # line as a comment with no problem", () => {
     const parsed = parseLines("gh-repos", "# repos\n");
 
-    expect(parsed.valid).toEqual([]);
-    expect(parsed.invalid).toEqual([
-      { line: "# repos", reason: "expected owner/name or owner/*" },
-    ]);
-  });
-});
-
-describe("parseLines for command-rules", () => {
-  it("accepts a three-field and a four-field rule and keeps # comments", () => {
-    const parsed = parseLines(
-      "command-rules",
-      "# approved for this machine\nallow gh pr_comment owner/name\ndeny short create\n",
-    );
-
-    expect(parsed.valid).toEqual([
-      "# approved for this machine",
-      "allow gh pr_comment owner/name",
-      "deny short create",
-    ]);
+    expect(parsed.valid).toEqual(["# repos"]);
     expect(parsed.invalid).toEqual([]);
-  });
-
-  it.each([
-    ["maybe gh pr_comment", "verdict must be allow or deny"],
-    ["allow gh delete", "unknown action delete for gh"],
-    ["allow curl pr_comment", "unknown program curl"],
-    ["allow gh pr_comment owner/name extra", "expected 3 or 4 fields"],
-    [
-      "allow gh pr_comment owner/name;rm",
-      "field owner/name;rm has characters a rule may not hold",
-    ],
-  ])("rejects %s", (line, reason) => {
-    const parsed = parseLines("command-rules", `${line}\n`);
-
-    expect(parsed.valid).toEqual([]);
-    expect(parsed.invalid).toEqual([{ line, reason }]);
   });
 });
 
@@ -127,9 +80,9 @@ describe("parseLines for enabled-tools", () => {
 
 describe("planLines", () => {
   it("writes the lines joined with newlines and a trailing newline", () => {
-    expect(planLines("gh-repos", ["acme/web", " acme/* "])).toEqual({
-      text: "acme/web\nacme/*\n",
-      lines: ["acme/web", "acme/*"],
+    expect(planLines("gh-repos", ["acme/web", " acme/api "])).toEqual({
+      text: "acme/web\nacme/api\n",
+      lines: ["acme/web", "acme/api"],
     });
   });
 
@@ -139,7 +92,7 @@ describe("planLines", () => {
 
   it("throws an error naming the first bad line and why", () => {
     expect(() => planLines("gh-repos", ["acme/web", "acme"])).toThrow(
-      "acme: expected owner/name or owner/*",
+      "acme: expected owner/name",
     );
   });
 
@@ -171,12 +124,9 @@ describe("planLines", () => {
 });
 
 describe("isPolicyFile", () => {
-  it.each(["gh-repos", "command-rules", "enabled-tools"])(
-    "accepts %s",
-    (name) => {
-      expect(isPolicyFile(name)).toBe(true);
-    },
-  );
+  it.each(["gh-repos", "enabled-tools"])("accepts %s", (name) => {
+    expect(isPolicyFile(name)).toBe(true);
+  });
 
   it.each(["fetch-domains", "sandbox-off", "gh-repo", ""])(
     "rejects %s",

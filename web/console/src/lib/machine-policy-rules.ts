@@ -1,24 +1,12 @@
 export const GH_REPO_PATTERN =
-  /^[A-Za-z0-9][A-Za-z0-9-]*\/([A-Za-z0-9_][A-Za-z0-9._-]*|\*)$/;
-export const RULE_FIELD_PATTERN = /^[A-Za-z0-9._/-]+$/;
+  /^[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9_][A-Za-z0-9._-]{0,99}$/;
 const BARE_TOOL_PATTERN = /^[A-Za-z][A-Za-z0-9_]*$/;
-const RULE_VERDICTS = ["allow", "deny"] as const;
-const RULE_PROGRAMS = {
-  gh: ["pr_comment", "issue_comment", "pr_create"],
-  short: ["create", "story-edit"],
-} as const;
 export const MAX_LINES = 200;
-export const POLICY_FILES = [
-  "gh-repos",
-  "command-rules",
-  "enabled-tools",
-] as const;
+export const POLICY_FILES = ["gh-repos", "enabled-tools"] as const;
 
 const COMMENT_PREFIX = "#";
-const COMMAND_RULE_FIELD_COUNTS = { min: 3, max: 4 };
 
 export type PolicyFile = (typeof POLICY_FILES)[number];
-type RuleProgram = keyof typeof RULE_PROGRAMS;
 type LineCheck = (line: string, knownTools: readonly string[]) => string | null;
 export type InvalidLine = { line: string; reason: string };
 export type ParsedLines = { valid: string[]; invalid: InvalidLine[] };
@@ -26,7 +14,6 @@ export type LinePlan = { text: string; lines: string[] };
 
 const CHECKS: Record<PolicyFile, LineCheck> = {
   "gh-repos": checkGhRepo,
-  "command-rules": checkCommandRule,
   "enabled-tools": checkEnabledTool,
 };
 
@@ -82,14 +69,14 @@ function lineProblem(
   line: string,
   knownTools: readonly string[],
 ): string | null {
-  if (file === "command-rules" && line.startsWith(COMMENT_PREFIX)) {
+  if (file === "gh-repos" && line.startsWith(COMMENT_PREFIX)) {
     return null;
   }
   return CHECKS[file](line, knownTools);
 }
 
 function checkGhRepo(line: string): string | null {
-  return GH_REPO_PATTERN.test(line) ? null : "expected owner/name or owner/*";
+  return GH_REPO_PATTERN.test(line) ? null : "expected owner/name";
 }
 
 function checkEnabledTool(
@@ -101,33 +88,4 @@ function checkEnabledTool(
   return isKnownBareTool
     ? null
     : "not a bare tool name in the overlay's deny list";
-}
-
-function checkCommandRule(line: string): string | null {
-  const fields = line.split(/\s+/);
-  if (
-    fields.length < COMMAND_RULE_FIELD_COUNTS.min ||
-    fields.length > COMMAND_RULE_FIELD_COUNTS.max
-  ) {
-    return "expected 3 or 4 fields";
-  }
-  const unsafeField = fields.find((field) => !RULE_FIELD_PATTERN.test(field));
-  if (unsafeField !== undefined) {
-    return `field ${unsafeField} has characters a rule may not hold`;
-  }
-  const [verdict, program, action] = fields;
-  if (!(RULE_VERDICTS as readonly string[]).includes(verdict)) {
-    return "verdict must be allow or deny";
-  }
-  if (!isRuleProgram(program)) {
-    return `unknown program ${program}`;
-  }
-  if (!(RULE_PROGRAMS[program] as readonly string[]).includes(action)) {
-    return `unknown action ${action} for ${program}`;
-  }
-  return null;
-}
-
-function isRuleProgram(name: string): name is RuleProgram {
-  return Object.keys(RULE_PROGRAMS).includes(name);
 }
