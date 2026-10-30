@@ -374,8 +374,9 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `snapshot --interactive`, `click` and friends); `page_check` opens only
   loopback URLs and `page_act` goes back when an action leaves them. The `repo`
   server runs `gh` itself (`shared/mcp/github_tools.py`: nine read tools,
-  `GH_REPO` from `origin` or the `repo` argument, `--flag=value` argv, `Refused`
-  for bad arguments); its GitHub tools are listed only while `gh` is on `PATH`.
+  `GH_REPO` from `origin`, or from a `repo` argument that is the origin or a
+  line of `~/.config/claude-custom/gh-repos`, `--flag=value` argv, `Refused` for
+  bad arguments); its GitHub tools are listed only while `gh` is on `PATH`.
 - There is no side model: each Ollama profile sets
   `ANTHROPIC_DEFAULT_HAIKU_MODEL` to its own main model, has no `modelOverrides`
   and no subagent model, and denies `Agent` (it is not in `--tools` either),
@@ -425,7 +426,11 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   with its own config, is never used. Paths must be relative and never climb
   with `..`: two outside paths would make `git diff` compare any files (implicit
   `--no-index`). The nine GitHub tools are listed only when `gh` is on `PATH`
-  (`shared/mcp/github_tools.py`). Output over 20000 characters is cut with a
+  (`shared/mcp/github_tools.py`). They reach only the project's `origin` and the
+  `owner/name` lines of `~/.config/claude-custom/gh-repos` (per machine, beside
+  `enabled-tools`; `#` starts a comment; matched case-insensitively; read on
+  every call; the sandboxed session cannot write it); any other `repo` is
+  `Refused` with the file's path. Output over 20000 characters is cut with a
   note on how to narrow it.
 - Drafts: `shared/skills/pr-draft` (a PR description from the project's pull
   request template) and `shared/skills/pr-review-draft` (a review in

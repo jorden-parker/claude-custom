@@ -2,6 +2,7 @@ import os
 import re
 import subprocess
 import tempfile
+from pathlib import Path
 
 DEFAULT_LIMIT = 20
 MAX_LIMIT = 100
@@ -38,6 +39,7 @@ ALLOWED_QUALIFIERS = {
     "sort",
 }
 GITHUB_LOGIN = re.compile(r"@me|[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})")
+COMMENT_PREFIX = "#"
 REPOSITORY = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,38}/[A-Za-z0-9_][A-Za-z0-9._-]{0,99}")
 BRANCH = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._/-]{0,254}")
 ORIGIN_FORMS = (
@@ -246,14 +248,38 @@ def origin_repository(remote_url):
     return None
 
 
+def gh_repos_path():
+    config_home = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+    return Path(config_home) / "claude-custom" / "gh-repos"
+
+
+def listed_repositories(path):
+    try:
+        lines = path.read_text().splitlines()
+    except (OSError, ValueError):
+        return set()
+    names = (line.strip() for line in lines)
+    return {name.lower() for name in names if name and not name.startswith(COMMENT_PREFIX) and REPOSITORY.fullmatch(name)}
+
+
+def allowed_repositories(origin, path):
+    allowed = listed_repositories(path)
+    if origin is not None:
+        allowed.add(origin.lower())
+    return allowed
+
+
 def repository_for(arguments, origin):
+    path = gh_repos_path()
     repository = arguments.get("repo") if isinstance(arguments, dict) else None
     if repository is None:
         if origin is None:
-            raise Refused("no GitHub origin; pass repo as owner/name")
+            raise Refused(f"no GitHub origin; pass repo as owner/name listed in {path}")
         return origin
     if not isinstance(repository, str) or not REPOSITORY.fullmatch(repository):
         raise Refused("repo must be owner/name")
+    if repository.lower() not in allowed_repositories(origin, path):
+        raise Refused(f"repo {repository} is not this project's origin or a line of {path}")
     return repository
 
 

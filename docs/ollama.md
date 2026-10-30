@@ -206,8 +206,10 @@ What this gives up, compared with the older session sandbox:
 - The browser is not locked to localhost. `page_check` opens only loopback URLs
   and `page_act` goes back when an action leaves the local server, but the page
   itself may load anything.
-- The GitHub read tools work for any repository the user's `gh` can read. Writes
-  such as `gh pr comment` are plain Bash commands behind the `Bash` prompt.
+- The GitHub read tools reach the project's `origin` and the repositories listed
+  one `owner/name` per line in `~/.config/claude-custom/gh-repos` (`#` starts a
+  comment; the sandboxed session cannot write the file). Writes such as
+  `gh pr comment` are plain Bash commands behind the `Bash` prompt.
 - `short` runs as the user's own command after the `Bash` prompt.
 - `git fetch`, `pull` and `push` use the user's own git credentials.
 - Qwen Code runs with no sandbox at all.

@@ -183,6 +183,7 @@ check "a revision that is not text is an error" contains "$(call git_show '{"rev
 check "git_show needs a revision" contains "$(call git_show)" "ERROR rev is required"
 check "paths must be a list of text" contains "$(call git_diff '{"paths":"notes.txt"}')" "ERROR"
 check "an unknown tool is an error" contains "$(call git_push)" "ERROR"
+git -C "$repo" remote add origin https://github.com/owner/project.git
 check "a GitHub tool without gh says how to get it" \
   contains "$(call_without_gh pr_list '{"repo":"owner/project"}')" "ERROR gh is not installed; install it and run gh auth login"
 
@@ -264,8 +265,11 @@ SH
 chmod +x "$tmp/bin/gh"
 printf '[{"number":12}]\n' > "$tmp/gh-reply"
 printf '0' > "$tmp/gh-status"
-git -C "$repo" remote add origin https://github.com/owner/project.git
 export PATH="$tmp/bin:$PATH"
+export XDG_CONFIG_HOME="$tmp/config"
+gh_repos="$tmp/config/claude-custom/gh-repos"
+mkdir -p "$tmp/config/claude-custom"
+printf '# repositories beyond the origin\n#hidden/repo\n\n  other/repo  \nMixed/Case\nnot a repo\n' > "$gh_repos"
 check "with gh on PATH the GitHub tools are listed too" \
   [ "$(call list)" = "git_status git_diff git_log git_show pr_list pr_view pr_diff pr_checks pr_review_comments issue_list issue_view run_list run_view" ]
 github_schema() {
@@ -291,6 +295,23 @@ check "repo picks another repository" \
   [ "$(tail -n 1 "$tmp/gh.env" | cut -d' ' -f1)" = "GH_REPO=other/repo" ]
 check "a bad repo is refused" \
   [ "$(call pr_list '{"repo":"not-a-repo"}')" = "ERROR gh: repo must be owner/name" ]
+check "a repo outside the list is refused and the message names the file" \
+  [ "$(call pr_list '{"repo":"someone/else"}')" = "ERROR gh: repo someone/else is not this project's origin or a line of $gh_repos" ]
+check "and gh did not run for it" [ "$(grep -c 'GH_REPO=someone/else' "$tmp/gh.env")" = 0 ]
+call pr_view '{"number":12,"repo":"mixed/case"}' >/dev/null
+check "a listed repo matches regardless of case and keeps the model's spelling" \
+  [ "$(tail -n 1 "$tmp/gh.env" | cut -d' ' -f1)" = "GH_REPO=mixed/case" ]
+call pr_view '{"number":12,"repo":"Owner/Project"}' >/dev/null
+check "the origin matches regardless of case" \
+  [ "$(tail -n 1 "$tmp/gh.env" | cut -d' ' -f1)" = "GH_REPO=Owner/Project" ]
+check "a commented line is not a listed repo" \
+  contains "$(call pr_list '{"repo":"hidden/repo"}')" "is not this project's origin"
+rm "$gh_repos"
+check "without the file only the origin is allowed" \
+  contains "$(call pr_list '{"repo":"other/repo"}')" "is not this project's origin or a line of $gh_repos"
+check "and the origin still works without the file" \
+  [ "$(call pr_view '{"number":12,"repo":"owner/project"}')" = '[{"number":12}]' ]
+printf 'other/repo\n' > "$gh_repos"
 check "a bad number is refused" \
   [ "$(call pr_view '{"number":-1}')" = "ERROR gh: number must be a positive whole number" ]
 check "a search qualifier outside the allowed list is refused" \
@@ -305,6 +326,12 @@ printf '' > "$tmp/gh-reply"
 printf '1' > "$tmp/gh-status"
 check "gh that fails with no output is an error with its stderr" \
   [ "$(call pr_view '{"number":12}')" = "ERROR gh failed" ]
+printf '[]\n' > "$tmp/gh-reply"
+printf '0' > "$tmp/gh-status"
+git -C "$repo" remote remove origin
+check "without an origin the message names the file" \
+  [ "$(call pr_list '{}')" = "ERROR gh: no GitHub origin; pass repo as owner/name listed in $gh_repos" ]
+check "without an origin a listed repo still works" [ "$(call pr_list '{"repo":"other/repo"}')" = "[]" ]
 
 if [ "$failures" -eq 0 ]; then
   echo "all passed"

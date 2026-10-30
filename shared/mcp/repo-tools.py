@@ -47,7 +47,7 @@ def tool(name, description, properties=None, required=()):
 
 LIMIT = number_property("How many (default 20, max 100)")
 PR_NUMBER = {"number": number_property("Pull request number")}
-REPO = {"repo": text_property("owner/name; default this project's repo")}
+REPO = {"repo": text_property("owner/name, this project's repo (default) or a line of ~/.config/claude-custom/gh-repos")}
 FIELDS = {"fields": text_property("Comma-separated JSON fields instead of the default set")}
 GIT_TOOLS = [
     tool("git_status", "Current branch and changed files (git status --short --branch)."),
