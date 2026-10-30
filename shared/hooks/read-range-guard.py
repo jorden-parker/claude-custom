@@ -3,6 +3,8 @@ import json
 import sys
 from pathlib import Path
 
+from hook_telemetry import record_denial
+
 MAX_LINES = 300
 
 
@@ -40,13 +42,16 @@ def reason_for(path, lines):
 
 
 def main():
-    tool_input = json.load(sys.stdin).get("tool_input", {})
+    event = json.load(sys.stdin)
+    tool_input = event.get("tool_input", {})
     path = Path(tool_input.get("file_path", ""))
     if asks_for_small_range(tool_input):
         return
     lines = line_count(path)
     if lines > MAX_LINES:
-        print(json.dumps(deny(reason_for(path, lines))))
+        reason = reason_for(path, lines)
+        record_denial("read-range-guard", event, reason)
+        print(json.dumps(deny(reason)))
 
 
 main()

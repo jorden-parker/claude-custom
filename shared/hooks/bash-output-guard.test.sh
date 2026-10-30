@@ -65,6 +65,45 @@ expect deny  'cat "go.sum"'
 expect deny  "less 'pnpm-lock.yaml'"
 expect deny  $'ls # it\'s fine\ngit log'
 
+telemetry_dir="$(mktemp -d)"
+trap 'rm -rf "$telemetry_dir"' EXIT
+telemetry_log="$telemetry_dir/telemetry.jsonl"
+
+telemetry_for() {
+  printf '{"session_id":"s1","tool_name":"Bash","tool_input":{"command":%s}}' \
+    "$(printf '%s' "$1" | python3 -c 'import json,sys;print(json.dumps(sys.stdin.read()))')" \
+    | CLAUDE_TOOL_TELEMETRY="$telemetry_log" python3 "$guard" >/dev/null
+}
+
+recorded_lines() {
+  if [ -f "$telemetry_log" ]; then wc -l < "$telemetry_log" | tr -d ' '; else echo 0; fi
+}
+
+expect_recorded_lines() {
+  local want="$1" command="$2"
+  rm -f "$telemetry_log"
+  telemetry_for "$command"
+  if [ "$(recorded_lines)" != "$want" ]; then
+    echo "FAIL: expected $want telemetry line(s) for: $command"
+    failures=$((failures + 1))
+  fi
+}
+
+expect_recorded_lines 1 'git log'
+expect_recorded_lines 0 'git log -n 5'
+rm -f "$telemetry_log"
+telemetry_for 'git log'
+if ! grep -qF '"kind": "deny", "hook": "bash-output-guard"' "$telemetry_log"; then
+  echo "FAIL: denial line names the kind and hook"
+  failures=$((failures + 1))
+fi
+rm -f "$telemetry_log"
+printf '{"tool_name":"Bash","tool_input":{"command":"git log"}}' | env -u CLAUDE_TOOL_TELEMETRY python3 "$guard" >/dev/null
+if [ -e "$telemetry_log" ]; then
+  echo "FAIL: nothing is recorded when CLAUDE_TOOL_TELEMETRY is unset"
+  failures=$((failures + 1))
+fi
+
 if [ "$failures" -eq 0 ]; then
   echo "all passed"
 else
