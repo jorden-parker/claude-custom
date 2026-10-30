@@ -16,7 +16,7 @@ overlay and both Ollama profiles wire the same core hooks (from
 | `fallow-mark-preview.sh`  | After a Bash command                              | Records that `fallow fix --dry-run` ran in this session, which unlocks `fallow fix --yes`                                                                                                                                                                                                                                                                                                                                       |
 | `fallow-after-edit.sh`    | After an Edit or Write                            | Adds Fallow's findings for the edited JS/TS file as context                                                                                                                                                                                                                                                                                                                                                                     |
 | `tool-nudge.py`           | Before Bash and `semantic_search`; on each prompt | Ollama profiles only. Denies every Bash command that runs a text search (`grep`, `rg`, `ag`, `ack`, `git grep`, `find` by name or path; a search after a pipe is a filter and passes) until `mcp__code-search__semantic_search` has been called in the turn, even if that call errored                                                                                                                                          |
-| `tool-telemetry.py`       | After any tool                                    | Only when `CLAUDE_TOOL_TELEMETRY=<file>` is set: appends one JSON line per call with the time, session, tool name, response bytes, line count and whether trimming would apply. It never logs tool input or output; otherwise it does nothing                                                                                                                                                                                   |
+| `tool-telemetry.py`       | After any tool                                    | Only when `CLAUDE_TOOL_TELEMETRY=<file>` is set (`claude-ollama` sets it by default): appends one JSON line per call with the time, session, tool name, response bytes, line count and whether trimming would apply. It never logs tool input or output; otherwise it does nothing                                                                                                                                              |
 
 Every settings file runs them as `"$CLAUDE_CUSTOM_HOME"/shared/hooks/<name>`.
 The `claude` shell function and `claude-ollama` set that variable for the
@@ -25,10 +25,17 @@ has that tool installed. A failed check sends its output back to the model.
 Rules no tool can check live in `shared/preferences/PREFERENCES.md`, which every
 session loads through `~/.claude/CLAUDE.md`.
 
-To measure what tool calls return, start a session with the log set, then
-summarise it: `env CLAUDE_TOOL_TELEMETRY="$HOME/tool.log" claude-ollama 27b`,
-then `bin/tool-telemetry-report "$HOME/tool.log"`. The report lists calls,
-bytes, median, max and over-limit counts per tool, then the five largest calls.
+To measure what tool calls return and which guards fire, read the telemetry log.
+A `claude-ollama` session records to
+`~/.claude-ollama/telemetry/tool-calls.jsonl` by default: one line per tool
+call, and one line per hook denial with the hook name and reason, never the
+command. `CLAUDE_TOOL_TELEMETRY=<file>` picks another file, and
+`CLAUDE_OLLAMA_TELEMETRY=0` turns recording off. A launch rotates a file past 1
+MiB to `.1`. A symlinked telemetry folder or file turns recording off for that
+launch, with a warning. `bin/tool-telemetry-report` with no argument reads
+`CLAUDE_TOOL_TELEMETRY`; it prints calls, bytes, median, max and over-limit
+counts per tool, the five largest calls and the denials per hook. It refuses a
+symlinked log.
 
 To have your tests run before the model finishes, add an executable
 `.claude/verify` script to a project. This repo's own one runs every test suite.

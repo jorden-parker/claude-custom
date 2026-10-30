@@ -6,6 +6,8 @@ import shlex
 import sys
 from pathlib import Path
 
+from hook_telemetry import record_denial
+
 TEXT_SEARCH_COMMANDS = {"grep", "rg", "ag", "ack"}
 FIND_NAME_FILTERS = {"-name", "-iname", "-path", "-ipath", "-regex", "-iregex", "-wholename", "-iwholename"}
 COMMAND_SEPARATOR = re.compile(r"&&|\|\||[;&\n()]")
@@ -101,6 +103,7 @@ def main():
     output = handle(event, state)
     save_state(path, state)
     if output:
+        record_denial("tool-nudge", event, output["hookSpecificOutput"]["permissionDecisionReason"])
         print(json.dumps(output))
 
 

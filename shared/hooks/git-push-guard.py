@@ -5,6 +5,8 @@ import re
 import subprocess
 import sys
 
+from hook_telemetry import record_denial
+
 SEGMENT_SEPARATOR = re.compile(r"[;&|()\n`]")
 QUOTED_TEXT = re.compile(r"'[^']*'|\"(?:[^\"\\$`]|\\.)*\"")
 GIT_OPTIONS_WITH_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace"}
@@ -108,6 +110,7 @@ def main():
     command = payload.get("tool_input", {}).get("command", "")
     cwd = payload.get("cwd") or os.getcwd()
     if any(segment_is_refused(segment, cwd) for segment in segments(command)):
+        record_denial("git-push-guard", payload, REASON)
         print(json.dumps(deny(REASON)))
 
 

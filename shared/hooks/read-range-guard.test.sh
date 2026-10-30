@@ -47,6 +47,50 @@ for expected in "1000 lines" "semantic_search" "offset" "limit"; do
   fi
 done
 
+telemetry_log="$tmp/telemetry.jsonl"
+
+telemetry_for() {
+  printf '{"session_id":"s1","tool_name":"Read","tool_input":{"file_path":"%s"}}' "$1" \
+    | CLAUDE_TOOL_TELEMETRY="$telemetry_log" python3 "$guard" >/dev/null
+}
+
+recorded_lines() {
+  if [ -f "$telemetry_log" ]; then wc -l < "$telemetry_log" | tr -d ' '; else echo 0; fi
+}
+
+expect_recorded_lines() {
+  local want="$1" path="$2"
+  rm -f "$telemetry_log"
+  telemetry_for "$path"
+  if [ "$(recorded_lines)" != "$want" ]; then
+    echo "FAIL: expected $want telemetry line(s) for: $path"
+    failures=$((failures + 1))
+  fi
+}
+
+expect_recorded_lines 1 "$tmp/big.py"
+expect_recorded_lines 0 "$tmp/small.py"
+rm -f "$telemetry_log"
+telemetry_for "$tmp/big.py"
+if ! grep -qF '"kind": "deny", "hook": "read-range-guard"' "$telemetry_log"; then
+  echo "FAIL: denial line names the kind and hook"
+  failures=$((failures + 1))
+fi
+rm -f "$telemetry_log"
+printf '{"tool_name":"Read","tool_input":{"file_path":"%s"}}' "$tmp/big.py" | env -u CLAUDE_TOOL_TELEMETRY python3 "$guard" >/dev/null
+if [ -e "$telemetry_log" ]; then
+  echo "FAIL: nothing is recorded when CLAUDE_TOOL_TELEMETRY is unset"
+  failures=$((failures + 1))
+fi
+
+mkdir -p "$tmp/as-directory"
+blocked_output="$(printf '{"tool_name":"Read","tool_input":{"file_path":"%s"}}' "$tmp/big.py" | CLAUDE_TOOL_TELEMETRY="$tmp/as-directory" python3 "$guard")"
+blocked_status=$?
+if ! grep -qF '"permissionDecision": "deny"' <<<"$blocked_output" || [ "$blocked_status" -ne 0 ]; then
+  echo "FAIL: a telemetry path that cannot be written still denies, with exit 0"
+  failures=$((failures + 1))
+fi
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures failed"
   exit 1

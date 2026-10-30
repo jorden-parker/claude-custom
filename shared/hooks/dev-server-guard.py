@@ -3,6 +3,8 @@ import json
 import re
 import sys
 
+from hook_telemetry import record_denial
+
 SEGMENT_SEPARATOR = re.compile(r"[;&|()\n`]")
 QUOTED_TEXT = re.compile(r"'[^']*'|\"(?:[^\"\\$`]|\\.)*\"")
 ENV_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
@@ -91,6 +93,7 @@ def main():
     payload = json.load(sys.stdin)
     command = (payload.get("tool_input") or {}).get("command") or ""
     if any(starts_dev_server(segment) for segment in segments(command)):
+        record_denial("dev-server-guard", payload, REASON)
         print(json.dumps(deny(REASON)))
 
 
