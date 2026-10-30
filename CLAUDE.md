@@ -19,11 +19,11 @@ four parts:
 - **Work harness** (`bin/claude-ollama`, `ollama/`, `go/cmd/model-picker/`):
   starts `claude` against a local Ollama server (`localhost:11434`) running Qwen
   3.8 27b or Qwen 3.6 35b. The overlay only applies to that launch.
-  `claude-ollama qwen [size]` runs Qwen Code on the same model, sandbox and MCP
-  servers, with `~/.claude-ollama/qwen` as its `QWEN_HOME`; its settings come
-  from `ollama/qwen-settings.template.json` and `ollama/QWEN.local.md` (see
-  `docs/ollama.md`). `go/cmd/model-picker/` is a Go/Bubble Tea menu for choosing
-  the size.
+  `claude-ollama qwen [size]` runs Qwen Code on the same model and MCP servers,
+  without a sandbox, with `~/.claude-ollama/qwen` as its `QWEN_HOME`; its
+  settings come from `ollama/qwen-settings.template.json` and
+  `ollama/QWEN.local.md` (see `docs/ollama.md`). `go/cmd/model-picker/` is a
+  Go/Bubble Tea menu for choosing the size.
 - **Tools TUI** (`go/cmd/claude-tools/`): a Go/Bubble Tea app that edits the
   bare-tool-name permission rules in a Claude Code settings file. `-json` prints
   the rules and `-set NAME=perm[,off]` saves them without the TUI (scope last).
@@ -77,12 +77,6 @@ before changing how any file gets applied.
 - Cache probe: `bin/ollama-cache-probe [27b|35b|MODEL] [--prefix-tokens N]`
   measures prompt-cache reuse on a live Ollama; its tests are
   `bin/ollama-cache-probe.test.sh` (stub server, no real Ollama)
-- Sandbox probe: `bin/sandbox-probe [--only CHECK] [--clipboard]` runs the real
-  sandbox-runtime on throwaway policies and prints one ok/FAIL/skip line per
-  question (nested Seatbelt, api.github.com host matching, body injection and
-  injectHosts narrowing, unknown policy keys, rule-file protection, gh and
-  HTTPS_PROXY, pasteboard); results are recorded in `docs/sandbox-checks.md`;
-  tests: `bin/sandbox-probe.test.sh` (stub srt)
 - Speed check: `claude-ollama speed-check` (`bin/speed-check`) checks power,
   disk and Ollama, prepares the four MLX and GGUF sizes, then runs the thinking
   check, the paired benches and the cache probes, and prints a verdict and a
@@ -108,18 +102,16 @@ before changing how any file gets applied.
 - Code search MCP server: `shared/mcp/code-search.py`; its tests are
   `shared/mcp/code-search.test.sh` (stub embedding server, temp git repo)
 - Repo tools MCP server: `shared/mcp/repo-tools.py`; its tests are
-  `shared/mcp/repo-tools.test.sh` (fake broker, temp git repo). Both servers
-  share the JSON-RPC loop in `shared/mcp/mcp_stdio.py`.
+  `shared/mcp/repo-tools.test.sh` (stub gh, temp git repo). Both servers share
+  the JSON-RPC loop in `shared/mcp/mcp_stdio.py`.
 - Dev server MCP server: `shared/mcp/dev-server.py`; its tests are
   `shared/mcp/dev-server.test.sh` (stub npm, fake Next server, stub cmux).
 - Feed the hook one command by hand:
   `printf '{"tool_input":{"command":"git log"}}' | shared/hooks/bash-output-guard.py`
 - Validate JSON after editing: `make check-json`
-- Launch the work harness: `claude-ollama [27b|35b] [claude args...]`, sandboxed
-  sandboxed by default; `CLAUDE_OLLAMA_SANDBOX=0 claude-ollama ...` runs it as
-  you (27b is the default size; `--help` lists sizes)
-- `claude-ollama browser-check` proves the session browser can't leave localhost
-  (needs a cmux terminal; prints `browser-check: passed`).
+- Launch the work harness: `claude-ollama [27b|35b] [claude args...]`, which
+  runs `claude` on the profile in `ollama/settings.<size>.json` (27b is the
+  default size; `--help` lists sizes)
 - Check the work harness: `claude-ollama doctor [size]` (exit 1 on a missing
   model, hook, context mismatch or server env var; needs `jq`) and
   `claude-ollama --print-config [size]` (resolved values, no launch). Follow the
@@ -130,10 +122,6 @@ before changing how any file gets applied.
   `$CLAUDE_CONSOLE_STATE_DIR/launcher.log` (0600, moved to `launcher.log.1` past
   1 MiB); the console's Logs page has Ollama server and Launcher tabs
   (`/api/logs/path` and `/api/logs/events` take `?source=server|launcher`)
-- GitHub push token: `claude-ollama github-token [push]` opens a pre-filled
-  fine-grained token page and stores the pasted token with
-  `security add-generic-password -U ... -w`, which prompts, so it never lands in
-  argv.
 - Console: `claude-ollama ui [--port N]` serves `web/console` (Next.js with AI
   Elements) at `http://127.0.0.1:8765/`, built on first run with pnpm
   (reinstalled when `pnpm-lock.yaml` is newer than `node_modules/.modules.yaml`,
@@ -186,19 +174,17 @@ before changing how any file gets applied.
 `claude-custom install` (and `update`, which runs it) restarts a running Ollama
 server through `ollama-agent -apply` when it lacks a value from
 `ollama/server.env` (macOS only; a failed restart only warns). `update` execs
-the pulled `claude-custom finish-update`, which installs and then, with
-`CMUX_SOCKET_PATH` set, runs `claude-ollama browser-check` (a failure makes
-update exit 1).
+the pulled `claude-custom finish-update`, which runs the install again.
 
 There is no build step outside the Go module. `claude-custom install` builds
 `go/cmd/claude-tools/claude-tools`, `go/cmd/model-picker/model-picker` and
-`go/cmd/ollama-agent/ollama-agent` (all gitignored), and installs the pinned
-`sandbox-runtime` with `npm ci` (skipped without npm). Each launcher rebuilds
-its binary only when a Go source, `go.mod` or `go.sum` is newer than it.
-`pnpm install` enables git hooks (husky): pre-commit checks staged files for
-conflict markers, files over 1 MB and secrets, then lint-staged runs Prettier on
-staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
-`fix:`, `chore:`).
+`go/cmd/ollama-agent/ollama-agent` (all gitignored), and removes the retired
+`sandbox-runtime` and Shortcut CLI folders. Each launcher rebuilds its binary
+only when a Go source, `go.mod` or `go.sum` is newer than it. `pnpm install`
+enables git hooks (husky): pre-commit checks staged files for conflict markers,
+files over 1 MB and secrets, then lint-staged runs Prettier on staged
+`.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`, `fix:`,
+`chore:`).
 
 ## How the pieces connect
 
@@ -320,206 +306,53 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   bare name, so their schemas never reach the local model's context. `--tools`
   in `bin/claude-ollama` is the primary allowlist and that deny list is the
   backstop. `bin/check-config` fails when the Ollama deny lists differ. A local
-  model's weights are not trusted, so unless `CLAUDE_OLLAMA_SANDBOX=0`
-  `bin/claude-ollama` runs the whole session (Bash, hooks, Fallow, MCP servers)
-  inside `sandbox-runtime` with `ollama/sandbox.json` (see the launcher entry
-  below). The proxy rewrites request bodies too, so `injectHosts` must never
-  include a host the session can post text to, and a misspelled key in
-  `ollama/sandbox.json` is silently dropped and opens that path, so
-  `bin/check-config`'s exact assertions are the guard. `CLAUDE_OLLAMA_SANDBOX=0`
-  execs `claude` directly with your `PATH`, env, `gh`, `short` and git
-  credentials (no policy, no Shortcut broker, no `GH_BASIC`; the gh and cmux
-  brokers still start for the `mcp__repo__` and page tools); the launch and
-  `doctor` say so, and the GitHub and Shortcut writes a session needs go through
-  the brokers' approval dialog. The profiles turn Claude Code's own Bash sandbox
-  off (`sandbox.enabled: false`: macOS refuses a second sandbox inside the
-  first). They ask before every Bash command, commit and push
-  (`permissions.ask`); `bin/check-config` checks both and the policy's network,
-  masked token and read and write lists. The profiles also set
-  `CLAUDE_CODE_EXTRA_BODY` to `{"thinking":{"type":"disabled"}}` so Ollama skips
-  reasoning; `bin/check-config` checks it. `shared/hooks/git-push-guard.py`
-  (Ollama-only, PreToolUse on Bash) denies force pushes, remote deletes,
-  `--mirror`, `--prune`, `-c alias.*` and pushes to `main` or `master`. The
-  personal overlay also denies unused tools by bare name (`Artifact`,
-  `Workflow`, `ScheduleWakeup`, `SendFeedback` and the deferred ones), since a
-  bare deny removes the tool's schema from the request; `bin/check-config` fails
-  when an Ollama profile lacks one of those bare denies.
+  model's weights are not trusted, so Bash runs in Claude Code's own sandbox,
+  configured by the `sandbox` block in `ollama/profile-template.json` (rendered
+  per size). Sandboxed commands write only the project and a temp dir, reach
+  only `github.com`, `registry.npmjs.org` and local ports, and cannot read
+  credentials or `~/.claude`. `bin/check-config` asserts the block's exact
+  values, and a misspelled key is silently ignored, so the check must change
+  with the block. `excludedCommands` (`cmux`, `gh`, `short`, `git push`) run
+  outside the sandbox, each after the `Bash` prompt. The profiles set
+  `sandbox.enabled` and `autoAllowBashIfSandboxed: false`, so the `Bash` prompt
+  holds for sandboxed commands too. The profiles also ask before every Bash
+  command, commit and push (`permissions.ask`, which includes
+  `Bash(dangerouslyDisableSandbox:true)`); `bin/check-config` checks both. The
+  profiles also set `CLAUDE_CODE_EXTRA_BODY` to
+  `{"thinking":{"type":"disabled"}}` so Ollama skips reasoning;
+  `bin/check-config` checks it. `shared/hooks/git-push-guard.py` (Ollama-only,
+  PreToolUse on Bash) denies force pushes, remote deletes, `--mirror`,
+  `--prune`, `-c alias.*` and pushes to `main` or `master`. The personal overlay
+  also denies unused tools by bare name (`Artifact`, `Workflow`,
+  `ScheduleWakeup`, `SendFeedback` and the deferred ones), since a bare deny
+  removes the tool's schema from the request; `bin/check-config` fails when an
+  Ollama profile lacks one of those bare denies.
 - `bin/claude-ollama` resolves its own symlink to find `ollama/`. It unsets
   `ANTHROPIC_API_KEY`, passes `--settings ollama/settings.<size>.json`,
   `--system-prompt-file ollama/system-prompt.md` (replacing Claude Code's
   default system prompt),
   `--append-system-prompt-file ~/.claude-ollama/append-prompt.md` (written each
-  launch from `ollama/CLAUDE.local.md`, plus `ollama/CLAUDE.sandbox.md` when
-  sandboxed), `--strict-mcp-config` plus an inline `--mcp-config` for the
-  code-search server, `--model` with the profile's `model` (it also unsets
-  `ANTHROPIC_MODEL`, which would otherwise win over the settings file), and
-  restricts tools with `--tools` (built-in tools only; MCP tools still load).
-  Before launching, it pulls the base model and creates the `-cc` model when
-  `ollama show` can't find the `-cc` model. When the installed model's `num_ctx`
-  differs from its Modelfile, it recreates that model `FROM` itself with the new
-  `num_ctx` (no pull). `doctor` and `--print-config` are dispatched before any
-  pull or launch; `doctor` reads hook names from the profile's settings file,
-  not from `~/.claude/hooks`.
-- Unless `CLAUDE_OLLAMA_SANDBOX=0`, `bin/claude-ollama` never runs `claude`
-  unsandboxed: it exits 1 when `~/.local/share/claude-custom/sandbox-runtime`
-  (installed by `claude-custom install` from
-  `ollama/sandbox-runtime.package*.json`, named so Fallow does not read them as
-  a package) is missing, and `doctor` reports it. It runs
-  `srt -s ~/.claude-ollama/sandbox-policy.json -- ollama/sandbox-entry claude ...`
-  (`exec` without a terminal). On a terminal it first sets the raw mode Claude
-  Code's runtime would set, and restores the saved mode on exit: the sandbox
-  refuses terminal ioctls on `/dev/ttys*`, so without this the terminal stays in
-  cooked mode and the terminal's replies to Claude Code's startup queries show
-  up as text in the prompt. Don't fix it with `allowPty` (it lets the session
-  open every other terminal) or by reopening stdin on `/dev/tty` (Bun's kqueue
-  rejects it). Qwen Code (Node) still issues the ioctl, so `launch_qwen`
-  preloads `ollama/qwen-raw-mode.cjs` through `NODE_OPTIONS` in sandboxed
-  launches, beside `ollama/qwen-dir-watch.cjs`, which drops the `EMFILE` every
-  directory watch raises there (FSEvents cannot start in the sandbox);
-  `create_qwen_home` makes the write-denied folders under the Qwen home first,
-  since Qwen Code's recursive `mkdir` passes only when they exist, and the
-  settings template turns `agents.crossSessionMessaging` off, since its Unix
-  socket cannot bind. The policy is `ollama/sandbox.json` (writes only the
-  project; `bin/check-config` keeps it that way) plus, per launch, the session
-  config dir, the repo's git common dir and macOS's item-replacement folder
-  (`$(getconf DARWIN_USER_TEMP_DIR)TemporaryItems`, which Claude Code stalls
-  without) as writable, and this repo, the policy itself, the git dir's `hooks`
-  and `config`, every `.claude` under the repo root (`ROOT/**/.claude` and
-  everything in it, plus `ROOT/.claude` as a literal entry; the resolved current
-  folder outside a repo, and the launcher refuses a root with `*`, `?` or `[` in
-  it, which would turn those patterns into other globs) and the session config's
-  `CLAUDE.md`, `skills`, `settings.json`, `settings.local.json`, `commands`,
-  `agents`, `plugins`, `rules`, `output-styles`, `keybindings.json` and
-  `.config.json` as never writable, so a session can't plant skills, commands,
-  hooks or allow rules for later. The policy also denies reading the reviews log
-  dir and the console state dir (`CLAUDE_CONSOLE_STATE_DIR`, default
-  `~/.local/share/claude-custom/console`), so a session can't take the console
-  token. Ask and deny rules still override a skill's `allowed-tools` and any
-  allow rule (deny, then ask, then allow, whatever the scope), so the Bash,
-  commit and push prompts hold even if one gets through; a directory staged
-  outside the project and renamed in can still carry a nested `.claude`. The
-  session config's `.claude.json` must stay writable, so each launch rebuilds it
-  (`rebuild_session_state`): it renames the file away first, so a symlink the
-  session planted is never followed, and from a plain file of valid JSON keeps
-  only what `ollama/session-state.jq` allows (onboarding done, `theme`, and
-  trust for the folder being launched, so a session can't pre-trust another
-  repo), else starts from `{"hasCompletedOnboarding":true}`. Never add a folder
-  that unsandboxed programs also run from or cache in (`~/.local/share/claude`
-  holds the Claude Code binary; `~/.npm`, `~/Library/Caches`, `~/.cache`): a
-  session could plant code there that runs outside the sandbox. The session gets
-  its own config (`CLAUDE_CONFIG_DIR=~/.claude-ollama`, seeded with
-  `hasCompletedOnboarding`, plus a copy of `~/.claude/CLAUDE.md` and of
-  `~/.claude/skills`, refreshed each launch with symlinks followed, since the
-  sandbox can't read `~/.claude`). The profiles allow the `Skill` tool but keep
-  `disableBundledSkills`, so only your own skills load; `bin/check-config`
-  checks both. `ollama/sandbox-entry` points `TMPDIR`, the XDG cache, state and
-  data dirs, the npm and Go caches and the edit-check and stop-verify state
-  under it and sets `DISABLE_AUTOUPDATER=1`. `TMPDIR` is set inside the sandbox
-  only: srt puts its own socket there, and a long path breaks it. Claude Code
-  still reads `~/.claude.json` and stalls without it. For `git push`, the
-  launcher reads a token from the keychain item `claude-ollama-github`, exports
-  it base64-encoded as `GH_BASIC` (masked by the policy: the session sees a
-  placeholder that the proxy swaps back only on requests to github.com), and
-  `ollama/sandbox-entry` turns it into an `http.https://github.com/.extraHeader`
-  through `GIT_CONFIG_*`. Git's own credential helpers can't be masked: they
-  encode the token themselves. `short` (Shortcut CLI) runs outside the sandbox:
-  the launcher starts `ollama/shortcut/broker.py` on
-  `<session config>/shortcut-broker.<launcher pid>.sock` (same socket rules as
-  the gh broker) with the pinned `short` (from
-  `ollama/shortcut-cli.package*.json`, installed by `claude-custom install`;
-  else yours from `PATH`), your env and an empty temp cwd, so it uses the token
-  it already has. It cuts that token (env or any `short` config) out of every
-  reply, since a failed request can print its headers. The session's `short`
-  (`ollama/shortcut/bin`, on `PATH` only while the broker runs) runs
-  `shared/mcp/short-shim.py`, which sends its argv; the broker allows only reads
-  and story edits (`COMMANDS` in the broker: no `install`, `api`, `workspace`,
-  deletes, `--open*`, `--git-branch*`, `--from-git`, `--download*`, `--save`),
-  and story edits and creates run only after the same approval dialog and rule
-  file as the gh writes (stored rule: `allow short story-edit workspace`;
-  `allow|deny short create|story-edit`), and rebuilds every option as
-  `--long=value`, so no value becomes a flag. The session never holds
-  `SHORTCUT_API_TOKEN` (outer Shortcut and Clubhouse vars are unset), and the
-  policy denies reading every `short` config folder. Everything outside the
-  sandbox runs from a safe `PATH`: the launcher starts on `/bin/bash` with a
-  fixed system `PATH`, then first drops relative entries and folders the session
-  can write (the enclosing repo and session config, then the git dir and item
-  folder), and `trusted_command` refuses a `gh`, `cmux` or `short` that links
-  into one; `sandbox-entry` restores your own `PATH`
-  (`CLAUDE_OLLAMA_SESSION_PATH`) inside the sandbox. A masked token would not
-  do: srt swaps the placeholder back in request bodies too, so a session could
-  store it in a story and read it back. Tests: `ollama/shortcut/broker.test.sh`
-  (stub `short`), `shared/mcp/short-shim.test.sh` (fake broker). `gh` can't run
-  inside the sandbox (Go on macOS resolves `localhost` and checks TLS through
-  system services the sandbox blocks), so with `gh` on PATH and logged in
-  (`gh auth token`, your normal login) the launcher starts `ollama/gh/broker.py`
-  outside the sandbox on `<session config>/gh-broker.<launcher pid>.sock` (in
-  `allowUnixSockets` and `denyWrite`, beside the cmux broker's; every policy
-  denies writes to all `gh-broker.*.sock` and `cmux-broker.*.sock` so no session
-  can touch another launch's socket), with the token as `GH_TOKEN` and `GH_REPO`
-  from the project's GitHub `origin`. The broker takes only structured requests
-  (`{"tool": "pr_view", "arguments": {"number": 12}}`) for nine tools
-  (`pr_list`, `pr_view`, `pr_diff`, `pr_checks`, `pr_review_comments`,
-  `issue_list`, `issue_view`, `run_list`, `run_view`), checks each argument
-  (known keys only, positive integers, fixed choices, text at most 256
-  characters, search qualifiers only from `ALLOWED_QUALIFIERS`, an author only a
-  login or `@me`, `fields` only from each tool's `*_FIELD_CHOICES`, a branch
-  only a branch name), and builds the `gh` command itself, passing text as
-  `--flag=value` so no value becomes a flag. The broker also takes `pr_comment`,
-  `issue_comment` and `pr_create`, which run only after `ollama/approve-dialog`
-  (osascript, Deny default, 60 s) is answered or when
-  `~/.config/claude-custom/command-rules` (per machine;
-  `allow|deny gh TOOL [owner/name]`, deny wins) says so; the dialog is the
-  approval because the session cannot draw or answer it, the dialog shows every
-  body in full and a write whose dialog text would pass 4000 bytes (or any other
-  argument over 200 characters) is refused rather than cut, bodies are passed as
-  one `--body=` argument, the policy denies writing the rules file and its
-  folder, and gh's output has the token scrubbed. Every tool takes an optional
-  `repo` (`owner/name`): the project's `origin` (the default) or a line of
-  `~/.config/claude-custom/gh-repos` (per machine, `owner/name` or `owner/*`,
-  passed as `--allow-repo`); anything else, or no `repo` without an `origin`, is
-  refused. The `repo` MCP server (`shared/mcp/repo-tools.py`, below) and the
-  session's `gh` command are its only clients: `sandbox-entry` puts
-  `ollama/gh/bin` on `PATH` when the broker runs, and its `gh` runs
-  `shared/mcp/gh-shim.py`, which turns read-only forms
-  (`pr list|view|diff|checks`, `issue list|view`, `run list|view`,
-  `api repos/{owner}/{repo}/pulls/N/comments`, `-R`, PR URLs, `--json`, `--jq`
-  run locally with `jq`) into broker requests and refuses the rest (tests:
-  `shared/mcp/gh-shim.test.sh`, fake broker). Both share
-  `shared/mcp/broker_client.py`. gh runs from an empty temp dir, so it reads no
-  git config the session wrote, with `GH_HOST=github.com` and an empty
-  `GH_CONFIG_DIR`, so none of your saved logins are reachable. The session never
-  holds `GH_TOKEN` (an outer `GH_TOKEN`/`GITHUB_TOKEN` is unset). Tests:
-  `ollama/gh/broker.test.sh` (stub `gh`); the launcher test runs the whole chain
-  from a sandbox under `/tmp`, since a Unix socket path must stay under 104
-  bytes. `allowLocalBinding` is on because Ollama on localhost is reached
-  directly, not through the proxy, which also opens every other local port.
-  Hostnames in `~/.config/claude-custom/fetch-domains` (per machine) are added
-  to the policy's `allowedDomains` and `tlsTerminate.excludeDomains`, and a
-  derived `~/.claude-ollama/fetch-settings.json` (in `denyWrite`) lifts the bare
-  `WebFetch` deny, allows exactly those domains, denies loopback hosts and sets
-  `skipWebFetchPreflight`; with no valid line the launch is unchanged. The
-  console's Fetch domains page (`/fetch-domains`) edits this file; its host
-  pattern must equal the launcher's, which `bin/check-config` checks.
-  `allowMachLookup` lets the session reach the `com.apple.pasteboard.1` Mach
-  service, which Claude Code's osascript image paste needs; it also lets the
-  session read and write the clipboard. The session never reaches the cmux
-  socket, which would let it type into terminals outside the sandbox. When
-  `$CMUX_SOCKET_PATH` is an absolute path to a socket and `cmux` is on PATH (a
-  cmux terminal), the launcher starts by default, and `CLAUDE_OLLAMA_CMUX=0`
-  turns it off. The launcher starts `ollama/cmux/broker.py` outside the sandbox
-  on `<session config>/cmux-broker.<launcher pid>.sock`, an `allowUnixSockets`
-  entry (also in `denyWrite`); the session has no cmux command. The broker
-  drives one cmux browser REPL session (`cmux browser repl`) that it locks to
-  `localhost`, `127.0.0.1` and `[::1]` (navigations, new tabs, `fetch`,
-  subresources and websockets, through
-  `session.allowedDomains(..., { lock: true })`). It routes the REPL's browser
-  through a closed proxy so the pages never use the user's own profile. It takes
-  only structured page requests (`open`, `snapshot`, `act`), never JavaScript or
-  raw cmux argv, and proves the lock before it creates its socket.
-  `claude-ollama browser-check` is the live proof on a real machine. It exits
-  when the launcher's process does. Not covered by WebKit content rules: WebRTC
-  (STUN/TURN) and DNS prefetch. Tests: `ollama/cmux/broker.test.sh` (stub
-  `cmux`).
+  launch from `ollama/CLAUDE.local.md`), `--strict-mcp-config` plus an inline
+  `--mcp-config` for the code-search server, `--model` with the profile's
+  `model` (it also unsets `ANTHROPIC_MODEL`, which would otherwise win over the
+  settings file), and restricts tools with `--tools` (built-in tools only; MCP
+  tools still load). Before launching, it pulls the base model and creates the
+  `-cc` model when `ollama show` can't find the `-cc` model. When the installed
+  model's `num_ctx` differs from its Modelfile, it recreates that model `FROM`
+  itself with the new `num_ctx` (no pull). `doctor` and `--print-config` are
+  dispatched before any pull or launch; `doctor` reads hook names from the
+  profile's settings file, not from `~/.claude/hooks`.
+- The session config dir `~/.claude-ollama` is `CLAUDE_CONFIG_DIR`:
+  `prepare_session_config` seeds `.claude.json` with `hasCompletedOnboarding`
+  (an existing file is kept), copies `~/.claude/CLAUDE.md` and
+  `~/.claude/skills`, and makes the `tmp` folder that `CLAUDE_CODE_TMPDIR`
+  names. `CLAUDE_OLLAMA_CMUX=0` turns the browser tools off; a cmux terminal
+  (`CMUX_SOCKET_PATH` set and `cmux` on `PATH`) turns them on. The `dev` server
+  runs `cmux browser repl` itself with `shared/mcp/page.js`, which locks the
+  REPL session to `localhost`, `127.0.0.1` and `[::1]` before each request. The
+  `repo` server runs `gh` itself (`shared/mcp/github_tools.py`: nine read tools,
+  `GH_REPO` from `origin` or the `repo` argument, `--flag=value` argv, `Refused`
+  for bad arguments); its GitHub tools are listed only while `gh` is on `PATH`.
 - There is no side model: each Ollama profile sets
   `ANTHROPIC_DEFAULT_HAIKU_MODEL` to its own main model, has no `modelOverrides`
   and no subagent model, and denies `Agent` (it is not in `--tools` either),
@@ -546,9 +379,9 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   framework default doesn't count, since the framework moves to the next port.
   It stops only the servers its session started. The read-only tools are allowed
   by full name (`mcp__dev__dev_status`, `dev_logs`, `dev_errors`, `page_check`,
-  `page_snapshot`, `page_act`; the page tools call the cmux broker through
-  `CLAUDE_OLLAMA_CMUX_BROKER`, never a `cmux` command); `dev_start` and
-  `dev_stop` still ask, and no bare `mcp__dev` may be allowed.
+  `page_snapshot`, `page_act`; the page tools run `cmux browser repl` through
+  `shared/mcp/page.js`, never a bare `cmux` command); `dev_start` and `dev_stop`
+  still ask, and no bare `mcp__dev` may be allowed.
   `shared/hooks/dev-server-guard.py` (Ollama-only, PreToolUse on Bash) denies
   `pnpm dev`-style starts and points the model at `dev_start`.
 - `shared/mcp/repo-tools.py` is the `repo` MCP server the Ollama profiles start
@@ -562,9 +395,9 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   and `GIT_WORK_TREE`), so a `.git` the session plants in a subfolder later,
   with its own config, is never used. Paths must be relative and never climb
   with `..`: two outside paths would make `git diff` compare any files (implicit
-  `--no-index`). The nine GitHub tools are listed only when
-  `CLAUDE_OLLAMA_GH_BROKER` is set and go to the broker. Output over 20000
-  characters is cut with a note on how to narrow it.
+  `--no-index`). The nine GitHub tools are listed only when `gh` is on `PATH`
+  (`shared/mcp/github_tools.py`). Output over 20000 characters is cut with a
+  note on how to narrow it.
 - Drafts: `shared/skills/pr-draft` (a PR description from the project's pull
   request template) and `shared/skills/pr-review-draft` (a review in
   Conventional Comments) save through the `repo` server's `draft_pr` and
@@ -626,18 +459,16 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   `EnvironmentVariables` are lost.
 - `ollama/CLAUDE.local.md` is the appended system prompt for every size, for
   small local models, not memory files. Keep it terse: the 27b has a 64k
-  context, the other sizes 96k. `ollama/CLAUDE.sandbox.md` is appended after it
-  only in sandboxed sessions; it shows every `gh` and `short` form the brokers
-  take, and `bin/check-config` fails when one is missing. `ollama/sizes.json` is
-  the single source for each size's `context`: `bin/ollama-profiles` writes it
-  to `Modelfile.<size>` (`num_ctx`), `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, and the
-  `ollama create` names that `model` and the `ANTHROPIC_DEFAULT_*_MODEL` vars
-  refer to. A managed `availableModels` that lacks the model makes Claude Code
-  substitute a `[1m]` ID, which assumes a 1M window; `claude-ollama doctor`
-  warns when that happens. Each profile's own `availableModels` lists only its
-  main model; `bin/check-config` checks it. `ollama/system-prompt.md` replaces
-  Claude Code's default system prompt for both sizes; keep it short and don't
-  put size-specific rules in it.
+  context, the other sizes 96k. `ollama/sizes.json` is the single source for
+  each size's `context`: `bin/ollama-profiles` writes it to `Modelfile.<size>`
+  (`num_ctx`), `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, and the `ollama create` names
+  that `model` and the `ANTHROPIC_DEFAULT_*_MODEL` vars refer to. A managed
+  `availableModels` that lacks the model makes Claude Code substitute a `[1m]`
+  ID, which assumes a 1M window; `claude-ollama doctor` warns when that happens.
+  Each profile's own `availableModels` lists only its main model;
+  `bin/check-config` checks it. `ollama/system-prompt.md` replaces Claude Code's
+  default system prompt for both sizes; keep it short and don't put
+  size-specific rules in it.
 - The personal overlay is loaded with `--settings` by the `claude` shell
   function (`personal/claude.sh` for bash/zsh/ksh, `personal/claude.fish` for
   fish), wired into rc files by `bin/claude-custom install`, never merged into
@@ -653,11 +484,10 @@ staged `.md`/`.json`/`.yml`. commitlint enforces conventional commits (`feat:`,
   `Bash(dangerouslyDisableSandbox:true)`, so every personal session (subagents
   and `--agent pr-review` included) runs Claude's shell commands inside Claude
   Code's sandbox and asks before one runs outside it; `bin/check-config` checks
-  both. The Ollama profiles keep that sandbox off because the session sandbox
-  wraps them, and a sandboxed `claude-ollama qwen` exports
-  `SANDBOX=claude-ollama` so Qwen Code's footer and `/about` report it (the
-  launcher unsets an outer `SANDBOX`, and `advanced.excludedEnvVars` keeps a
-  project `.env` from setting it).
+  both. The Ollama profiles use the same sandbox with their own `sandbox` block;
+  `claude-ollama qwen` runs Qwen Code without a sandbox, and the launcher unsets
+  an outer `SANDBOX`, which `advanced.excludedEnvVars` keeps a project `.env`
+  from setting.
 - `go/internal/picker/` has two packages: `profiles` (`Load` reads the
   configured sizes from `ollama/`, `EmbeddingModel` the search model) and `ui`
   (the Bubble Tea model).

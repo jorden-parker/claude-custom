@@ -10,7 +10,7 @@ flowchart TB
   personal --> policy["5. managed policy (always wins)"]
   profile --> policy
   policy --> hooks["hooks: CLAUDE_CUSTOM_HOME/shared/hooks/&lt;name&gt;"]
-  policy --> prompt["prompts: ~/.claude/CLAUDE.md @-imports PREFERENCES.md; claude-ollama adds system-prompt.md, CLAUDE.local.md and, sandboxed, CLAUDE.sandbox.md"]
+  policy --> prompt["prompts: ~/.claude/CLAUDE.md @-imports PREFERENCES.md; claude-ollama adds system-prompt.md and CLAUDE.local.md"]
 ```
 
 Below the diagram, the numbered list gives the same layers in order. Mermaid is
@@ -35,9 +35,8 @@ commands Claude runs can write only the working directory, the per-user temp
 folder and added directories, and reach only hosts you allow (the first use of a
 new host prompts). When Claude wants to retry a command outside the sandbox, the
 overlay's ask rule `Bash(dangerouslyDisableSandbox:true)` prompts you in every
-permission mode. `claude-ollama` instead wraps the whole session in the sandbox
-runtime and keeps Claude Code's own sandbox off, since macOS refuses a nested
-one.
+permission mode. `claude-ollama` uses the same sandbox with its own
+`excludedCommands` and `denyRead` lists.
 
 To get a tool back on one machine only, list its name (one per line) in
 `~/.config/claude-custom/enabled-tools`. `personal/settings-path` then writes a
