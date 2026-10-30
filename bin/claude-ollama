@@ -290,10 +290,24 @@ telemetry_log_path() {
   printf '%s\n' "${CLAUDE_TOOL_TELEMETRY:-$telemetry_log}"
 }
 
+telemetry_unsafe_path() {
+  local path="$1"
+  if [ -L "${path%/*}" ]; then
+    printf '%s\n' "${path%/*}"
+  elif [ -L "$path" ] || { [ -e "$path" ] && [ ! -f "$path" ]; }; then
+    printf '%s\n' "$path"
+  fi
+}
+
 prepare_telemetry_log() {
-  local path
+  local path unsafe
   path="$(telemetry_log_path)"
   [ -n "$path" ] || return 0
+  unsafe="$(telemetry_unsafe_path "$path")"
+  if [ -n "$unsafe" ]; then
+    echo "claude-ollama: telemetry: $unsafe is a symlink or not a regular file; telemetry off" >&2
+    return 1
+  fi
   (umask 077; mkdir -p "${path%/*}") || return 0
   if [ -f "$path" ] && [ "$(wc -c < "$path")" -gt "$telemetry_log_max_bytes" ]; then
     mv -f "$path" "$path.1"
@@ -1313,9 +1327,12 @@ warm_model
 unset ANTHROPIC_API_KEY ANTHROPIC_MODEL CLAUDE_OLLAMA_DRAFTS_DIR CLAUDE_OLLAMA_CMUX_BROKER CLAUDE_OLLAMA_GH_BROKER CLAUDE_OLLAMA_SHORTCUT_BROKER CLAUDE_OLLAMA_SESSION_PATH
 export CLAUDE_CUSTOM_HOME="$repo_dir"
 if [ -n "$(telemetry_log_path)" ]; then
-  prepare_telemetry_log
-  CLAUDE_TOOL_TELEMETRY="$(telemetry_log_path)"
-  export CLAUDE_TOOL_TELEMETRY
+  if prepare_telemetry_log; then
+    CLAUDE_TOOL_TELEMETRY="$(telemetry_log_path)"
+    export CLAUDE_TOOL_TELEMETRY
+  else
+    unset CLAUDE_TOOL_TELEMETRY
+  fi
 fi
 prepare_session_config
 start_cmux_broker

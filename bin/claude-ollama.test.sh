@@ -278,6 +278,18 @@ mkdir -p "$telemetry_dir"
 head -c 1048577 /dev/zero > "$telemetry_dir/tool-calls.jsonl"
 run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "claude-ollama rotates a telemetry file past 1 MiB" test -f "$telemetry_dir/tool-calls.jsonl.1"
+new_sandbox
+mkdir -p "$HOME/.claude-ollama" "$sandbox/elsewhere"
+ln -s "$sandbox/elsewhere" "$HOME/.claude-ollama/telemetry"
+run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_eq "a symlinked telemetry folder turns telemetry off" unset "$(cat "$sandbox/telemetry-env")"
+check_that "a symlinked telemetry folder is reported" grep -qF "claude-ollama: telemetry: $HOME/.claude-ollama/telemetry is a symlink or not a regular file; telemetry off" "$sandbox/err"
+new_sandbox
+mkdir -p "$HOME/.claude-ollama/telemetry" "$sandbox/elsewhere"
+ln -s "$sandbox/elsewhere/tool-calls.jsonl" "$HOME/.claude-ollama/telemetry/tool-calls.jsonl"
+run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_eq "a symlinked tool-calls.jsonl turns telemetry off" unset "$(cat "$sandbox/telemetry-env")"
+check_that "a symlinked tool-calls.jsonl is reported" grep -qF "claude-ollama: telemetry: $HOME/.claude-ollama/telemetry/tool-calls.jsonl is a symlink or not a regular file; telemetry off" "$sandbox/err"
 run_capture "$repo/bin/claude-ollama" 35b -p hi
 check_that "claude-ollama 35b uses the 35b settings" grep -qF -- "--settings $repo/ollama/settings.35b.json" "$sandbox/out"
 check_that "claude-ollama 35b passes the 35b model" grep -qF -- "--model qwen3.6-35b-cc --tools" "$sandbox/out"
