@@ -4,14 +4,8 @@ umask 022
 server="$(cd "$(dirname "$0")" && pwd)/repo-tools.py"
 tmp="$(made="$(mktemp -d)" && cd "$made" && pwd -P)" || exit 1
 failures=0
-broker_pid=""
 
-stop_broker() {
-  [ -n "$broker_pid" ] && kill "$broker_pid" 2>/dev/null && wait "$broker_pid" 2>/dev/null
-  broker_pid=""
-}
-
-trap 'stop_broker; rm -rf "$tmp"' EXIT
+trap 'rm -rf "$tmp"' EXIT
 
 check() {
   local name="$1"
@@ -90,28 +84,7 @@ process.stdin.close()
 process.wait()
 PY
 
-cat > "$tmp/broker.py" <<'PY'
-import json
-import os
-import socketserver
-import sys
-
-socket_path, log_path, reply_path = sys.argv[1:4]
-
-
-class Handler(socketserver.StreamRequestHandler):
-    def handle(self):
-        with open(log_path, "a") as log:
-            log.write(self.rfile.readline().decode())
-        with open(reply_path) as reply:
-            self.wfile.write(reply.read().encode())
-
-
-if os.path.exists(socket_path):
-    os.unlink(socket_path)
-socketserver.UnixStreamServer(socket_path, Handler).serve_forever()
-PY
-
+mkdir -p "$tmp/bin"
 repo="$tmp/repo"
 git init -q -b main "$repo"
 git -C "$repo" config user.email test@example.com
@@ -134,8 +107,12 @@ call() {
   (cd "$repo" && python3 "$tmp/client.py" "$server" "$@")
 }
 
-check "without the GitHub broker only the git tools are listed" \
-  [ "$(call list)" = "git_status git_diff git_log git_show" ]
+call_without_gh() {
+  (cd "$repo" && env PATH=/usr/bin:/bin "$(command -v python3)" "$tmp/client.py" "$server" "$@")
+}
+
+check "without gh only the git tools are listed" \
+  [ "$(call_without_gh list)" = "git_status git_diff git_log git_show" ]
 
 printf 'one\ntwo\nthree\n' > "$repo/notes.txt"
 status="$(call git_status)"
@@ -206,8 +183,8 @@ check "a revision that is not text is an error" contains "$(call git_show '{"rev
 check "git_show needs a revision" contains "$(call git_show)" "ERROR rev is required"
 check "paths must be a list of text" contains "$(call git_diff '{"paths":"notes.txt"}')" "ERROR"
 check "an unknown tool is an error" contains "$(call git_push)" "ERROR"
-check "a GitHub tool without the broker says how to get it" \
-  contains "$(call pr_list)" "ERROR the GitHub broker is not running; run gh auth login outside the session, then relaunch"
+check "a GitHub tool without gh says how to get it" \
+  contains "$(call_without_gh pr_list '{"repo":"owner/project"}')" "ERROR gh is not installed; install it and run gh auth login"
 
 head -c 30000 /dev/zero | tr '\0' x > "$repo/big.txt"
 git -C "$repo" add big.txt
@@ -218,7 +195,7 @@ check "and says how to narrow it" contains "$big" "[truncated: showed 20000 of"
 drafts="$tmp/drafts"
 export CLAUDE_OLLAMA_DRAFTS_DIR="$drafts"
 check "with a drafts folder the draft tools are listed too" \
-  [ "$(call list)" = "git_status git_diff git_log git_show draft_pr draft_review draft_open" ]
+  [ "$(call_without_gh list)" = "git_status git_diff git_log git_show draft_pr draft_review draft_open" ]
 pr_draft='{"title":"Add notes","base":"main","sections":[{"heading":"Summary","body":"Adds **notes**."},{"heading":"Testing","body":"- [x] ran it"}]}'
 drafted="$(call draft_pr "$pr_draft")"
 check "draft_pr reply carries no console link the session cannot open" lacks "$drafted" "http://"
@@ -276,16 +253,20 @@ check "a base that looks like an option is refused" \
 check "a refused draft writes no file" [ "$(find "$drafts" -name '*.json' | wc -l | tr -d ' ')" = 2 ]
 unset CLAUDE_OLLAMA_DRAFTS_DIR
 
-socket="$tmp/b.sock"
-printf '%s\n' '{"exit":0,"stdout":"[{\"number\":12}]\n","stderr":""}' > "$tmp/broker-reply"
-python3 "$tmp/broker.py" "$socket" "$tmp/broker.log" "$tmp/broker-reply" &
-broker_pid=$!
-for _ in $(seq 50); do
-  [ -S "$socket" ] && break
-  sleep 0.1
-done
-export CLAUDE_OLLAMA_GH_BROKER="$socket"
-check "with the GitHub broker the GitHub tools are listed too" \
+export REPO_TEST_DIR="$tmp"
+cat > "$tmp/bin/gh" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$REPO_TEST_DIR/gh.log"
+printf 'GH_REPO=%s GH_HOST=%s cwd=%s\n' "$GH_REPO" "$GH_HOST" "$PWD" >> "$REPO_TEST_DIR/gh.env"
+cat "$REPO_TEST_DIR/gh-reply"
+exit "$(cat "$REPO_TEST_DIR/gh-status")"
+SH
+chmod +x "$tmp/bin/gh"
+printf '[{"number":12}]\n' > "$tmp/gh-reply"
+printf '0' > "$tmp/gh-status"
+git -C "$repo" remote add origin https://github.com/owner/project.git
+export PATH="$tmp/bin:$PATH"
+check "with gh on PATH the GitHub tools are listed too" \
   [ "$(call list)" = "git_status git_diff git_log git_show pr_list pr_view pr_diff pr_checks pr_review_comments issue_list issue_view run_list run_view" ]
 github_schema() {
   call schema "{\"tool\":\"$1\"}" | python3 -c "import json, sys; schema = json.load(sys.stdin); print(sys.argv[1] in schema['properties'])" "$2"
@@ -298,16 +279,32 @@ for github_tool in pr_view pr_checks issue_view run_view; do
 done
 check "pr_diff can find a PR by branch" [ "$(github_schema pr_diff branch)" = True ]
 check "so pr_diff needs no number" [ "$(call schema '{"tool":"pr_diff"}' | python3 -c 'import json, sys; print(json.load(sys.stdin).get("required"))')" = None ]
-check "a GitHub tool returns the broker's output" [ "$(call pr_view '{"number":12}')" = '[{"number":12}]' ]
-check "and sends the broker the tool and its arguments" \
-  [ "$(tail -n 1 "$tmp/broker.log")" = '{"tool": "pr_view", "arguments": {"number": 12}}' ]
-printf '%s\n' '{"exit":1,"stdout":"","stderr":"gh broker: number must be a positive whole number\n"}' > "$tmp/broker-reply"
-check "a refusal from the broker is an error with its reason" \
-  [ "$(call pr_view '{"number":-1}')" = "ERROR gh broker: number must be a positive whole number" ]
-printf '%s\n' '{"exit":8,"stdout":"[{\"bucket\":\"pending\"}]\n","stderr":""}' > "$tmp/broker-reply"
+check "a GitHub tool returns gh's output" [ "$(call pr_view '{"number":12}')" = '[{"number":12}]' ]
+check "and runs gh with the tool's argv" \
+  [ "$(tail -n 1 "$tmp/gh.log")" = "pr view 12 --json number,title,body,state,author,headRefName,baseRefName,url,isDraft,reviewDecision,labels,files,comments,reviews" ]
+check "gh runs for the origin's repository with GH_HOST set" \
+  [ "$(tail -n 1 "$tmp/gh.env" | cut -d' ' -f1-2)" = "GH_REPO=owner/project GH_HOST=github.com" ]
+check "and gh does not run inside the repository" \
+  [ "$(grep -c "cwd=$repo\$" "$tmp/gh.env")" = 0 ]
+call pr_view '{"number":12,"repo":"other/repo"}' >/dev/null
+check "repo picks another repository" \
+  [ "$(tail -n 1 "$tmp/gh.env" | cut -d' ' -f1)" = "GH_REPO=other/repo" ]
+check "a bad repo is refused" \
+  [ "$(call pr_list '{"repo":"not-a-repo"}')" = "ERROR gh: repo must be owner/name" ]
+check "a bad number is refused" \
+  [ "$(call pr_view '{"number":-1}')" = "ERROR gh: number must be a positive whole number" ]
+check "a search qualifier outside the allowed list is refused" \
+  contains "$(call pr_list '{"search":"org:x"}')" "ERROR gh: search can't use the org: qualifier"
+check "fields must come from the tool's choices" \
+  contains "$(call pr_view '{"number":12,"fields":"nope"}')" "ERROR gh: fields must be a comma-separated list from:"
+printf '%s\n' '[{"bucket":"pending"}]' > "$tmp/gh-reply"
+printf '8' > "$tmp/gh-status"
 check "output from gh that exits non-zero, like pending checks, is still a result" \
   [ "$(call pr_checks '{"number":12}')" = '[{"bucket":"pending"}]' ]
-stop_broker
+printf '' > "$tmp/gh-reply"
+printf '1' > "$tmp/gh-status"
+check "gh that fails with no output is an error with its stderr" \
+  [ "$(call pr_view '{"number":12}')" = "ERROR gh failed" ]
 
 if [ "$failures" -eq 0 ]; then
   echo "all passed"

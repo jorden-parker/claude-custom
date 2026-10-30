@@ -10,7 +10,7 @@ const PRINT_CONFIG_35B = [
   "max context tokens: 98304",
   "settings: /repo/ollama/settings.35b.json",
   "tools: Bash,Read,Edit,Write,Skill,TaskStop",
-  "command: /home/.local/share/claude-custom/sandbox-runtime/node_modules/.bin/srt -s /home/.claude-ollama/sandbox-policy.json -- /repo/ollama/sandbox-entry claude --settings /repo/ollama/settings.35b.json --tools Bash,Read,Edit,Write,Skill,TaskStop",
+  "command: claude --settings /repo/ollama/settings.35b.json --tools Bash,Read,Edit,Write,Skill,TaskStop",
 ].join("\n");
 
 describe("parsePrintConfig", () => {

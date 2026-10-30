@@ -186,99 +186,40 @@ a review: run `bin/gguf-inspect` on the new file's header and diff its chat
 template against upstream's. These sizes have no vision: the projector file is
 not used, so image paste does not work on them.
 
-### The session sandbox
+### The command sandbox
 
-`claude-ollama` runs the whole session, Bash, hooks, Fallow and the code-search
-server included, inside Anthropic's `sandbox-runtime`, and refuses to start
-without it (`claude-custom install` installs it). The policy is
-`ollama/sandbox.json`. `CLAUDE_OLLAMA_SANDBOX=0 claude-ollama` is the escape
-hatch: it execs `claude` as you, with your `PATH`, env, `gh`, `short` and git
-credentials, and gives up the policy, the Shortcut broker and the masked push
-token. Only the exact value `0` turns it off.
+Bash runs in Claude Code's own sandbox. Each `ollama/settings.<size>.json` sets
+it: writes go only to the project and a temp dir, the network reaches only
+`github.com`, `registry.npmjs.org` and local ports, and sandboxed commands
+cannot read SSH keys, cloud credentials, the keychain, `~/.claude`, `~/.qwen` or
+the console state folder. `GH_TOKEN`, `GITHUB_TOKEN` and `SHORTCUT_API_TOKEN`
+are unset for sandboxed commands. The `Bash` ask rule still prompts before each
+sandboxed command, and `Bash(dangerouslyDisableSandbox:true)` prompts before a
+retry outside the sandbox.
 
-- Writes: the project, its git directory (except `hooks` and `config`), the
-  session's own folder `~/.claude-ollama` (its config, temp files and its own
-  npm, Go and tool caches) and macOS's `TemporaryItems` folder. Nothing that
-  programs outside the sandbox run from or cache in: not the Claude Code
-  install, `~/.npm`, `~/.cache`, `~/Library/Caches`, `~/.claude`, your shell
-  files, `/private/tmp` or this repo. Auto-update is off inside the session.
-- Reads: everything except credentials (`~/.ssh`, `~/.aws`, `~/.config/gh`,
-  `~/.npmrc`, keychains) and your normal `~/.claude`.
-- Network: `github.com`, `registry.npmjs.org` (for `npx fallow` and installs)
-  and localhost. Localhost is open on every port, because Ollama is reached
-  directly rather than through the proxy.
-- Web fetch: WebFetch is off unless `~/.config/claude-custom/fetch-domains` (or
-  a file under `$XDG_CONFIG_HOME`) lists hostnames, one per line. Each listed
-  host is added to the session's proxy allowlist (tunnelled, not decrypted) and
-  gets a WebFetch allow rule. Localhost and loopback addresses are always
-  denied. Anthropic's hostname check is skipped, but `api.anthropic.com` stays
-  unreachable, and the page summary runs on the session's own model. An
-  interactive session asks before fetching an unlisted host, and the proxy
-  refuses that host even if you approve, so answer no. `claude-ollama doctor`
-  and `--print-config` show the list.
+Four command families run outside the sandbox through `excludedCommands`:
+`cmux`, `gh`, `short` and `git push`. Each still prompts. MCP servers and hooks
+run outside the sandbox too, as they do in the personal overlay.
 
-Every Bash command still asks first, and so do `git commit` and `git push`.
-`git-push-guard.py` refuses force pushes, remote deletes, `--mirror`, `--prune`
-and pushes to `main` or `master`.
+What this gives up, compared with the older session sandbox:
 
-For `git push`, sessions use a fine-grained GitHub token from the keychain. Set
-it up with:
-
-```sh
-claude-ollama github-token
-```
-
-It opens GitHub's new-token page with the name, a 90-day expiry and the
-permissions filled in. You choose the repositories and generate it, then paste
-it at the hidden `security` prompt (it never appears in a command line). Running
-it again replaces the stored token.
-
-- `push` (keychain item `claude-ollama-github`; Contents and Pull requests:
-  write) lets `git push` work. The session never sees the token: it gets a
-  placeholder, which the sandbox's proxy swaps for the real value only on
-  requests to `github.com`. Without it, `doctor` warns and pushes fail; commits
-  still work. Remotes must use HTTPS: an SSH `origin` (`git@github.com:` or
-  `ssh://`) makes the launch and `doctor` warn, with the `git remote set-url` to
-  run, since `~/.ssh` is unreadable inside the sandbox.
-- Reading PRs, issues and CI uses your normal `gh` login
-  (`gh auth token --hostname github.com`), so it reaches every repo you can. The
-  token never enters the sandbox, and the session has no `gh`. The model gets
-  MCP tools instead (`pr_list`, `pr_view`, `pr_diff`, `pr_checks`, `issue_list`,
-  `issue_view`, `run_list`, `run_view`, beside the local `git_status`,
-  `git_diff`, `git_log` and `git_show`). Each GitHub call goes to a broker
-  outside the sandbox, which checks the arguments and runs your real `gh` with
-  fixed flags, from an empty folder, with `GH_REPO` set to the project's
-  `origin` and none of your saved `gh` logins. Without a `gh` login, only the
-  git tools are listed. A `GH_TOKEN` or `GITHUB_TOKEN` from your shell never
-  reaches the session. The three writes (`pr_comment`, `issue_comment`,
-  `pr_create`) open a macOS dialog that shows the exact command and the full
-  body, and run only when you click Allow. A line
-  `allow|deny gh TOOL [owner/name]` in `~/.config/claude-custom/command-rules`
-  (per machine, outside the sandbox) answers without asking; `deny` wins, and
-  "Always allow" appends an `allow` line for that repo.
-
-`bin/ollama-models` manages the installed models:
-
-- `list` marks each one `pinned`, `mismatch` (pinned, different digest),
-  `profile` (a `-cc` model a profile uses), `orphan` (a `-cc` model no profile
-  uses), `third-party` (not from the Ollama library) or `other`.
-- `prune` lists the `third-party` and `orphan` models, asks, then runs
-  `ollama rm` on them (`--yes` skips the question).
-- `pin NAME[:TAG]` fetches the manifest from `registry.ollama.ai`, writes its
-  sha256 to `ollama/model-digests.json` and prints it. Run it when adding a size
-  or after an upstream tag update, then review the diff.
-
-To compare Ollama with other servers, see [backend-bench](backend-bench.md).
+- The browser has no live proof of its localhost lock. `shared/mcp/page.js`
+  still locks the REPL session to `localhost`, `127.0.0.1` and `[::1]` before
+  every request.
+- The GitHub read tools work for any repository the user's `gh` can read. Writes
+  such as `gh pr comment` are plain Bash commands behind the `Bash` prompt.
+- `short` runs as the user's own command after the `Bash` prompt.
+- `git fetch`, `pull` and `push` use the user's own git credentials.
+- Qwen Code runs with no sandbox at all.
 
 ### Qwen Code
 
 `claude-ollama qwen [size] [qwen args...]` (or `claude-custom qwen ...`) runs
 Qwen Code (`brew install qwen-code`) instead of Claude Code on the size's `-cc`
-model: same model preparation and warm-up, same brokers and session sandbox,
-same `semantic_search`, `repo` and `dev` MCP servers.
-`claude-ollama qwen --print-config [size]` prints the command. The point is a
-comparison: Qwen Code keeps its own system prompt and tool schemas, which are
-written for Qwen models.
+model: same model preparation and warm-up, same `semantic_search`, `repo` and
+`dev` MCP servers. `claude-ollama qwen --print-config [size]` prints the
+command. The point is a comparison: Qwen Code keeps its own system prompt and
+tool schemas, which are written for Qwen models.
 
 Qwen Code reads `~/.claude-ollama/qwen` as its home (`QWEN_HOME`), never your
 `~/.qwen`, which the policy also hides from both harnesses. Each launch rewrites
@@ -287,37 +228,20 @@ Qwen Code reads `~/.claude-ollama/qwen` as its home (`QWEN_HOME`), never your
 `reasoning_effort: none` in `extra_body` so Ollama skips thinking, 30-minute
 timeouts, `agent`, `web_fetch`, `web_search` and `notebook_edit` off, usage
 statistics and auto-update off) and `QWEN.md` (the preferences file,
-`ollama/QWEN.local.md` and, sandboxed, `ollama/CLAUDE.sandbox.md`). The session
-cannot write those files, `system.md`, `.env`, `skills`, `agents`, `extensions`,
-`rules` or `commands` there, nor any `.qwen` folder in the project. Qwen Code
-also reads the project's `.env`, which a session can write, so the profile's
-`advanced.excludedEnvVars` keeps `QWEN_SYSTEM_MD` (a replacement system prompt),
-the model and key variables and `SEATBELT_PROFILE` out of it; `QWEN_SANDBOX`,
-`QWEN_HOME` and the approvals and trust paths are excluded by Qwen Code itself.
-`--approval-mode auto-edit` approves edits and asks before every shell command,
-as the Claude profiles do. An outer `OPENAI_API_KEY`, `OPENAI_BASE_URL`,
-`OPENAI_MODEL`, `QWEN_MODEL` or `QWEN_SANDBOX` never reaches the session.
+`ollama/QWEN.local.md`). The session cannot write those files, `system.md`,
+`.env`, `skills`, `agents`, `extensions`, `rules` or `commands` there, nor any
+`.qwen` folder in the project. Qwen Code also reads the project's `.env`, which
+a session can write, so the profile's `advanced.excludedEnvVars` keeps
+`QWEN_SYSTEM_MD` (a replacement system prompt), the model and key variables and
+`SEATBELT_PROFILE` out of it; `QWEN_SANDBOX`, `QWEN_HOME` and the approvals and
+trust paths are excluded by Qwen Code itself. `--approval-mode auto-edit`
+approves edits and asks before every shell command, as the Claude profiles do.
+An outer `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`, `QWEN_MODEL` or
+`QWEN_SANDBOX` never reaches the session.
 
 Not yet wired for Qwen Code: the hooks (Qwen Code's hook contract matches Claude
 Code's, but the hooks match Claude tool names), `doctor`, the picker and the
-console. `CLAUDE_OLLAMA_SANDBOX=0 claude-ollama qwen ...` runs it as you, like
-the Claude launch. Node's `setRawMode` asks the terminal for raw mode itself,
-which the sandbox refuses, so a sandboxed launch preloads
-`ollama/qwen-raw-mode.cjs` through `NODE_OPTIONS`: it lets that call succeed on
-the terminal the launcher already switched to raw mode. The session's own `node`
-processes inherit the preload; it changes nothing when the ioctl is allowed.
-Three more startup needs are met the same way: the launcher creates the folders
-under the Qwen home that the policy denies writing (`extensions` and the rest),
-since Qwen Code's own recursive `mkdir` of an existing folder passes while a
-missing one is refused; `ollama/qwen-dir-watch.cjs` drops the `EMFILE` that
-every directory watch raises because FSEvents cannot start inside the sandbox
-(file watches use kqueue and still work), so Qwen Code runs without live reload
-of those folders; and the settings turn `agents.crossSessionMessaging` off,
-since the sandbox refuses the Unix socket it would listen on. A sandboxed launch
-also exports `SANDBOX=claude-ollama`, so Qwen Code's footer and `/about` name
-the sandbox instead of saying "no sandbox"; an outer `SANDBOX` is unset first,
-and `advanced.excludedEnvVars` keeps a project `.env` from setting it, so an
-unsandboxed launch never claims one.
+console. Qwen Code runs with no sandbox of its own, so its commands run as you.
 
 ### Dev servers and the browser
 
@@ -336,19 +260,14 @@ get log errors only. The tools keep the scheme the server prints, so a server
 started with `--experimental-https` (or whose `.next/dev/lock` `appUrl` is
 `https://`) is probed and opened over `https://localhost:PORT`; the probe
 accepts the local self-signed certificate, and candidates are still `localhost`
-only. The session has no cmux command. The page tools reach the browser only
-through the cmux broker, which drives one browser REPL session locked to
-`localhost`, `127.0.0.1` and `[::1]`: navigations, new tabs, `fetch`,
-subresources and websockets. The broker takes only structured page requests and
-proves the lock before the session gets its socket. `page_check` needs the cmux
-browser, which is on by default when claude-ollama runs in a cmux terminal;
-`CLAUDE_OLLAMA_CMUX=0` turns it off. WebRTC (STUN/TURN) and DNS prefetch are
-outside WebKit's content rules and are not covered by the lock. In claude-ollama
-sessions the Bash guard denies `pnpm dev` and similar starts, and only there.
-
-`claude-ollama browser-check` is the live proof that the session browser stays
-on localhost. Run it from a cmux terminal; it prints `browser-check: passed` or
-`browser-check: FAILED`, one `ok:` or `FAIL:` line per check.
+only. The page tools run `cmux browser repl` themselves with
+`shared/mcp/page.js`, which locks the REPL session to `localhost`, `127.0.0.1`
+and `[::1]` before each request: navigations, new tabs, `fetch`, subresources
+and websockets. They need a cmux terminal (`CMUX_SOCKET_PATH` set and `cmux` on
+`PATH`); `CLAUDE_OLLAMA_CMUX=0` turns them off. WebRTC (STUN/TURN) and DNS
+prefetch are outside WebKit's content rules and are not covered by the lock. In
+claude-ollama sessions the Bash guard denies `pnpm dev` and similar starts, and
+only there.
 
 ### Reviewing a pull request locally
 

@@ -1,10 +1,19 @@
 #!/usr/bin/env python3
 import os
+import shutil
 import subprocess
 from pathlib import PurePath
 
-from broker_client import BrokerMissing, ask_broker
-from draft_store import DRAFT_TOOL_NAMES, DRAFT_TOOLS, DraftRefused, draft_open, draft_pr, draft_review, drafts_dir
+from draft_store import (
+    DRAFT_TOOL_NAMES,
+    DRAFT_TOOLS,
+    DraftRefused,
+    draft_open,
+    draft_pr,
+    draft_review,
+    drafts_dir,
+)
+from github_tools import Refused, origin_repository, run_gh
 from mcp_stdio import serve, tool_result
 
 GIT_TIMEOUT_SECONDS = 60
@@ -15,7 +24,6 @@ MAX_PATHS = 50
 GIT = ["git", "--no-pager", "-c", "color.ui=false", "-c", "core.fsmonitor=false"]
 NO_DIFF_PROGRAMS = ["--no-ext-diff", "--no-textconv"]
 OUTSIDE_REPOSITORY = "paths must stay inside the repository"
-BROKER_MISSING = "the GitHub broker is not running; run gh auth login outside the session, then relaunch"
 
 
 def text_property(description):
@@ -219,6 +227,21 @@ def pinned_repository_env():
 PINNED_REPOSITORY_ENV = pinned_repository_env()
 
 
+def github_origin():
+    if PINNED_REPOSITORY_ENV is None:
+        return None
+    completed = subprocess.run(
+        [*GIT, "remote", "get-url", "origin"],
+        capture_output=True,
+        text=True,
+        stdin=subprocess.DEVNULL,
+        env=PINNED_REPOSITORY_ENV,
+        timeout=GIT_TIMEOUT_SECONDS,
+        check=False,
+    )
+    return origin_repository(completed.stdout) if completed.returncode == 0 else None
+
+
 def run_git(command):
     if PINNED_REPOSITORY_ENV is None:
         raise ToolError("the session did not start inside a git repository")
@@ -240,12 +263,16 @@ def run_git(command):
 
 def run_github_tool(name, arguments):
     try:
-        reply = ask_broker(name, arguments)
-    except BrokerMissing:
-        raise ToolError(BROKER_MISSING) from None
-    if reply.get("exit") != 0 and not reply.get("stdout", "").strip():
-        raise ToolError(reply.get("stderr", "").strip() or "gh failed")
-    return reply.get("stdout", "") + reply.get("stderr", "")
+        completed = run_gh(name, arguments, github_origin())
+    except Refused as refusal:
+        raise ToolError(f"gh: {refusal}") from None
+    except FileNotFoundError:
+        raise ToolError("gh is not installed; install it and run gh auth login") from None
+    except subprocess.TimeoutExpired:
+        raise ToolError("gh did not answer in time") from None
+    if completed.returncode != 0 and not completed.stdout.strip():
+        raise ToolError(completed.stderr.strip() or "gh failed")
+    return completed.stdout + completed.stderr
 
 
 def current_branch():
@@ -291,7 +318,7 @@ def call_tool(params):
 
 
 def list_tools():
-    github_tools = GITHUB_TOOLS if os.environ.get("CLAUDE_OLLAMA_GH_BROKER") else []
+    github_tools = GITHUB_TOOLS if shutil.which("gh") else []
     return GIT_TOOLS + (DRAFT_TOOLS if drafts_dir() else []) + github_tools
 
 

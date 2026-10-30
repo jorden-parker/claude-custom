@@ -337,21 +337,8 @@ build_go_apps() {
   (cd "$repo_dir/go" && go build -o cmd/ollama-agent/ollama-agent ./cmd/ollama-agent) || { echo "fail: build ollama-agent" >&2; status=1; }
 }
 
-install_pinned_npm_package() {
-  local target="$HOME/.local/share/claude-custom/$1"
-  mkdir -p "$target"
-  cp "$repo_dir/ollama/$1.package.json" "$target/package.json"
-  cp "$repo_dir/ollama/$1.package-lock.json" "$target/package-lock.json"
-  npm ci --prefix "$target" --ignore-scripts --no-audit --no-fund >/dev/null || { echo "fail: install $1" >&2; status=1; }
-}
-
-install_session_packages() {
-  command -v npm >/dev/null 2>&1 || {
-    echo "skip: npm not installed; local-model sessions need sandbox-runtime (install Node, then rerun claude-custom install)" >&2
-    return 0
-  }
-  install_pinned_npm_package sandbox-runtime
-  install_pinned_npm_package shortcut-cli
+remove_session_packages() {
+  rm -rf "$HOME/.local/share/claude-custom/sandbox-runtime" "$HOME/.local/share/claude-custom/shortcut-cli"
 }
 
 running_ollama_env() {
@@ -394,7 +381,7 @@ install_all() {
   refresh_ollama_models
   build_go_apps
   restart_stale_ollama_server
-  install_session_packages
+  remove_session_packages
   print_activation
 }
 
@@ -427,24 +414,11 @@ update_repo() {
   exec "$repo_dir/bin/claude-custom" finish-update
 }
 
-check_browser_lock() {
-  if [ -z "${CMUX_SOCKET_PATH:-}" ]; then
-    echo "run claude-custom update from a cmux terminal to check the browser lock"
-    return
-  fi
-  "$repo_dir/bin/claude-ollama" browser-check || status=1
-}
-
-finish_update() {
-  install_all
-  check_browser_lock
-}
-
 main() {
   case "${1:-install}" in
     install) install_all ;;
     update) update_repo ;;
-    finish-update) finish_update ;;
+    finish-update) install_all ;;
     uninstall) uninstall_all ;;
     ollama) shift; exec "$repo_dir/bin/claude-ollama" "$@" ;;
     qwen) shift; exec "$repo_dir/bin/claude-ollama" qwen "$@" ;;

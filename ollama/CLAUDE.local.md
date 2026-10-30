@@ -19,3 +19,6 @@
 - Test UI changes in the browser: mcp__dev__page_check opens the page,
   mcp__dev__page_snapshot lists elements with refs, mcp__dev__page_act
   clicks/fills/presses by ref. Fix every error and warning they return.
+- Bash runs in a sandbox: it writes only this project and a temp dir, and
+  reaches only localhost, github.com and registry.npmjs.org. `gh`, `cmux`,
+  `short` and `git push` run outside it, each after a prompt.

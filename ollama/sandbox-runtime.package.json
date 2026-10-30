@@ -1,7 +1,0 @@
-{
-  "name": "claude-ollama-sandbox-runtime",
-  "private": true,
-  "dependencies": {
-    "@anthropic-ai/sandbox-runtime": "0.0.81"
-  }
-}

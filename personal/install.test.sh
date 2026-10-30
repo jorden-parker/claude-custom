@@ -480,25 +480,6 @@ run_capture "$sandbox/clone/bin/claude-custom" update
 check_eq "update exit status" 0 "$?"
 check_eq "update pulled the new commit" "true" "$(tail -n 1 "$sandbox/clone/personal/claude.sh")"
 check_that "update rewrote zshrc block for the clone" grep -qxF "CLAUDE_CUSTOM_HOME='$sandbox/clone'" "$HOME/.zshrc"
-check_that "update outside cmux says where the browser check runs" grep -qF "run claude-custom update from a cmux terminal to check the browser lock" "$sandbox/out"
-
-new_sandbox
-copy_repo "$sandbox/origin"
-git -C "$sandbox/origin" init -q
-git -C "$sandbox/origin" add -A
-git -C "$sandbox/origin" -c user.name=t -c user.email=t@t commit -qm initial
-git clone -q "$sandbox/origin" "$sandbox/clone"
-cat > "$sandbox/origin/bin/claude-ollama" <<EOF
-#!/bin/sh
-echo "\$*" >> "$sandbox/check.log"
-exit "\${STUB_CHECK_EXIT:-0}"
-EOF
-git -C "$sandbox/origin" -c user.name=t -c user.email=t@t commit -qam 'stub claude-ollama'
-CMUX_SOCKET_PATH="$sandbox/cmux.sock" run_capture "$sandbox/clone/bin/claude-custom" update
-check_eq "update in cmux exit status" 0 "$?"
-check_eq "update in cmux runs the browser check with the pulled launcher" "browser-check" "$(cat "$sandbox/check.log")"
-STUB_CHECK_EXIT=1 CMUX_SOCKET_PATH="$sandbox/cmux.sock" run_capture "$sandbox/clone/bin/claude-custom" update
-check_eq "update fails when the browser check fails" 1 "$?"
 
 new_sandbox
 copy_repo "$sandbox/origin"
@@ -526,23 +507,12 @@ check_that "no upstream message" grep -q 'update: git pull failed' "$sandbox/err
 new_sandbox
 copy_repo "$sandbox/repo"
 runtime_dir="$HOME/.local/share/claude-custom/sandbox-runtime"
-run_capture "$sandbox/repo/bin/claude-custom" install
-check_that "install without npm says local-model sessions need sandbox-runtime" \
-  grep -qxF "skip: npm not installed; local-model sessions need sandbox-runtime (install Node, then rerun claude-custom install)" "$sandbox/err"
-cat > "$sandbox/stubbin/npm" <<STUB
-#!/bin/sh
-echo "\$*" >> "$sandbox/npm.log"
-STUB
-chmod +x "$sandbox/stubbin/npm"
-run_capture "$sandbox/repo/bin/claude-custom" install
-check_that "install installs the pinned sandbox-runtime from its lockfile" \
-  grep -qxF "ci --prefix $runtime_dir --ignore-scripts --no-audit --no-fund" "$sandbox/npm.log"
-check_that "install copies the sandbox-runtime lockfile" cmp -s "$sandbox/repo/ollama/sandbox-runtime.package-lock.json" "$runtime_dir/package-lock.json"
 shortcut_dir="$HOME/.local/share/claude-custom/shortcut-cli"
-check_that "install installs the pinned Shortcut CLI from its lockfile" \
-  grep -qxF "ci --prefix $shortcut_dir --ignore-scripts --no-audit --no-fund" "$sandbox/npm.log"
-check_that "install copies the Shortcut CLI lockfile" cmp -s "$sandbox/repo/ollama/shortcut-cli.package-lock.json" "$shortcut_dir/package-lock.json"
-rm "$sandbox/stubbin/npm"
+mkdir -p "$runtime_dir/node_modules" "$shortcut_dir/node_modules"
+run_capture "$sandbox/repo/bin/claude-custom" install
+check_that "install removes the retired sandbox-runtime" test ! -e "$runtime_dir"
+check_that "install removes the retired Shortcut CLI" test ! -e "$shortcut_dir"
+check_not "install no longer mentions sandbox-runtime" grep -q 'sandbox-runtime' "$sandbox/err"
 
 new_sandbox
 copy_repo "$sandbox/repo"

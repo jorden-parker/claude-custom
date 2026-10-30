@@ -4,11 +4,14 @@ import http.client
 import json
 import os
 import re
+import secrets
+import shutil
 import signal
 import socket
 import ssl
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -44,11 +47,16 @@ LOCKFILES = [("pnpm-lock.yaml", "pnpm"), ("yarn.lock", "yarn"), ("bun.lockb", "b
 OUTSIDE_REPOSITORY = "paths must stay inside the repository"
 SCRIPT_RULE = "dev_start runs only dev, start or dev:* scripts"
 PATH_RULE = "path must start with a single /"
-CMUX_OFF = "the cmux browser is off; launch claude-ollama from a cmux terminal without CLAUDE_OLLAMA_CMUX=0. dev_errors still works."
+CMUX_OFF = "the cmux browser is off (CLAUDE_OLLAMA_CMUX=0); relaunch without it. dev_errors still works."
+NO_CMUX = "no cmux browser: launch claude-ollama from a cmux terminal (cmux on PATH and CMUX_SOCKET_PATH set). dev_errors still works."
+REPL_TIMEOUT_MS = 60000
+COMMAND_TIMEOUT_SECONDS = 120
+REPLY_TAIL_LINES = 20
+STATUS_LINE = re.compile(r"^\[(ok|error) \|.*\]$")
+PAGE_PROGRAM = Path(__file__).resolve().with_name("page.js")
 NO_SERVER = "no dev server answers for {}; call dev_status"
 NOT_NEXT = "not a Next.js 16+ dev server"
 NO_PAGE_ORIGIN = "unknown: this session has not run page_check"
-BROKER_MISSING = "the cmux browser broker is not running; launch claude-ollama from a cmux terminal"
 
 
 def loopback_tls_context():
@@ -142,8 +150,7 @@ def git_root():
 
 ROOT = git_root()
 STARTED = {}
-BROWSER = {"origin": None}
-BROKER_TIMEOUT_SECONDS = 90
+BROWSER = {"origin": None, "session": f"claude-ollama-{secrets.token_hex(8)}", "workdir": None}
 PAGE_ACTIONS = {"click", "dblclick", "hover", "focus", "fill", "type", "press", "select", "check", "uncheck", "scroll"}
 
 
@@ -564,24 +571,55 @@ def stop_process(process):
         process.wait()
 
 
-def ask_browser(request):
-    socket_path = os.environ.get("CLAUDE_OLLAMA_CMUX_BROKER", "")
-    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
-        connection.settimeout(BROKER_TIMEOUT_SECONDS)
-        try:
-            connection.connect(socket_path)
-        except OSError:
-            raise ToolError(BROKER_MISSING) from None
-        connection.sendall(json.dumps({"page": request}).encode() + b"\n")
-        with connection.makefile("rb") as replies:
-            line = replies.readline()
+def cmux_command():
+    if os.environ.get("CLAUDE_OLLAMA_CMUX") == "0":
+        raise ToolError(CMUX_OFF)
+    cmux = shutil.which("cmux")
+    if cmux is None or not os.environ.get("CMUX_SOCKET_PATH"):
+        raise ToolError(NO_CMUX)
+    return cmux
+
+
+def browser_workdir():
+    if BROWSER["workdir"] is None:
+        BROWSER["workdir"] = tempfile.TemporaryDirectory(prefix="claude-ollama-browser-")
+    return BROWSER["workdir"].name
+
+
+def loads_or_none(text):
     try:
-        reply = json.loads(line)
+        return json.loads(text)
     except ValueError:
-        raise ToolError("the browser broker sent no reply") from None
-    if not reply.get("ok"):
-        raise ToolError(reply.get("error") or "the browser broker failed")
-    return reply["result"]
+        return None
+
+
+def repl_result(output):
+    lines = [line for line in output.splitlines() if not STATUS_LINE.match(line)]
+    for line in reversed(lines):
+        value = loads_or_none(line)
+        if isinstance(value, str):
+            value = loads_or_none(value)
+        if isinstance(value, dict):
+            return value
+    return None
+
+
+def tail_text(output):
+    return "\n".join(output.strip().splitlines()[-REPLY_TAIL_LINES:])
+
+
+def ask_browser(request):
+    cmux = cmux_command()
+    program = PAGE_PROGRAM.read_text() + f"\nawait __cc_run({json.dumps(request)})\n"
+    argv = [cmux, "browser", "repl", "--session", BROWSER["session"], "--timeout", str(REPL_TIMEOUT_MS), "--eval", "-"]
+    try:
+        completed = subprocess.run(argv, input=program, cwd=browser_workdir(), capture_output=True, text=True, timeout=COMMAND_TIMEOUT_SECONDS, check=False)
+    except subprocess.TimeoutExpired:
+        raise ToolError("the cmux browser did not answer in time") from None
+    result = repl_result(completed.stdout)
+    if completed.returncode != 0 or result is None:
+        raise ToolError(tail_text(completed.stderr + completed.stdout) or "the cmux browser failed")
+    return result
 
 
 def valid_path(path):
@@ -618,8 +656,7 @@ def page_check(arguments):
     path = arguments.text("path") or "/"
     if not valid_path(path):
         raise ToolError(PATH_RULE)
-    if not os.environ.get("CLAUDE_OLLAMA_CMUX_BROKER"):
-        raise ToolError(CMUX_OFF)
+    cmux_command()
     candidate, _status, _tried = probe_dir(dir_text)
     if candidate is None:
         raise ToolError(NO_SERVER.format(dir_text))
