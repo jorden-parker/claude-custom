@@ -371,9 +371,12 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   (`CMUX_SOCKET_PATH` set and `cmux` on `PATH`) turns them on. The `dev` server
   drives one cmux browser surface with plain `cmux browser` commands
   (`open-split`, `goto`, `wait`, `console list`, `errors list`,
-  `snapshot --interactive`, `click` and friends); `page_check` opens only
-  loopback URLs and `page_act` goes back when an action leaves them. The `repo`
-  server runs `gh` itself (`shared/mcp/github_tools.py`: nine read tools,
+  `snapshot --interactive`, `click` and friends) in the `claude-ollama` browser
+  profile (`profiles list`, else `profiles add`); `page_check` opens only
+  loopback URLs, every page tool sends the browser back to the dev server when
+  the page left it (`ensure_local`, an error when it will not come back), and
+  values go to cmux as `--selector=`/`--text=` so none is read as an option. The
+  `repo` server runs `gh` itself (`shared/mcp/github_tools.py`: nine read tools,
   `GH_REPO` from `origin` or the `repo` argument, `--flag=value` argv, `Refused`
   for bad arguments); its GitHub tools are listed only while `gh` is on `PATH`.
 - There is no side model: each Ollama profile sets

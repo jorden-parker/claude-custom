@@ -87,7 +87,25 @@ verb="$1"
 shift
 state="$DEV_TEST_DIR/cmux.surface"
 url_file="$DEV_TEST_DIR/cmux.url"
+profile_file="$DEV_TEST_DIR/cmux.profile"
+if [ "$verb" = "profiles" ]; then
+  case "$1" in
+    list)
+      if [ -f "$profile_file" ]; then
+        printf '{"profiles":[{"id":"profile-default","name":"Default","slug":"default"},{"id":"profile-cc","name":"claude-ollama","slug":"claude-ollama"}]}\n'
+      else
+        printf '{"profiles":[{"id":"profile-default","name":"Default","slug":"default"}]}\n'
+      fi ;;
+    add) : > "$profile_file"; printf '{"created":true,"profile":{"id":"profile-cc","name":"%s","slug":"%s"}}\n' "$2" "$2" ;;
+    *) echo "Error: unknown profiles $1"; exit 1 ;;
+  esac
+  exit 0
+fi
 if [ "$verb" = "open-split" ]; then
+  case "$*" in
+    *"--profile profile-cc"*) ;;
+    *) echo "Error: invalid_params: open-split needs the claude-ollama profile"; exit 1 ;;
+  esac
   printf 'surface:7\n' > "$state"
   printf '%s\n' "$1" > "$url_file"
   printf '{"surface_ref":"surface:7","created_split":true}\n'
@@ -98,18 +116,14 @@ if [ ! -f "$state" ] || [ "$surface" != "$(cat "$state")" ]; then
   exit 1
 fi
 case "$verb ${1:-}" in
-  "goto "*) printf '%s\n' "$1" > "$url_file"; echo OK ;;
+  "goto "*) [ -n "${STUB_CMUX_STUCK:-}" ] || printf '%s\n' "$1" > "$url_file"; echo OK ;;
   "get url") cat "$url_file" ;;
   "console list") printf '{"count":2,"entries":[{"level":"warn","text":"If you do not provide a visible label, you must specify an aria-label or aria-labelledby attribute for accessibility"},{"level":"log","text":"noise"}]}\n' ;;
   "errors list") printf '{"count":1,"errors":[{"message":"TypeError: x is undefined","source":"http://localhost:1/x","line":3}]}\n' ;;
   "snapshot --interactive") printf -- '- document "App"\n  - button "Save" [ref=e1]\n  - textbox "Name" [ref=e2]\n' ;;
   "click "*)
-    if [ -n "${STUB_CMUX_LEAVE:-}" ]; then
-      cp "$url_file" "$DEV_TEST_DIR/cmux.previous"
-      printf 'https://example.com/\n' > "$url_file"
-    fi
+    [ -z "${STUB_CMUX_LEAVE:-}" ] || printf 'https://example.com/\n' > "$url_file"
     echo OK ;;
-  "back "*) mv "$DEV_TEST_DIR/cmux.previous" "$url_file"; echo OK ;;
   "wait "*|"console clear"|"errors clear"|"fill "*|"type "*|"press "*|"select "*|"scroll "*|"dblclick "*|"hover "*|"focus "*|"check "*|"uncheck "*) echo OK ;;
   *) echo "Error: unknown $verb ${1:-}"; exit 1 ;;
 esac
@@ -372,6 +386,8 @@ check "and the TypeError from errors list" contains "$page" "TypeError: x is und
 check "and the console warning from console list" contains "$page" "aria-label"
 check "and the Next.js error from get_errors" contains "$page" "Hydration failed"
 check "page_check names the surface it uses" contains "$page" "Surface: surface:7"
+check "page_check adds the claude-ollama browser profile when the browser lacks it" commanded "browser profiles add claude-ollama"
+check "and opens the page in that profile" commanded "--focus false --profile profile-cc"
 check "the first page_check opens a browser split on the page without taking focus" \
   commanded "--json browser open-split http://localhost:$browser_port/settings --focus false"
 check "a later page_check navigates the same surface" \
@@ -414,19 +430,36 @@ snapshot="$(section page_snapshot "$act_out")"
 check "page_snapshot lists elements with refs" contains "$snapshot" "[ref=e1]"
 check "page_snapshot asks the browser for the interactive elements" commanded "browser --surface surface:7 snapshot --interactive"
 fill="$(section page_act "$act_out")"
-check "page_act fill asks the browser to fill the ref with the text" \
-  commanded "browser --surface surface:7 fill e2 --text Ada"
+check "page_act fill asks the browser to fill the ref with the text, in forms cmux cannot read as options" \
+  commanded "browser --surface surface:7 fill --selector=e2 --text=Ada"
 check "page_act reports the URL, browser errors, console and elements" \
   [ "$(printf '%s\n' "$fill" | grep -c -e '^URL now:' -e '^Browser errors:' -e '^Console:' -e '^Elements:')" -ge 4 ]
-check "page_act press asks the browser for the key" commanded "press --key Enter"
-check "page_act scroll asks the browser for the pixels" commanded "scroll --dy 300"
+check "page_act press asks the browser for the key" commanded "press --key=Enter"
+check "page_act scroll asks the browser for the pixels" commanded "scroll --dy=300"
+check "a session with the profile already in the browser does not add it again" [ "$(grep -c 'browser profiles add' "$tmp/cmux.log")" = 0 ]
 leave_out="$tmp/session-leave.out"
 (export STUB_CMUX_LEAVE=1; session "$leave_out" '["dev_start",{"dir":"app"}]' '["page_check",{"dir":"app"}]' '["page_act",{"action":"click","target":"e3"}]')
 left="$(section page_act "$leave_out")"
 check "page_act that leaves the local server goes back and says so" \
-  contains "$left" "left the local server for https://example.com/; went back"
+  contains "$left" "left the local server for https://example.com/; went back to the local server"
 check "and reports the local URL again" contains "$left" "URL now: http://localhost:"
-check "and asked the browser to go back" commanded "browser --surface surface:7 back"
+check "and sent the browser to the dev server, not back in history" \
+  commanded "browser --surface surface:7 goto http://localhost:$(tail -n 1 "$tmp/ports.log")"
+away_out="$tmp/session-away.out"
+session "$away_out" '["dev_start",{"dir":"app"}]' '["page_check",{"dir":"app"}]' \
+  "sh:printf 'https://example.com/\\n' > \"\$DEV_TEST_DIR/cmux.url\"" '["page_snapshot",{}]'
+away_snapshot="$(section page_snapshot "$away_out")"
+check "page_snapshot on a page that left the local server goes back first and says so" \
+  contains "$away_snapshot" "left the local server for https://example.com/; went back to the local server"
+check "and still lists the elements" contains "$away_snapshot" "[ref=e1]"
+stuck_out="$tmp/session-stuck.out"
+(export STUB_CMUX_STUCK=1; session "$stuck_out" '["dev_start",{"dir":"app"}]' '["page_check",{"dir":"app"}]' \
+  "sh:printf 'https://example.com/\\n' > \"\$DEV_TEST_DIR/cmux.url\"" '["page_snapshot",{}]' '["page_act",{"action":"click","target":"e1"}]')
+check "page_snapshot on a page that will not come back is refused and names the page" \
+  error_with "$(section page_snapshot "$stuck_out")" "the page is on https://example.com/, not the local server"
+check "page_act on a page that will not come back is refused before acting" \
+  error_with "$(section page_act "$stuck_out")" "not the local server"
+check "and no click reached the browser" [ "$(grep -c 'click --selector=e1' "$tmp/cmux.log")" = 0 ]
 : > "$tmp/cmux.log"
 reopen_out="$tmp/session-reopen.out"
 session "$reopen_out" '["dev_start",{"dir":"app"}]' '["page_check",{"dir":"app"}]' "sh:rm \"\$DEV_TEST_DIR/cmux.surface\"" '["page_check",{"dir":"app","path":"/again"}]'
@@ -436,6 +469,10 @@ check "page_act click without a target is refused" \
   error_with "$(call page_act '{"action":"click"}')" "target is required"
 check "page_act before any page in this session says to call page_check first" \
   error_with "$(call page_act '{"action":"click","target":"--surface x"}')" "call page_check first"
+dash_out="$tmp/session-dash.out"
+session "$dash_out" '["dev_start",{"dir":"app"}]' '["page_check",{"dir":"app"}]' '["page_act",{"action":"click","target":"--snapshot-after"}]'
+check "page_act passes a target that looks like an option as the selector value" \
+  commanded "surface:7 click --selector=--snapshot-after"
 check "page_act has no eval action" \
   error_with "$(call page_act '{"action":"eval","target":"x"}')" "action must be one of"
 

@@ -59,7 +59,9 @@ NO_SERVER = "no dev server answers for {}; call dev_status"
 NOT_NEXT = "not a Next.js 16+ dev server"
 NO_PAGE_ORIGIN = "unknown: this session has not run page_check"
 NO_PAGE = "no page open: call page_check first"
-LEFT_LOCAL = "the page left the local server for {}; went back"
+LEFT_LOCAL = "the page left the local server for {}; went back to the local server"
+STILL_AWAY = "the page is on {}, not the local server; call page_check to open it again"
+BROWSER_PROFILE = "claude-ollama"
 LISTENING_FROM = "a server listening from "
 
 
@@ -154,7 +156,7 @@ def git_root():
 
 ROOT = git_root()
 STARTED = {}
-BROWSER = {"origin": None, "surface": None}
+BROWSER = {"origin": None, "surface": None, "profile": None}
 PAGE_ACTIONS = {"click", "dblclick", "hover", "focus", "fill", "type", "press", "select", "check", "uncheck", "scroll"}
 
 
@@ -676,8 +678,27 @@ def surface_is_open():
     return True
 
 
+def profile_id(reply):
+    profile = reply.get("profile") if isinstance(reply, dict) else None
+    return profile.get("id") if isinstance(profile, dict) else None
+
+
+def listed_profile_id():
+    reply = run_cmux(["profiles", "list"], as_json=True)
+    profiles = reply.get("profiles", []) if isinstance(reply, dict) else []
+    return next((profile.get("id") for profile in profiles if profile.get("name") == BROWSER_PROFILE), None)
+
+
+def browser_profile():
+    if BROWSER["profile"] is None:
+        BROWSER["profile"] = listed_profile_id() or profile_id(run_cmux(["profiles", "add", BROWSER_PROFILE], as_json=True))
+    if BROWSER["profile"] is None:
+        raise ToolError(f"the cmux browser has no profile named {BROWSER_PROFILE} and could not add one")
+    return BROWSER["profile"]
+
+
 def open_surface(url):
-    reply = run_cmux(["open-split", url, "--focus", "false"], as_json=True)
+    reply = run_cmux(["open-split", url, "--focus", "false", "--profile", browser_profile()], as_json=True)
     surface = reply.get("surface_ref") if isinstance(reply, dict) else None
     if not surface:
         raise ToolError("the cmux browser opened no surface")
@@ -699,13 +720,30 @@ def settle():
     return notes
 
 
+def current_url():
+    return surface_command("get", "url")
+
+
+def ensure_local():
+    url = current_url()
+    if loopback_origin(url) is not None:
+        return url, []
+    surface_command("goto", BROWSER["origin"])
+    settle()
+    url_now = current_url()
+    if loopback_origin(url_now) is None:
+        raise ToolError(STILL_AWAY.format(url_now))
+    return url_now, [LEFT_LOCAL.format(url)]
+
+
 def show_page(url):
     if surface_is_open():
         clear_browser_logs()
         surface_command("goto", url)
     else:
         open_surface(url)
-    return settle()
+    notes = settle()
+    return notes + ensure_local()[1]
 
 
 def console_line(entry):
@@ -798,7 +836,8 @@ def snapshot_text():
 
 
 def page_snapshot(arguments):
-    return snapshot_text()
+    notes = ensure_local()[1]
+    return "\n".join([*notes, snapshot_text()])
 
 
 def required_text(text, meaning):
@@ -810,50 +849,40 @@ def required_text(text, meaning):
 def scroll_arguments(target, text):
     arguments = ["scroll"]
     if target:
-        arguments += ["--selector", target]
+        arguments.append(f"--selector={target}")
     if text is not None:
         if not text.isdigit():
             raise ToolError("text must be a whole number of pixels for scroll")
-        arguments += ["--dy", text]
+        arguments.append(f"--dy={text}")
     return arguments
 
 
 def action_arguments(action, target, text):
     if action == "press":
-        return ["press", "--key", required_text(text, "the key, e.g. Enter")]
+        return ["press", f"--key={required_text(text, 'the key, e.g. Enter')}"]
     if action == "scroll":
         return scroll_arguments(target, text)
     if not target:
         raise ToolError("target is required for this action (a ref like e3, or a CSS selector)")
+    selector = f"--selector={target}"
     if action == "type":
-        return ["type", target, "--text", required_text(text, "the text to type")]
+        return ["type", selector, f"--text={required_text(text, 'the text to type')}"]
     if action == "fill":
-        return ["fill", target, "--text", text or ""]
+        return ["fill", selector, f"--text={text or ''}"]
     if action == "select":
-        return ["select", target, "--value", required_text(text, "the value to select")]
-    return [action, target]
-
-
-def back_to_local():
-    url = surface_command("get", "url")
-    if loopback_origin(url) is not None:
-        return url, []
-    try:
-        surface_command("back")
-    except ToolError:
-        surface_command("goto", BROWSER["origin"])
-    settle()
-    return surface_command("get", "url"), [LEFT_LOCAL.format(url)]
+        return ["select", selector, f"--value={required_text(text, 'the value to select')}"]
+    return [action, selector]
 
 
 def page_act(arguments):
     action = arguments.choice("action", PAGE_ACTIONS)
     command = action_arguments(action, arguments.text("target"), arguments.text("text"))
+    before = ensure_local()[1]
     clear_browser_logs()
     surface_command(*command)
     notes = settle()
-    url, left = back_to_local()
-    return "\n".join([f"URL now: {url}", *browser_sections(notes + left, BROWSER["origin"]), "Elements:", snapshot_text()])
+    url, after = ensure_local()
+    return "\n".join([f"URL now: {url}", *browser_sections(before + notes + after, BROWSER["origin"]), "Elements:", snapshot_text()])
 
 
 def truncated(text):

@@ -68,5 +68,5 @@ git clone <remote> ~/src/.claude-custom
 After that, `claude-custom update` pulls (fast-forward only) and re-runs
 install. Most changes are live after a plain `git pull`, because every link and
 rc block points into the repo. `update` also picks up new links and rebuilds
-changed Ollama models. The session browser is a plain cmux browser surface;
-`page_check` opens only localhost URLs.
+changed Ollama models. The session browser is a plain cmux browser surface in
+the `claude-ollama` browser profile; `page_check` opens only localhost URLs.
