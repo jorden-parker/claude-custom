@@ -17,7 +17,7 @@ tests_for() {
     ollama/shortcut/*) printf '%s\n' ollama/shortcut/broker.test.sh shared/mcp/short-shim.test.sh bin/claude-ollama.test.sh ;;
     ollama/drafts/*) printf '%s\n' ollama/drafts/opener.test.sh bin/claude-ollama.test.sh ;;
     shared/mcp/draft_store.py) printf '%s\n' shared/mcp/repo-tools.test.sh ;;
-    shared/mcp/broker_client.py) printf '%s\n' shared/mcp/repo-tools.test.sh shared/mcp/gh-shim.test.sh shared/mcp/short-shim.test.sh ;;
+    shared/mcp/github_tools.py) printf '%s\n' shared/mcp/repo-tools.test.sh ;;
     shared/mcp/mcp_stdio.py) printf '%s\n' shared/mcp/code-search.test.sh shared/mcp/repo-tools.test.sh shared/mcp/dev-server.test.sh ;;
     ollama/approval.py | ollama/approve-dialog) printf '%s\n' ollama/approval.test.sh ollama/gh/broker.test.sh ollama/shortcut/broker.test.sh ;;
     bin/claude-tools | bin/ollama-agent | ollama/*) printf '%s\n' bin/claude-ollama.test.sh ;;
