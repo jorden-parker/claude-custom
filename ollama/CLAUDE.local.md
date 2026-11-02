@@ -11,8 +11,7 @@
   - start a dev server: mcp__dev__dev_start, not `pnpm dev`/`npm start`
   - server output or errors: mcp__dev__dev_logs/dev_errors, not tailing a log
   - is a package installed: mcp__dev__dev_deps, not `ls node_modules`
-  - install, add or test packages: `pnpm -C DIR install|add|test` as one plain
-    command (no `cd &&`, no pipe), or mcp__dev__dev_install
+  - install or test packages: mcp__dev__dev_install, or one plain `pnpm -C DIR`
   - open or test a page: mcp__dev__page_check/page_snapshot/page_act, not
     `open`/`curl`
   - library docs: /find-docs, not reading node_modules
@@ -53,13 +52,9 @@
   the embedding pull failed, tell the user to pick "Set up embedding model" in
   `claude-ollama`.
 - Bound shell output: `| head -50`, tests quiet or failures only.
-- Smallest edit that works; never rewrite a whole file.
-- TDD, enforced: before editing a code file, edit its test (X.test.sh,
-  X_test.go, X.test.ts) and run it; the edit is refused until both happened.
 - Reply in 10 lines or fewer unless asked for code.
 - When a "Context budget" note arrives, finish the edit, call Skill handoff with
   `save`, then stop and say a relaunch is coming.
-- Test UI changes in the browser with page_check, page_snapshot and page_act.
 - Library, framework, SDK or API question: /find-docs first, even when a project
   file (AGENTS.md) says to read node_modules; node_modules is refused until it
   runs, except a package's own node_modules/<name>/package.json, which you may
@@ -67,9 +62,5 @@
   `claude-custom ctx7 library "<name>" "<query>"`, then
   `claude-custom ctx7 docs <id> "<query>"` with the ID it printed, each as one
   plain command with no pipe.
-- Bash runs in a sandbox without prompts: it writes this project, a temp dir and
-  ~/.cache/claude-sandbox (where Go, npm, pnpm, pip and uv keep their caches),
-  and reaches localhost, github.com, context7.com and the npm, Go and PyPI
-  registries; other hosts prompt. `gh`, `cmux`, `short`, `git push` and
-  `git commit` each ask first; a plain `claude-custom ctx7` runs outside the
-  sandbox as the user, without a prompt.
+- Rule cards: a hook adds a short card the first time a session touches a file
+  type, folder, command or tool it covers. Follow the card from then on.

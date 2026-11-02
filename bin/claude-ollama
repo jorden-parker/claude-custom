@@ -1246,6 +1246,17 @@ check_guards() {
   done <<< "$lint"
 }
 
+check_rule_cards() {
+  local lister="$repo_dir/shared/hooks/rule-cards.py" problems count
+  count="$("$lister" --list 2>/dev/null | grep -c . || true)"
+  problems="$("$lister" --list 2>&1 >/dev/null | sed 's/^rule-cards: //' | paste -sd ';' - | sed 's/;/; /g' || true)"
+  if [ -z "$problems" ]; then
+    report ok "rule cards: $count"
+  else
+    report warn "rule cards: $count ok, $problems"
+  fi
+}
+
 report_lease() {
   local state holder_name holder_pid holder_model
   read -r state holder_name _ holder_pid _ holder_model _ <<< "$1"
@@ -1280,6 +1291,7 @@ doctor() {
   check_server_env || status=1
   check_classifier || status=1
   check_guards
+  check_rule_cards
   check_beacon
   check_fetch_domains
   report ok "profile $profile_file: $(profile_summary)"

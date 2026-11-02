@@ -485,6 +485,30 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `shared/hooks/repeat-call-cache.test.sh`, `shared/hooks/tdd-guard.test.sh`,
   `bin/tool-telemetry-report.test.sh`, `bin/claude-ollama.test.sh` and the three
   guards' tests.
+- `shared/hooks/rule-cards.py` (Ollama-only, in `ollama/hooks.extra.json`;
+  PreToolUse on Edit, Write, MultiEdit, Read and Bash) delivers the situational
+  rules just in time, so `ollama/CLAUDE.local.md` holds only what every turn
+  needs. Each card in `ollama/rule-cards/<id>.md` is 3 to 8 lines under a
+  `triggers:` front matter (`suffix: .sh`, `suffix: .ts,.tsx`,
+  `path: web/console/`, `command: git commit`, `tool: Write`; a value list is
+  comma-separated). A file tool matches by the `file_path` suffix or by a path
+  prefix (relative to the event's `cwd`); Bash matches when a trigger's words
+  head any command segment, split like `tool-nudge.py`; `tool` matches the tool
+  name. The hook never denies: it returns one `additionalContext` with the
+  bodies of the matching cards not yet delivered this session (state
+  `${CLAUDE_CONFIG_DIR:-~/.claude}/cache/rule-cards/<session_id>.json`, so a
+  handoff relaunch delivers them again), at most `CONTEXT_CAP` (1200) characters
+  per call, path cards before suffix, command, then tool, the rest on the next
+  call. A malformed card (no trigger, no body, unknown kind) is skipped with a
+  line on stderr. `--list` prints each id with its triggers and exits 1 when one
+  is malformed (`claude-ollama doctor` prints `ok   rule cards: N` or a warn
+  naming the card); `--match TOOL JSON` prints the ids one call would deliver.
+  `CLAUDE_OLLAMA_RULE_CARDS` overrides the folder (default
+  `$CLAUDE_CUSTOM_HOME/ollama/rule-cards`). `bin/check-config` fails when a card
+  is malformed, two share an id, a body is over the cap, a card's line also sits
+  in `CLAUDE.local.md`, `system-prompt.md` or `PREFERENCES.md`, or an Ollama
+  profile lacks the hook. Tests: `shared/hooks/rule-cards.test.sh`,
+  `bin/claude-ollama.test.sh` (doctor).
 - `shared/hooks/name-nudge.py` is wired only in the Ollama profiles, as
   PreToolUse on Edit, Write and MultiEdit. It never denies: when the written
   text declares a placeholder name (`tmp`, `data2`, `obj`, `handleStuff`, a
