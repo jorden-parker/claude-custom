@@ -19,7 +19,7 @@ export function ConsoleShell({ children }: Readonly<{ children: ReactNode }>) {
         <header className="flex h-12 items-center gap-2 border-b px-4">
           <SidebarTrigger />
         </header>
-        <main className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8">
+        <main className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-8">
           {children}
         </main>
       </SidebarInset>
