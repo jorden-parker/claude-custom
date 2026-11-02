@@ -1,0 +1,6 @@
+{
+  "prompt": "Rename the shell function fetch_user to load_user everywhere it is defined or called (lib/ and bin/), without changing what the scripts print. ./rename.test.sh must pass.",
+  "test": "./rename.test.sh",
+  "timeout_seconds": 300,
+  "language": "shell"
+}

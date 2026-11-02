@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -eu
+. "$(dirname "$0")/../lib/users.sh"
+echo "hello, $(fetch_user "$1")"

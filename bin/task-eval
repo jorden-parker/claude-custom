@@ -1,0 +1,312 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import os
+import re
+import shutil
+import signal
+import statistics
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = SCRIPT_DIR.parent
+DEFAULT_TASKS = REPO_ROOT / "eval" / "tasks"
+DEFAULT_LAUNCHER = SCRIPT_DIR / "claude-ollama"
+DEFAULT_SIZE = "27b"
+TEMP_PREFIX = "task-eval-"
+TEST_TIMEOUT_SECONDS = 120
+STOP_GRACE_SECONDS = 5
+GIT_IDENTITY = ("-c", "user.name=task-eval", "-c", "user.email=task-eval@example.invalid")
+LAUNCH_ENV = {
+    "CLAUDE_OLLAMA_NO_INDEX": "1",
+    "CLAUDE_OLLAMA_BEACON": "0",
+    "CLAUDE_OLLAMA_PROXY": "0",
+    "CLAUDE_OLLAMA_TELEMETRY": "1",
+    "CLAUDE_OLLAMA_OPEN_DRAFTS": "0",
+    "CLAUDE_OLLAMA_INCIDENTS": "0",
+}
+GREEN = "green"
+RED = "red"
+TIMEOUT = "timeout"
+NUDGE_KINDS = {"budget", "friction"}
+HEADER = f"{'task':<16}{'result':<9}{'seconds':>8}  {'calls':>5}  {'denials':>7}"
+
+
+def parse_args(argv):
+    parser = argparse.ArgumentParser(
+        description="Time the work harness from prompt to a green test on small coding tasks."
+    )
+    parser.add_argument("size", nargs="?", default=DEFAULT_SIZE)
+    parser.add_argument("--model")
+    parser.add_argument("--task", action="append")
+    parser.add_argument("--runs", type=int, default=1)
+    parser.add_argument("--json", dest="as_json", action="store_true")
+    parser.add_argument("--launcher", type=Path, default=launcher_from_env())
+    parser.add_argument("--tasks", type=Path, default=DEFAULT_TASKS)
+    return parser.parse_args(argv)
+
+
+def launcher_from_env():
+    return Path(os.environ.get("CLAUDE_OLLAMA_TASK_EVAL_LAUNCHER") or DEFAULT_LAUNCHER)
+
+
+def load_task(task_dir):
+    return json.loads((task_dir / "task.json").read_text(encoding="utf-8"))
+
+
+def task_dirs(root):
+    return {path.name: path for path in sorted(root.iterdir()) if (path / "task.json").is_file()}
+
+
+def profile_model(size):
+    settings = REPO_ROOT / "ollama" / f"settings.{size}.json"
+    return json.loads(settings.read_text(encoding="utf-8"))["model"]
+
+
+def pmset_output(section):
+    try:
+        return subprocess.run(
+            ["pmset", "-g", section], capture_output=True, text=True, check=False, timeout=10
+        ).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+
+
+def power_state():
+    output = pmset_output("batt")
+    if "AC Power" in output:
+        return "ac"
+    if "Battery Power" in output:
+        return "battery"
+    return "unknown"
+
+
+def cpu_speed_limit():
+    match = re.search(r"CPU_Speed_Limit\s*=\s*(\d+)", pmset_output("therm"))
+    return int(match.group(1)) if match else None
+
+
+def environment():
+    return {
+        "started": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "power": power_state(),
+        "cpu_speed_limit": cpu_speed_limit(),
+    }
+
+
+def git(repo, *git_args):
+    subprocess.run(["git", *git_args], cwd=repo, check=True, capture_output=True, text=True)
+
+
+def prepare_repo(task_dir):
+    repo = Path(tempfile.mkdtemp(prefix=TEMP_PREFIX))
+    shutil.copytree(task_dir / "fixture", repo, dirs_exist_ok=True)
+    git(repo, "init", "-q", "-b", "main")
+    git(repo, "add", "-A")
+    git(repo, *GIT_IDENTITY, "commit", "-q", "-m", "fixture")
+    return repo
+
+
+def launch_argv(args, prompt):
+    argv = [str(args.launcher), args.size, "-p", prompt]
+    if args.model:
+        argv += ["--model", args.model]
+    return argv
+
+
+def stop(process):
+    if process.poll() is not None:
+        return
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    try:
+        process.wait(timeout=STOP_GRACE_SECONDS)
+    except subprocess.TimeoutExpired:
+        os.killpg(process.pid, signal.SIGKILL)
+        process.wait()
+
+
+def run_launcher(args, task, repo, telemetry_path):
+    launch_env = {**os.environ, **LAUNCH_ENV, "CLAUDE_TOOL_TELEMETRY": str(telemetry_path)}
+    process = subprocess.Popen(
+        launch_argv(args, task["prompt"]),
+        cwd=repo,
+        env=launch_env,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    try:
+        output, _ = process.communicate(timeout=task["timeout_seconds"])
+        return output, False
+    except subprocess.TimeoutExpired:
+        stop(process)
+        return b"", True
+
+
+def test_passes(task, repo):
+    completed = subprocess.run(
+        ["sh", "-c", task["test"]],
+        cwd=repo,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+        timeout=TEST_TIMEOUT_SECONDS,
+    )
+    return completed.returncode == 0
+
+
+def telemetry_records(telemetry_path):
+    if not telemetry_path.exists():
+        return []
+    records = []
+    for line in telemetry_path.read_text(encoding="utf-8").splitlines():
+        try:
+            records.append(json.loads(line))
+        except ValueError:
+            continue
+    return [record for record in records if isinstance(record, dict)]
+
+
+def telemetry_counts(telemetry_path):
+    records = telemetry_records(telemetry_path)
+    return {
+        "calls": sum(1 for record in records if record.get("kind", "call") == "call"),
+        "denials": sum(1 for record in records if record.get("kind") == "deny"),
+        "nudges": sum(1 for record in records if record.get("kind") in NUDGE_KINDS),
+    }
+
+
+def run_once(args, name, task, task_dir, run_number):
+    repo = prepare_repo(task_dir)
+    telemetry_path = repo.parent / f"{repo.name}.telemetry.jsonl"
+    try:
+        started = time.perf_counter()
+        output, timed_out = run_launcher(args, task, repo, telemetry_path)
+        if timed_out:
+            result = TIMEOUT
+        else:
+            result = GREEN if test_passes(task, repo) else RED
+        seconds = time.perf_counter() - started
+        return {
+            "task": name,
+            "run": run_number,
+            "result": result,
+            "seconds": round(seconds, 1),
+            "output_bytes": len(output),
+            **telemetry_counts(telemetry_path),
+        }
+    finally:
+        shutil.rmtree(repo, ignore_errors=True)
+        telemetry_path.unlink(missing_ok=True)
+
+
+def percentile(values, fraction):
+    ordered = sorted(values)
+    index = min(len(ordered) - 1, max(0, round(fraction * (len(ordered) - 1))))
+    return ordered[index]
+
+
+def totals_of(runs):
+    green_seconds = [run["seconds"] for run in runs if run["result"] == GREEN]
+    return {
+        "green": len(green_seconds),
+        "runs": len(runs),
+        "median_seconds": round(statistics.median(green_seconds), 1) if green_seconds else None,
+        "p90_seconds": round(percentile(green_seconds, 0.9), 1) if green_seconds else None,
+    }
+
+
+def seconds_text(value):
+    return "-" if value is None else f"{value:.1f}"
+
+
+def run_line(run):
+    return (
+        f"{run['task']:<16}{run['result']:<9}{run['seconds']:>7.1f}s"
+        f"  {run['calls']:>5}  {run['denials']:>7}"
+    )
+
+
+def total_line(totals):
+    return (
+        f"total: {totals['green']}/{totals['runs']} green, "
+        f"median seconds {seconds_text(totals['median_seconds'])}, "
+        f"p90 {seconds_text(totals['p90_seconds'])}"
+    )
+
+
+def paste_block(report):
+    lines = [
+        "",
+        "Paste this block into Claude:",
+        "```",
+        "task-eval results",
+        f"model: {report['model']}",
+        f"power: {report['environment']['power']}, cpu speed limit: {report['environment']['cpu_speed_limit']}",
+        total_line(report["total"]),
+        "```",
+    ]
+    return "\n".join(lines)
+
+
+def save_report(report):
+    folder = Path.home() / "bench-results"
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / f"task-eval-{time.strftime('%Y%m%d-%H%M%S', time.gmtime())}.json"
+    path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    return path
+
+
+def print_text_report(report):
+    print(HEADER)
+    for run in report["runs"]:
+        print(run_line(run))
+    print(total_line(report["total"]))
+    print(paste_block(report))
+
+
+def evaluate(args, selected):
+    runs = []
+    for name, task_dir in selected:
+        task = load_task(task_dir)
+        for run_number in range(1, args.runs + 1):
+            print(f"task-eval: {name} run {run_number}/{args.runs}", file=sys.stderr, flush=True)
+            runs.append(run_once(args, name, task, task_dir, run_number))
+    return runs
+
+
+def main(argv):
+    args = parse_args(argv)
+    available = task_dirs(args.tasks)
+    selected = args.task or sorted(available)
+    for name in selected:
+        if name not in available:
+            print(f"task-eval: no task {name}", file=sys.stderr)
+            return 2
+    report = {
+        "model": args.model or profile_model(args.size),
+        "size": args.size,
+        "launcher": str(args.launcher),
+        "environment": environment(),
+    }
+    report["runs"] = evaluate(args, [(name, available[name]) for name in selected])
+    report["total"] = totals_of(report["runs"])
+    if args.as_json:
+        text = json.dumps(report, indent=2) + "\n"
+        sys.stdout.write(text)
+        print(f"task-eval: report: {save_report(report)}", file=sys.stderr)
+    else:
+        print_text_report(report)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

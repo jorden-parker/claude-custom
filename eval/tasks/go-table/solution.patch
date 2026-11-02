@@ -1,0 +1,14 @@
+diff --git a/clamp.go b/clamp.go
+index 0ceafe3..ad9b5f7 100644
+--- a/clamp.go
++++ b/clamp.go
+@@ -2,6 +2,9 @@ package clamp
+ 
+ func Clamp(value, low, high int) int {
+ 	if value < low {
++		return low
++	}
++	if value > high {
+ 		return high
+ 	}
+ 	return value

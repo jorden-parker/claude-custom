@@ -1,0 +1,6 @@
+{
+  "prompt": "word-count.test.sh fails: word-count.sh should print the number of words in the file named by its first argument, but it prints the wrong number. Fix word-count.sh so ./word-count.test.sh passes.",
+  "test": "./word-count.test.sh",
+  "timeout_seconds": 300,
+  "language": "shell"
+}

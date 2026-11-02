@@ -15,6 +15,7 @@ tests_for() {
     ollama/drafts/*) printf '%s\n' ollama/drafts/opener.test.sh bin/claude-ollama.test.sh ;;
     shared/hooks/recovery_recipes.py | ollama/recipes/*) printf '%s\n' shared/hooks/friction_budget.test.sh shared/hooks/tdd-guard.test.sh ;;
     ollama/incidents/*) printf '%s\n' ollama/incidents/watcher.test.sh ollama/incidents/ladder.test.sh ollama/incidents/why.test.sh bin/claude-ollama.test.sh ;;
+    eval/tasks/*) printf '%s\n' bin/task-eval.test.sh ;;
     shared/mcp/draft_store.py) printf '%s\n' shared/mcp/repo-tools.test.sh ;;
     shared/mcp/github_tools.py) printf '%s\n' shared/mcp/repo-tools.test.sh ;;
     shared/mcp/mcp_stdio.py) printf '%s\n' shared/mcp/code-search.test.sh shared/mcp/repo-tools.test.sh shared/mcp/dev-server.test.sh ;;

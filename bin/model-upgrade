@@ -13,6 +13,7 @@ USAGE = "usage: bin/model-upgrade SIZE [--eval] [--keep] [--force]"
 OPTION_FLAGS = {"--eval", "--keep", "--force"}
 GGUF_REFUSAL = "GGUF sizes are pinned by file; update sizes.json by hand"
 THINKING_TITLE = "Thinking check (plan 066)"
+TASK_MEDIAN_RISE_LIMIT = 1.25
 
 
 class Refusal(Exception):
@@ -174,6 +175,26 @@ def run_review_eval(upgrade):
                     "pr-review-eval")
 
 
+def run_task_eval(upgrade):
+    return run_json([tool_path("MODEL_UPGRADE_TASK_EVAL", "task-eval"), "--model", upgrade.candidate, "--json"],
+                    "task-eval")
+
+
+def task_report_model(path):
+    try:
+        return json.loads(path.read_text()).get("model")
+    except (OSError, ValueError):
+        return None
+
+
+def task_baseline(upgrade):
+    reports = sorted((Path.home() / "bench-results").glob("task-eval-*.json"), reverse=True)
+    for path in reports:
+        if task_report_model(path) == upgrade.model:
+            return json.loads(path.read_text())["total"]
+    return None
+
+
 def gather_evidence(upgrade):
     create_candidate(upgrade)
     announce(THINKING_TITLE)
@@ -181,9 +202,14 @@ def gather_evidence(upgrade):
     announce("Cache probe")
     evidence["cache_probe"] = run_cache_probe(upgrade)
     evidence["review_eval"] = None
+    evidence["task_eval"] = None
+    evidence["task_baseline"] = None
     if upgrade.run_eval:
         announce("Review eval (pr-review-eval)")
         evidence["review_eval"] = run_review_eval(upgrade)
+        evidence["task_baseline"] = task_baseline(upgrade)
+        announce("Task eval (task-eval)")
+        evidence["task_eval"] = run_task_eval(upgrade)
     return evidence
 
 
@@ -195,16 +221,50 @@ def eval_summary(review):
             f"{total['false_blockers']} false blockers, {total['unparsable']} unparsable")
 
 
+def median_text(total):
+    median = total["median_seconds"]
+    return "no green run" if median is None else f"{median:.1f}s"
+
+
+def task_totals_text(total):
+    return f"{total['green']}/{total['runs']} green, median {median_text(total)}"
+
+
+def task_baseline_text(baseline):
+    return f"baseline {baseline['green']}/{baseline['runs']}, {median_text(baseline)}"
+
+
+def tasks_within_baseline(total, baseline):
+    if total["green"] < baseline["green"]:
+        return False
+    if total["median_seconds"] is None or baseline["median_seconds"] is None:
+        return True
+    return total["median_seconds"] <= baseline["median_seconds"] * TASK_MEDIAN_RISE_LIMIT
+
+
+def judge_tasks(tasks, baseline):
+    if tasks is None:
+        return "skipped", True
+    total = tasks["total"]
+    if baseline is None:
+        return f"{task_totals_text(total)} (no baseline)", True
+    passed = tasks_within_baseline(total, baseline)
+    verdict = "PASS" if passed else "FAIL"
+    return f"{task_totals_text(total)} ({task_baseline_text(baseline)}): {verdict}", passed
+
+
 def judge(evidence):
     thinking_ok = evidence["thinking"]["exit_code"] == 0
     cache_ok = bool(evidence["cache_probe"].get("cache_reused"))
     review = evidence["review_eval"]
     review_ok = review is None or review["total"]["unparsable"] == 0
+    tasks_text, tasks_ok = judge_tasks(evidence["task_eval"], evidence["task_baseline"])
     return {
         "thinking": "PASS" if thinking_ok else "FAIL",
         "cache": "reused" if cache_ok else "not reused",
         "eval": eval_summary(review),
-        "passed": thinking_ok and cache_ok and review_ok,
+        "tasks": tasks_text,
+        "passed": thinking_ok and cache_ok and review_ok and tasks_ok,
     }
 
 
@@ -236,6 +296,7 @@ def print_verdict(upgrade, outdated, verdict, report_path):
     print(f"thinking: {verdict['thinking']}")
     print(f"cache: {verdict['cache']}")
     print(f"eval: {verdict['eval']}")
+    print(f"tasks: {verdict['tasks']}")
     if verdict["passed"]:
         print(f"Next: bin/ollama-models pin {upgrade.base} && git add ollama/model-digests.json && "
               f"git commit -m 'chore: pin {upgrade.base} at {short_digest(upgrade, outdated)}'")
