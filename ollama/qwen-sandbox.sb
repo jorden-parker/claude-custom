@@ -9,6 +9,7 @@
     (subpath (string-append (param "HOME_DIR") "/.claude"))
     (subpath (string-append (param "HOME_DIR") "/.qwen"))
     (subpath (string-append (param "HOME_DIR") "/.local/share/claude-custom"))
+    (subpath (string-append (param "HOME_DIR") "/.config/context7"))
 )
 (deny file-write*)
 (allow file-write*

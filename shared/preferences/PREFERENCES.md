@@ -19,6 +19,11 @@ These rules apply to every project and every language, with no exceptions.
 
 ## Workflow
 
+- New git worktree: before any other work, symlink `node_modules` and other
+  untracked files it needs (`.env*`, local config, build caches) from the main
+  checkout into it.
+- Library, framework, SDK or API question: `/find-docs` (Context7) before
+  answering from memory.
 - TDD: write a failing test, make it pass with the smallest change, refactor.
 - Tests must pass before you finish. (enforced at Stop by `.claude/verify`, or
   the repo's make/go/pnpm test command)

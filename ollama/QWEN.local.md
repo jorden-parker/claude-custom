@@ -9,6 +9,10 @@
 - If semantic_search errors, don't retry: use `git grep -n`. If the launch said
   the embedding pull failed, tell the user to pick "Set up embedding model" in
   `claude-ollama`.
+- Library, framework, SDK or API question: /find-docs first in
+  run_shell_command. It runs
+  `npx ctx7@latest library "<name>" "<query>" | head -80`, then
+  `npx ctx7@latest docs <id> "<query>" | head -80` with the ID it printed.
 - Bound shell output: `| head -50`, tests quiet or failures only.
 - Smallest edit that works; never rewrite a whole file.
 - Reply in 10 lines or fewer unless asked for code.

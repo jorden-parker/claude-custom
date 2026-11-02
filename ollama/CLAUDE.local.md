@@ -20,8 +20,11 @@
   for a full local URL such as https://127.0.0.1:4000/; never Bash open),
   mcp__dev__page_snapshot lists elements with refs, mcp__dev__page_act
   clicks/fills/presses by ref. Fix every error and warning they return.
+- Library, framework, SDK or API question: /find-docs first. It runs
+  `npx ctx7@latest library "<name>" "<query>" | head -80`, then
+  `npx ctx7@latest docs <id> "<query>" | head -80` with the ID it printed.
 - Bash runs in a sandbox without prompts: it writes this project, a temp dir and
   ~/.cache/claude-sandbox (where Go, npm, pnpm, pip and uv keep their caches),
-  and reaches localhost, github.com and the npm, Go and PyPI registries; other
-  hosts prompt. `gh`, `cmux`, `short`, `git push` and `git commit` each ask
-  first.
+  and reaches localhost, github.com, context7.com and the npm, Go and PyPI
+  registries; other hosts prompt. `gh`, `cmux`, `short`, `git push` and
+  `git commit` each ask first.

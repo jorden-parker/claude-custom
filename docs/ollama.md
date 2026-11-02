@@ -193,18 +193,19 @@ it: writes go to the project, a temp dir and `~/.cache/claude-sandbox`; the
 network reaches loopback addresses (dev servers, and so Ollama's own API on
 11434), `github.com`, `registry.npmjs.org`, `proxy.golang.org`,
 `sum.golang.org`, `pypi.org`, `files.pythonhosted.org`,
-`objects.githubusercontent.com` and `codeload.github.com`, and any other host
-prompts first; sandboxed commands cannot read SSH keys, cloud credentials, the
-keychain, `~/.claude`, `~/.qwen` or the console state folder. `GH_TOKEN`,
-`GITHUB_TOKEN` and `SHORTCUT_API_TOKEN` are unset for sandboxed commands. The
-launcher runs `claude` through `shared/sandbox-env`, which points Go, npm, pnpm,
-pip, uv, yarn and bun at caches under `~/.cache/claude-sandbox`, so `go test`
-and `pnpm install` work inside the sandbox while the caches your own shell and
-the hooks execute from (`~/.npm/_npx`, `~/Library/pnpm`, `~/go/pkg/mod`,
-`~/.cache/claude-custom`, which holds the Stop hook's log and the machine copy
-of the personal overlay) stay unwritable. Hooks and the MCP servers run outside
-the sandbox through `shared/host-env`, which drops those cache variables again,
-so a hook's `go test` or `npx fallow` never executes from the sandbox's cache (a
+`objects.githubusercontent.com`, `codeload.github.com` and `context7.com` (the
+`/find-docs` skill), and any other host prompts first; sandboxed commands cannot
+read SSH keys, cloud credentials, the keychain, `~/.claude`, `~/.qwen` or the
+console state folder. `GH_TOKEN`, `GITHUB_TOKEN` and `SHORTCUT_API_TOKEN` are
+unset for sandboxed commands. The launcher runs `claude` through
+`shared/sandbox-env`, which points Go, npm, pnpm, pip, uv, yarn and bun at
+caches under `~/.cache/claude-sandbox`, so `go test` and `pnpm install` work
+inside the sandbox while the caches your own shell and the hooks execute from
+(`~/.npm/_npx`, `~/Library/pnpm`, `~/go/pkg/mod`, `~/.cache/claude-custom`,
+which holds the Stop hook's log and the machine copy of the personal overlay)
+stay unwritable. Hooks and the MCP servers run outside the sandbox through
+`shared/host-env`, which drops those cache variables again, so a hook's
+`go test` or `npx fallow` never executes from the sandbox's cache (a
 `GOMODCACHE` of your own is dropped with them for that one process). Sandboxed
 commands run without a prompt (`autoAllowBashIfSandboxed: true`), which is what
 lets a skill's `!` commands such as `git status` run; `git commit`, `git push`
@@ -302,14 +303,14 @@ exported, since Qwen Code turns its sandbox off when it is set). The profile is
 it to `.qwen/sandbox-macos-claude-ollama.sb` in the project and lists that path
 in `.git/info/exclude`. Inside: the project, the temp dir, `QWEN_HOME` and
 `~/.cache/claude-sandbox` (the launcher runs `qwen` through `shared/sandbox-env`
-too) are writable, `~/.ssh`, `~/.aws`, `~/.config/gh`, `~/.npmrc`, the keychain,
-`~/.claude`, `~/.qwen` and the console state are unreadable, and outbound TCP
-reaches loopback (Ollama, dev servers) plus ports 443 and 80 anywhere.
-`GH_TOKEN`, `GITHUB_TOKEN` and `SHORTCUT_API_TOKEN` are unset for the launch.
-`gh` and `git push` fail inside (no keychain, no SSH): run them from your own
-terminal. Without `sandbox-exec` (Linux), the launcher says so and Qwen Code
-runs as you. `claude-ollama qwen --print-config` and `qwen doctor` report the
-sandbox.
+too) are writable, `~/.ssh`, `~/.aws`, `~/.config/gh`, `~/.config/context7`,
+`~/.npmrc`, the keychain, `~/.claude`, `~/.qwen` and the console state are
+unreadable, and outbound TCP reaches loopback (Ollama, dev servers) plus ports
+443 and 80 anywhere. `GH_TOKEN`, `GITHUB_TOKEN` and `SHORTCUT_API_TOKEN` are
+unset for the launch. `gh` and `git push` fail inside (no keychain, no SSH): run
+them from your own terminal. Without `sandbox-exec` (Linux), the launcher says
+so and Qwen Code runs as you. `claude-ollama qwen --print-config` and
+`qwen doctor` report the sandbox.
 
 ### Dev servers and the browser
 

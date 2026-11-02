@@ -36,10 +36,11 @@ folder and added directories, and reach only hosts you allow (the first use of a
 new host prompts). When Claude wants to retry a command outside the sandbox, the
 overlay's ask rule `Bash(dangerouslyDisableSandbox:true)` prompts you in every
 permission mode. Both overlays let sandboxed commands write
-`~/.cache/claude-sandbox` and reach loopback addresses, and both the `claude`
-function (`personal/launch`) and `claude-ollama` run Claude through
-`shared/sandbox-env`, which points Go, npm, pnpm, pip, uv, yarn and bun at
-caches under that folder; `claude-ollama` adds its own `excludedCommands`,
+`~/.cache/claude-sandbox` and reach loopback addresses (the personal overlay
+also `registry.npmjs.org` and `context7.com`, for the `/find-docs` skill), and
+both the `claude` function (`personal/launch`) and `claude-ollama` run Claude
+through `shared/sandbox-env`, which points Go, npm, pnpm, pip, uv, yarn and bun
+at caches under that folder; `claude-ollama` adds its own `excludedCommands`,
 `denyRead`, credential and registry lists, and the personal overlay hides the
 console state folder.
 

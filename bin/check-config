@@ -61,14 +61,14 @@ for settings in "$repo"/ollama/settings.*.json; do
   check_eq "${settings##*/} runs only cmux, gh, short and git push outside the sandbox" '["cmux *","gh *","short *","git push *"]' \
     "$(jq -c .sandbox.excludedCommands "$settings")"
   check_eq "${settings##*/} reaches github.com, the loopback addresses, and the npm, Go, PyPI and GitHub download hosts" \
-    '["github.com","registry.npmjs.org","127.0.0.1","[::1]","proxy.golang.org","sum.golang.org","pypi.org","files.pythonhosted.org","objects.githubusercontent.com","codeload.github.com"] true' \
+    '["github.com","registry.npmjs.org","127.0.0.1","[::1]","proxy.golang.org","sum.golang.org","pypi.org","files.pythonhosted.org","objects.githubusercontent.com","codeload.github.com","context7.com"] true' \
     "$(jq -r '[(.network.allowedDomains | tojson), (.network.allowLocalBinding | tostring)] | join(" ")' <<<"$(jq .sandbox "$settings")")"
   check_eq "${settings##*/} lets sandboxed commands write only the sandbox cache folder beyond the project and the temp dir" '["~/.cache/claude-sandbox"]' \
     "$(jq -c '.sandbox.filesystem.allowWrite' "$settings")"
   check_eq "${settings##*/} needs no denyWrite, since nothing a hook or launcher runs lives under a writable path" null \
     "$(jq -c '.sandbox.filesystem.denyWrite' "$settings")"
   check_eq "${settings##*/} hides credentials, the normal Claude config and the console state from sandboxed commands" true \
-    "$(jq '.sandbox.filesystem.denyRead | (["~/.ssh", "~/.aws", "~/.config/gh", "~/.npmrc", "~/Library/Keychains", "~/.claude", "~/.qwen", "~/.local/share/claude-custom"] - .) == []' "$settings")"
+    "$(jq '.sandbox.filesystem.denyRead | (["~/.ssh", "~/.aws", "~/.config/gh", "~/.npmrc", "~/Library/Keychains", "~/.claude", "~/.qwen", "~/.local/share/claude-custom", "~/.config/context7"] - .) == []' "$settings")"
   check_eq "${settings##*/} unsets the GitHub and Shortcut tokens for sandboxed commands" '["GH_TOKEN","GITHUB_TOKEN","SHORTCUT_API_TOKEN"]' \
     "$(jq -c '[.sandbox.credentials.envVars[] | select(.mode == "deny") | .name]' "$settings")"
   check_eq "${settings##*/} starts in default mode with auto mode off, since its classifier would call Ollama for a Claude model" "default disable" \
@@ -156,7 +156,7 @@ check_eq "settings.tokens.json asks before a command leaves that sandbox, whatev
   "$(jq '.permissions.ask | index("Bash(dangerouslyDisableSandbox:true)") != null' "$repo/personal/settings.tokens.json")"
 check_eq "settings.tokens.json reaches loopback addresses, lets commands write the same cache folder as the Ollama profiles and hides the console state" true \
   "$(jq --slurpfile ollama "$repo/ollama/settings.27b.json" '
-    .sandbox.network == {"allowedDomains": ["127.0.0.1", "[::1]"], "allowLocalBinding": true}
+    .sandbox.network == {"allowedDomains": ["127.0.0.1", "[::1]", "registry.npmjs.org", "context7.com"], "allowLocalBinding": true}
     and .sandbox.filesystem.allowWrite == $ollama[0].sandbox.filesystem.allowWrite
     and .sandbox.filesystem.denyRead == ["~/.local/share/claude-custom"]
   ' "$repo/personal/settings.tokens.json")"
@@ -269,6 +269,11 @@ for draft_skill in pr-draft pr-review-draft; do
   check_that "the $draft_skill skill saves through its MCP tool" grep -qF "mcp__repo__draft_" "$repo/shared/skills/$draft_skill/SKILL.md"
   check_that "claude-custom install links the $draft_skill skill" grep -qF "shared/skills/$draft_skill" "$repo/bin/claude-custom"
 done
+check_that "claude-custom install links the find-docs skill" grep -qF "shared/skills/find-docs" "$repo/bin/claude-custom"
+check_that "the find-docs skill runs the Context7 CLI" grep -qF "npx ctx7@latest" "$repo/shared/skills/find-docs/SKILL.md"
+check_that "CLAUDE.local.md points the model at the find-docs skill" grep -qF "/find-docs" "$repo/ollama/CLAUDE.local.md"
+check_that "QWEN.local.md points the model at the find-docs skill" grep -qF "/find-docs" "$repo/ollama/QWEN.local.md"
+check_that "PREFERENCES.md points the model at the find-docs skill" grep -qF "/find-docs" "$repo/shared/preferences/PREFERENCES.md"
 check_that "the pr-review-draft skill finds the PR from the current branch" grep -qF 'head:BRANCH' "$repo/shared/skills/pr-review-draft/SKILL.md"
 check_that "CLAUDE.local.md points the model at the draft skills" grep -qF "/pr-draft" "$repo/ollama/CLAUDE.local.md"
 check_that "the launcher and the console agree on the drafts folder" grep -qF '.claude-ollama/drafts' "$repo/web/console/src/lib/drafts.ts"
