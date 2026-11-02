@@ -70,7 +70,7 @@ run_once() {
 }
 
 out="$tmp/state/incidents/session.jsonl"
-run_once "$fixtures/server.log" "$out" "$fixtures/projects"
+run_once "$fixtures/server-log.txt" "$out" "$fixtures/projects"
 check "every cause is found in order, and a line naming the model without a rule is unknown" \
   equals "evicted aborted evicted evicted reprefilled truncated reprefilled unknown compacted" "$(field cause < "$out")"
 check "token counts come from the line, or are null" \

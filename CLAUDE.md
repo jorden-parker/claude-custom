@@ -627,9 +627,9 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `/api/logs/path` and `/api/logs/events`, which read only the file
   `incidents/current` names inside that folder) with a count per cause above the
   lines (`web/console/src/lib/incidents.ts`). Tests:
-  `ollama/incidents/watcher.test.sh` (`fixtures/server.log` covers every cause),
-  `shared/hooks/incident-note.test.sh`, `bin/claude-ollama.test.sh` (stub
-  watcher), the console's vitest suite.
+  `ollama/incidents/watcher.test.sh` (`fixtures/server-log.txt` covers every
+  cause), `shared/hooks/incident-note.test.sh`, `bin/claude-ollama.test.sh`
+  (stub watcher), the console's vitest suite.
 - `shared/mcp/code-search.py` is the `semantic_search` MCP server (JSON-RPC over
   stdio, stdlib only). It ranks 40-line chunks by their words (BM25) on every
   search, adds a vector ranking through Ollama `/api/embed` only while

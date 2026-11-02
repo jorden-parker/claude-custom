@@ -1,0 +1,33 @@
+time=2026-11-02T14:00:00.000Z level=INFO source=routes.go:1200 msg="server config" env="map[OLLAMA_MAX_LOADED_MODELS:2]"
+time=2026-11-02T14:00:01.000Z level=INFO source=sched.go:1183 msg="disabling mmap for llama-server load by default" model=/Users/me/.ollama/models/blobs/sha256-aaaa reason=metal_partial_offload
+time=2026-11-02T14:00:01.100Z level=INFO source=llama_server.go:457 msg="starting llama-server" cmd="/opt/homebrew/libexec/lib/ollama/llama-server --model /Users/me/.ollama/models/blobs/sha256-aaaa --port 58621 -c 65536 -np 1"
+time=2026-11-02T14:00:01.200Z level=INFO source=llama_server.go:1088 msg="loading model via llama-server" model=/Users/me/.ollama/models/blobs/sha256-aaaa
+time=2026-11-02T14:00:02.000Z level=INFO source=llama_server.go:1396 msg="waiting for llama-server to become available" status="llm server loading model"
+slot   load_model: id  0 | task -1 | new slot, n_ctx = 65536
+srv    load_model: initializing, n_slots = 1, n_ctx_slot = 65536, kv_unified = 'false'
+time=2026-11-02T14:00:09.000Z level=INFO source=llama_server.go:1408 msg="llama-server started in 7.90 seconds"
+time=2026-11-02T14:00:09.100Z level=INFO source=images.go:428 msg="template selection" model=qwen3.6:35b-cc selected=go_template
+time=2026-11-02T14:00:09.200Z level=INFO source=sched.go:782 msg="loaded runners" count=1
+slot   operator(): id  0 | task 0 | new prompt, n_ctx_slot = 65536, n_keep = 4, task.n_tokens = 12000
+slot print_timing: id  0 | task 0 | prompt eval time =   9000.00 ms / 12000 tokens (    0.75 ms per token,  1333.33 tokens per second)
+slot print_timing: id  0 | task 0 |       eval time =   2000.00 ms /   200 runs   (   10.00 ms per token,   100.00 tokens per second)
+slot print_timing: id  0 | task 0 |      total time =  11000.00 ms / 12200 tokens
+[GIN] 2026/11/02 - 14:00:20 | 200 | 11.1s | 127.0.0.1 | POST "/v1/messages"
+slot   operator(): id  0 | task 1 | new prompt, n_ctx_slot = 65536, n_keep = 4, task.n_tokens = 12650
+slot print_timing: id  0 | task 1 | prompt eval time =    300.00 ms /   450 tokens (    0.67 ms per token,  1500.00 tokens per second)
+slot print_timing: id  0 | task 1 |      total time =   2300.00 ms / 12850 tokens
+time=2026-11-02T14:01:30.000Z level=WARN source=server.go:800 msg="aborting completion request due to client closing the connection"
+time=2026-11-02T14:01:30.100Z level=INFO source=routes.go:1500 msg="request failed" error="context canceled"
+time=2026-11-02T14:02:00.000Z level=INFO source=sched.go:500 msg="updated VRAM based on existing loaded models" gpu=0
+time=2026-11-02T14:02:01.000Z level=INFO source=sched.go:650 msg="unloading model to make room" model=qwen3.6:35b-cc
+time=2026-11-02T14:02:05.000Z level=INFO source=llama_server.go:457 msg="starting llama-server" cmd="/opt/homebrew/libexec/lib/ollama/llama-server --model /Users/me/.ollama/models/blobs/sha256-aaaa --port 58700 -c 65536 -np 1"
+time=2026-11-02T14:02:13.000Z level=INFO source=llama_server.go:1408 msg="llama-server started in 8.00 seconds"
+time=2026-11-02T14:02:13.100Z level=INFO source=sched.go:782 msg="loaded runners" count=1
+slot   operator(): id  0 | task 0 | new prompt, n_ctx_slot = 65536, n_keep = 4, task.n_tokens = 13100
+slot print_timing: id  0 | task 0 | prompt eval time =   9800.00 ms / 13100 tokens (    0.75 ms per token,  1336.73 tokens per second)
+slot print_timing: id  0 | task 0 |      total time =  12000.00 ms / 13300 tokens
+time=2026-11-02T14:03:00.000Z level=WARN source=runner.go:150 msg="truncating input prompt" limit=65536 prompt=66000 keep=4 new=65536
+slot   operator(): id  0 | task 3 | new prompt, n_ctx_slot = 65536, n_keep = 4, task.n_tokens = 65536
+slot print_timing: id  0 | task 3 | prompt eval time =  52000.00 ms / 65400 tokens (    0.80 ms per token,  1257.69 tokens per second)
+time=2026-11-02T14:04:00.000Z level=INFO source=sched.go:900 msg="runner idle timer fired" model=qwen3.6:35b-cc
+time=2026-11-02T14:04:01.000Z level=INFO source=sched.go:901 msg="embedding request" model=qwen3-embedding:0.6b
