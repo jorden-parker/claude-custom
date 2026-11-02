@@ -44,8 +44,9 @@ at caches under that folder; `claude-ollama` adds its own `excludedCommands`,
 registry list; both hide the same credentials (`~/.ssh`, `~/.aws`,
 `~/.config/gh`, `~/.config/context7`, `~/.npmrc`, the keychain) and the console
 state folder, unset `GH_TOKEN`, `GITHUB_TOKEN` and `SHORTCUT_API_TOKEN`, and run
-`gh`, `git push`, `git fetch` and `git pull` outside the sandbox, since the gh
-credential helper needs `~/.config/gh`.
+`gh` and `git push` outside the sandbox after a prompt (`permissions.ask`),
+since the gh credential helper needs `~/.config/gh`; `git fetch` and `git pull`
+stay inside, so a private remote needs a fetch by hand.
 
 To get a tool back on one machine only, list its name (one per line) in
 `~/.config/claude-custom/enabled-tools`. `personal/settings-path` then writes a

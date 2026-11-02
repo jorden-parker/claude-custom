@@ -4,7 +4,7 @@
   "skillListingMaxDescChars": 300,
   "sandbox": {
     "enabled": true,
-    "excludedCommands": ["gh *", "git push *", "git fetch *", "git pull *"],
+    "excludedCommands": ["gh *", "git push *"],
     "network": {
       "allowedDomains": [
         "127.0.0.1",
@@ -73,7 +73,11 @@
       "ShareOnboardingGuide",
       "Workflow"
     ],
-    "ask": ["Bash(dangerouslyDisableSandbox:true)"]
+    "ask": [
+      "Bash(dangerouslyDisableSandbox:true)",
+      "Bash(gh *)",
+      "Bash(git push *)"
+    ]
   },
   "hooks": {
     "PreToolUse": [

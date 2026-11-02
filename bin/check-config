@@ -152,15 +152,15 @@ check_eq "settings.tokens.json forces the subagent model" 1 \
   "$(jq -r .env.CLAUDE_CODE_SUBAGENT_MODEL_FORCE "$repo/personal/settings.tokens.json")"
 check_eq "settings.tokens.json turns Claude Code's own sandbox on for every personal session" true \
   "$(jq -r .sandbox.enabled "$repo/personal/settings.tokens.json")"
-check_eq "settings.tokens.json asks before a command leaves that sandbox, whatever the permission mode" true \
-  "$(jq '.permissions.ask | index("Bash(dangerouslyDisableSandbox:true)") != null' "$repo/personal/settings.tokens.json")"
+check_eq "settings.tokens.json asks before a command leaves that sandbox, whatever the permission mode" '["Bash(dangerouslyDisableSandbox:true)","Bash(gh *)","Bash(git push *)"]' \
+  "$(jq -c '.permissions.ask' "$repo/personal/settings.tokens.json")"
 check_eq "settings.tokens.json reaches loopback, npm and Context7, lets commands write the same cache folder as the Ollama profiles, hides every credential and the console state, and unsets the same tokens" true \
   "$(jq --slurpfile ollama "$repo/ollama/settings.27b.json" '
     .sandbox.network == {"allowedDomains": ["127.0.0.1", "[::1]", "registry.npmjs.org", "context7.com"], "allowLocalBinding": true}
     and .sandbox.filesystem.allowWrite == $ollama[0].sandbox.filesystem.allowWrite
     and .sandbox.filesystem.denyRead == ["~/.ssh", "~/.aws", "~/.config/gh", "~/.config/context7", "~/.npmrc", "~/Library/Keychains", "~/.local/share/claude-custom"]
     and .sandbox.credentials == $ollama[0].sandbox.credentials
-    and .sandbox.excludedCommands == ["gh *", "git push *", "git fetch *", "git pull *"]
+    and .sandbox.excludedCommands == ["gh *", "git push *"]
   ' "$repo/personal/settings.tokens.json")"
 check_eq "shared/sandbox-env keeps every package cache under the folder both sandboxes may write" \
   "$(jq -r '.sandbox.filesystem.allowWrite[0]' "$repo/ollama/settings.27b.json")" \
