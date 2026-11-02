@@ -903,6 +903,7 @@ run_capture env CMUX_SOCKET_PATH="$cmux_socket" CLAUDE_OLLAMA_CMUX=0 GH_TOKEN=t0
 check_eq "the session sees the cmux socket path" "$cmux_socket" "$(session_env CMUX_SOCKET_PATH)"
 check_eq "the session sees CLAUDE_OLLAMA_CMUX" 0 "$(session_env CLAUDE_OLLAMA_CMUX)"
 check_eq "the session keeps GH_TOKEN for the repo server (the sandbox hides it from Bash)" t0ken "$(session_env GH_TOKEN)"
+check_eq "with CLAUDE_OLLAMA_CMUX=0 the appended prompt skips the cmux markdown rule" "$(cat "$repo/ollama/CLAUDE.local.md")" "$(cat "$session_config/append-prompt.md")"
 opener_args() {
   for _ in $(seq 25); do
     [ -s "$sandbox/opener-args" ] && break
@@ -915,6 +916,9 @@ rm -f "$sandbox/opener-args"
 run_capture env CLAUDE_OLLAMA_OPEN_DRAFTS=0 CMUX_SOCKET_PATH="$cmux_socket" "$repo/bin/claude-ollama" 27b -p hi
 sleep 1
 check_not "CLAUDE_OLLAMA_OPEN_DRAFTS=0 opens no drafts" test -e "$sandbox/opener-args"
+check_eq "in a cmux terminal the appended prompt adds the cmux markdown rule" \
+  "$(cat "$repo/ollama/CLAUDE.local.md" "$repo/ollama/CLAUDE.cmux.md")" "$(cat "$session_config/append-prompt.md")"
+check_that "the session gets the cmux-markdown skill the rule names" test -f "$session_config/skills/cmux-markdown/SKILL.md"
 
 mkdir -p "$HOME/.claude"
 echo "@preferences" > "$HOME/.claude/CLAUDE.md"

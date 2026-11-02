@@ -484,6 +484,12 @@ claude_command() {
 
 write_append_prompt() {
   cat "$profile_dir/CLAUDE.local.md" > "$append_prompt"
+  cmux_tools_on && cat "$profile_dir/CLAUDE.cmux.md" >> "$append_prompt"
+  return 0
+}
+
+cmux_tools_on() {
+  [ "${CLAUDE_OLLAMA_CMUX:-}" != 0 ] && in_cmux_terminal
 }
 
 print_config() {

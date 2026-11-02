@@ -306,7 +306,10 @@ check_that "the launcher and the console agree on the drafts folder" grep -qF '.
 check_that "the launcher keeps drafts in the session config" grep -qF "drafts_dir=\"\$session_config_dir/drafts\"" "$repo/bin/claude-ollama"
 draft_id_pattern="$(sed -n 's/^DRAFT_ID = re.compile(r"\(.*\)")$/\1/p' "$repo/ollama/drafts/opener.py")"
 check_that "the opener and the console agree on draft ids" grep -rqF -- "${draft_id_pattern#^}" "$repo/web/console/src/lib"
-for skill_dir in "$repo"/shared/skills/*/; do
+check_that "CLAUDE.cmux.md points the model at the cmux-markdown skill" grep -qF "/cmux-markdown" "$repo/ollama/CLAUDE.cmux.md"
+check_that "claude-ollama appends CLAUDE.cmux.md only when the cmux tools are on" grep -qF -- "cmux_tools_on && cat \"\$profile_dir/CLAUDE.cmux.md\" >> \"\$append_prompt\"" "$repo/bin/claude-ollama"
+check_that "the cmux-markdown skill is pinned to its upstream commit" grep -qE '^https://github.com/manaflow-ai/cmux/.* [0-9a-f]{40}$' "$repo/ollama/skills/cmux-markdown/UPSTREAM"
+for skill_dir in "$repo"/shared/skills/*/ "$repo"/ollama/skills/cmux-markdown/; do
   skill_name="$(basename "$skill_dir")"
   skill_frontmatter="$(sed -n '2,/^---$/p' "$skill_dir/SKILL.md" | sed '$d')"
   check_eq "$skill_name skill name matches its folder" "$skill_name" "$(sed -n 's/^name: *//p' <<<"$skill_frontmatter")"

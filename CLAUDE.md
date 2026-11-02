@@ -408,7 +408,8 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `--system-prompt-file ollama/system-prompt.md` (replacing Claude Code's
   default system prompt),
   `--append-system-prompt-file ~/.claude-ollama/append-prompt.md` (written each
-  launch from `ollama/CLAUDE.local.md`), `--strict-mcp-config` plus an inline
+  launch from `ollama/CLAUDE.local.md`, plus `ollama/CLAUDE.cmux.md` in a cmux
+  terminal unless `CLAUDE_OLLAMA_CMUX=0`), `--strict-mcp-config` plus an inline
   `--mcp-config` for the code-search server, `--model` with the profile's
   `model` (it also unsets `ANTHROPIC_MODEL`, which would otherwise win over the
   settings file), and restricts tools with `--tools` (built-in tools only; MCP
@@ -425,9 +426,13 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `~/.claude/skills`, adds the skills in `ollama/skills/` (Matt Pocock's, pinned
   in `ollama/skills/UPSTREAM`, minus `chief-of-staff`, `claude-handoff`,
   `code-review`, `implement-spec` and `research`, which need subagents or the
-  web; a skill of yours with the same name wins, and plugins never load in this
-  session), and makes the `tmp` folder that `CLAUDE_CODE_TMPDIR` names.
-  `CLAUDE_OLLAMA_CMUX=0` turns the browser tools off; a cmux terminal
+  web, plus cmux's `cmux-markdown`, pinned in
+  `ollama/skills/cmux-markdown/UPSTREAM`; a skill of yours with the same name
+  wins, and plugins never load in this session), and makes the `tmp` folder that
+  `CLAUDE_CODE_TMPDIR` names. `ollama/CLAUDE.cmux.md` tells the model to open
+  every markdown file it writes with `/cmux-markdown`; `bin/check-config` checks
+  it names the skill and that the launcher appends it only with the cmux tools
+  on. `CLAUDE_OLLAMA_CMUX=0` turns the browser tools off; a cmux terminal
   (`CMUX_SOCKET_PATH` set and `cmux` on `PATH`) turns them on. The `dev` server
   drives one cmux browser surface with plain `cmux browser` commands
   (`open-split`, `goto`, `wait`, `console list`, `errors list`,

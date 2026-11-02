@@ -357,6 +357,13 @@ so a value can never be read as an option. They need a cmux terminal
 off. In claude-ollama sessions the Bash guard denies `pnpm dev` and similar
 starts, and only there.
 
+In a cmux terminal the launcher also appends `ollama/CLAUDE.cmux.md` to the
+session prompt, which tells the model to open every markdown file it writes with
+the vendored `/cmux-markdown` skill (`ollama/skills/cmux-markdown`, pinned to
+the cmux repository in its `UPSTREAM` file). The skill runs
+`cmux markdown open FILE`, a command excluded from the sandbox, so it asks once
+before the panel opens and re-renders on every later save.
+
 ### Reviewing a pull request locally
 
 `claude-ollama review [size] PR [--post] [--json]` reviews a GitHub pull request
