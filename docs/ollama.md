@@ -567,24 +567,36 @@ drift fix does, and `doctor` checks the same values. `thinking: true` turns the
 model's thinking on for that size (off by default, see above). `env` takes only
 the harness switches, each `0` or `1` unless noted:
 
-| Key                             | Default | Meaning                                              |
-| ------------------------------- | ------- | ---------------------------------------------------- |
-| `CLAUDE_OLLAMA_PROXY`           | 1       | Observe prompt drift through the messages proxy      |
-| `CLAUDE_OLLAMA_RULE_CARDS`      | 1       | Deliver rule cards just in time                      |
-| `CLAUDE_OLLAMA_RELAUNCH`        | 1       | Hand off before the context fills (`0`: single exec) |
-| `CLAUDE_OLLAMA_HANDOFF_PCT`     | 70      | Hand off at this whole percent of context, 30 to 85  |
-| `CLAUDE_OLLAMA_NO_INDEX`        | 0       | Skip the code search index                           |
-| `CLAUDE_CUSTOM_FRICTION`        | 1       | Reset a looping guard after three identical denials  |
-| `CLAUDE_OLLAMA_LADDER`          | 1       | Degrade rung by rung on incident evidence            |
-| `CLAUDE_OLLAMA_LEASE`           | 1       | Hold an Ollama residency lease and heartbeat         |
-| `CLAUDE_OLLAMA_LEASE_HEARTBEAT` | 120     | Whole seconds between keep-alive heartbeats, 30-600  |
-| `CLAUDE_OLLAMA_FIT`             | 1       | Check memory fit before launch                       |
-| `CLAUDE_OLLAMA_TELEMETRY`       | 1       | Session telemetry                                    |
-| `CLAUDE_OLLAMA_INCIDENTS`       | 1       | Record Ollama incidents                              |
-| `CLAUDE_OLLAMA_PROXY_RECORD`    | 0       | Record every request body for replay benches         |
-| `CLAUDE_OLLAMA_BEACON`          | 1       | Write a machine beacon at launch                     |
-| `CLAUDE_OLLAMA_OPEN_DRAFTS`     | 1       | Open drafts in the browser                           |
-| `CLAUDE_OLLAMA_CMUX`            | 1       | cmux browser tools                                   |
+| Key                             | Default | Meaning                                                                        |
+| ------------------------------- | ------- | ------------------------------------------------------------------------------ |
+| `CLAUDE_OLLAMA_PROXY`           | 1       | Observe prompt drift through the messages proxy                                |
+| `CLAUDE_OLLAMA_RULE_CARDS`      | 1       | Deliver rule cards just in time                                                |
+| `CLAUDE_OLLAMA_RELAUNCH`        | 1       | Hand off before the context fills (`0`: single exec)                           |
+| `CLAUDE_OLLAMA_HANDOFF_PCT`     | 70      | Hand off at this whole percent of context, 30 to 85                            |
+| `CLAUDE_OLLAMA_NO_INDEX`        | 0       | Skip the code search index                                                     |
+| `CLAUDE_CUSTOM_FRICTION`        | 1       | Reset a looping guard after three identical denials                            |
+| `CLAUDE_OLLAMA_LADDER`          | 1       | Degrade rung by rung on incident evidence                                      |
+| `CLAUDE_OLLAMA_TEST_AFTER_EDIT` | suggest | After each edit: suggest the test (`suggest`), run it (`run`) or neither (`0`) |
+| `CLAUDE_OLLAMA_LEASE`           | 1       | Hold an Ollama residency lease and heartbeat                                   |
+| `CLAUDE_OLLAMA_LEASE_HEARTBEAT` | 120     | Whole seconds between keep-alive heartbeats, 30-600                            |
+| `CLAUDE_OLLAMA_FIT`             | 1       | Check memory fit before launch                                                 |
+| `CLAUDE_OLLAMA_TELEMETRY`       | 1       | Session telemetry                                                              |
+| `CLAUDE_OLLAMA_INCIDENTS`       | 1       | Record Ollama incidents                                                        |
+| `CLAUDE_OLLAMA_PROXY_RECORD`    | 0       | Record every request body for replay benches                                   |
+| `CLAUDE_OLLAMA_BEACON`          | 1       | Write a machine beacon at launch                                               |
+| `CLAUDE_OLLAMA_OPEN_DRAFTS`     | 1       | Open drafts in the browser                                                     |
+| `CLAUDE_OLLAMA_CMUX`            | 1       | cmux browser tools                                                             |
+
+`CLAUDE_OLLAMA_TEST_AFTER_EDIT` drives `shared/hooks/test-after-edit.py`, which
+runs after every Edit, Write or MultiEdit of a code file: `suggest` adds one
+line naming the nearest test's command (`run now: ./shared/hooks/x.test.sh`,
+`cd go && go test ./internal/x`, `pnpm -C web/console exec vitest run <file>`,
+`pytest <file>`, or `.claude/verify <file>`), or the test path to write when
+none exists; `run` executes that command for you with a 60 s timeout and reports
+`tests: pass` with the seconds, `tests: FAIL` with the first failing lines, or a
+timeout, never the whole log, and skips a rerun while neither the file nor its
+test changed. `run` executes the repo's test code outside the Bash sandbox, so
+leave it on `suggest` for a repo you do not trust.
 
 The Profiles page's Env tab shows each one by that label with its default and a
 help sentence, grouped under Prompt and context, Guards, Ollama residency,

@@ -27,7 +27,12 @@ printf '%s\n' \
   '{"time":1781870760,"session":"b","kind":"friction","hook":"tool-nudge","tool":"Bash","reason":"plan reset after 4 near-identical Bash denials","fingerprint":"4567ef01"}' \
   '{"time":1781870820,"session":"b","kind":"friction","hook":"bash-output-guard","tool":"Bash","reason":"plan reset after 5 near-identical Bash denials","fingerprint":"0123abcd"}' \
   '{"time":1781870880,"session":"b","kind":"friction","hook":"repeat-call-cache","tool":"Read","reason":"same result as call #1 this turn, unchanged since; use it","saved_bytes":1200}' \
-  '{"time":1781870940,"session":"b","kind":"friction","hook":"repeat-call-cache","tool":"mcp__repo__git_status","reason":"same result as call #3 this turn, unchanged since; use it","saved_bytes":300}' >"$log"
+  '{"time":1781870940,"session":"b","kind":"friction","hook":"repeat-call-cache","tool":"mcp__repo__git_status","reason":"same result as call #3 this turn, unchanged since; use it","saved_bytes":300}' \
+  '{"time":1781871000,"session":"b","kind":"test-after-edit","hook":"test-after-edit","tool":"Edit","reason":"run now: ./x.test.sh","mode":"suggest","found":true,"result":null,"seconds":null}' \
+  '{"time":1781871060,"session":"b","kind":"test-after-edit","hook":"test-after-edit","tool":"Edit","reason":"tests: pass (./x.test.sh, 2.1s)","mode":"run","found":true,"result":"pass","seconds":2.1}' \
+  '{"time":1781871120,"session":"b","kind":"test-after-edit","hook":"test-after-edit","tool":"Write","reason":"tests: FAIL (./x.test.sh): FAIL: x","mode":"run","found":true,"result":"fail","seconds":0.4}' \
+  '{"time":1781871180,"session":"b","kind":"test-after-edit","hook":"test-after-edit","tool":"Edit","reason":"tests: pass (./x.test.sh, 3.1s)","mode":"run","found":true,"result":"pass","seconds":3.1}' \
+  '{"time":1781871240,"session":"b","kind":"test-after-edit","hook":"test-after-edit","tool":"Edit","reason":"tests: timed out after 60s (./x.test.sh); run it yourself","mode":"run","found":true,"result":"timeout","seconds":60.0}' >"$log"
 
 output="$("$report" "$log")"
 check "Bash totals: 2 calls, 4000 bytes, 1 over the limit" \
@@ -54,6 +59,9 @@ check "the guards table counts denials and trips per hook with trips per 100 den
   grep -Eq '^bash-output-guard +2 +2 +100$' <<<"$output"
 check "a hook with trips and no denials shows no rate" \
   grep -Eq '^tool-nudge +0 +1 +-$' <<<"$output"
+check "the tests line counts calls, passes, failures and timeouts with the median seconds" \
+  grep -qxF 'tests: 5 calls, 2 pass, 1 fail, 1 timeout, median 2.6s' <<<"$output"
+check "test-after-edit lines are not tool calls" test "$(grep -c '^Edit ' <<<"$output")" -eq 0
 check "cache hits are not guard trips" test "$(grep -c '^repeat-call-cache' <<<"$output")" -eq 0
 check "a hook under 30 denials is never flagged" \
   grep -qxF 'lint: none flagged' <<<"$output"
@@ -76,6 +84,8 @@ check "a log with no denials says so" \
   grep -qxF 'denials: none' <<<"$("$report" "$calls_only")"
 check "a log with no friction says so" \
   grep -qxF 'friction: none' <<<"$("$report" "$calls_only")"
+check "a log with no test runs says so" \
+  grep -qxF 'tests: none' <<<"$("$report" "$calls_only")"
 check "a log with no guard events says so" \
   grep -qxF 'guards: none' <<<"$("$report" "$calls_only")"
 linked_log="$sandbox/linked.log"

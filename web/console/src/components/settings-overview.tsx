@@ -37,8 +37,8 @@ function ActionsRow() {
       <Link href="/diagnose" className="underline underline-offset-2">
         Diagnose
       </Link>{" "}
-      explains the last run, writes a rescue report and lists the rule cards
-      and recovery recipes these switches control.
+      explains the last run, writes a rescue report and lists the rule cards and
+      recovery recipes these switches control.
     </p>
   );
 }
@@ -119,6 +119,11 @@ function profileValue(field: ProfileEnvField, profile: ProfileSummary): string {
 }
 
 function shownValue(field: ProfileEnvField, value: string): string {
+  if (field.kind === "choice") {
+    return (
+      field.choices.find((choice) => choice.value === value)?.word ?? value
+    );
+  }
   if (field.kind !== "switch") {
     return value;
   }

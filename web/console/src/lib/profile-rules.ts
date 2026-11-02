@@ -34,6 +34,7 @@ export const PROFILE_ENV_KEYS = [
   "CLAUDE_OLLAMA_NO_INDEX",
   "CLAUDE_CUSTOM_FRICTION",
   "CLAUDE_OLLAMA_LADDER",
+  "CLAUDE_OLLAMA_TEST_AFTER_EDIT",
   "CLAUDE_OLLAMA_LEASE",
   "CLAUDE_OLLAMA_LEASE_HEARTBEAT",
   "CLAUDE_OLLAMA_FIT",
@@ -58,6 +59,7 @@ export const PROFILE_ENV_GROUPS = [
 export type ProfileEnvGroup = (typeof PROFILE_ENV_GROUPS)[number];
 
 export type NumberRange = { min: number; max: number; step: number };
+export type EnvChoice = { value: string; word: string };
 
 type ProfileEnvFieldBase = {
   key: ProfileEnvKey;
@@ -70,7 +72,8 @@ type ProfileEnvFieldBase = {
 
 export type ProfileEnvField =
   | (ProfileEnvFieldBase & { kind: "switch" })
-  | (ProfileEnvFieldBase & { kind: "number"; range: NumberRange });
+  | (ProfileEnvFieldBase & { kind: "number"; range: NumberRange })
+  | (ProfileEnvFieldBase & { kind: "choice"; choices: readonly EnvChoice[] });
 
 export type GroupedEnvFields = {
   group: ProfileEnvGroup;
@@ -83,6 +86,12 @@ export const LEASE_HEARTBEAT_RANGE: NumberRange = {
   max: 600,
   step: 10,
 };
+
+export const TEST_AFTER_EDIT_CHOICES: readonly EnvChoice[] = [
+  { value: "0", word: "off" },
+  { value: "suggest", word: "suggest" },
+  { value: "run", word: "run" },
+];
 
 export const PROFILE_ENV_FIELDS: readonly ProfileEnvField[] = [
   {
@@ -147,6 +156,16 @@ export const PROFILE_ENV_FIELDS: readonly ProfileEnvField[] = [
     group: "Guards",
     kind: "switch",
     defaultValue: "1",
+    ollamaOnly: true,
+  },
+  {
+    key: "CLAUDE_OLLAMA_TEST_AFTER_EDIT",
+    label: "After each edit: suggest the test, or run it",
+    help: "Suggest names the test to run after an edit; run executes it and reports pass or the first failing lines. Run executes repo test code outside the Bash sandbox, so leave it on suggest for repos you do not trust.",
+    group: "Guards",
+    kind: "choice",
+    choices: TEST_AFTER_EDIT_CHOICES,
+    defaultValue: "suggest",
     ollamaOnly: true,
   },
   {
@@ -468,9 +487,23 @@ function envEntryProblem(
   if (field.ollamaOnly && rules.kind === "claude-code") {
     return `${name} only applies to Ollama profiles`;
   }
-  return field.kind === "number"
-    ? wholeNumberProblem(name, value, field.range)
-    : switchProblem(name, value);
+  if (field.kind === "number") {
+    return wholeNumberProblem(name, value, field.range);
+  }
+  if (field.kind === "choice") {
+    return choiceProblem(name, value, field.choices);
+  }
+  return switchProblem(name, value);
+}
+
+function choiceProblem(
+  name: string,
+  value: unknown,
+  choices: readonly EnvChoice[],
+): string | null {
+  return choices.some((choice) => choice.value === value)
+    ? null
+    : `${name} must be one of ${choices.map((choice) => choice.value).join(", ")}`;
 }
 
 function switchProblem(name: string, value: unknown): string | null {

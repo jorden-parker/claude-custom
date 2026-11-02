@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   CONTEXT_CAP,
   LEASE_HEARTBEAT_RANGE,
+  TEST_AFTER_EDIT_CHOICES,
   PROFILE_ENV_FIELDS,
   PROFILE_ENV_GROUPS,
   PROFILE_ENV_KEYS,
@@ -45,105 +46,185 @@ describe("validateProfileOverride", () => {
   });
 
   it("drops tool entries that are default and empty sections", () => {
-    expect(accepted({ tools: { Bash: "default" }, env: {} }, CLAUDE_CODE)).toEqual({});
+    expect(
+      accepted({ tools: { Bash: "default" }, env: {} }, CLAUDE_CODE),
+    ).toEqual({});
   });
 
   it("keeps tool states from the enum, including off", () => {
-    expect(accepted({ tools: { Bash: "ask", WebFetch: "off" } }, CLAUDE_CODE)).toEqual({
+    expect(
+      accepted({ tools: { Bash: "ask", WebFetch: "off" } }, CLAUDE_CODE),
+    ).toEqual({
       tools: { Bash: "ask", WebFetch: "off" },
     });
   });
 
   it("rejects a tool that is not in the catalog", () => {
-    expect(rejected({ tools: { Nope: "allow" } }, CLAUDE_CODE)).toBe("unknown tool Nope");
+    expect(rejected({ tools: { Nope: "allow" } }, CLAUDE_CODE)).toBe(
+      "unknown tool Nope",
+    );
   });
 
   it("rejects a tool state outside the enum", () => {
-    expect(rejected({ tools: { Bash: "maybe" } }, CLAUDE_CODE)).toBe("Bash must be one of default, allow, ask, deny, off");
+    expect(rejected({ tools: { Bash: "maybe" } }, CLAUDE_CODE)).toBe(
+      "Bash must be one of default, allow, ask, deny, off",
+    );
   });
 
   it("keeps Agent off for Ollama profiles", () => {
-    expect(rejected({ tools: { Agent: "allow" } }, OLLAMA)).toBe("Agent stays off for Ollama profiles");
-    expect(accepted({ tools: { Agent: "off" } }, OLLAMA)).toEqual({ tools: { Agent: "off" } });
+    expect(rejected({ tools: { Agent: "allow" } }, OLLAMA)).toBe(
+      "Agent stays off for Ollama profiles",
+    );
+    expect(accepted({ tools: { Agent: "off" } }, OLLAMA)).toEqual({
+      tools: { Agent: "off" },
+    });
   });
 
   it("refuses sandbox on Ollama profiles and accepts a boolean for claude-code", () => {
-    expect(rejected({ sandbox: false }, OLLAMA)).toBe("sandbox is always on for Ollama profiles");
-    expect(accepted({ sandbox: false }, CLAUDE_CODE)).toEqual({ sandbox: false });
-    expect(rejected({ sandbox: "no" }, CLAUDE_CODE)).toBe("sandbox must be true or false");
+    expect(rejected({ sandbox: false }, OLLAMA)).toBe(
+      "sandbox is always on for Ollama profiles",
+    );
+    expect(accepted({ sandbox: false }, CLAUDE_CODE)).toEqual({
+      sandbox: false,
+    });
+    expect(rejected({ sandbox: "no" }, CLAUDE_CODE)).toBe(
+      "sandbox must be true or false",
+    );
   });
 
   it("refuses context and parameters on claude-code profiles", () => {
-    expect(rejected({ context: 65536 }, CLAUDE_CODE)).toBe("context only applies to Ollama profiles");
+    expect(rejected({ context: 65536 }, CLAUDE_CODE)).toBe(
+      "context only applies to Ollama profiles",
+    );
   });
 
   it("keeps context between 4096 and the maximum", () => {
     expect(accepted({ context: 4096 }, OLLAMA)).toEqual({ context: 4096 });
-    expect(rejected({ context: 4095 }, OLLAMA)).toBe("context must be from 4096 to 262144");
-    expect(rejected({ context: CONTEXT_CAP + 1 }, OLLAMA)).toBe("context must be from 4096 to 262144");
-    expect(rejected({ context: 8192.5 }, OLLAMA)).toBe("context must be from 4096 to 262144");
+    expect(rejected({ context: 4095 }, OLLAMA)).toBe(
+      "context must be from 4096 to 262144",
+    );
+    expect(rejected({ context: CONTEXT_CAP + 1 }, OLLAMA)).toBe(
+      "context must be from 4096 to 262144",
+    );
+    expect(rejected({ context: 8192.5 }, OLLAMA)).toBe(
+      "context must be from 4096 to 262144",
+    );
   });
 
   it("limits context to the base model maximum when it is lower", () => {
     const rules = { ...OLLAMA, contextMaximum: 98304 };
-    expect(rejected({ context: 131072 }, rules)).toBe("context must be from 4096 to 98304");
+    expect(rejected({ context: 131072 }, rules)).toBe(
+      "context must be from 4096 to 98304",
+    );
   });
 
   it("accepts only allowlisted parameters inside their ranges", () => {
-    expect(accepted({ parameters: { temperature: 0.6, top_k: 20 } }, OLLAMA)).toEqual({
+    expect(
+      accepted({ parameters: { temperature: 0.6, top_k: 20 } }, OLLAMA),
+    ).toEqual({
       parameters: { temperature: 0.6, top_k: 20 },
     });
-    expect(rejected({ parameters: { seed: 1 } }, OLLAMA)).toBe("unknown parameter seed");
-    expect(rejected({ parameters: { temperature: 3 } }, OLLAMA)).toBe("temperature must be from 0 to 2");
-    expect(rejected({ parameters: { top_p: 1.5 } }, OLLAMA)).toBe("top_p must be from 0 to 1");
-    expect(rejected({ parameters: { top_k: 2.5 } }, OLLAMA)).toBe("top_k must be a whole number");
+    expect(rejected({ parameters: { seed: 1 } }, OLLAMA)).toBe(
+      "unknown parameter seed",
+    );
+    expect(rejected({ parameters: { temperature: 3 } }, OLLAMA)).toBe(
+      "temperature must be from 0 to 2",
+    );
+    expect(rejected({ parameters: { top_p: 1.5 } }, OLLAMA)).toBe(
+      "top_p must be from 0 to 1",
+    );
+    expect(rejected({ parameters: { top_k: 2.5 } }, OLLAMA)).toBe(
+      "top_k must be a whole number",
+    );
   });
 
   it("accepts MCP toggles only for the three launcher servers on Ollama", () => {
-    expect(accepted({ mcp: { dev: false, repo: true } }, OLLAMA)).toEqual({ mcp: { dev: false, repo: true } });
-    expect(rejected({ mcp: { github: true } }, OLLAMA)).toBe("unknown MCP server github");
-    expect(rejected({ mcp: { dev: true } }, CLAUDE_CODE)).toBe("mcp only applies to Ollama profiles");
-    expect(rejected({ mcp: { dev: "yes" } }, OLLAMA)).toBe("dev must be true or false");
+    expect(accepted({ mcp: { dev: false, repo: true } }, OLLAMA)).toEqual({
+      mcp: { dev: false, repo: true },
+    });
+    expect(rejected({ mcp: { github: true } }, OLLAMA)).toBe(
+      "unknown MCP server github",
+    );
+    expect(rejected({ mcp: { dev: true } }, CLAUDE_CODE)).toBe(
+      "mcp only applies to Ollama profiles",
+    );
+    expect(rejected({ mcp: { dev: "yes" } }, OLLAMA)).toBe(
+      "dev must be true or false",
+    );
   });
 
   it("accepts a boolean thinking switch for Ollama profiles only", () => {
     expect(accepted({ thinking: true }, OLLAMA)).toEqual({ thinking: true });
-    expect(rejected({ thinking: "yes" }, OLLAMA)).toBe("thinking must be true or false");
-    expect(rejected({ thinking: true }, CLAUDE_CODE)).toBe("thinking only applies to Ollama profiles");
+    expect(rejected({ thinking: "yes" }, OLLAMA)).toBe(
+      "thinking must be true or false",
+    );
+    expect(rejected({ thinking: true }, CLAUDE_CODE)).toBe(
+      "thinking only applies to Ollama profiles",
+    );
   });
 
   it("allows only the launcher env switches with 0 or 1", () => {
-    expect(accepted({ env: { CLAUDE_OLLAMA_TELEMETRY: "0" } }, OLLAMA)).toEqual({
-      env: { CLAUDE_OLLAMA_TELEMETRY: "0" },
-    });
-    expect(accepted({ env: { CLAUDE_OLLAMA_RELAUNCH: "0", CLAUDE_OLLAMA_INCIDENTS: "1" } }, OLLAMA)).toEqual({
+    expect(accepted({ env: { CLAUDE_OLLAMA_TELEMETRY: "0" } }, OLLAMA)).toEqual(
+      {
+        env: { CLAUDE_OLLAMA_TELEMETRY: "0" },
+      },
+    );
+    expect(
+      accepted(
+        { env: { CLAUDE_OLLAMA_RELAUNCH: "0", CLAUDE_OLLAMA_INCIDENTS: "1" } },
+        OLLAMA,
+      ),
+    ).toEqual({
       env: { CLAUDE_OLLAMA_RELAUNCH: "0", CLAUDE_OLLAMA_INCIDENTS: "1" },
     });
-    expect(rejected({ env: { PATH: "/tmp" } }, OLLAMA)).toBe("unknown env key PATH");
-    expect(rejected({ env: { CLAUDE_OLLAMA_CMUX: "off" } }, OLLAMA)).toBe("CLAUDE_OLLAMA_CMUX must be 0 or 1");
-    expect(rejected({ env: { CLAUDE_OLLAMA_RELAUNCH: "2" } }, OLLAMA)).toBe("CLAUDE_OLLAMA_RELAUNCH must be 0 or 1");
+    expect(rejected({ env: { PATH: "/tmp" } }, OLLAMA)).toBe(
+      "unknown env key PATH",
+    );
+    expect(rejected({ env: { CLAUDE_OLLAMA_CMUX: "off" } }, OLLAMA)).toBe(
+      "CLAUDE_OLLAMA_CMUX must be 0 or 1",
+    );
+    expect(rejected({ env: { CLAUDE_OLLAMA_RELAUNCH: "2" } }, OLLAMA)).toBe(
+      "CLAUDE_OLLAMA_RELAUNCH must be 0 or 1",
+    );
   });
 
   it("takes the handoff threshold as a whole percent from 30 to 85", () => {
-    expect(accepted({ env: { CLAUDE_OLLAMA_HANDOFF_PCT: "60" } }, OLLAMA)).toEqual({
+    expect(
+      accepted({ env: { CLAUDE_OLLAMA_HANDOFF_PCT: "60" } }, OLLAMA),
+    ).toEqual({
       env: { CLAUDE_OLLAMA_HANDOFF_PCT: "60" },
     });
-    const message = "CLAUDE_OLLAMA_HANDOFF_PCT must be a whole number from 30 to 85";
+    const message =
+      "CLAUDE_OLLAMA_HANDOFF_PCT must be a whole number from 30 to 85";
     for (const value of ["20", "90", "7.5", "abc", 60]) {
-      expect(rejected({ env: { CLAUDE_OLLAMA_HANDOFF_PCT: value } }, OLLAMA)).toBe(message);
+      expect(
+        rejected({ env: { CLAUDE_OLLAMA_HANDOFF_PCT: value } }, OLLAMA),
+      ).toBe(message);
     }
   });
 
   it("lists a labelled field for every env key", () => {
-    expect(PROFILE_ENV_FIELDS.map((field) => field.key)).toEqual([...PROFILE_ENV_KEYS]);
-    expect(PROFILE_ENV_FIELDS.every((field) => field.label !== field.key)).toBe(true);
-    expect(PROFILE_ENV_FIELDS.find((field) => field.key === "CLAUDE_OLLAMA_HANDOFF_PCT")).toMatchObject({
+    expect(PROFILE_ENV_FIELDS.map((field) => field.key)).toEqual([
+      ...PROFILE_ENV_KEYS,
+    ]);
+    expect(PROFILE_ENV_FIELDS.every((field) => field.label !== field.key)).toBe(
+      true,
+    );
+    expect(
+      PROFILE_ENV_FIELDS.find(
+        (field) => field.key === "CLAUDE_OLLAMA_HANDOFF_PCT",
+      ),
+    ).toMatchObject({
       kind: "number",
       range: { min: 30, max: 85, step: 5 },
       defaultValue: "70",
       ollamaOnly: true,
     });
-    expect(PROFILE_ENV_FIELDS.find((field) => field.key === "CLAUDE_OLLAMA_TELEMETRY")).toMatchObject({
+    expect(
+      PROFILE_ENV_FIELDS.find(
+        (field) => field.key === "CLAUDE_OLLAMA_TELEMETRY",
+      ),
+    ).toMatchObject({
       kind: "switch",
       defaultValue: "1",
       ollamaOnly: false,
@@ -159,32 +240,62 @@ describe("validateProfileOverride", () => {
     ["CLAUDE_OLLAMA_FIT", "1", "Ollama residency", true],
     ["CLAUDE_OLLAMA_PROXY_RECORD", "0", "Diagnostics", true],
     ["CLAUDE_OLLAMA_BEACON", "1", "Diagnostics", true],
-  ])("%s is a switch defaulting to %s under %s", (key, defaultValue, group, ollamaOnly) => {
-    expect(PROFILE_ENV_FIELDS.find((field) => field.key === key)).toMatchObject({
-      kind: "switch",
-      defaultValue,
-      group,
-      ollamaOnly,
-    });
-    expect(accepted({ env: { [key]: "0" } }, OLLAMA)).toEqual({ env: { [key]: "0" } });
-    expect(rejected({ env: { [key]: "yes" } }, OLLAMA)).toBe(`${key} must be 0 or 1`);
-  });
+  ])(
+    "%s is a switch defaulting to %s under %s",
+    (key, defaultValue, group, ollamaOnly) => {
+      expect(
+        PROFILE_ENV_FIELDS.find((field) => field.key === key),
+      ).toMatchObject({
+        kind: "switch",
+        defaultValue,
+        group,
+        ollamaOnly,
+      });
+      expect(accepted({ env: { [key]: "0" } }, OLLAMA)).toEqual({
+        env: { [key]: "0" },
+      });
+      expect(rejected({ env: { [key]: "yes" } }, OLLAMA)).toBe(
+        `${key} must be 0 or 1`,
+      );
+    },
+  );
 
   it("labels every switch in plain words", () => {
-    const labelOf = (key: string) => PROFILE_ENV_FIELDS.find((field) => field.key === key)?.label;
-    expect(labelOf("CLAUDE_OLLAMA_PROXY")).toBe("Observe prompt drift through the messages proxy");
-    expect(labelOf("CLAUDE_OLLAMA_PROXY_RECORD")).toBe("Record every request body for replay benches");
-    expect(labelOf("CLAUDE_CUSTOM_FRICTION")).toBe("Reset a looping guard after three identical denials");
-    expect(labelOf("CLAUDE_OLLAMA_LEASE")).toBe("Hold an Ollama residency lease and heartbeat");
-    expect(labelOf("CLAUDE_OLLAMA_LEASE_HEARTBEAT")).toBe("Seconds between keep-alive heartbeats");
-    expect(labelOf("CLAUDE_OLLAMA_LADDER")).toBe("Degrade rung by rung on incident evidence");
+    const labelOf = (key: string) =>
+      PROFILE_ENV_FIELDS.find((field) => field.key === key)?.label;
+    expect(labelOf("CLAUDE_OLLAMA_PROXY")).toBe(
+      "Observe prompt drift through the messages proxy",
+    );
+    expect(labelOf("CLAUDE_OLLAMA_PROXY_RECORD")).toBe(
+      "Record every request body for replay benches",
+    );
+    expect(labelOf("CLAUDE_CUSTOM_FRICTION")).toBe(
+      "Reset a looping guard after three identical denials",
+    );
+    expect(labelOf("CLAUDE_OLLAMA_LEASE")).toBe(
+      "Hold an Ollama residency lease and heartbeat",
+    );
+    expect(labelOf("CLAUDE_OLLAMA_LEASE_HEARTBEAT")).toBe(
+      "Seconds between keep-alive heartbeats",
+    );
+    expect(labelOf("CLAUDE_OLLAMA_LADDER")).toBe(
+      "Degrade rung by rung on incident evidence",
+    );
     expect(labelOf("CLAUDE_OLLAMA_FIT")).toBe("Check memory fit before launch");
-    expect(labelOf("CLAUDE_OLLAMA_BEACON")).toBe("Write a machine beacon at launch");
-    expect(labelOf("CLAUDE_OLLAMA_RULE_CARDS")).toBe("Deliver rule cards just in time");
+    expect(labelOf("CLAUDE_OLLAMA_BEACON")).toBe(
+      "Write a machine beacon at launch",
+    );
+    expect(labelOf("CLAUDE_OLLAMA_RULE_CARDS")).toBe(
+      "Deliver rule cards just in time",
+    );
   });
 
   it("takes the lease heartbeat as whole seconds from 30 to 600", () => {
-    expect(PROFILE_ENV_FIELDS.find((field) => field.key === "CLAUDE_OLLAMA_LEASE_HEARTBEAT")).toMatchObject({
+    expect(
+      PROFILE_ENV_FIELDS.find(
+        (field) => field.key === "CLAUDE_OLLAMA_LEASE_HEARTBEAT",
+      ),
+    ).toMatchObject({
       kind: "number",
       range: LEASE_HEARTBEAT_RANGE,
       defaultValue: "120",
@@ -192,17 +303,63 @@ describe("validateProfileOverride", () => {
       ollamaOnly: true,
     });
     expect(LEASE_HEARTBEAT_RANGE).toEqual({ min: 30, max: 600, step: 10 });
-    expect(accepted({ env: { CLAUDE_OLLAMA_LEASE_HEARTBEAT: "60" } }, OLLAMA)).toEqual({
+    expect(
+      accepted({ env: { CLAUDE_OLLAMA_LEASE_HEARTBEAT: "60" } }, OLLAMA),
+    ).toEqual({
       env: { CLAUDE_OLLAMA_LEASE_HEARTBEAT: "60" },
     });
-    const message = "CLAUDE_OLLAMA_LEASE_HEARTBEAT must be a whole number from 30 to 600";
+    const message =
+      "CLAUDE_OLLAMA_LEASE_HEARTBEAT must be a whole number from 30 to 600";
     for (const value of ["29", "601", "1.5", "fast", 120]) {
-      expect(rejected({ env: { CLAUDE_OLLAMA_LEASE_HEARTBEAT: value } }, OLLAMA)).toBe(message);
+      expect(
+        rejected({ env: { CLAUDE_OLLAMA_LEASE_HEARTBEAT: value } }, OLLAMA),
+      ).toBe(message);
+    }
+  });
+
+  it("takes the after-edit test mode as off, suggest or run", () => {
+    expect(
+      PROFILE_ENV_FIELDS.find(
+        (field) => field.key === "CLAUDE_OLLAMA_TEST_AFTER_EDIT",
+      ),
+    ).toMatchObject({
+      kind: "choice",
+      choices: TEST_AFTER_EDIT_CHOICES,
+      defaultValue: "suggest",
+      group: "Guards",
+      ollamaOnly: true,
+      label: "After each edit: suggest the test, or run it",
+    });
+    expect(TEST_AFTER_EDIT_CHOICES).toEqual([
+      { value: "0", word: "off" },
+      { value: "suggest", word: "suggest" },
+      { value: "run", word: "run" },
+    ]);
+    expect(
+      PROFILE_ENV_FIELDS.find(
+        (field) => field.key === "CLAUDE_OLLAMA_TEST_AFTER_EDIT",
+      )?.help,
+    ).toMatch(/outside the Bash sandbox/);
+    for (const value of ["0", "suggest", "run"]) {
+      expect(
+        accepted({ env: { CLAUDE_OLLAMA_TEST_AFTER_EDIT: value } }, OLLAMA),
+      ).toEqual({
+        env: { CLAUDE_OLLAMA_TEST_AFTER_EDIT: value },
+      });
+    }
+    const message =
+      "CLAUDE_OLLAMA_TEST_AFTER_EDIT must be one of 0, suggest, run";
+    for (const value of ["1", "yes", "", 0]) {
+      expect(
+        rejected({ env: { CLAUDE_OLLAMA_TEST_AFTER_EDIT: value } }, OLLAMA),
+      ).toBe(message);
     }
   });
 
   it("keeps the Ollama-only switches off the claude-code profile", () => {
-    expect(accepted({ env: { CLAUDE_CUSTOM_FRICTION: "0" } }, CLAUDE_CODE)).toEqual({
+    expect(
+      accepted({ env: { CLAUDE_CUSTOM_FRICTION: "0" } }, CLAUDE_CODE),
+    ).toEqual({
       env: { CLAUDE_CUSTOM_FRICTION: "0" },
     });
     expect(rejected({ env: { CLAUDE_OLLAMA_LEASE: "0" } }, CLAUDE_CODE)).toBe(
@@ -211,14 +368,31 @@ describe("validateProfileOverride", () => {
   });
 
   it("groups every field under one of the page headings, in heading order", () => {
-    expect(PROFILE_ENV_GROUPS).toEqual(["Prompt and context", "Guards", "Ollama residency", "Diagnostics", "Browser"]);
-    expect(PROFILE_ENV_FIELDS.every((field) => PROFILE_ENV_GROUPS.includes(field.group))).toBe(true);
+    expect(PROFILE_ENV_GROUPS).toEqual([
+      "Prompt and context",
+      "Guards",
+      "Ollama residency",
+      "Diagnostics",
+      "Browser",
+    ]);
+    expect(
+      PROFILE_ENV_FIELDS.every((field) =>
+        PROFILE_ENV_GROUPS.includes(field.group),
+      ),
+    ).toBe(true);
     const grouped = envFieldsByGroup(PROFILE_ENV_FIELDS);
     expect(grouped.map(({ group }) => group)).toEqual([...PROFILE_ENV_GROUPS]);
-    expect(grouped.flatMap(({ fields }) => fields.map((field) => field.key))).toEqual([...PROFILE_ENV_KEYS]);
-    expect(grouped.find(({ group }) => group === "Guards")?.fields.map((field) => field.key)).toEqual([
+    expect(
+      grouped.flatMap(({ fields }) => fields.map((field) => field.key)),
+    ).toEqual([...PROFILE_ENV_KEYS]);
+    expect(
+      grouped
+        .find(({ group }) => group === "Guards")
+        ?.fields.map((field) => field.key),
+    ).toEqual([
       "CLAUDE_CUSTOM_FRICTION",
       "CLAUDE_OLLAMA_LADDER",
+      "CLAUDE_OLLAMA_TEST_AFTER_EDIT",
     ]);
     expect(envFieldsByGroup([]).length).toBe(0);
   });

@@ -11,6 +11,7 @@ import {
   PROFILE_ENV_FIELDS,
   envFieldsByGroup,
   toolStatesFor,
+  type EnvChoice,
   type ProfileEnvField,
   type ProfileOverride,
 } from "@/lib/profile-rules";
@@ -316,11 +317,7 @@ function EnvField({ field, value, update }: EnvFieldProps) {
         <span>{field.label}</span>
         <span className="text-xs text-muted-foreground">{field.help}</span>
       </div>
-      {field.kind === "switch" ? (
-        <EnvSwitch field={field} value={value} setValue={setValue} />
-      ) : (
-        <EnvNumber field={field} value={value} setValue={setValue} />
-      )}
+      <EnvInput field={field} value={value} setValue={setValue} />
     </div>
   );
 }
@@ -330,6 +327,39 @@ type EnvInputProps = {
   value: string | undefined;
   setValue: (next: string | null) => void;
 };
+
+function EnvInput({ field, value, setValue }: EnvInputProps) {
+  if (field.kind === "switch") {
+    return <EnvSwitch field={field} value={value} setValue={setValue} />;
+  }
+  if (field.kind === "choice") {
+    return <EnvChoice field={field} value={value} setValue={setValue} />;
+  }
+  return <EnvNumber field={field} value={value} setValue={setValue} />;
+}
+
+function EnvChoice({
+  field,
+  value,
+  setValue,
+}: EnvInputProps & { field: Extract<ProfileEnvField, { kind: "choice" }> }) {
+  return (
+    <Select
+      aria-label={field.label}
+      value={value ?? "default"}
+      onChange={(event) => setValue(envOrNull(event.target.value))}
+    >
+      <option value="default">
+        default ({choiceWord(field.choices, field.defaultValue)})
+      </option>
+      {field.choices.map((choice) => (
+        <option key={choice.value} value={choice.value}>
+          {choice.word}
+        </option>
+      ))}
+    </Select>
+  );
+}
 
 function EnvSwitch({ field, value, setValue }: EnvInputProps) {
   return (
@@ -364,6 +394,10 @@ function EnvNumber({
       onChange={(event) => setValue(textOrNull(event.target.value))}
     />
   );
+}
+
+function choiceWord(choices: readonly EnvChoice[], value: string): string {
+  return choices.find((choice) => choice.value === value)?.word ?? value;
 }
 
 function switchWord(value: string): string {

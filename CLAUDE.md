@@ -486,6 +486,38 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   that count. Test files, files under `test`, `tests`, `__tests__`, `testdata`,
   `fixtures`, `eval` or `.claude`, and non-code files always pass.
   `CLAUDE_CUSTOM_TDD=0` turns it off. Tests: `shared/hooks/tdd-guard.test.sh`.
+- `shared/hooks/test-after-edit.py` is wired only in the Ollama profiles
+  (`ollama/hooks.extra.json`), as PostToolUse on Edit, Write and MultiEdit, so
+  the small model neither forgets the test nor floods its context with the whole
+  suite's log. It never blocks (exit 0, no decision). For a code file it
+  resolves the nearest test with `shared/hooks/test_scope.py`, the module
+  `tdd-guard.py` shares (`is_code`, `is_test`, `scope_of`, `expected_test_name`
+  and `resolve_test`): `X.test.sh` beside `X`; `*_test.go` in the package
+  (`go test ./<pkg>` from the module root, with a `cd` when the session sits
+  elsewhere); `X.test.ts`/`X.test.tsx`/`X.spec.ts` beside or under `__tests__`
+  (`pnpm -C <package root> exec vitest run <file>`); `test_X.py` or `X_test.py`
+  (`pytest <file>`); a project `.claude/verify` with the file as argument when
+  nothing closer matched; else none. A test file resolves to itself. In
+  `suggest` mode (the default) it returns one `additionalContext` line,
+  `run now: <command>`, or
+  `no test found beside <file>; write <expected test path> first`, and executes
+  nothing. `CLAUDE_OLLAMA_TEST_AFTER_EDIT=run` runs the command through
+  `shared/host-env` (outside the Bash sandbox, so only for repos you trust) with
+  a 60 s timeout (`TEST_AFTER_EDIT_TIMEOUT` overrides it in tests) and a 2 MiB
+  output cap, caches a pass by the content hashes of the edited file and the
+  test under `~/.cache/claude-custom/test-after-edit`
+  (`TEST_AFTER_EDIT_CACHE_DIR` overrides), and returns
+  `tests: pass (<command>, 2.1s)` (`cached` on a hit),
+  `tests: FAIL (<command>):` plus the first failing line and the next three (300
+  characters each, never the log), or
+  `tests: timed out after 60s (<command>); run it yourself`.
+  `CLAUDE_OLLAMA_TEST_AFTER_EDIT=0` turns it off; the console's Profiles page
+  offers the three as one select under Guards. Each call is one
+  `"kind": "test-after-edit"` telemetry line (`mode`, `found`, `result`,
+  `seconds`; never the output), which `bin/tool-telemetry-report` sums in its
+  `tests:` line (calls, pass, fail, timeouts, median seconds).
+  `bin/check-config` fails when an Ollama profile lacks the hook. Tests:
+  `shared/hooks/test-after-edit.test.sh`, `shared/hooks/test_scope.test.sh`.
 - `shared/hooks/friction_budget.py` is the friction budget the efficiency guards
   share (`bash-output-guard.py`, `read-range-guard.py`, `tool-nudge.py`; never
   the safety guards or `tdd-guard.py`, which has its own strikes). Each of them
@@ -1160,16 +1192,18 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `CLAUDE_CUSTOM_FRICTION` (on), `CLAUDE_OLLAMA_LEASE` (on),
   `CLAUDE_OLLAMA_LADDER` (on), `CLAUDE_OLLAMA_FIT` (on), `CLAUDE_OLLAMA_BEACON`
   (on) and `CLAUDE_OLLAMA_RULE_CARDS` (on), plus `CLAUDE_OLLAMA_HANDOFF_PCT` (a
-  whole percent from 30 to 85, default 70) and `CLAUDE_OLLAMA_LEASE_HEARTBEAT`
-  (whole seconds from 30 to 600, default 120). That list must equal
-  `PROFILE_ENV_KEYS` in `web/console/src/lib/profile-rules.ts`, and this file
-  and `docs/ollama.md` must name every key (`bin/check-config` checks both); the
-  console's Profiles page shows each key by the plain label, default and help
-  sentence in `PROFILE_ENV_FIELDS`, never the variable name, grouped under the
-  field's `group`, and hides every Ollama-only field from the `claude-code`
-  profile, which of the harness switches sees only `CLAUDE_CUSTOM_FRICTION`. It
-  refuses a symlinked profile, and `Agent` never reaches an Ollama profile. The
-  overlay sets `sandbox.enabled` and the ask rule
+  whole percent from 30 to 85, default 70), `CLAUDE_OLLAMA_LEASE_HEARTBEAT`
+  (whole seconds from 30 to 600, default 120) and
+  `CLAUDE_OLLAMA_TEST_AFTER_EDIT` (`0`, `suggest` or `run`, default `suggest`).
+  That list must equal `PROFILE_ENV_KEYS` in
+  `web/console/src/lib/profile-rules.ts`, and this file and `docs/ollama.md`
+  must name every key (`bin/check-config` checks both); the console's Profiles
+  page shows each key by the plain label, default and help sentence in
+  `PROFILE_ENV_FIELDS`, never the variable name, grouped under the field's
+  `group`, and hides every Ollama-only field from the `claude-code` profile,
+  which of the harness switches sees only `CLAUDE_CUSTOM_FRICTION`. It refuses a
+  symlinked profile, and `Agent` never reaches an Ollama profile. The overlay
+  sets `sandbox.enabled` and the ask rule
   `Bash(dangerouslyDisableSandbox:true)`, so every personal session (subagents
   and `--agent pr-review` included) runs Claude's shell commands inside Claude
   Code's sandbox and asks before one runs outside it; `bin/check-config` checks

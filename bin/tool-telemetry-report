@@ -140,6 +140,24 @@ def print_guards(denials, trips):
     print("\n".join(lint_lines(rows)))
 
 
+def test_run_seconds(test_events):
+    return [event["seconds"] for event in test_events if isinstance(event.get("seconds"), (int, float))]
+
+
+def print_tests(test_events):
+    print()
+    if not test_events:
+        print("tests: none")
+        return
+    results = Counter(event.get("result") for event in test_events)
+    seconds = test_run_seconds(test_events)
+    median = f"{statistics.median(seconds):.1f}s" if seconds else "-"
+    print(
+        f"tests: {len(test_events)} calls, {results['pass']} pass, {results['fail']} fail, "
+        f"{results['timeout']} timeout, median {median}"
+    )
+
+
 def main():
     path = log_path_from(sys.argv[1:], os.environ)
     if not path:
@@ -157,6 +175,7 @@ def main():
     frictions = [record for record in records if record.get("kind") == "friction"]
     print_friction(frictions)
     print_guards(denials, [line for line in frictions if "saved_bytes" not in line])
+    print_tests([record for record in records if record.get("kind") == "test-after-edit"])
 
 
 main()

@@ -237,6 +237,7 @@ describe("ProfileEditor", () => {
       "Observe prompt drift through the messages proxy",
       "Hold an Ollama residency lease and heartbeat",
       "Degrade rung by rung on incident evidence",
+      "After each edit: suggest the test, or run it",
       "Write a machine beacon at launch",
     ]) {
       expect(screen.queryByRole("combobox", { name: label })).toBeNull();
@@ -326,6 +327,41 @@ describe("ProfileEditor", () => {
       expect(fetchMock).toHaveBeenCalledWith(
         "/api/profiles/ollama-27b",
         expect.objectContaining({ method: "PUT", body: JSON.stringify({}) }),
+      ),
+    );
+  });
+
+  it("offers off, suggest and run for the after-edit test and saves the choice", async () => {
+    const fetchMock = mockProfileApi(OLLAMA_DETAIL);
+    render(<ProfileEditor id="ollama-27b" />);
+    await screen.findByText("Fetch a web page");
+
+    fireEvent.click(screen.getByRole("tab", { name: "Env" }));
+    const afterEdit = (await screen.findByRole("combobox", {
+      name: "After each edit: suggest the test, or run it",
+    })) as HTMLSelectElement;
+    expect(Array.from(afterEdit.options).map((option) => option.text)).toEqual([
+      "default (suggest)",
+      "off",
+      "suggest",
+      "run",
+    ]);
+    expect(afterEdit.options[afterEdit.selectedIndex].text).toBe(
+      "default (suggest)",
+    );
+    expect(screen.getByText(/outside the Bash sandbox/)).toBeTruthy();
+
+    fireEvent.change(afterEdit, { target: { value: "run" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/profiles/ollama-27b",
+        expect.objectContaining({
+          method: "PUT",
+          body: JSON.stringify({
+            env: { CLAUDE_OLLAMA_TEST_AFTER_EDIT: "run" },
+          }),
+        }),
       ),
     );
   });

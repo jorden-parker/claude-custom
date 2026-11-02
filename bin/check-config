@@ -323,6 +323,10 @@ caches_repeat_calls() {
   jq -e --arg event "$2" '[.hooks[$event][] | select((.matcher // "") | test("Read") and test("mcp__repo__git_status") and test("mcp__code-search__semantic_search")) | .hooks[].command] | any(test("repeat-call-cache"))' "$1" >/dev/null
 }
 
+suggests_tests_after_edits() {
+  jq -e '[.hooks.PostToolUse[] | select((.matcher // "") | test("Edit") and test("Write") and test("MultiEdit")) | .hooks[].command] | any(test("test-after-edit"))' "$1" >/dev/null
+}
+
 delivers_rule_cards() {
   jq -e '[.hooks.PreToolUse[] | select((.matcher // "") | test("Edit") and test("Write") and test("MultiEdit") and test("Read") and test("Bash")) | .hooks[].command] | any(test("rule-cards"))' "$1" >/dev/null
 }
@@ -384,6 +388,7 @@ for settings in "$repo"/ollama/settings.*.json; do
   check_that "${settings##*/} runs context-budget.py after every tool" watches_context_budget "$settings"
   check_that "${settings##*/} runs handoff-relaunch.py on Stop" relaunches_on_handoff "$settings"
   check_that "${settings##*/} runs incident-note.py on each prompt" notes_incidents "$settings"
+  check_that "${settings##*/} runs test-after-edit.py after Edit, Write and MultiEdit" suggests_tests_after_edits "$settings"
 done
 
 recipe_problems() {

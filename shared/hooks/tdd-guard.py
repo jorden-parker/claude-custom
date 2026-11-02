@@ -8,12 +8,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from hook_telemetry import record_denial, record_hook_event
 from recovery_recipes import recovery_line
+from test_scope import expected_test_name, is_code, is_test, scope_of
 
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit"}
-CODE_SUFFIXES = {".go", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py", ".sh", ".bash", ".zsh"}
-PACKAGE_SUFFIXES = {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"}
-TEST_NAME = re.compile(r"(^|[._-])(test|tests|spec)([._-]|$)")
-TEST_DIRS = {"test", "tests", "__tests__", "testdata", "fixtures", "eval", ".claude"}
 STRIKE_LIMIT = 2
 EMPTY_STATE = {"counter": 0, "test_edits": {}, "test_run_at": 0, "strikes": {}}
 SEGMENT_SPLIT = re.compile(r"\|\||&&|;|\|")
@@ -35,54 +32,6 @@ def load_state(path):
 def save_state(path, state):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(state))
-
-
-def first_line_of_file(path):
-    try:
-        with open(path, encoding="utf-8", errors="replace") as handle:
-            return handle.readline()
-    except OSError:
-        return ""
-
-
-def is_code(path, tool_input, tool_name):
-    if path.suffix in CODE_SUFFIXES:
-        return True
-    if path.suffix:
-        return False
-    first_line = (tool_input.get("content") or "")[:120] if tool_name == "Write" else first_line_of_file(path)
-    return first_line.startswith("#!")
-
-
-def is_test(path):
-    stem = path.name.split(".")[0] if path.suffix else path.name
-    if TEST_NAME.search(stem) or ".test." in path.name or ".spec." in path.name:
-        return True
-    return any(part in TEST_DIRS for part in path.parts)
-
-
-def nearest_dir_with(path, marker):
-    for parent in path.parents:
-        if (parent / marker).exists():
-            return parent
-    return None
-
-
-def scope_of(path):
-    if path.suffix in PACKAGE_SUFFIXES:
-        root = nearest_dir_with(path, "package.json")
-        if root is not None:
-            return str(root)
-    return str(path.parent)
-
-
-def expected_test_name(path):
-    stem = path.name.split(".")[0] if path.suffix else path.name
-    if path.suffix == ".go":
-        return f"{stem}_test.go"
-    if path.suffix in PACKAGE_SUFFIXES:
-        return f"{stem}.test{path.suffix}"
-    return f"{stem}.test.sh"
 
 
 def command_segments(command):

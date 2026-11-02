@@ -19,7 +19,11 @@ const PROFILES = [
     model: "qwen3.8-27b-cc",
     context: 65536,
     overrides: 2,
-    env: { CLAUDE_OLLAMA_LEASE: "0", CLAUDE_OLLAMA_LEASE_HEARTBEAT: "60" },
+    env: {
+      CLAUDE_OLLAMA_LEASE: "0",
+      CLAUDE_OLLAMA_LEASE_HEARTBEAT: "60",
+      CLAUDE_OLLAMA_TEST_AFTER_EDIT: "0",
+    },
   },
   {
     id: "ollama-35b",
@@ -74,6 +78,18 @@ describe("SettingsOverview", () => {
       "120",
       "n/a",
       "60",
+      "default",
+    ]);
+    expect(
+      rowFor("CLAUDE_OLLAMA_TEST_AFTER_EDIT")
+        .getAllByRole("cell")
+        .map((cell) => cell.textContent),
+    ).toEqual([
+      "CLAUDE_OLLAMA_TEST_AFTER_EDIT",
+      "After each edit: suggest the test, or run it",
+      "suggest",
+      "n/a",
+      "off",
       "default",
     ]);
     expect(

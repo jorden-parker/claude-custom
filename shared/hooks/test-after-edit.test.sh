@@ -1,0 +1,163 @@
+#!/usr/bin/env bash
+set -u
+hooks_dir="$(cd "$(dirname "$0")" && pwd)"
+hook="$hooks_dir/test-after-edit.py"
+failures=0
+sandbox="$(cd "$(mktemp -d)" && pwd -P)"
+trap 'rm -rf "$sandbox"' EXIT
+export CLAUDE_TOOL_TELEMETRY="$sandbox/telemetry.jsonl"
+export TEST_AFTER_EDIT_CACHE_DIR="$sandbox/cache"
+export TEST_AFTER_EDIT_TIMEOUT=5
+project="$sandbox/project"
+mkdir -p "$project/.git" "$project/.claude" "$project/shared/hooks" "$project/go/internal/parse" "$project/web/src/lib" "$project/py" "$project/other" "$sandbox/lonely" "$sandbox/bin"
+printf '#!/bin/sh\necho verify "$@" >> "%s"\n' "$sandbox/verify.log" > "$project/.claude/verify"
+chmod +x "$project/.claude/verify"
+printf 'module example\n' > "$project/go/go.mod"
+printf '{"name":"web"}' > "$project/web/package.json"
+printf 'print(1)\n' > "$project/shared/hooks/tool.py"
+cat > "$project/shared/hooks/tool.test.sh" <<'SCRIPT'
+#!/bin/sh
+echo "run $$" >> "$STUB_LOG"
+echo "GOMODCACHE=${GOMODCACHE:-unset}" >> "$STUB_LOG"
+if [ "${STUB_OUTCOME:-pass}" = fail ]; then
+  echo "line one"
+  echo "FAIL: tool prints the wrong thing: expected 1, got 2"
+  echo "  at step two"
+  echo "  at step three"
+  echo "  at step four"
+  echo "  at step five"
+  exit 1
+fi
+if [ "${STUB_OUTCOME:-pass}" = hang ]; then
+  sleep 12
+fi
+echo "all passed"
+SCRIPT
+chmod +x "$project/shared/hooks/tool.test.sh"
+touch "$project/go/internal/parse/parse.go" "$project/go/internal/parse/parse_test.go" \
+  "$project/web/src/lib/rules.ts" "$project/web/src/lib/rules.test.ts" \
+  "$project/py/serve.py" "$project/py/test_serve.py" "$project/other/run.sh" "$sandbox/lonely/thing.sh"
+for stub in go pnpm pytest; do
+  cat > "$sandbox/bin/$stub" <<SCRIPT
+#!/bin/sh
+echo "$stub \$*" >> "\$STUB_LOG"
+echo "stub ran"
+exit "\${STUB_EXIT:-0}"
+SCRIPT
+  chmod +x "$sandbox/bin/$stub"
+done
+export PATH="$sandbox/bin:$PATH"
+export STUB_LOG="$sandbox/stub.log"
+
+event() {
+  local tool="$1" file="$2" hook_event="${3:-PostToolUse}"
+  printf '{"hook_event_name":"%s","session_id":"s1","cwd":"%s","tool_name":"%s","tool_input":{"file_path":"%s","new_string":"x"}}' "$hook_event" "$project" "$tool" "$file" \
+    | python3 "$hook"
+}
+
+context_of() {
+  event "$@" | python3 -c 'import json,sys; raw=sys.stdin.read(); print(json.loads(raw)["hookSpecificOutput"]["additionalContext"] if raw.strip() else "")'
+}
+
+expect_eq() {
+  local label="$1" want="$2" got="$3"
+  if [ "$got" != "$want" ]; then
+    echo "FAIL: $label: expected [$want], got [$got]"
+    failures=$((failures + 1))
+  fi
+}
+
+expect_has() {
+  local label="$1" text="$2"
+  shift 2
+  for expected in "$@"; do
+    if ! printf '%s' "$text" | grep -qF -- "$expected"; then
+      echo "FAIL: $label: lacks [$expected] in [$text]"
+      failures=$((failures + 1))
+    fi
+  done
+}
+
+expect_lacks() {
+  local label="$1" text="$2" unwanted="$3"
+  if printf '%s' "$text" | grep -qF -- "$unwanted"; then
+    echo "FAIL: $label: has [$unwanted] in [$text]"
+    failures=$((failures + 1))
+  fi
+}
+
+expect_eq 'suggest mode names the sibling test' 'run now: ./shared/hooks/tool.test.sh' "$(context_of Edit "$project/shared/hooks/tool.py")"
+expect_eq 'suggest mode names the Go package test' 'run now: cd go && go test ./internal/parse' "$(context_of Write "$project/go/internal/parse/parse.go")"
+expect_eq 'suggest mode names the vitest file' 'run now: pnpm -C web exec vitest run src/lib/rules.test.ts' "$(context_of MultiEdit "$project/web/src/lib/rules.ts")"
+expect_eq 'suggest mode names the pytest file' 'run now: pytest py/test_serve.py' "$(context_of Edit "$project/py/serve.py")"
+expect_eq 'suggest mode falls back to the project verify script' 'run now: .claude/verify other/run.sh' "$(context_of Edit "$project/other/run.sh")"
+expect_eq 'suggest mode asks for the missing test' "no test found beside thing.sh; write $sandbox/lonely/thing.test.sh first" "$(context_of Edit "$sandbox/lonely/thing.sh")"
+expect_eq 'editing a test suggests running it' 'run now: ./shared/hooks/tool.test.sh' "$(context_of Edit "$project/shared/hooks/tool.test.sh")"
+expect_eq 'a non-code file gets nothing' '' "$(context_of Edit "$project/README.md")"
+expect_eq 'another tool gets nothing' '' "$(context_of Read "$project/shared/hooks/tool.py")"
+expect_eq 'a PreToolUse event gets nothing' '' "$(context_of Edit "$project/shared/hooks/tool.py" PreToolUse)"
+expect_eq 'suggest mode runs nothing' 'missing' "$([ -e "$STUB_LOG" ] && echo present || echo missing)"
+expect_eq 'the switch turns it off' '' "$(CLAUDE_OLLAMA_TEST_AFTER_EDIT=0 context_of Edit "$project/shared/hooks/tool.py")"
+expect_eq 'an unknown mode suggests' 'run now: ./shared/hooks/tool.test.sh' "$(CLAUDE_OLLAMA_TEST_AFTER_EDIT=maybe context_of Edit "$project/shared/hooks/tool.py")"
+
+export CLAUDE_OLLAMA_TEST_AFTER_EDIT=run
+pass_line="$(CLAUDE_SANDBOX_CACHE_DIR=/tmp/sandbox-cache GOMODCACHE=/tmp/sandbox-cache/go context_of Edit "$project/shared/hooks/tool.py")"
+expect_has 'run mode reports a pass with the command and the seconds' "$pass_line" 'tests: pass (./shared/hooks/tool.test.sh, ' 's)'
+expect_lacks 'run mode never returns the output' "$pass_line" 'all passed'
+expect_eq 'run mode ran the test once' 1 "$(grep -c '^run ' "$STUB_LOG")"
+expect_eq 'run mode goes through host-env, so the sandbox cache never leaks into the test' 'GOMODCACHE=unset' "$(grep GOMODCACHE "$STUB_LOG")"
+cached_line="$(context_of Edit "$project/shared/hooks/tool.py")"
+expect_eq 'an unchanged file and test hit the cache' 'tests: pass (./shared/hooks/tool.test.sh, cached)' "$cached_line"
+expect_eq 'a cache hit runs nothing' 1 "$(grep -c '^run ' "$STUB_LOG")"
+printf 'print(2)\n' > "$project/shared/hooks/tool.py"
+context_of Edit "$project/shared/hooks/tool.py" >/dev/null
+expect_eq 'a changed file runs the test again' 2 "$(grep -c '^run ' "$STUB_LOG")"
+printf '\n' >> "$project/shared/hooks/tool.test.sh"
+context_of Edit "$project/shared/hooks/tool.py" >/dev/null
+expect_eq 'a changed test runs it again' 3 "$(grep -c '^run ' "$STUB_LOG")"
+
+printf 'print(3)\n' > "$project/shared/hooks/tool.py"
+fail_line="$(STUB_OUTCOME=fail context_of Edit "$project/shared/hooks/tool.py")"
+expect_eq 'run mode reports the first failing line plus the next three' \
+  "tests: FAIL (./shared/hooks/tool.test.sh): FAIL: tool prints the wrong thing: expected 1, got 2
+  at step two
+  at step three
+  at step four" "$fail_line"
+expect_lacks 'a failure keeps nothing before the failing line' "$fail_line" 'line one'
+expect_eq 'a failure is never cached' 5 "$(STUB_OUTCOME=fail context_of Edit "$project/shared/hooks/tool.py" >/dev/null; grep -c '^run ' "$STUB_LOG")"
+
+printf 'print(4)\n' > "$project/shared/hooks/tool.py"
+expect_eq 'run mode reports a timeout' \
+  'tests: timed out after 5s (./shared/hooks/tool.test.sh); run it yourself' \
+  "$(STUB_OUTCOME=hang context_of Edit "$project/shared/hooks/tool.py")"
+
+expect_has 'run mode runs the Go test from the module root' "$(context_of Edit "$project/go/internal/parse/parse.go")" 'tests: pass (cd go && go test ./internal/parse, '
+expect_eq 'the go stub saw the package' 'go test ./internal/parse' "$(grep '^go ' "$STUB_LOG")"
+expect_has 'run mode reports a stub failure without an assertion line as its tail' "$(STUB_EXIT=1 context_of Edit "$project/py/serve.py")" 'tests: FAIL (pytest py/test_serve.py): stub ran'
+expect_has 'run mode runs the verify fallback' "$(context_of Edit "$project/other/run.sh")" 'tests: pass (.claude/verify other/run.sh, '
+expect_eq 'the verify script saw the edited file' "verify $project/other/run.sh" "$(cat "$sandbox/verify.log")"
+expect_eq 'run mode still asks for a missing test' "no test found beside thing.sh; write $sandbox/lonely/thing.test.sh first" "$(context_of Edit "$sandbox/lonely/thing.sh")"
+expect_eq 'run mode never blocks: a failure exits 0' 0 "$(STUB_OUTCOME=fail event Edit "$project/shared/hooks/tool.py" >/dev/null; echo $?)"
+
+telemetry_kinds() {
+  python3 -c 'import json,sys
+for line in open(sys.argv[1]):
+    row = json.loads(line)
+    if row.get("kind") == "test-after-edit":
+        print(row["mode"], row["found"], row.get("result"), "seconds" in row and row["seconds"] is not None, "all passed" in json.dumps(row))' "$CLAUDE_TOOL_TELEMETRY" | sort | uniq -c | sed 's/^ *//'
+}
+telemetry="$(telemetry_kinds)"
+expect_has 'telemetry records suggest calls with and without a test' "$telemetry" 'suggest True None False False' 'suggest False None False False'
+expect_has 'telemetry records run results and seconds, never the output' "$telemetry" 'run True pass True False' 'run True fail True False' 'run True timeout True False' 'run True cached False False' 'run False None False False'
+expect_eq 'the off switch records nothing' 0 "$(grep -c '"mode": "0"' "$CLAUDE_TOOL_TELEMETRY")"
+
+if printf 'not json' | python3 "$hook"; then :; else
+  echo "FAIL: bad input must exit 0"
+  failures=$((failures + 1))
+fi
+
+if [ "$failures" -eq 0 ]; then
+  echo "all passed"
+else
+  exit 1
+fi
