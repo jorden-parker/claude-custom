@@ -45,6 +45,10 @@ describe("console commands", () => {
       "review-eval",
       "bench-off-run",
       "bench-off-report",
+      "thinking-check",
+      "config-check",
+      "models-outdated",
+      "qwen-doctor",
     ]);
   });
 
@@ -176,6 +180,36 @@ describe("console commands", () => {
     expect(speedCheck()?.argv({}, repo)).toEqual([`${repo}/bin/claude-ollama`, "speed-check"]);
     expect(speedCheck()?.label({})).toBe("Speed check");
     expect(speedCheck()?.argv({ size: "27b" }, repo)).toBeNull();
+  });
+
+  it("builds the thinking-check argv with no parameters", () => {
+    expect(findCommand("thinking-check")?.argv({}, repo)).toEqual([`${repo}/bin/claude-ollama`, "thinking-check"]);
+    expect(findCommand("thinking-check")?.label({})).toBe("Thinking check");
+    expect(findCommand("thinking-check")?.argv({ size: "27b" }, repo)).toBeNull();
+  });
+
+  it("builds the config-check argv with no parameters", () => {
+    expect(findCommand("config-check")?.argv({}, repo)).toEqual([`${repo}/bin/check-config`]);
+    expect(findCommand("config-check")?.label({})).toBe("Config check");
+    expect(findCommand("config-check")?.argv({ size: "27b" }, repo)).toBeNull();
+  });
+
+  it("builds the models-outdated argv with no parameters", () => {
+    expect(findCommand("models-outdated")?.argv({}, repo)).toEqual([`${repo}/bin/ollama-models`, "outdated"]);
+    expect(findCommand("models-outdated")?.label({})).toBe("Outdated models");
+    expect(findCommand("models-outdated")?.argv({ size: "27b" }, repo)).toBeNull();
+  });
+
+  it("builds the qwen-doctor argv for a configured size", () => {
+    expect(findCommand("qwen-doctor")?.argv({ size: "27b" }, repo)).toEqual([
+      `${repo}/bin/claude-ollama`,
+      "qwen",
+      "doctor",
+      "27b",
+    ]);
+    expect(findCommand("qwen-doctor")?.label({ size: "27b" })).toBe("Qwen doctor (27b)");
+    expect(findCommand("qwen-doctor")?.argv({ size: "35b" }, repo)).toBeNull();
+    expect(findCommand("qwen-doctor")?.argv({}, repo)).toBeNull();
   });
 
   it("builds the prepare argv for a configured size", () => {

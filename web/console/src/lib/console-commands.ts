@@ -137,6 +137,32 @@ const speedCheck: ConsoleCommand = {
   argv: (params, repoDir) => (hasExactKeys(params, []) ? [`${repoDir}/bin/claude-ollama`, "speed-check"] : null),
 };
 
+const thinkingCheck: ConsoleCommand = {
+  name: "thinking-check",
+  label: () => "Thinking check",
+  argv: (params, repoDir) =>
+    hasExactKeys(params, []) ? [`${repoDir}/bin/claude-ollama`, "thinking-check"] : null,
+};
+
+const configCheck: ConsoleCommand = {
+  name: "config-check",
+  label: () => "Config check",
+  argv: (params, repoDir) => (hasExactKeys(params, []) ? [`${repoDir}/bin/check-config`] : null),
+};
+
+const modelsOutdated: ConsoleCommand = {
+  name: "models-outdated",
+  label: () => "Outdated models",
+  argv: (params, repoDir) => (hasExactKeys(params, []) ? [`${repoDir}/bin/ollama-models`, "outdated"] : null),
+};
+
+const qwenDoctor: ConsoleCommand = {
+  name: "qwen-doctor",
+  label: (params) => `Qwen doctor (${params.size})`,
+  argv: (params, repoDir) =>
+    isConfiguredSizeOnly(params, repoDir) ? [`${repoDir}/bin/claude-ollama`, "qwen", "doctor", params.size] : null,
+};
+
 export const CONSOLE_QUERIES = {
   printConfig: {
     argv: (params, repoDir) => {
@@ -261,6 +287,10 @@ export const CONSOLE_COMMANDS: readonly ConsoleCommand[] = [
   reviewEval,
   benchOffRun,
   benchOffReport,
+  thinkingCheck,
+  configCheck,
+  modelsOutdated,
+  qwenDoctor,
 ];
 
 export function toolsReportArgv(repoDir: string): string[] {
