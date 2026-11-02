@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { CheckCards } from "@/components/check-cards";
 import { ConfigCard } from "@/components/config-card";
 import { DoctorRunChecklist } from "@/components/doctor-checklist";
 import { SizeSelect, useSizePicker } from "@/components/size-select";
@@ -20,7 +21,9 @@ export function HealthView() {
   return (
     <>
       <SizeSelect sizes={sizes} size={size} onChange={select} />
-      {size === "" ? null : <SizePanels key={size} size={size} runs={runs ?? []} />}
+      {size === "" ? null : (
+        <SizePanels key={size} size={size} runs={runs ?? []} />
+      )}
     </>
   );
 }
@@ -33,13 +36,21 @@ function SizePanels({ size, runs }: { size: string; runs: RunSummary[] }) {
     <>
       <ConfigCard size={size} />
       <ChecksSection size={size} shownId={shownId} onStarted={setStartedId} />
+      <section className="flex flex-col gap-4">
+        <h2 className="text-lg font-semibold">More checks</h2>
+        <CheckCards size={size} />
+      </section>
       <HistorySection runs={history} />
     </>
   );
 }
 
 function doctorRunsFor(runs: RunSummary[], size: string): RunSummary[] {
-  return runs.filter((run) => run.command === "doctor" && run.label.includes(`(${size})`)).slice(0, HISTORY_LENGTH);
+  return runs
+    .filter(
+      (run) => run.command === "doctor" && run.label.includes(`(${size})`),
+    )
+    .slice(0, HISTORY_LENGTH);
 }
 
 function ChecksSection({
@@ -55,12 +66,19 @@ function ChecksSection({
     <section className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-lg font-semibold">Checks</h2>
-        <StartRunButton command="doctor" params={{ size }} stay onStarted={onStarted}>
+        <StartRunButton
+          command="doctor"
+          params={{ size }}
+          stay
+          onStarted={onStarted}
+        >
           Run checks
         </StartRunButton>
       </div>
       {shownId === null ? (
-        <p className="text-sm text-muted-foreground">No checks run for {size} yet.</p>
+        <p className="text-sm text-muted-foreground">
+          No checks run for {size} yet.
+        </p>
       ) : (
         <DoctorRunChecklist key={shownId} id={shownId} />
       )}
@@ -88,7 +106,10 @@ function HistorySection({ runs }: { runs: RunSummary[] }) {
 function HistoryRow({ run }: { run: RunSummary }) {
   return (
     <li>
-      <Link href={`/runs/${encodeURIComponent(run.id)}`} className="flex items-center gap-2 underline">
+      <Link
+        href={`/runs/${encodeURIComponent(run.id)}`}
+        className="flex items-center gap-2 underline"
+      >
         <span className={runStatusDotClass(run.status)} />
         <span>{runStatusLabel(run.status)}</span>
         <time dateTime={run.startedAt}>{formatLocalTime(run.startedAt)}</time>
