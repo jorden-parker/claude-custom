@@ -76,7 +76,7 @@ check "a hook with trips and no denials shows no rate" \
   grep -Eq '^tool-nudge +0 +1 +-$' <<<"$output"
 check "the tests line counts calls, passes, failures and timeouts with the median seconds" \
   grep -qxF 'tests: 5 calls, 2 pass, 1 fail, 1 timeout, median 2.6s' <<<"$output"
-check "test-after-edit lines are not tool calls" test "$(grep -Ec '^Edit +[0-9]+ +[0-9]+ +[0-9]+ +[0-9]+ +[0-9]+$' <<<"$output")" -eq 0
+check "test-after-edit lines are not tool calls" grep -Eq '^Edit +4 +160 +40 +40 +0$' <<<"$output"
 check "cache hits are not guard trips" test "$(grep -c '^repeat-call-cache' <<<"$output")" -eq 0
 check "a hook under 30 denials is never flagged" \
   grep -qxF 'lint: none flagged' <<<"$output"
