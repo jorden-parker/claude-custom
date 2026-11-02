@@ -65,6 +65,21 @@ expect_eq 'the project verify script when nothing closer matches' \
 expect_eq 'nothing outside a project with no verify script' \
   "" \
   "$(resolve "$sandbox/lonely/thing.sh" "$sandbox/lonely")"
+expect_eq 'a verify script above the session root is never resolved' \
+  "" \
+  "$(resolve "$project/other/run.sh" "$project/other")"
+expect_eq 'a go.mod above the session root is never resolved' \
+  "$project/go/internal/parse/parse_test.go	go test ." \
+  "$(resolve "$project/go/internal/parse/parse.go" "$project/go/internal/parse")"
+expect_eq 'a package.json above the session root is never resolved' \
+  "$project/web/src/lib/rules.test.ts	pnpm -C . exec vitest run rules.test.ts" \
+  "$(resolve "$project/web/src/lib/rules.ts" "$project/web/src/lib")"
+expect_eq 'a file under .claude is not a test and never the program to run' \
+  "" \
+  "$(resolve "$project/.claude/verify")"
+expect_eq 'a file under fixtures still resolves to itself' \
+  "$project/shared/hooks/fixtures/sample.test.sh	./shared/hooks/fixtures/sample.test.sh" \
+  "$(mkdir -p "$project/shared/hooks/fixtures" && touch "$project/shared/hooks/fixtures/sample.test.sh" && resolve "$project/shared/hooks/fixtures/sample.test.sh")"
 expect_eq 'the expected test path for a missing test' \
   "$sandbox/lonely/thing.test.sh" \
   "$(python3 "$scope" --expected "$sandbox/lonely/thing.sh")"

@@ -6,6 +6,7 @@ failures=0
 sandbox="$(cd "$(mktemp -d)" && pwd -P)"
 trap 'rm -rf "$sandbox"' EXIT
 export CLAUDE_TOOL_TELEMETRY="$sandbox/telemetry.jsonl"
+export CLAUDE_CONFIG_DIR="$sandbox/config"
 export TEST_AFTER_EDIT_CACHE_DIR="$sandbox/cache"
 export TEST_AFTER_EDIT_TIMEOUT=5
 project="$sandbox/project"
@@ -51,7 +52,7 @@ export STUB_LOG="$sandbox/stub.log"
 
 event() {
   local tool="$1" file="$2" hook_event="${3:-PostToolUse}"
-  printf '{"hook_event_name":"%s","session_id":"s1","cwd":"%s","tool_name":"%s","tool_input":{"file_path":"%s","new_string":"x"}}' "$hook_event" "$project" "$tool" "$file" \
+  printf '{"hook_event_name":"%s","session_id":"%s","cwd":"%s","tool_name":"%s","tool_input":{"file_path":"%s","new_string":"x"}}' "$hook_event" "${SESSION:-s1}" "${CWD:-$project}" "$tool" "$file" \
     | python3 "$hook"
 }
 
@@ -101,6 +102,7 @@ expect_eq 'the switch turns it off' '' "$(CLAUDE_OLLAMA_TEST_AFTER_EDIT=0 contex
 expect_eq 'an unknown mode suggests' 'run now: ./shared/hooks/tool.test.sh' "$(CLAUDE_OLLAMA_TEST_AFTER_EDIT=maybe context_of Edit "$project/shared/hooks/tool.py")"
 
 export CLAUDE_OLLAMA_TEST_AFTER_EDIT=run
+export SESSION=run
 pass_line="$(CLAUDE_SANDBOX_CACHE_DIR=/tmp/sandbox-cache GOMODCACHE=/tmp/sandbox-cache/go context_of Edit "$project/shared/hooks/tool.py")"
 expect_has 'run mode reports a pass with the command and the seconds' "$pass_line" 'tests: pass (./shared/hooks/tool.test.sh, ' 's)'
 expect_lacks 'run mode never returns the output' "$pass_line" 'all passed'
@@ -137,6 +139,22 @@ expect_has 'run mode reports a stub failure without an assertion line as its tai
 expect_has 'run mode runs the verify fallback' "$(context_of Edit "$project/other/run.sh")" 'tests: pass (.claude/verify other/run.sh, '
 expect_eq 'the verify script saw the edited file' "verify $project/other/run.sh" "$(cat "$sandbox/verify.log")"
 expect_eq 'run mode still asks for a missing test' "no test found beside thing.sh; write $sandbox/lonely/thing.test.sh first" "$(context_of Edit "$sandbox/lonely/thing.sh")"
+expect_eq 'run mode never runs an edited test file, it suggests with the reason' \
+  'run now: ./shared/hooks/tool.test.sh (not run: edited file is a test)' \
+  "$(SESSION=guard1 context_of Edit "$project/shared/hooks/tool.test.sh")"
+expect_eq 'run mode never runs a test edited earlier in the session' \
+  'run now: ./shared/hooks/tool.test.sh (not run: test edited this session)' \
+  "$(SESSION=guard1 context_of Edit "$project/shared/hooks/tool.py")"
+expect_has 'another session still runs it' "$(SESSION=guard2 context_of Edit "$project/shared/hooks/tool.py")" 'tests: pass (./shared/hooks/tool.test.sh, '
+runs_before="$(grep -c '^run ' "$STUB_LOG")"
+SESSION=guard3 context_of Write "$project/.claude/verify" >/dev/null
+expect_eq 'run mode never runs a verify script edited this session' \
+  'run now: .claude/verify other/run.sh (not run: test edited this session)' \
+  "$(SESSION=guard3 context_of Edit "$project/other/run.sh")"
+expect_eq 'run mode never runs for a file outside the session root' \
+  "run now: $project/shared/hooks/tool.test.sh (not run: outside the project)" \
+  "$(CWD="$project/other" SESSION=guard4 context_of Edit "$project/shared/hooks/tool.py")"
+expect_eq 'the refusals ran nothing' "$runs_before" "$(grep -c '^run ' "$STUB_LOG")"
 expect_eq 'run mode never blocks: a failure exits 0' 0 "$(STUB_OUTCOME=fail event Edit "$project/shared/hooks/tool.py" >/dev/null; echo $?)"
 
 telemetry_kinds() {
@@ -148,7 +166,7 @@ for line in open(sys.argv[1]):
 }
 telemetry="$(telemetry_kinds)"
 expect_has 'telemetry records suggest calls with and without a test' "$telemetry" 'suggest True None False False' 'suggest False None False False'
-expect_has 'telemetry records run results and seconds, never the output' "$telemetry" 'run True pass True False' 'run True fail True False' 'run True timeout True False' 'run True cached False False' 'run False None False False'
+expect_has 'telemetry records run results and seconds, never the output' "$telemetry" 'run True pass True False' 'run True fail True False' 'run True timeout True False' 'run True cached False False' 'run True refused False False' 'run False None False False'
 expect_eq 'the off switch records nothing' 0 "$(grep -c '"mode": "0"' "$CLAUDE_TOOL_TELEMETRY")"
 
 if printf 'not json' | python3 "$hook"; then :; else

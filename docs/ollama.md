@@ -595,8 +595,12 @@ line naming the nearest test's command (`run now: ./shared/hooks/x.test.sh`,
 none exists; `run` executes that command for you with a 60 s timeout and reports
 `tests: pass` with the seconds, `tests: FAIL` with the first failing lines, or a
 timeout, never the whole log, and skips a rerun while neither the file nor its
-test changed. `run` executes the repo's test code outside the Bash sandbox, so
-leave it on `suggest` for a repo you do not trust.
+test changed. `run` executes the repo's test code outside the Bash sandbox, as
+you; it can be enabled only from the profile file, which the sandboxed session
+cannot write, so leave it on `suggest` for a repo you do not trust. Even in
+`run` the hook only suggests, naming the reason, when the edited file is itself
+a test, when the test or `.claude/verify` was edited earlier in the session, or
+when the file lies outside the session's folder.
 
 The Profiles page's Env tab shows each one by that label with its default and a
 help sentence, grouped under Prompt and context, Guards, Ollama residency,
