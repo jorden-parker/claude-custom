@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   CONTEXT_CAP,
   LEASE_HEARTBEAT_RANGE,
+  OUTPUT_TOKENS_RANGE,
   PROFILE_ENV_FIELDS,
   PROFILE_ENV_GROUPS,
   PROFILE_ENV_KEYS,
@@ -75,6 +76,19 @@ describe("validateProfileOverride", () => {
 
   it("refuses context and parameters on claude-code profiles", () => {
     expect(rejected({ context: 65536 }, CLAUDE_CODE)).toBe("context only applies to Ollama profiles");
+    expect(rejected({ output_tokens: 4096 }, CLAUDE_CODE)).toBe("output_tokens only applies to Ollama profiles");
+  });
+
+  it("keeps output_tokens a whole number from 1024 to 16384", () => {
+    expect(OUTPUT_TOKENS_RANGE).toEqual({ min: 1024, max: 16384, step: 1024 });
+    expect(accepted({ output_tokens: 4096 }, OLLAMA)).toEqual({ output_tokens: 4096 });
+    expect(accepted({ output_tokens: 1024 }, OLLAMA)).toEqual({ output_tokens: 1024 });
+    expect(accepted({ output_tokens: 16384 }, OLLAMA)).toEqual({ output_tokens: 16384 });
+    const message = "output_tokens must be a whole number from 1024 to 16384";
+    expect(rejected({ output_tokens: 1023 }, OLLAMA)).toBe(message);
+    expect(rejected({ output_tokens: 16385 }, OLLAMA)).toBe(message);
+    expect(rejected({ output_tokens: 2048.5 }, OLLAMA)).toBe(message);
+    expect(rejected({ output_tokens: "4096" }, OLLAMA)).toBe(message);
   });
 
   it("keeps context between 4096 and the maximum", () => {
@@ -155,6 +169,7 @@ describe("validateProfileOverride", () => {
     ["CLAUDE_OLLAMA_RULE_CARDS", "1", "Prompt and context", true],
     ["CLAUDE_CUSTOM_FRICTION", "1", "Guards", false],
     ["CLAUDE_OLLAMA_LADDER", "1", "Guards", true],
+    ["CLAUDE_OLLAMA_EDIT_NUDGE", "1", "Guards", true],
     ["CLAUDE_OLLAMA_LEASE", "1", "Ollama residency", true],
     ["CLAUDE_OLLAMA_FIT", "1", "Ollama residency", true],
     ["CLAUDE_OLLAMA_PROXY_RECORD", "0", "Diagnostics", true],
@@ -181,6 +196,7 @@ describe("validateProfileOverride", () => {
     expect(labelOf("CLAUDE_OLLAMA_FIT")).toBe("Check memory fit before launch");
     expect(labelOf("CLAUDE_OLLAMA_BEACON")).toBe("Write a machine beacon at launch");
     expect(labelOf("CLAUDE_OLLAMA_RULE_CARDS")).toBe("Deliver rule cards just in time");
+    expect(labelOf("CLAUDE_OLLAMA_EDIT_NUDGE")).toBe("Nudge wasteful edits");
   });
 
   it("takes the lease heartbeat as whole seconds from 30 to 600", () => {
@@ -219,6 +235,7 @@ describe("validateProfileOverride", () => {
     expect(grouped.find(({ group }) => group === "Guards")?.fields.map((field) => field.key)).toEqual([
       "CLAUDE_CUSTOM_FRICTION",
       "CLAUDE_OLLAMA_LADDER",
+      "CLAUDE_OLLAMA_EDIT_NUDGE",
     ]);
     expect(envFieldsByGroup([]).length).toBe(0);
   });
@@ -238,11 +255,12 @@ describe("overrideCount", () => {
         tools: { Bash: "ask", WebFetch: "off" },
         sandbox: false,
         context: 65536,
+        output_tokens: 4096,
         thinking: true,
         parameters: { temperature: 0.6 },
         mcp: { dev: false },
         env: { CLAUDE_OLLAMA_CMUX: "0" },
       }),
-    ).toBe(8);
+    ).toBe(9);
   });
 });

@@ -63,9 +63,32 @@ run_hook Read "short" "" >/dev/null
 check "non-bash tools are logged too" [ "$(log_count)" = 2 ]
 check "short output is not over the limit" [ "$(last_field over_trim_limit)" = False ]
 check "hook never prints" [ -z "$(run_hook Read "x" "")" ]
+run_edit() {
+  python3 -c '
+import json, sys
+tool, tool_input = sys.argv[1], json.loads(sys.argv[2])
+print(json.dumps({
+    "hook_event_name": "PostToolUse",
+    "session_id": "s1",
+    "tool_name": tool,
+    "tool_input": tool_input,
+    "tool_response": {"filePath": tool_input.get("file_path", "")},
+}))' "$1" "$2" | python3 "$hook"
+}
+
+run_edit Edit '{"file_path": "a.py", "old_string": "secret-old-4411", "new_string": "secret-new-4412!"}'
+check "an Edit logs the bytes of old_string plus new_string" [ "$(last_field input_bytes)" = 31 ]
+check "the edited text is never logged" test "$(grep -c 'secret-' "$log")" = 0
+run_edit Write '{"file_path": "a.py", "content": "retries = 3\n"}'
+check "a Write logs the bytes of its content" [ "$(last_field input_bytes)" = 12 ]
+run_edit MultiEdit '{"file_path": "a.py", "edits": [{"old_string": "ab", "new_string": "cde"}, {"old_string": "f", "new_string": "gh"}]}'
+check "a MultiEdit sums the bytes of every edit" [ "$(last_field input_bytes)" = 8 ]
+check "an edit line carries input bytes" test "$(tail -n 1 "$log" | grep -c input_bytes)" = 1
+run_hook Bash "x" "" >/dev/null
+check "a Bash call carries no input bytes" test "$(tail -n 1 "$log" | grep -c input_bytes)" = 0
 check "missing response is tolerated" missing_response
 check "missing response logs zero bytes" [ "$(last_field bytes)" = 0 ]
-check "missing response still logs a line" [ "$(log_count)" = 4 ]
+check "missing response still logs a line" [ "$(log_count)" = 8 ]
 
 if [ "$failures" -eq 0 ]; then
   echo "all passed"

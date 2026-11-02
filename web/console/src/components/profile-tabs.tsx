@@ -7,6 +7,7 @@ import {
   CONTEXT_CAP,
   CONTEXT_MINIMUM,
   OLLAMA_MCP_SERVERS,
+  OUTPUT_TOKENS_RANGE,
   PARAMETER_RANGES,
   PROFILE_ENV_FIELDS,
   envFieldsByGroup,
@@ -18,6 +19,7 @@ import {
   withContext,
   withEnv,
   withMcp,
+  withOutputTokens,
   withParameter,
   withSandbox,
   withThinking,
@@ -88,6 +90,7 @@ export function ProfileModelTab({ detail, draft, update }: ProfileTabProps) {
         Sandbox is always on for Ollama profiles.
       </p>
       <ContextField detail={detail} draft={draft} update={update} />
+      <OutputTokensField detail={detail} draft={draft} update={update} />
       <ThinkingSwitch enabled={draft.thinking === true} update={update} />
       <ParameterFields detail={detail} draft={draft} update={update} />
     </div>
@@ -156,6 +159,33 @@ function ContextField({ detail, draft, update }: FieldProps) {
           )
         }
       />
+    </FieldRow>
+  );
+}
+
+function OutputTokensField({ detail, draft, update }: FieldProps) {
+  return (
+    <FieldRow label="Output tokens per reply">
+      <div className="flex flex-col gap-1">
+        <Input
+          type="number"
+          aria-label="Output tokens per reply"
+          min={OUTPUT_TOKENS_RANGE.min}
+          max={OUTPUT_TOKENS_RANGE.max}
+          step={OUTPUT_TOKENS_RANGE.step}
+          placeholder={String(detail.base.outputTokens ?? "default")}
+          value={draft.output_tokens ?? ""}
+          onChange={(event) =>
+            update((current) =>
+              withOutputTokens(current, numberOrNull(event.target.value)),
+            )
+          }
+        />
+        <span className="text-xs text-muted-foreground">
+          Caps one reply (num_predict and CLAUDE_CODE_MAX_OUTPUT_TOKENS); decode
+          is the slow path on a laptop, so a lower cap costs less per reply.
+        </span>
+      </div>
     </FieldRow>
   );
 }

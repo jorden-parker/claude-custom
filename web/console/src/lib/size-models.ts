@@ -18,17 +18,18 @@ export function modelForSize(repoDir: string, size: string): string | null {
   }
 }
 
-export type SizeSettings = { context: number | null; parameters: Record<string, number> };
+export type SizeSettings = { context: number | null; outputTokens: number | null; parameters: Record<string, number> };
 
 export function sizeSettings(repoDir: string, size: string): SizeSettings {
   const entry = sizesEntry(repoDir, size);
   return {
     context: typeof entry?.context === "number" ? entry.context : null,
+    outputTokens: typeof entry?.output_tokens === "number" ? entry.output_tokens : null,
     parameters: numericParameters(entry?.parameters),
   };
 }
 
-type SizesEntry = { context?: unknown; parameters?: unknown };
+type SizesEntry = { context?: unknown; output_tokens?: unknown; parameters?: unknown };
 
 function sizesEntry(repoDir: string, size: string): SizesEntry | null {
   try {

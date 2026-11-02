@@ -287,8 +287,20 @@ leaves_headroom() {
   [ $((tokens + output + reserve)) -le "$(modelfile_num_ctx_for "$size")" ]
 }
 
-check_eq "headroom.json keeps the output tokens every Ollama profile sends" "$(jq -r .output_tokens "$repo/ollama/headroom.json")" \
-  "$(jq -r .env.CLAUDE_CODE_MAX_OUTPUT_TOKENS "$repo"/ollama/settings.*.json | sort -u)"
+modelfile_num_predict_for() {
+  sed -n 's/^PARAMETER num_predict //p' "$repo/ollama/Modelfile.$1"
+}
+
+size_output_tokens() {
+  jq -r --arg size "$1" --slurpfile headroom "$repo/ollama/headroom.json" '.[$size].output_tokens // $headroom[0].output_tokens' "$repo/ollama/sizes.json"
+}
+
+for settings in "$repo"/ollama/settings.*.json; do
+  size="${settings##*/settings.}"
+  size="${size%.json}"
+  check_eq "${settings##*/} sends the output tokens sizes.json gives the $size size" "$(size_output_tokens "$size")" "$(jq -r .env.CLAUDE_CODE_MAX_OUTPUT_TOKENS "$settings")"
+  check_eq "Modelfile.$size caps num_predict at the same output tokens" "$(size_output_tokens "$size")" "$(modelfile_num_predict_for "$size")"
+done
 check_that "headroom.json reserves at least 2048 tokens for the compaction summary" \
   test "$(jq -r .summary_reserve "$repo/ollama/headroom.json")" -ge 2048
 for settings in "$repo"/ollama/settings.*.json; do
@@ -375,7 +387,12 @@ for settings in "$repo"/ollama/settings.*.json; do
   check_that "${settings##*/} runs rule-cards.py before Edit, Write, MultiEdit, Read and Bash" delivers_rule_cards "$settings"
 done
 
+nudges_wasteful_edits() {
+  jq -e '[.hooks.PreToolUse[] | select((.matcher // "") | test("Edit") and test("Write") and test("MultiEdit")) | .hooks[].command] | any(test("edit-nudge"))' "$1" >/dev/null
+}
+
 for settings in "$repo"/ollama/settings.*.json; do
+  check_that "${settings##*/} runs edit-nudge.py before Edit, Write and MultiEdit" nudges_wasteful_edits "$settings"
   check_that "${settings##*/} runs friction_budget.py on each prompt" resets_friction_budget "$settings"
   check_that "${settings##*/} runs repeat-call-cache.py before Read, git_status and semantic_search" caches_repeat_calls "$settings" PreToolUse
   check_that "${settings##*/} runs repeat-call-cache.py after Read, git_status and semantic_search" caches_repeat_calls "$settings" PostToolUse

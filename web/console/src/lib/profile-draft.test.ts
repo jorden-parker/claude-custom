@@ -3,6 +3,7 @@ import {
   withContext,
   withEnv,
   withMcp,
+  withOutputTokens,
   withParameter,
   withSandbox,
   withThinking,
@@ -25,6 +26,11 @@ describe("profile drafts", () => {
     const set = withParameter({}, "temperature", 0.6);
     expect(set).toEqual({ parameters: { temperature: 0.6 } });
     expect(withParameter(set, "temperature", null)).toEqual({});
+  });
+
+  it("sets and clears the output tokens", () => {
+    expect(withOutputTokens({}, 4096)).toEqual({ output_tokens: 4096 });
+    expect(withOutputTokens({ output_tokens: 4096 }, null)).toEqual({ output_tokens: undefined });
   });
 
   it("sets and clears context and sandbox", () => {

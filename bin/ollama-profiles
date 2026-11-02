@@ -48,9 +48,13 @@ headroom() {
   jq -r --arg name "$1" '.[$name]' "$headroom_file"
 }
 
+output_tokens() {
+  jq -r --arg size "$1" --slurpfile headroom "$headroom_file" '.[$size].output_tokens // $headroom[0].output_tokens' "$sizes_file"
+}
+
 context_tokens() {
   local tokens
-  tokens=$(( $(field "$1" context) - $(headroom output_tokens) - $(headroom summary_reserve) ))
+  tokens=$(( $(field "$1" context) - $(output_tokens "$1") - $(headroom summary_reserve) ))
   if [ "$tokens" -le 0 ]; then
     echo "ollama-profiles: size $1 has context $(field "$1" context), which leaves no room after the output_tokens and summary_reserve in headroom.json" >&2
     return 1
@@ -61,7 +65,7 @@ context_tokens() {
 render_settings() {
   local context_tokens
   context_tokens="$(context_tokens "$1")" || return 1
-  jq --arg model "$(field "$1" model)" --arg context_tokens "$context_tokens" --arg output_tokens "$(headroom output_tokens)" \
+  jq --arg model "$(field "$1" model)" --arg context_tokens "$context_tokens" --arg output_tokens "$(output_tokens "$1")" \
     'walk(if type == "string" then gsub("\\{\\{MODEL\\}\\}"; $model) | gsub("\\{\\{CONTEXT_TOKENS\\}\\}"; $context_tokens) | gsub("\\{\\{OUTPUT_TOKENS\\}\\}"; $output_tokens) else . end)' \
     "$settings_template" | splice_fragments "$(cat "$extra_hooks_file")"
 }
@@ -79,7 +83,7 @@ render_parameters() {
 }
 
 render_modelfile() {
-  sed -e "s|{{BASE}}|$(field "$1" base)|" -e "s|{{CONTEXT}}|$(field "$1" context)|" "$modelfile_template"
+  sed -e "s|{{BASE}}|$(field "$1" base)|" -e "s|{{CONTEXT}}|$(field "$1" context)|" -e "s|{{OUTPUT_TOKENS}}|$(output_tokens "$1")|" "$modelfile_template"
   render_renderer "$1"
   render_parameters "$1"
 }
