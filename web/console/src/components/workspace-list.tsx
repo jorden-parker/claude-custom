@@ -211,7 +211,9 @@ function WorkspaceRow({
         <TrustBadge workspace={workspace} />
       </label>
       <SkillList workspace={workspace} />
-      {workspace.exists ? <SkillCheckPanel workspace={workspace} /> : null}
+      {workspace.exists && workspace.trusted ? (
+        <SkillCheckPanel workspace={workspace} />
+      ) : null}
     </li>
   );
 }

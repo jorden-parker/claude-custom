@@ -456,8 +456,10 @@ and whether the model may invoke them. Claude Code loads a project's skills,
 settings and hooks only in a trusted folder, so an untrusted one shows no
 project skills in the `/` menu. A switch sets `hasTrustDialogAccepted` for that
 folder, and the form trusts a new folder by its real path (it must exist on this
-machine); each save lands in `/history`. Each folder's "Check skills" button
-runs `bin/skill-check --size SIZE FOLDER`, which starts `claude-ollama` there in
+machine); each save lands in `/history`. A trusted folder's "Check skills"
+button (an untrusted folder gets none, and the API refuses it, since a print
+mode session runs the folder's own hooks without the trust dialog) runs
+`bin/skill-check --size SIZE FOLDER`, which starts `claude-ollama` there in
 print mode (`-p hi --max-turns 1 --output-format stream-json --verbose`, with
 the indexer, draft opener and telemetry off), reads the `init` event's `skills`
 array, stops the launch, and prints JSON with the Claude Code version, that

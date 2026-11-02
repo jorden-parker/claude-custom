@@ -135,6 +135,19 @@ describe("WorkspaceList", () => {
     ).toBeTruthy();
   });
 
+  it("offers the check only for trusted folders", async () => {
+    stubApi([
+      { path: "/real/app", trusted: false, exists: true, skills: [] },
+      { path: "/gone", trusted: true, exists: false, skills: [] },
+    ]);
+    render(<WorkspaceList />);
+
+    expect(await screen.findByText("untrusted")).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: /Check skills in/ }),
+    ).toBeNull();
+  });
+
   it("checks a folder and reports the skills Claude Code missed", async () => {
     const saves = stubApi(
       [{ path: "/real/app", trusted: true, exists: true, skills: [] }],

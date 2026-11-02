@@ -44,7 +44,8 @@ four parts:
   each folder's `.claude/skills`, and a PUT of `{path, trusted}` sets that flag
   (a new folder must exist and is keyed by its real path), recorded in history.
   `POST /api/workspaces/check` (`web/console/src/lib/skill-check.ts`) runs
-  `bin/skill-check --size SIZE FOLDER` for a recorded folder, which starts
+  `bin/skill-check --size SIZE FOLDER` for a recorded, trusted folder (a print
+  mode session runs the folder's hooks without the dialog), which starts
   `claude-ollama` there in print mode, reads the `init` event's `skills`, stops
   the launch and prints JSON (`claude_version`, `skills`, `error`); the page
   names the folder's skills missing from that array. Tests:

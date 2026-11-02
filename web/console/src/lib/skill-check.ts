@@ -35,6 +35,12 @@ export async function checkWorkspaceSkills(
       message: `${folder} is not a recorded folder on this machine`,
     };
   }
+  if (!workspace.trusted) {
+    return {
+      ok: false,
+      message: `${folder} is not trusted; a print-mode session there would run the folder's own hooks`,
+    };
+  }
   const chosenSize = size ?? listSizes()[0];
   if (chosenSize === undefined || !listSizes().includes(chosenSize)) {
     return { ok: false, message: `Unknown size ${size ?? ""}`.trim() };

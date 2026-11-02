@@ -123,6 +123,22 @@ describe("checkWorkspaceSkills", () => {
     });
   });
 
+  it("refuses an untrusted folder before starting anything", async () => {
+    fs.writeFileSync(
+      path.join(home, ".claude-ollama", ".claude.json"),
+      JSON.stringify({
+        projects: { [project]: { hasTrustDialogAccepted: false } },
+      }),
+    );
+    stubScript(fixture.repoDir, `touch "${fixture.stateDir}/started"`);
+
+    expect(await checkWorkspaceSkills(project, undefined)).toEqual({
+      ok: false,
+      message: `${project} is not trusted; a print-mode session there would run the folder's own hooks`,
+    });
+    expect(fs.existsSync(path.join(fixture.stateDir, "started"))).toBe(false);
+  });
+
   it("refuses a size that is not configured", async () => {
     stubScript(fixture.repoDir, "exit 0");
 
