@@ -218,10 +218,7 @@ run_capture env CLAUDE_OLLAMA_TELEMETRY=0 "$repo/bin/claude-ollama" 27b -p hi
 check_eq "CLAUDE_OLLAMA_TELEMETRY=0 turns tool telemetry off" unset "$(cat "$sandbox/telemetry-env")"
 run_capture env CLAUDE_TOOL_TELEMETRY="$sandbox/mine.jsonl" "$repo/bin/claude-ollama" 27b -p hi
 check_eq "CLAUDE_TOOL_TELEMETRY overrides the telemetry file" "$sandbox/mine.jsonl" "$(cat "$sandbox/telemetry-env")"
-check_eq "every launch points the package caches at the sandbox cache folder" "$HOME/.cache/claude-sandbox/go/mod" \
-  "$(grep '^GOMODCACHE=' "$sandbox/claude-env" | cut -d= -f2-)"
-check_eq "and names that folder in CLAUDE_SANDBOX_CACHE_DIR" "$HOME/.cache/claude-sandbox" \
-  "$(grep '^CLAUDE_SANDBOX_CACHE_DIR=' "$sandbox/claude-env" | cut -d= -f2-)"
+check_not "every launch leaves the package caches where they are" grep -q '^GOMODCACHE=\|^npm_config_cache=\|^CLAUDE_SANDBOX_CACHE_DIR=' "$sandbox/claude-env"
 telemetry_dir="$HOME/.claude-ollama/telemetry"
 mkdir -p "$telemetry_dir"
 head -c 1048577 /dev/zero > "$telemetry_dir/tool-calls.jsonl"
@@ -254,7 +251,7 @@ rm -f "$sandbox/curl.log"
 OLLAMA_HOST=http://box:1 run_capture "$repo/bin/claude-ollama" 35b -p hi
 check_that "claude-ollama warm-up follows OLLAMA_HOST" grep -q 'box:1/api/generate' "$sandbox/curl.log"
 check_not "claude-ollama 35b skips pull when the model exists" grep -sqE '^(pull|create) ' "$sandbox/ollama.log"
-check_that "claude-ollama starts the code-search, repo and dev MCP servers" grep -qF -- "--strict-mcp-config --mcp-config {\"mcpServers\":{\"code-search\":{\"command\":\"$repo/shared/host-env\",\"args\":[\"python3\",\"$repo/shared/mcp/code-search.py\"]},\"repo\":{\"command\":\"$repo/shared/host-env\",\"args\":[\"python3\",\"$repo/shared/mcp/repo-tools.py\"]},\"dev\":{\"command\":\"$repo/shared/host-env\",\"args\":[\"python3\",\"$repo/shared/mcp/dev-server.py\"]}}}" "$sandbox/out"
+check_that "claude-ollama starts the code-search, repo and dev MCP servers" grep -qF -- "--strict-mcp-config --mcp-config {\"mcpServers\":{\"code-search\":{\"command\":\"python3\",\"args\":[\"$repo/shared/mcp/code-search.py\"]},\"repo\":{\"command\":\"python3\",\"args\":[\"$repo/shared/mcp/repo-tools.py\"]},\"dev\":{\"command\":\"python3\",\"args\":[\"$repo/shared/mcp/dev-server.py\"]}}}" "$sandbox/out"
 rm -f "$sandbox/python.log"
 run_capture "$repo/bin/claude-ollama" 35b -p hi
 sleep 1
@@ -1010,8 +1007,7 @@ check_not "claude-ollama qwen never runs claude" grep -q '^ARGS:' "$sandbox/out"
 check_that "claude-ollama qwen warms the model" warm_up_logged
 check_eq "claude-ollama qwen gives Qwen Code its own home under the session folder" "QWEN_HOME=$qwen_home" "$(grep '^QWEN_HOME=' "$sandbox/qwen-env")"
 check_that "and turns usage statistics off" grep -qx 'QWEN_USAGE_STATISTICS_ENABLED=false' "$sandbox/qwen-env"
-check_eq "and points its package caches at the sandbox cache folder" "$HOME/.cache/claude-sandbox/pnpm/store" \
-  "$(grep '^npm_config_store_dir=' "$sandbox/qwen-env" | cut -d= -f2-)"
+check_not "and leaves the package caches where they are" grep -q '^npm_config_store_dir=\|^GOMODCACHE=' "$sandbox/qwen-env"
 check_that "and the models.dev download" grep -qx 'QWEN_CODE_MODELS_DEV_REFRESH=off' "$sandbox/qwen-env"
 for folder in skills agents extensions rules commands hooks; do
   check_that "claude-ollama qwen creates $folder under its home before the launch, since Qwen Code's startup mkdir is denied inside the sandbox" test -d "$qwen_home/$folder"

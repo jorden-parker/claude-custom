@@ -26,7 +26,8 @@
     "CLAUDE_CODE_TOTAL_TOKENS_REMINDER": "off",
     "CLAUDE_CODE_EXTRA_BODY": "{\"thinking\":{\"type\":\"disabled\"}}",
     "CLAUDE_STREAM_IDLE_TIMEOUT_MS": "1800000",
-    "API_TIMEOUT_MS": "1800000"
+    "API_TIMEOUT_MS": "1800000",
+    "NODE_USE_ENV_PROXY": "1"
   },
   "permissions": {
     "deny": [
@@ -79,22 +80,32 @@
     "excludedCommands": ["cmux *", "gh *", "short *", "git push *"],
     "network": {
       "allowedDomains": [
-        "github.com",
-        "registry.npmjs.org",
         "127.0.0.1",
         "[::1]",
+        "github.com",
+        "*.github.com",
+        "*.githubusercontent.com",
+        "registry.npmjs.org",
         "proxy.golang.org",
         "sum.golang.org",
         "pypi.org",
         "files.pythonhosted.org",
-        "objects.githubusercontent.com",
-        "codeload.github.com",
         "context7.com"
       ],
       "allowLocalBinding": true
     },
     "filesystem": {
-      "allowWrite": ["~/.cache/claude-sandbox"],
+      "allowWrite": [
+        "~/.cache",
+        "~/Library/Caches",
+        "~/.npm",
+        "~/go/pkg/mod",
+        "~/Library/pnpm/store",
+        "~/.local/share/pnpm/store",
+        "~/.local/state/pnpm",
+        "~/.bun/install/cache"
+      ],
+      "denyWrite": ["~/.cache/claude-custom"],
       "denyRead": [
         "~/.ssh",
         "~/.aws",

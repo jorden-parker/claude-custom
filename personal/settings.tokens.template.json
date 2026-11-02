@@ -9,13 +9,30 @@
       "allowedDomains": [
         "127.0.0.1",
         "[::1]",
+        "github.com",
+        "*.github.com",
+        "*.githubusercontent.com",
         "registry.npmjs.org",
+        "proxy.golang.org",
+        "sum.golang.org",
+        "pypi.org",
+        "files.pythonhosted.org",
         "context7.com"
       ],
       "allowLocalBinding": true
     },
     "filesystem": {
-      "allowWrite": ["~/.cache/claude-sandbox"],
+      "allowWrite": [
+        "~/.cache",
+        "~/Library/Caches",
+        "~/.npm",
+        "~/go/pkg/mod",
+        "~/Library/pnpm/store",
+        "~/.local/share/pnpm/store",
+        "~/.local/state/pnpm",
+        "~/.bun/install/cache"
+      ],
+      "denyWrite": ["~/.cache/claude-custom"],
       "denyRead": [
         "~/.ssh",
         "~/.aws",
@@ -42,7 +59,8 @@
     "npm_config_fund": "false",
     "npm_config_update_notifier": "false",
     "npm_config_progress": "false",
-    "PIP_DISABLE_PIP_VERSION_CHECK": "1"
+    "PIP_DISABLE_PIP_VERSION_CHECK": "1",
+    "NODE_USE_ENV_PROXY": "1"
   },
   "permissions": {
     "deny": [
