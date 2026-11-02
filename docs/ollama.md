@@ -408,6 +408,14 @@ so a value can never be read as an option. They need a cmux terminal
 off. In claude-ollama sessions the Bash guard denies `pnpm dev` and similar
 starts, and only there.
 
+The appended prompt (`ollama/CLAUDE.local.md`) carries only what every turn
+needs; the situational rules live in `ollama/rule-cards/<id>.md`, and
+`shared/hooks/rule-cards.py` adds each card to the context once per session, the
+first time a tool call matches its triggers (a file suffix or folder, a command
+such as `git commit` or `pnpm`, or a tool such as Write), so a session that
+never touches Go never pays for the Go rules. `claude-ollama doctor` counts the
+cards and names a malformed one.
+
 In a cmux terminal the launcher also appends `ollama/CLAUDE.cmux.md` to the
 session prompt, which tells the model to open every markdown file it writes with
 the vendored `/cmux-markdown` skill (`ollama/skills/cmux-markdown`, pinned to

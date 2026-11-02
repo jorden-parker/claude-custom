@@ -323,6 +323,58 @@ caches_repeat_calls() {
   jq -e --arg event "$2" '[.hooks[$event][] | select((.matcher // "") | test("Read") and test("mcp__repo__git_status") and test("mcp__code-search__semantic_search")) | .hooks[].command] | any(test("repeat-call-cache"))' "$1" >/dev/null
 }
 
+delivers_rule_cards() {
+  jq -e '[.hooks.PreToolUse[] | select((.matcher // "") | test("Edit") and test("Write") and test("MultiEdit") and test("Read") and test("Bash")) | .hooks[].command] | any(test("rule-cards"))' "$1" >/dev/null
+}
+
+rule_card_lister="$repo/shared/hooks/rule-cards.py"
+rule_card_ids() {
+  "$rule_card_lister" --list 2>/dev/null | sed 's/:.*//'
+}
+
+trimmed_lines() {
+  sed 's/^[[:space:]-]*//; s/[[:space:]]*$//' "$@" | grep .
+}
+
+card_body() {
+  sed '1,/^---$/d' "$1"
+}
+
+card_body_lines() {
+  card_body "$1" | trimmed_lines
+}
+
+rule_cards_well_formed() {
+  "$rule_card_lister" --list >/dev/null
+}
+
+always_on_prompt_repeats_a_card() {
+  local card repeated
+  for card in "$repo"/ollama/rule-cards/*.md; do
+    repeated="$(card_body_lines "$card" | grep -xF -f <(trimmed_lines "$repo/ollama/CLAUDE.local.md" "$repo/ollama/system-prompt.md" "$repo/shared/preferences/PREFERENCES.md") || true)"
+    [ -z "$repeated" ] || { echo "${card##*/} repeats the always-on prompt: $repeated" >&2; return 0; }
+  done
+  return 1
+}
+
+card_bodies_fit_the_cap() {
+  local cap card length
+  cap="$(sed -n 's/^CONTEXT_CAP = //p' "$rule_card_lister")"
+  for card in "$repo"/ollama/rule-cards/*.md; do
+    length="$(card_body "$card" | wc -c | tr -d ' ')"
+    [ "$length" -le "$cap" ] || { echo "${card##*/} body is $length characters, over the $cap cap" >&2; return 1; }
+  done
+}
+
+check_that "every rule card has a trigger and a body" rule_cards_well_formed
+check_that "rule cards exist" test -n "$(rule_card_ids)"
+check_eq "no two rule cards share an id" "" "$(rule_card_ids | sort | uniq -d)"
+check_that "every rule card body fits the hook's byte cap" card_bodies_fit_the_cap
+check_not "the always-on prompt no longer holds a line a rule card carries" always_on_prompt_repeats_a_card
+for settings in "$repo"/ollama/settings.*.json; do
+  check_that "${settings##*/} runs rule-cards.py before Edit, Write, MultiEdit, Read and Bash" delivers_rule_cards "$settings"
+done
+
 for settings in "$repo"/ollama/settings.*.json; do
   check_that "${settings##*/} runs friction_budget.py on each prompt" resets_friction_budget "$settings"
   check_that "${settings##*/} runs repeat-call-cache.py before Read, git_status and semantic_search" caches_repeat_calls "$settings" PreToolUse

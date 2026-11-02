@@ -741,6 +741,14 @@ PATH="$sandbox/realbin:$PATH" CLAUDE_OLLAMA_INCIDENT_WATCHER="$repo/ollama/incid
   STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_server_env" run_capture "$repo/bin/claude-ollama" doctor 27b
 check_eq "doctor with a server log the classifier reads exit status" 0 "$?"
 check_that "doctor reports the classifier matches the server log" grep -qxF "ok   incident classifier matches the server log (rules: 6)" "$sandbox/out"
+check_that "doctor counts the rule cards" grep -qxF "ok   rule cards: $(ls "$repo"/ollama/rule-cards/*.md | wc -l | tr -d ' ')" "$sandbox/out"
+mkdir -p "$sandbox/cards"
+printf -- '---\ntriggers:\n---\nno trigger\n' > "$sandbox/cards/broken.md"
+printf -- '---\ntriggers:\n  - suffix: .sh\n---\nshell\n' > "$sandbox/cards/shell.md"
+PATH="$sandbox/realbin:$PATH" CLAUDE_OLLAMA_RULE_CARDS="$sandbox/cards" CLAUDE_OLLAMA_INCIDENT_WATCHER="$repo/ollama/incidents/watcher.py" HOMEBREW_PREFIX="$sandbox/brew" \
+  STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_server_env" run_capture "$repo/bin/claude-ollama" doctor 27b
+check_eq "doctor with a malformed rule card exit status" 0 "$?"
+check_that "doctor warns about a malformed rule card" grep -qxF "warn rule cards: 1 ok, skipping broken.md: no triggers" "$sandbox/out"
 for i in $(seq 60); do
   printf 'time=2026-11-02T15:00:%02d.000Z level=INFO source=sched.go:1 msg="runner did a new thing" model=qwen3.8-27b-cc\n' "$((i % 60))"
 done > "$sandbox/brew/var/log/ollama.log"

@@ -30,9 +30,6 @@ These rules apply to every project and every language, with no exceptions.
   its package was edited and a test command ran)
 - Tests must pass before you finish. (enforced at Stop by `.claude/verify`, or
   the repo's make/go/pnpm test command)
-- TS/JS: Fallow runs before you finish. Fix its findings; use
-  `npx fallow explain <issue-type>` when unclear; remove dead code, never
-  suppress it. (enforced by stop-verify hook)
 - UI changes: after tests pass, check the page in a real browser with
   `/cmux-browser` and read the console for errors.
 
