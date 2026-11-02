@@ -16,6 +16,7 @@ const SOUND_PATCH_SHARE = 0.9;
 const SOUND_VALID_SHARE = 0.8;
 const REPAIRABLE_VALID_SHARE = 0.5;
 const NANOS_PER_SECOND = 1e9;
+const RUN_MARKER = "=== run ";
 
 const BRIEFS: Record<string, string> = {
   pricing:
@@ -121,15 +122,18 @@ async function streamChat(
   const started = process.hrtime.bigint();
   const body = await requestChat(options, brief);
   let reply = "";
+  let printed = 0;
   let firstPatchSeconds: number | null = null;
   let tokensPerSecond: number | null = null;
   for await (const chunk of chatChunks(body)) {
     reply += chunk.message?.content ?? "";
+    printed = printCompleteLines(reply, printed);
     if (firstPatchSeconds === null && replyHasPatch(reply)) {
       firstPatchSeconds = secondsSince(started);
     }
     tokensPerSecond = tokensPerSecondOf(chunk) ?? tokensPerSecond;
   }
+  printCompleteLines(reply + "\n", printed);
   return {
     reply,
     firstPatchSeconds,
@@ -181,6 +185,15 @@ async function* chatChunks(
       yield JSON.parse(line) as ChatChunk;
     }
   }
+}
+
+function printCompleteLines(reply: string, printed: number): number {
+  const end = reply.lastIndexOf("\n");
+  if (end < printed) return printed;
+  for (const line of reply.slice(printed, end).split("\n")) {
+    if (line.trim()) console.log(line);
+  }
+  return end + 1;
 }
 
 function replyHasPatch(reply: string): boolean {
@@ -276,6 +289,7 @@ async function main() {
   );
   for (const brief of options.briefs) {
     for (let run = 1; run <= options.runs; run += 1) {
+      console.log(`${RUN_MARKER}${results.length + 1}/${total} ${brief}`);
       const streamed = await streamChat(options, brief);
       const result: RunResult = {
         brief,

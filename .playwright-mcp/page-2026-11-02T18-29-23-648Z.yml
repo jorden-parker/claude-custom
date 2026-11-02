@@ -1,0 +1,198 @@
+- generic [active] [ref=f8e1]:
+    - generic [ref=f8e2]:
+        - generic [ref=f8e5]:
+            - link "claude-ollama" [ref=f8e7] [cursor=pointer]:
+                - /url: /
+            - list [ref=f8e14]:
+                - listitem [ref=f8e15]:
+                    - link "Reviews" [ref=f8e16] [cursor=pointer]:
+                        - /url: /reviews
+                - listitem [ref=f8e23]:
+                    - link "Drafts" [ref=f8e24] [cursor=pointer]:
+                        - /url: /drafts
+                - listitem [ref=f8e30]:
+                    - link "Runs" [ref=f8e31] [cursor=pointer]:
+                        - /url: /runs
+                - listitem [ref=f8e36]:
+                    - link "Checks" [ref=f8e37] [cursor=pointer]:
+                        - /url: /health
+                - listitem [ref=f8e44]:
+                    - link "Logs" [ref=f8e45] [cursor=pointer]:
+                        - /url: /logs
+                - listitem [ref=f8e51]:
+                    - link "Server" [ref=f8e52] [cursor=pointer]:
+                        - /url: /server
+                - listitem [ref=f8e58]:
+                    - link "Speed check" [ref=f8e59] [cursor=pointer]:
+                        - /url: /speed-check
+                - listitem [ref=f8e65]:
+                    - link "Global tools" [ref=f8e66] [cursor=pointer]:
+                        - /url: /tools
+                - listitem [ref=f8e71]:
+                    - link "Profiles" [ref=f8e72] [cursor=pointer]:
+                        - /url: /profiles
+                - listitem [ref=f8e76]:
+                    - link "Benchmarks" [ref=f8e77] [cursor=pointer]:
+                        - /url: /benchmarks
+                - listitem [ref=f8e82]:
+                    - link "Mockups" [ref=f8e83] [cursor=pointer]:
+                        - /url: /mockups
+                - listitem [ref=f8e90]:
+                    - link "Models" [ref=f8e91] [cursor=pointer]:
+                        - /url: /models
+                - listitem [ref=f8e104]:
+                    - link "Fetch domains" [ref=f8e105] [cursor=pointer]:
+                        - /url: /fetch-domains
+                - listitem [ref=f8e111]:
+                    - link "Machine policy" [ref=f8e112] [cursor=pointer]:
+                        - /url: /machine
+                - listitem [ref=f8e118]:
+                    - link "Workspaces" [ref=f8e119] [cursor=pointer]:
+                        - /url: /workspaces
+                - listitem [ref=f8e125]:
+                    - link "History" [ref=f8e126] [cursor=pointer]:
+                        - /url: /history
+        - main [ref=f8e133]:
+            - button "Toggle Sidebar" [ref=f8e135]
+            - main [ref=f8e137]:
+                - generic [ref=f8e138]:
+                    - heading "Mockups" [level=1] [ref=f8e139]
+                    - paragraph [ref=f8e140]: A little patch of the garden, tended with care.
+                - generic [ref=f8e141]:
+                    - heading "Run the spike" [level=2] [ref=f8e142]
+                    - generic [ref=f8e143]:
+                        - generic [ref=f8e144]:
+                            - generic [ref=f8e145]: Mock spike
+                            - generic [ref=f8e146]: Streams three mockup briefs through the size's model and scores the json-render patches; the run page shows its output live
+                        - generic [ref=f8e147]:
+                            - generic [ref=f8e149]:
+                                - text: Size
+                                - combobox "Size" [ref=f8e150]:
+                                    - option "27b" [selected]
+                                    - option "27b-gguf"
+                                    - option "35b"
+                                    - option "35b-coding"
+                                    - option "35b-gguf"
+                                    - option "3b"
+                            - paragraph [ref=f8e151]: Uses the model now; stop other sessions first for clean numbers
+                            - button "Start" [ref=f8e153]
+                - generic [ref=f8e154]:
+                    - heading "Streaming now" [level=2] [ref=f8e155]
+                    - paragraph [ref=f8e156]: Waiting for the first patch...
+                - generic [ref=f8e157]:
+                    - heading "Latest sheet" [level=2] [ref=f8e158]
+                    - generic [ref=f8e159]:
+                        - paragraph [ref=f8e160]: qwen3:8b-q4_K_M, verdict repairable, from mock-spike-qwen3_8b-q4_K_M-20261102T171500.json
+                        - generic [ref=f8e161]:
+                            - article [ref=f8e162]:
+                                - generic [ref=f8e163]:
+                                    - generic [ref=f8e164]: "pricing #1"
+                                    - generic [ref=f8e165]: 35/35 patch lines, 34 elements
+                                - paragraph [ref=f8e166]: 'Prop outside the catalog: pricing/direction: Invalid option: expected one of "vertical"|"horizontal"'
+                                - generic [ref=f8e168]:
+                                    - generic [ref=f8e169]:
+                                        - generic [ref=f8e170]:
+                                            - paragraph
+                                        - generic:
+                                            - paragraph
+                                        - generic [ref=f8e172]:
+                                            - paragraph
+                                            - paragraph
+                                            - paragraph
+                                        - button [ref=f8e173]
+                                    - generic [ref=f8e174]:
+                                        - generic [ref=f8e175]:
+                                            - paragraph
+                                        - generic:
+                                            - paragraph
+                                        - generic [ref=f8e177]:
+                                            - paragraph
+                                            - paragraph
+                                            - paragraph
+                                        - button [ref=f8e178]
+                                    - generic [ref=f8e179]:
+                                        - generic [ref=f8e180]:
+                                            - paragraph
+                                        - generic:
+                                            - paragraph
+                                        - generic [ref=f8e182]:
+                                            - paragraph
+                                            - paragraph
+                                            - paragraph
+                                        - button [ref=f8e183]
+                                - group [ref=f8e184]:
+                                    - generic "Elements the model produced" [ref=f8e185] [cursor=pointer]
+                            - article [ref=f8e186]:
+                                - generic [ref=f8e187]:
+                                    - generic [ref=f8e188]: "pricing #2"
+                                    - generic [ref=f8e189]: 16/34 patch lines, 15 elements
+                                - paragraph [ref=f8e190]: "Not rendered: elements/heading/children: Invalid input: expected array, received undefined"
+                                - group [ref=f8e191]:
+                                    - generic "Elements the model produced" [ref=f8e192] [cursor=pointer]
+                            - article [ref=f8e193]:
+                                - generic [ref=f8e194]:
+                                    - generic [ref=f8e195]: "settings #1"
+                                    - generic [ref=f8e196]: 18/18 patch lines, 17 elements
+                                - paragraph [ref=f8e197]: 'Not rendered: elements/subheading/type: Invalid option: expected one of "Stack"|"Card"|"Heading"|"Text"|"Button"|"Input"|"Badge"'
+                                - group [ref=f8e198]:
+                                    - generic "Elements the model produced" [ref=f8e199] [cursor=pointer]
+                            - article [ref=f8e200]:
+                                - generic [ref=f8e201]:
+                                    - generic [ref=f8e202]: "settings #2"
+                                    - generic [ref=f8e203]: 16/16 patch lines, 15 elements
+                                - paragraph [ref=f8e204]: 'Not rendered: elements/name-label/type: Invalid option: expected one of "Stack"|"Card"|"Heading"|"Text"|"Button"|"Input"|"Badge"'
+                                - group [ref=f8e205]:
+                                    - generic "Elements the model produced" [ref=f8e206] [cursor=pointer]
+                            - article [ref=f8e207]:
+                                - generic [ref=f8e208]:
+                                    - generic [ref=f8e209]: "dashboard #1"
+                                    - generic [ref=f8e210]: 8/8 patch lines, 7 elements
+                                - paragraph [ref=f8e211]: 'Prop outside the catalog: header/direction: Invalid option: expected one of "vertical"|"horizontal"'
+                                - generic [ref=f8e213]:
+                                    - paragraph
+                                    - textbox [ref=f8e215]:
+                                        - /placeholder: Search...
+                                - group [ref=f8e220]:
+                                    - generic "Elements the model produced" [ref=f8e221] [cursor=pointer]
+                            - article [ref=f8e222]:
+                                - generic [ref=f8e223]:
+                                    - generic [ref=f8e224]: "dashboard #2"
+                                    - generic [ref=f8e225]: 8/8 patch lines, 7 elements
+                                - paragraph [ref=f8e226]: 'Prop outside the catalog: header/direction: Invalid option: expected one of "vertical"|"horizontal"'
+                                - generic [ref=f8e228]:
+                                    - paragraph
+                                    - textbox [ref=f8e230]:
+                                        - /placeholder: Search...
+                                - group [ref=f8e235]:
+                                    - generic "Elements the model produced" [ref=f8e236] [cursor=pointer]
+                - generic [ref=f8e237]:
+                    - heading "Runs" [level=2] [ref=f8e238]
+                    - list [ref=f8e239]:
+                        - listitem [ref=f8e240]:
+                            - link "Mock spike (8b) running Nov 2, 18:28" [ref=f8e241] [cursor=pointer]:
+                                - /url: /runs/20261102-182804-mock-spike-cd34
+                                - generic [ref=f8e243]: Mock spike (8b)
+                                - generic [ref=f8e244]: running
+                                - time [ref=f8e245]: Nov 2, 18:28
+                        - listitem [ref=f8e246]:
+                            - link "Mock spike (8b) done Nov 2, 18:23" [ref=f8e247] [cursor=pointer]:
+                                - /url: /runs/20261102-182341-mock-spike-ab12
+                                - generic [ref=f8e249]: Mock spike (8b)
+                                - generic [ref=f8e250]: done
+                                - time [ref=f8e251]: Nov 2, 18:23
+                - generic [ref=f8e252]:
+                    - heading "Report files" [level=2] [ref=f8e253]
+                    - generic [ref=f8e254]:
+                        - paragraph [ref=f8e255]:
+                            - text: Reads
+                            - code [ref=f8e256]: mock-spike-*.json
+                            - text: from
+                            - code [ref=f8e257]: /Users/jorden/bench-results
+                            - text: ; newest by modification time is shown above.
+                        - list [ref=f8e258]:
+                            - listitem [ref=f8e259]:
+                                - code [ref=f8e260]: mock-spike-qwen3_8b-q4_K_M-20261102T171500.json
+                                - time [ref=f8e261]: Nov 2, 17:40
+                                - generic [ref=f8e262]: readable
+    - button "Open Next.js Dev Tools" [ref=f8e268] [cursor=pointer]
+    - alert [ref=f8e272]

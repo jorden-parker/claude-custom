@@ -1,0 +1,74 @@
+- generic [active] [ref=f7e1]:
+    - generic [ref=f7e2]:
+        - generic [ref=f7e5]:
+            - link "claude-ollama" [ref=f7e7] [cursor=pointer]:
+                - /url: /
+            - list [ref=f7e14]:
+                - listitem [ref=f7e15]:
+                    - link "Reviews" [ref=f7e16] [cursor=pointer]:
+                        - /url: /reviews
+                - listitem [ref=f7e23]:
+                    - link "Drafts" [ref=f7e24] [cursor=pointer]:
+                        - /url: /drafts
+                - listitem [ref=f7e30]:
+                    - link "Runs" [ref=f7e31] [cursor=pointer]:
+                        - /url: /runs
+                - listitem [ref=f7e36]:
+                    - link "Checks" [ref=f7e37] [cursor=pointer]:
+                        - /url: /health
+                - listitem [ref=f7e44]:
+                    - link "Logs" [ref=f7e45] [cursor=pointer]:
+                        - /url: /logs
+                - listitem [ref=f7e51]:
+                    - link "Server" [ref=f7e52] [cursor=pointer]:
+                        - /url: /server
+                - listitem [ref=f7e58]:
+                    - link "Speed check" [ref=f7e59] [cursor=pointer]:
+                        - /url: /speed-check
+                - listitem [ref=f7e65]:
+                    - link "Global tools" [ref=f7e66] [cursor=pointer]:
+                        - /url: /tools
+                - listitem [ref=f7e71]:
+                    - link "Profiles" [ref=f7e72] [cursor=pointer]:
+                        - /url: /profiles
+                - listitem [ref=f7e76]:
+                    - link "Benchmarks" [ref=f7e77] [cursor=pointer]:
+                        - /url: /benchmarks
+                - listitem [ref=f7e82]:
+                    - link "Mockups" [ref=f7e83] [cursor=pointer]:
+                        - /url: /mockups
+                - listitem [ref=f7e90]:
+                    - link "Models" [ref=f7e91] [cursor=pointer]:
+                        - /url: /models
+                - listitem [ref=f7e104]:
+                    - link "Fetch domains" [ref=f7e105] [cursor=pointer]:
+                        - /url: /fetch-domains
+                - listitem [ref=f7e111]:
+                    - link "Machine policy" [ref=f7e112] [cursor=pointer]:
+                        - /url: /machine
+                - listitem [ref=f7e118]:
+                    - link "Workspaces" [ref=f7e119] [cursor=pointer]:
+                        - /url: /workspaces
+                - listitem [ref=f7e125]:
+                    - link "History" [ref=f7e126] [cursor=pointer]:
+                        - /url: /history
+        - main [ref=f7e133]:
+            - button "Toggle Sidebar" [ref=f7e135]
+            - main [ref=f7e137]:
+                - generic [ref=f7e138]:
+                    - navigation "breadcrumb" [ref=f7e139]:
+                        - list [ref=f7e140]:
+                            - listitem [ref=f7e141]:
+                                - link "Runs" [ref=f7e142] [cursor=pointer]:
+                                    - /url: /runs
+                            - listitem [aria-hidden] [ref=f7e143]
+                            - listitem [ref=f7e146]:
+                                - heading "Run" [level=1] [ref=f7e147]
+                    - paragraph [ref=f7e148]: A little patch of the garden, tended with care.
+                - generic [ref=f7e150]:
+                    - heading "20261102-182804-mock-spike-cd34" [level=1] [ref=f7e151]
+                    - generic [ref=f7e152]: running
+                    - generic [ref=f7e153]: 0:00
+                    - button "Cancel" [ref=f7e154]
+    - button "Open Next.js Dev Tools" [ref=f7e161] [cursor=pointer]
+    - alert [ref=f7e165]

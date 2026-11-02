@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { DoctorChecklist } from "@/components/doctor-checklist";
+import { LiveMockSheet } from "@/components/live-mock-sheet";
 import { useFollowScroll } from "@/components/use-follow-scroll";
 import { useRunStream } from "@/components/use-run-stream";
 import { Badge } from "@/components/ui/badge";
@@ -20,7 +21,12 @@ import { ProgressBar } from "@/components/progress-bar";
 
 const TICK_MS = 1000;
 const STATUS_POLL_MS = 2000;
-const CHECKLIST_COMMANDS = new Set(["doctor", "qwen-doctor", "models-outdated"]);
+const CHECKLIST_COMMANDS = new Set([
+  "doctor",
+  "qwen-doctor",
+  "models-outdated",
+]);
+const MOCK_SPIKE_COMMAND = "mock-spike";
 
 type RunViewProps = { id: string };
 
@@ -42,8 +48,20 @@ export function RunView({ id }: RunViewProps) {
       />
       {state.stage === null ? null : <StageBar stage={state.stage} />}
       <ProgressLines progress={state.progress} />
-      {isChecklistRun(state) ? <ChecklistOutput state={state} /> : <OutputBox lines={state.lines} />}
-      {state.ended === null ? null : <EndBanner status={status} code={state.ended.code} />}
+      {state.header?.command === MOCK_SPIKE_COMMAND ? (
+        <LiveMockSheet
+          lines={state.lines.map((line) => line.text)}
+          running={state.ended === null}
+        />
+      ) : null}
+      {isChecklistRun(state) ? (
+        <ChecklistOutput state={state} />
+      ) : (
+        <OutputBox lines={state.lines} />
+      )}
+      {state.ended === null ? null : (
+        <EndBanner status={status} code={state.ended.code} />
+      )}
     </div>
   );
 }
@@ -57,7 +75,11 @@ function ChecklistOutput({ state }: { state: RunState }) {
   return (
     <Card>
       <CardContent>
-        <DoctorChecklist checks={output.checks} other={output.other} running={state.ended === null} />
+        <DoctorChecklist
+          checks={output.checks}
+          other={output.other}
+          running={state.ended === null}
+        />
       </CardContent>
     </Card>
   );
@@ -82,18 +104,25 @@ function RunHeader({
 }) {
   return (
     <header className="flex flex-wrap items-center gap-3">
-      <h1 className="min-w-0 break-words text-xl font-semibold">{label || id}</h1>
+      <h1 className="min-w-0 break-words text-xl font-semibold">
+        {label || id}
+      </h1>
       <Badge variant="outline" className={runStatusTextClass(status)}>
         {runStatusLabel(status)}
       </Badge>
-      <span className="font-mono text-sm tabular-nums text-muted-foreground">{formatElapsed(seconds)}</span>
+      <span className="font-mono text-sm tabular-nums text-muted-foreground">
+        {formatElapsed(seconds)}
+      </span>
       {status === "running" ? (
         <Button variant="outline" size="sm" onClick={() => void cancelRun(id)}>
           Cancel
         </Button>
       ) : null}
       {reviewId === null ? null : (
-        <Link className={buttonVariants({ variant: "outline", size: "sm" })} href={`/reviews/${encodeURIComponent(reviewId)}`}>
+        <Link
+          className={buttonVariants({ variant: "outline", size: "sm" })}
+          href={`/reviews/${encodeURIComponent(reviewId)}`}
+        >
           Open review
         </Link>
       )}
@@ -125,24 +154,36 @@ function lineClass(stream: RunState["lines"][number]["stream"]): string {
 }
 
 function StageBar({ stage }: { stage: NonNullable<RunState["stage"]> }) {
-  const percent = stage.total === 0 ? 0 : Math.min(100, (stage.number / stage.total) * 100);
+  const percent =
+    stage.total === 0 ? 0 : Math.min(100, (stage.number / stage.total) * 100);
   return (
     <div className="flex flex-col gap-2">
       <p className="text-sm">
         Stage {stage.number} of {stage.total} — {stage.title}
       </p>
       <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-        <div className="h-full rounded-full bg-info-foreground transition-[width] duration-500" style={{ width: `${percent}%` }} />
+        <div
+          className="h-full rounded-full bg-info-foreground transition-[width] duration-500"
+          style={{ width: `${percent}%` }}
+        />
       </div>
     </div>
   );
 }
 
 function ProgressLines({ progress }: { progress: RunState["progress"] }) {
-  const texts = [progress.stdout, progress.stderr].filter((text): text is string => text !== undefined);
+  const texts = [progress.stdout, progress.stderr].filter(
+    (text): text is string => text !== undefined,
+  );
   const measured = measuredProgress(texts);
   if (measured !== null) {
-    return <ProgressBar percent={measured.percent} phase={phaseFrom(measured.text)} text={measured.text} />;
+    return (
+      <ProgressBar
+        percent={measured.percent}
+        phase={phaseFrom(measured.text)}
+        text={measured.text}
+      />
+    );
   }
   if (texts.length === 0) {
     return null;
@@ -159,7 +200,9 @@ function ProgressLines({ progress }: { progress: RunState["progress"] }) {
   );
 }
 
-function measuredProgress(texts: string[]): { percent: number; text: string } | null {
+function measuredProgress(
+  texts: string[],
+): { percent: number; text: string } | null {
   for (const text of texts) {
     const percent = percentFrom(text);
     if (percent !== null) {
@@ -173,7 +216,9 @@ function EndBanner({ status, code }: { status: RunStatus; code: number }) {
   return (
     <Card className="relative">
       <PetalBurst status={status} />
-      <CardContent className={`text-sm font-medium ${runStatusTextClass(status)}`}>
+      <CardContent
+        className={`text-sm font-medium ${runStatusTextClass(status)}`}
+      >
         {runStatusLabel(status)}
         {status === "failed" ? ` (exit ${code})` : ""}
       </CardContent>

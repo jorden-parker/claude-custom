@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { BenchCard } from "@/components/bench-card";
 import { BenchHistory } from "@/components/bench-history";
 import { MockDiagnostics } from "@/components/mock-diagnostics";
+import { LiveMockRun } from "@/components/live-mock-sheet";
 import { MockSheet } from "@/components/mock-sheet";
 import { PageHeading } from "@/components/page-heading";
 import {
@@ -36,6 +37,7 @@ async function MockupSections() {
   const runs = listRuns()
     .filter((run) => run.command === MOCK_SPIKE_COMMAND)
     .slice(0, HISTORY_LIMIT);
+  const live = runs.find((run) => run.status === "running");
   return (
     <>
       <section className="flex flex-col gap-3">
@@ -53,6 +55,12 @@ async function MockupSections() {
           ]}
         />
       </section>
+      {live ? (
+        <section className="flex flex-col gap-3">
+          <h2 className="text-lg font-semibold">Streaming now</h2>
+          <LiveMockRun id={live.id} />
+        </section>
+      ) : null}
       <section className="flex flex-col gap-3">
         <h2 className="text-lg font-semibold">Latest sheet</h2>
         {report ? (

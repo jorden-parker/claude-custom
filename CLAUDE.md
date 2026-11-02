@@ -363,7 +363,12 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `reports.ts` rescores every reply, so stored scores are never trusted. The
   page also starts the spike through `console-run` (the `mock-spike` entry in
   `console-commands.ts`, size param), lists its runs, and names the folder it
-  reads with every `mock-spike-*.json` found and why any was skipped.
+  reads with every `mock-spike-*.json` found and why any was skipped. The spike
+  prints a `=== run N/M brief` marker before each run and every reply line as it
+  completes, so the run page (`live-mock-sheet.tsx`, through `RunView` for the
+  `mock-spike` command) and the Mockups page's "Streaming now" section compile
+  the patches after each marker with `lib/mock-spike/live.ts` and render each
+  cell while the model is still writing.
 - `shared/hooks/tool-nudge.py` is wired only in the Ollama profiles
   (UserPromptSubmit resets its per-session state under
   `${CLAUDE_CONFIG_DIR:-~/.claude}/cache/tool-nudge/`). As PreToolUse on Bash
