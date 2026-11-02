@@ -124,7 +124,7 @@ block_count() {
 }
 
 hash_home() {
-  (cd "$HOME" && find . -type f | sort | xargs shasum)
+  (cd "$HOME" && find . -type f -not -path './.local/share/claude-custom/console/beacon/*' | sort | xargs shasum)
 }
 
 want_args="ARGS: --settings $repo/personal/settings.tokens.json a b c"
@@ -482,6 +482,8 @@ run_capture "$sandbox/clone/bin/claude-custom" update
 check_eq "update exit status" 0 "$?"
 check_eq "update pulled the new commit" "true" "$(tail -n 1 "$sandbox/clone/personal/claude.sh")"
 check_that "update rewrote zshrc block for the clone" grep -qxF "CLAUDE_CUSTOM_HOME='$sandbox/clone'" "$HOME/.zshrc"
+check_eq "update refreshes the launch beacon with the pulled commit" "$(git -C "$sandbox/clone" rev-parse HEAD)" \
+  "$(jq -r .commit "$HOME/.local/share/claude-custom/console/beacon/$(hostname -s).json" 2>/dev/null)"
 
 new_sandbox
 copy_repo "$sandbox/origin"

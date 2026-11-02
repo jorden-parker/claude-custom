@@ -101,6 +101,20 @@ before changing how any file gets applied.
   `ollama`, stub tools)
 - Config check: `bin/check-config` (prints `all passed`; static checks that the
   `ollama/` and `personal/` config files agree with each other)
+- Sync check: `claude-custom sync-check [--write] [--against FILE]` prints the
+  local fingerprint summary, one `section: <short>` line each (`commit`,
+  `dirty`, `claude_version`, `models`, `server_env`, `hooks`, `sandbox`,
+  `fingerprint`), then the sections that differ from the beacon at
+  `${XDG_CONFIG_HOME:-~/.config}/claude-custom/beacon.json` (or
+  `--against FILE`) as `section: local X vs beacon Y (<host>, <age>)`, with each
+  changed model digest and hook name spelled out; exit 0 when equal, 1 when
+  different, 2 without a beacon. `--write` writes that beacon (0600) for you to
+  copy to the other machine. `bin/sync-fingerprint` prints the JSON
+  (`--out FILE` writes it 0600 in a 0700 folder, `--summary FILE` and
+  `--age FILE` read one back); tests: `bin/sync-fingerprint.test.sh` (stub
+  `curl`, `pgrep`, `ps`, `claude`, temp git repo) and
+  `bin/claude-ollama.test.sh` for `sync-check`, the launch beacon and doctor's
+  beacon line
 - Profile generator: `bin/ollama-profiles` renders `ollama/settings.<size>.json`
   and `ollama/Modelfile.<size>` from `ollama/sizes.json` and the two
   `profile-template` files, and `personal/settings.tokens.json` from
@@ -519,6 +533,25 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `bin/check-config` fails when an Ollama profile lacks one of those bare
   denies. The personal overlay's sandbox allows the same caches and loopback
   addresses; `bin/check-config` checks they match the Ollama profiles.
+- `bin/sync-fingerprint` (bash 3.2, jq) says what a checkout runs: `commit`
+  (HEAD of `repo_dir`), `dirty` (tracked changes only), `models` (per size the
+  `-cc` model's `/api/tags` digest or `missing`, plus the base's pin state as
+  doctor sees it: `ok`, `mismatch`, `missing`, `unpinned`), `server_env` (the
+  running server's `OLLAMA_*` values, read like doctor does; `{}` when down),
+  `hooks` (sha256 per `shared/hooks/*.py` and `*.sh`, by basename, `*.test.sh`
+  left out), `sandbox` (sha256 of the rendered `sandbox` block of
+  `ollama/settings.27b.json`), `claude_version` (first line of
+  `claude --version`, else null), `host`, `ts`, and `fingerprint`, the sha256 of
+  the canonical JSON (`jq -cS`) of everything but `host` and `ts`. Every
+  `bin/claude-ollama` launch writes it to
+  `$CLAUDE_CONSOLE_STATE_DIR/beacon/<host>.json` (0700 folder, 0600 file) in the
+  background before the hand-off (`CLAUDE_OLLAMA_BEACON=0` skips it), and
+  `claude-custom install` (so `update`, through `finish-update`) refreshes it.
+  `claude-ollama doctor` prints `ok   beacon: <age> ago, commit matches`,
+  `warn beacon: stale, commit X vs HEAD Y: run claude-custom update` or
+  `warn beacon: none yet`; it never fails doctor. `claude-custom sync-check`
+  compares sections by canonical JSON, not by the stored `fingerprint`, so a
+  hand-edited beacon still diffs. Nothing is sent over the network.
 - `bin/claude-ollama` resolves its own symlink to find `ollama/`. It unsets
   `ANTHROPIC_API_KEY`, passes `--settings ollama/settings.<size>.json`,
   `--system-prompt-file ollama/system-prompt.md` (replacing Claude Code's

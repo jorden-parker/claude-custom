@@ -1,0 +1,151 @@
+#!/usr/bin/env bash
+set -u
+
+repo_dir="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+profile_dir="$repo_dir/ollama"
+ollama_url="${OLLAMA_HOST:-http://127.0.0.1:11434}"
+case "$ollama_url" in http://*|https://*) ;; *) ollama_url="http://$ollama_url" ;; esac
+summary_sections="commit dirty claude_version models server_env hooks sandbox fingerprint"
+
+usage() {
+  echo "usage: sync-fingerprint [--out FILE] | --summary FILE | --age FILE" >&2
+  exit 2
+}
+
+sha256_stdin() {
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 | cut -d' ' -f1
+  else
+    sha256sum | cut -d' ' -f1
+  fi
+}
+
+head_commit() {
+  git -C "$repo_dir" rev-parse HEAD 2>/dev/null
+}
+
+tracked_tree_is_dirty() {
+  [ -n "$(git -C "$repo_dir" status --porcelain --untracked-files=no 2>/dev/null)" ] && echo true || echo false
+}
+
+installed_tags() {
+  curl -sf -m 5 "$ollama_url/api/tags" 2>/dev/null || echo '{"models":[]}'
+}
+
+tag_digest() {
+  jq -r --arg name "$2" '.models[]? | select(.name == $name or .name == ($name + ":latest")) | .digest' <<< "$1" | head -n 1
+}
+
+pin_state() {
+  local actual="$1" pin
+  pin="$(jq -r --arg name "$2" '.[$name] // empty' "$profile_dir/model-digests.json")"
+  if [ -z "$actual" ]; then echo missing
+  elif [ -z "$pin" ]; then echo unpinned
+  elif [ "$actual" = "$pin" ]; then echo ok
+  else echo mismatch
+  fi
+}
+
+models_json() {
+  local tags modelfile size name base digest
+  tags="$(installed_tags)"
+  for modelfile in "$profile_dir"/Modelfile.*; do
+    size="${modelfile##*/Modelfile.}"
+    [ -f "$profile_dir/settings.$size.json" ] || continue
+    name="$(jq -r .model "$profile_dir/settings.$size.json")"
+    base="$(sed -n 's/^FROM //p' "$modelfile")"
+    digest="$(tag_digest "$tags" "$name")"
+    jq -n --arg size "$size" --arg name "$name" --arg digest "${digest:-missing}" \
+      --arg pin "$(pin_state "$(tag_digest "$tags" "$base")" "$base")" \
+      '{($size): {name: $name, digest: $digest, pin: $pin}}'
+  done | jq -s 'add // {}'
+}
+
+running_server_env() {
+  local pid
+  pid="$(pgrep -x ollama 2>/dev/null | head -n 1)" || true
+  [ -n "$pid" ] || return 0
+  if [ -r "/proc/$pid/environ" ]; then
+    tr '\0' '\n' < "/proc/$pid/environ"
+  else
+    ps -Eo command -p "$pid" | tr ' ' '\n'
+  fi
+}
+
+server_env_json() {
+  running_server_env | grep '^OLLAMA_[A-Z_]*=' |
+    jq -Rs 'split("\n") | map(select(length > 0) | index("=") as $at | {(.[:$at]): .[$at + 1:]}) | add // {}'
+}
+
+hooks_json() {
+  local hook
+  for hook in "$repo_dir"/shared/hooks/*.py "$repo_dir"/shared/hooks/*.sh; do
+    case "$hook" in *.test.sh) continue ;; esac
+    [ -f "$hook" ] || continue
+    jq -n --arg name "${hook##*/}" --arg hash "$(sha256_stdin < "$hook")" '{($name): $hash}'
+  done | jq -s 'add // {}'
+}
+
+sandbox_hash() {
+  jq -cS .sandbox "$profile_dir/settings.27b.json" | sha256_stdin
+}
+
+claude_version() {
+  claude --version 2>/dev/null | head -n 1
+}
+
+fingerprint_json() {
+  local body
+  body="$(jq -n --arg commit "$(head_commit)" --argjson dirty "$(tracked_tree_is_dirty)" \
+    --argjson models "$(models_json)" --argjson server_env "$(server_env_json)" --argjson hooks "$(hooks_json)" \
+    --arg sandbox "$(sandbox_hash)" --arg claude_version "$(claude_version)" \
+    'def present: if . == "" then null else . end;
+     {commit: ($commit | present), dirty: $dirty, models: $models, server_env: $server_env, hooks: $hooks,
+      sandbox: $sandbox, claude_version: ($claude_version | present)}')"
+  jq -S --arg host "$(hostname -s)" --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --arg fingerprint "$(jq -cS . <<< "$body" | sha256_stdin)" \
+    '. + {host: $host, ts: $ts, fingerprint: $fingerprint}' <<< "$body"
+}
+
+write_fingerprint() {
+  local out="$1" dir staged
+  dir="$(dirname "$out")"
+  (umask 077 && mkdir -p "$dir" && chmod 700 "$dir") || return 1
+  staged="$(umask 077 && mktemp "$dir/.beacon.XXXXXX")" || return 1
+  fingerprint_json > "$staged" && mv "$staged" "$out"
+}
+
+section_label() {
+  local file="$1" section="$2" value
+  case "$section" in
+    commit) jq -r '.commit // "none" | .[:7]' "$file" ;;
+    dirty|claude_version) jq -r ".$section | if . == null then \"none\" else tostring end" "$file" ;;
+    sandbox|fingerprint) jq -r ".$section // \"none\" | .[:12]" "$file" ;;
+    *) value="$(jq -cS ".$section" "$file" | sha256_stdin)"; echo "${value:0:12}" ;;
+  esac
+}
+
+print_summary() {
+  local section
+  for section in $summary_sections; do
+    echo "$section: $(section_label "$1" "$section")"
+  done
+}
+
+print_age() {
+  local seconds
+  seconds="$(jq -r '(now - (.ts | fromdateiso8601)) | floor' "$1")" || return 1
+  if [ "$seconds" -lt 60 ]; then echo "${seconds}s"
+  elif [ "$seconds" -lt 3600 ]; then echo "$((seconds / 60))m"
+  elif [ "$seconds" -lt 86400 ]; then echo "$((seconds / 3600))h"
+  else echo "$((seconds / 86400))d"
+  fi
+}
+
+case "${1:-}" in
+  '') fingerprint_json ;;
+  --out) [ -n "${2:-}" ] || usage; write_fingerprint "$2" ;;
+  --summary) [ -f "${2:-}" ] || usage; print_summary "$2" ;;
+  --age) [ -f "${2:-}" ] || usage; print_age "$2" ;;
+  *) usage ;;
+esac

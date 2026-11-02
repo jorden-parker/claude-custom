@@ -183,6 +183,19 @@ EOF
   chmod +x "$sandbox/stubbin/incident-watcher"
   export CLAUDE_OLLAMA_INCIDENT_WATCHER="$sandbox/stubbin/incident-watcher"
   unset CLAUDE_OLLAMA_INCIDENTS CLAUDE_OLLAMA_INCIDENTS_FILE
+  export CLAUDE_OLLAMA_BEACON=0
+}
+
+file_mode() {
+  stat -f %Lp "$1" 2>/dev/null || stat -c %a "$1"
+}
+
+wait_for_file() {
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25; do
+    [ -s "$1" ] && return 0
+    sleep 0.2
+  done
+  return 1
 }
 
 link_system_tools() {
@@ -1325,6 +1338,70 @@ check_eq "the launcher exits with claude's status" 3 "$?"
 run_capture env CLAUDE_OLLAMA_RELAUNCH=0 "$repo/bin/claude-ollama" 27b -p hi
 check_eq "CLAUDE_OLLAMA_RELAUNCH=0 execs claude in the launcher's place" "$$" "$(cat "$sandbox/claude-ppid")"
 check_eq "and sets no relaunch dir" unset "$(cat "$sandbox/relaunch-dir-env")"
+
+new_sandbox
+launch_beacon="$HOME/.local/share/claude-custom/console/beacon/$(hostname -s).json"
+run_capture env CLAUDE_OLLAMA_BEACON= "$repo/bin/claude-ollama" 27b -p hi
+check_that "a launch writes the beacon under the console state dir" wait_for_file "$launch_beacon"
+check_eq "the beacon carries the repo commit" "$(git -C "$repo" rev-parse HEAD)" "$(jq -r .commit "$launch_beacon")"
+check_eq "the beacon is 0600" 600 "$(file_mode "$launch_beacon")"
+check_eq "the beacon folder is 0700" 700 "$(file_mode "$(dirname "$launch_beacon")")"
+check_that "the launch does not wait for the beacon" grep -q '^ARGS:' "$sandbox/out"
+rm -f "$launch_beacon"
+run_capture env CLAUDE_OLLAMA_BEACON=0 "$repo/bin/claude-ollama" 27b -p hi
+sleep 1
+check_not "CLAUDE_OLLAMA_BEACON=0 writes no beacon" test -e "$launch_beacon"
+run_capture "$repo/bin/claude-ollama" doctor 27b
+check_that "doctor warns when no beacon exists" grep -qxF "warn beacon: none yet (written at the next launch)" "$sandbox/out"
+mkdir -p "$(dirname "$launch_beacon")"
+jq -n --arg commit "$(git -C "$repo" rev-parse HEAD)" --arg ts "$(jq -rn 'now - 7200 | todate')" '{commit: $commit, ts: $ts}' > "$launch_beacon"
+run_capture "$repo/bin/claude-ollama" doctor 27b
+check_that "doctor reports a beacon at HEAD with its age" grep -qxF "ok   beacon: 2h ago, commit matches" "$sandbox/out"
+jq -n --arg ts "$(jq -rn 'now - 60 | todate')" '{commit: "abc1234def5678", ts: $ts}' > "$launch_beacon"
+run_capture "$repo/bin/claude-ollama" doctor 27b
+check_that "doctor reports a beacon behind HEAD" \
+  grep -qxF "warn beacon: stale, commit abc1234 vs HEAD $(git -C "$repo" rev-parse --short=7 HEAD): run claude-custom update" "$sandbox/out"
+
+new_sandbox
+copy_repo "$sandbox/repo"
+rm -f "$sandbox/stubbin/shasum"
+git -C "$sandbox/repo" init -q
+git -C "$sandbox/repo" add -A
+git -C "$sandbox/repo" -c user.name=t -c user.email=t@t commit -qm initial
+sync_beacon="$HOME/.config/claude-custom/beacon.json"
+short_head="$(git -C "$sandbox/repo" rev-parse --short=7 HEAD)"
+run_capture "$sandbox/repo/bin/claude-custom" sync-check
+check_eq "sync-check without a beacon exits 2" 2 "$?"
+check_that "sync-check prints the local commit" grep -qxF "commit: $short_head" "$sandbox/out"
+check_that "sync-check prints a short hooks hash" grep -qE '^hooks: [0-9a-f]{12}$' "$sandbox/out"
+check_that "sync-check names the missing beacon" grep -qF "no beacon at $sync_beacon" "$sandbox/err"
+run_capture "$sandbox/repo/bin/claude-custom" sync-check --write
+check_eq "sync-check --write exits 0" 0 "$?"
+check_that "--write names the beacon" grep -qxF "beacon written: $sync_beacon" "$sandbox/out"
+check_eq "--write writes a 0600 beacon" 600 "$(file_mode "$sync_beacon")"
+check_eq "the written beacon carries the commit" "$(git -C "$sandbox/repo" rev-parse HEAD)" "$(jq -r .commit "$sync_beacon")"
+run_capture "$sandbox/repo/bin/claude-custom" sync-check
+check_eq "sync-check against an equal beacon exits 0" 0 "$?"
+check_that "an equal beacon is reported with its host and age" grep -qE "^beacon matches \($(hostname -s), [0-9]+s\)$" "$sandbox/out"
+zeros="$(printf '0%.0s' $(seq 64))"
+ones="$(printf '1%.0s' $(seq 64))"
+jq --arg zeros "$zeros" --arg ones "$ones" --arg ts "$(jq -rn 'now - 7200 | todate')" \
+  '.host = "work-laptop" | .ts = $ts | .commit = "abc1234def5678" | .hooks["tdd-guard.py"] = $zeros | .hooks["only-there.sh"] = $ones
+   | .models["27b"].digest = "sha256:theirs" | .server_env = {OLLAMA_KV_CACHE_TYPE: "f16"}' "$sync_beacon" > "$sandbox/theirs.json"
+run_capture "$sandbox/repo/bin/claude-custom" sync-check --against "$sandbox/theirs.json"
+check_eq "sync-check against a differing beacon exits 1" 1 "$?"
+check_that "a differing commit is listed" grep -qxF "commit: local $short_head vs beacon abc1234 (work-laptop, 2h)" "$sandbox/out"
+check_that "differing hooks are listed" grep -qE "^hooks: local [0-9a-f]{12} vs beacon [0-9a-f]{12} \(work-laptop, 2h\)$" "$sandbox/out"
+check_that "the changed hook is named" grep -qxF "  tdd-guard.py: local $(shasum -a 256 "$repo/shared/hooks/tdd-guard.py" | cut -c1-12) vs beacon 000000000000" "$sandbox/out"
+check_that "a hook only in the beacon is named" grep -qxF "  only-there.sh: local none vs beacon 111111111111" "$sandbox/out"
+check_that "differing models are listed" grep -qE "^models: local [0-9a-f]{12} vs beacon [0-9a-f]{12} \(work-laptop, 2h\)$" "$sandbox/out"
+check_that "the changed model is spelled out" grep -qxF "  27b: local qwen3.8-27b-cc missing vs beacon qwen3.8-27b-cc sha256:theirs" "$sandbox/out"
+check_that "a differing server env is listed" grep -qE "^server_env: local [0-9a-f]{12} vs beacon [0-9a-f]{12} \(work-laptop, 2h\)$" "$sandbox/out"
+check_not "an equal section is not listed" grep -q '^sandbox: local' "$sandbox/out"
+check_not "an equal model is not spelled out" grep -q '^  35b:' "$sandbox/out"
+run_capture "$sandbox/repo/bin/claude-custom" sync-check --against
+check_eq "sync-check --against without a file exits 2" 2 "$?"
+check_that "usage lists sync-check" grep -qF "sync-check" "$sandbox/err"
 
 if [ "$failures" -eq 0 ]; then
   echo "all passed"

@@ -370,6 +370,20 @@ restart_stale_ollama_server() {
   "${CLAUDE_OLLAMA_AGENT:-$repo_dir/bin/ollama-agent}" -apply >&2 || echo "skip: could not restart Ollama; run: claude-custom agent -apply" >&2
 }
 
+sync_fingerprint="$repo_dir/bin/sync-fingerprint"
+sync_sections="commit dirty claude_version models server_env hooks sandbox"
+sync_beacon_file="${XDG_CONFIG_HOME:-$HOME/.config}/claude-custom/beacon.json"
+
+launch_beacon_file() {
+  echo "${CLAUDE_CONSOLE_STATE_DIR:-$HOME/.local/share/claude-custom/console}/beacon/$(hostname -s).json"
+}
+
+write_launch_beacon() {
+  [ "${CLAUDE_OLLAMA_BEACON:-}" = 0 ] && return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  "$sync_fingerprint" --out "$(launch_beacon_file)" || echo "skip: launch beacon not written" >&2
+}
+
 install_all() {
   guard_repo_path
   place_links
@@ -383,7 +397,91 @@ install_all() {
   build_go_apps
   restart_stale_ollama_server
   remove_session_packages
+  write_launch_beacon
   print_activation
+}
+
+sync_check_usage() {
+  echo "usage: claude-custom sync-check [--write] [--against FILE]" >&2
+  exit 2
+}
+
+section_value() {
+  jq -cS ".$2" "$1"
+}
+
+summary_label() {
+  sed -n "s/^$2: //p" <<< "$1"
+}
+
+model_diff_lines() {
+  jq -r --slurpfile beacon "$2" '
+    def shown: if . == null then "none" else "\(.name) \(.digest)" end;
+    .models as $local | $beacon[0].models as $theirs
+    | (($local + $theirs) | keys[]) as $size
+    | select($local[$size] != $theirs[$size])
+    | "  \($size): local \($local[$size] | shown) vs beacon \($theirs[$size] | shown)"' "$1"
+}
+
+hook_diff_lines() {
+  jq -r --slurpfile beacon "$2" '
+    def shown: if . == null then "none" else .[:12] end;
+    .hooks as $local | $beacon[0].hooks as $theirs
+    | (($local + $theirs) | keys[]) as $hook
+    | select($local[$hook] != $theirs[$hook])
+    | "  \($hook): local \($local[$hook] | shown) vs beacon \($theirs[$hook] | shown)"' "$1"
+}
+
+write_sync_beacon() {
+  (umask 077 && mkdir -p "$(dirname "$sync_beacon_file")" && cp "$1" "$sync_beacon_file" && chmod 600 "$sync_beacon_file") || exit 1
+  echo "beacon written: $sync_beacon_file"
+}
+
+report_sync_diff() {
+  local local_file="$1" beacon="$2" local_summary beacon_summary host age section differs=0
+  local_summary="$("$sync_fingerprint" --summary "$local_file")"
+  beacon_summary="$("$sync_fingerprint" --summary "$beacon")"
+  host="$(jq -r '.host // "unknown host"' "$beacon")"
+  age="$("$sync_fingerprint" --age "$beacon")"
+  for section in $sync_sections; do
+    [ "$(section_value "$local_file" "$section")" != "$(section_value "$beacon" "$section")" ] || continue
+    differs=1
+    echo "$section: local $(summary_label "$local_summary" "$section") vs beacon $(summary_label "$beacon_summary" "$section") ($host, $age)"
+    case "$section" in
+      models) model_diff_lines "$local_file" "$beacon" ;;
+      hooks) hook_diff_lines "$local_file" "$beacon" ;;
+    esac
+  done
+  [ "$differs" -eq 1 ] || echo "beacon matches ($host, $age)"
+  return "$differs"
+}
+
+sync_check() {
+  local write="" against="" local_file
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --write) write=1 ;;
+      --against) [ -n "${2:-}" ] || sync_check_usage; against="$2"; shift ;;
+      *) sync_check_usage ;;
+    esac
+    shift
+  done
+  command -v jq >/dev/null 2>&1 || { echo "claude-custom sync-check: jq is required (brew install jq)" >&2; exit 1; }
+  local_file="$(umask 077 && mktemp "${TMPDIR:-/tmp}/claude-custom-sync.XXXXXX")" || exit 1
+  trap 'rm -f "$local_file"' EXIT
+  "$sync_fingerprint" > "$local_file" || exit 1
+  "$sync_fingerprint" --summary "$local_file"
+  if [ -n "$write" ]; then
+    write_sync_beacon "$local_file"
+    exit 0
+  fi
+  against="${against:-$sync_beacon_file}"
+  if [ ! -f "$against" ]; then
+    echo "no beacon at $against (run claude-custom sync-check --write on the other machine and copy its beacon.json here, or pass --against FILE)" >&2
+    exit 2
+  fi
+  report_sync_diff "$local_file" "$against"
+  exit "$?"
 }
 
 uninstall_all() {
@@ -455,7 +553,8 @@ main() {
     tools) shift; exec "$repo_dir/bin/claude-tools" "$@" ;;
     agent) shift; exec "$repo_dir/bin/ollama-agent" "$@" ;;
     ctx7) shift; run_ctx7 "$@" ;;
-    *) echo "usage: claude-custom [install|update|uninstall|ollama|qwen|tools|agent|ctx7]" >&2; exit 2 ;;
+    sync-check) shift; sync_check "$@" ;;
+    *) echo "usage: claude-custom [install|update|uninstall|ollama|qwen|tools|agent|ctx7|sync-check]" >&2; exit 2 ;;
   esac
   exit "$status"
 }
