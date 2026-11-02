@@ -21,6 +21,10 @@ export function withContext(override: ProfileOverride, context: number | null): 
   return { ...override, context: context ?? undefined };
 }
 
+export function withThinking(override: ProfileOverride, thinking: boolean | null): ProfileOverride {
+  return { ...override, thinking: thinking ?? undefined };
+}
+
 export function withSandbox(override: ProfileOverride, sandbox: boolean | null): ProfileOverride {
   return { ...override, sandbox: sandbox ?? undefined };
 }

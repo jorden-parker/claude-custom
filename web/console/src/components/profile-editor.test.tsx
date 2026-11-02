@@ -138,6 +138,19 @@ describe("ProfileEditor", () => {
     expect(screen.getByText("Sandbox is always on for Ollama profiles.")).toBeTruthy();
   });
 
+  it("offers a thinking switch for an Ollama profile that is off by default", async () => {
+    mockProfileApi(OLLAMA_DETAIL);
+    render(<ProfileEditor id="ollama-27b" />);
+    await screen.findByText("Fetch a web page");
+
+    fireEvent.click(screen.getByRole("tab", { name: "Sandbox & model" }));
+
+    const thinking = (await screen.findByRole("switch", { name: "Thinking enabled" })) as HTMLInputElement;
+    expect(thinking.checked).toBe(false);
+    fireEvent.click(thinking);
+    expect(screen.getByText("Unsaved changes")).toBeTruthy();
+  });
+
   it("lists the hooks read-only and toggles the Ollama MCP servers", async () => {
     mockProfileApi(OLLAMA_DETAIL);
     render(<ProfileEditor id="ollama-27b" />);

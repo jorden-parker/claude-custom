@@ -84,7 +84,21 @@ Claude Code asks for adaptive thinking at high effort. Ollama only understands
 enabled or disabled, so it would reason at high effort on every turn. The
 profiles set `CLAUDE_CODE_EXTRA_BODY` to `{"thinking":{"type":"disabled"}}`,
 which Ollama reads first. To measure it, run
-`bin/messages-bench --thinking claude-code|disabled`.
+`bin/messages-bench --thinking claude-code|disabled`. To turn thinking on for
+one size, set `"thinking": true` in its profile (the Model thinking switch on
+the console's `/profiles/ollama-<size>` page, Sandbox & model tab): the launch
+then drops that variable from the derived settings, so Claude Code's own
+adaptive request reaches Ollama and the model reasons before every reply.
+Thinking tokens count against `CLAUDE_CODE_MAX_OUTPUT_TOKENS`, and
+`thinking-check` still measures the model with thinking off, since it never
+reads a profile. The profiles also set every telemetry, error-report, survey,
+feedback-draft, update-check and marketplace-install switch off
+(`DISABLE_TELEMETRY`, `DO_NOT_TRACK`, `DISABLE_ERROR_REPORTING`,
+`DISABLE_AUTOUPDATER`, `DISABLE_BUG_COMMAND`,
+`CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY`, `CLAUDE_CODE_SEND_FEEDBACK=0`,
+`CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL`, `feedbackDrafts: off`,
+`feedbackSurveyRate: 0`) beside `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, and
+`bin/check-config` checks them.
 
 Plain `claude` stays on the personal setup. The profile only exists for that
 launch.
@@ -508,6 +522,7 @@ launch (every key optional):
 {
   "tools": { "WebFetch": "allow", "Glob": "off" },
   "context": 65536,
+  "thinking": true,
   "parameters": { "temperature": 0.6 },
   "mcp": { "dev": false },
   "env": { "CLAUDE_OLLAMA_TELEMETRY": "0" }
@@ -518,7 +533,8 @@ launch (every key optional):
 tool to `--tools` and the settings, `off` and `deny` remove it, `default` leaves
 it. `Agent` cannot be enabled for Ollama (there is no side model). A `context`
 or `parameters` override recreates the `-cc` model at launch, as the Modelfile
-drift fix does, and `doctor` checks the same values. `env` takes only
+drift fix does, and `doctor` checks the same values. `thinking: true` turns the
+model's thinking on for that size (off by default, see above). `env` takes only
 `CLAUDE_OLLAMA_TELEMETRY`, `CLAUDE_OLLAMA_NO_INDEX`, `CLAUDE_OLLAMA_OPEN_DRAFTS`
 and `CLAUDE_OLLAMA_CMUX`, and a variable already set in your shell wins. A
 symlinked profile stops the launch. `claude-ollama --print-config SIZE` and

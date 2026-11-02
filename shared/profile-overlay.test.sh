@@ -38,6 +38,15 @@ check_eq "context sets the max context tokens" 50000 "$(settings_for claude-code
 check_eq "context keeps the other env values" 1 "$(settings_for claude-code '{"context":50000}' | jq -r '.env.KEEP')"
 check_eq "an ollama context keeps the output and summary headroom out of the max context tokens" 20480 "$(settings_for ollama-27b '{"context":32768}' | jq -r '.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS')"
 check_eq "an ollama context below the headroom is refused" 1 "$(printf '%s' '{"context":8192}' > "$tmp/profiles/ollama-27b.json"; status_of "$script" settings "$base" "$tmp/profiles/ollama-27b.json" "$tmp/out.json")"
+printf '%s\n' '{"env":{"KEEP":"1","CLAUDE_CODE_EXTRA_BODY":"{\"thinking\":{\"type\":\"disabled\"}}"}}' > "$tmp/thinking-base.json"
+thinking_for() {
+  printf '%s' "$2" > "$tmp/profiles/$1.json"
+  "$script" settings "$tmp/thinking-base.json" "$tmp/profiles/$1.json" "$tmp/out-thinking-$1.json" && jq -r '.env.CLAUDE_CODE_EXTRA_BODY // "absent"' "$tmp/out-thinking-$1.json"
+}
+check_eq "thinking true drops the extra body that turns thinking off" absent "$(thinking_for ollama-27b '{"thinking":true}')"
+check_eq "thinking false keeps it" '{"thinking":{"type":"disabled"}}' "$(thinking_for ollama-27b '{"thinking":false}')"
+check_eq "thinking true keeps the other env values" 1 "$(jq -r .env.KEEP "$tmp/out-thinking-ollama-27b.json")"
+check_eq "thinking is ignored for claude-code" '{"thinking":{"type":"disabled"}}' "$(thinking_for claude-code '{"thinking":true}')"
 check_eq "an ollama profile cannot allow Agent" true "$(settings_for ollama-27b '{"tools":{"Agent":"allow"}}' | jq -r '.permissions.deny | index("Agent") != null')"
 check_eq "an ollama profile can allow Glob" '["Glob"]' "$(settings_for ollama-27b '{"tools":{"Glob":"allow"}}' | jq -c '.permissions.allow | map(select(. == "Glob"))')"
 check_eq "a missing profile passes the base through" "$(jq -c -S . "$base")" "$("$script" settings "$base" "$tmp/profiles/absent.json" "$tmp/out-absent.json" && jq -c -S . "$tmp/out-absent.json")"
@@ -89,8 +98,8 @@ touch "$xdg/claude-custom/sandbox-off"
 check_eq "sandbox-off is true when the sandbox-off file exists" true "$(XDG_CONFIG_HOME="$xdg" "$script" sandbox-off)"
 rm -f "$xdg/claude-custom/sandbox-off"
 
-printf '%s' '{"tools":{"Glob":"allow"},"mcp":{"dev":false}}' > "$tmp/profiles/summary.json"
-check_eq "summary lists the overrides in effect" "tools.Glob=allow, mcp.dev=false" "$("$script" summary "$tmp/profiles/summary.json")"
+printf '%s' '{"tools":{"Glob":"allow"},"thinking":true,"mcp":{"dev":false}}' > "$tmp/profiles/summary.json"
+check_eq "summary lists the overrides in effect" "tools.Glob=allow, thinking=true, mcp.dev=false" "$("$script" summary "$tmp/profiles/summary.json")"
 check_eq "summary says none without a profile" none "$("$script" summary "$tmp/profiles/absent.json")"
 
 check_eq "check accepts a missing profile" 0 "$(status_of "$script" check "$tmp/profiles/absent.json")"

@@ -5,6 +5,7 @@ import {
   withMcp,
   withParameter,
   withSandbox,
+  withThinking,
   withToolState,
 } from "./profile-draft";
 
@@ -30,6 +31,11 @@ describe("profile drafts", () => {
     expect(withContext({}, 32768)).toEqual({ context: 32768 });
     expect(withContext({ context: 32768 }, null)).toEqual({ context: undefined });
     expect(withSandbox({}, false)).toEqual({ sandbox: false });
+  });
+
+  it("sets and clears thinking", () => {
+    expect(withThinking({}, true)).toEqual({ thinking: true });
+    expect(withThinking({ thinking: true }, null)).toEqual({ thinking: undefined });
   });
 
   it("toggles an MCP server and an env key", () => {

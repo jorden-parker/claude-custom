@@ -53,9 +53,11 @@ for settings in "$repo"/ollama/settings.*.json; do
     "$(jq -r '[.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS, .env.API_TIMEOUT_MS] | join(" ")' "$settings")"
   check_eq "${settings##*/} keeps the prompt prefix stable so Ollama reuses its cache" "0 off" \
     "$(jq -r '[.env.CLAUDE_CODE_ATTRIBUTION_HEADER, .env.CLAUDE_CODE_TOTAL_TOKENS_REMINDER] | join(" ")' "$settings")"
-  check_eq "${settings##*/} asks Ollama for no thinking, since Claude Code's adaptive thinking reaches Ollama as effort high" \
+  check_eq "${settings##*/} asks Ollama for no thinking, since Claude Code's adaptive thinking reaches Ollama as effort high (a profile's thinking:true drops it)" \
     '{"thinking":{"type":"disabled"}}' \
     "$(jq -r .env.CLAUDE_CODE_EXTRA_BODY "$settings" | jq -c .)"
+  check_eq "${settings##*/} sends no telemetry, error reports, surveys, feedback drafts, update checks or marketplace installs home" "1 1 1 1 1 1 0 1 off 0" \
+    "$(jq -r '[.env.DISABLE_TELEMETRY, .env.DO_NOT_TRACK, .env.DISABLE_ERROR_REPORTING, .env.DISABLE_AUTOUPDATER, .env.DISABLE_BUG_COMMAND, .env.CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY, .env.CLAUDE_CODE_SEND_FEEDBACK, .env.CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL, .feedbackDrafts, .feedbackSurveyRate] | map(tostring) | join(" ")' "$settings")"
   check_eq "${settings##*/} runs Bash in Claude Code's own sandbox and lets sandboxed commands run without a prompt" "true true" \
     "$(jq -r '[.sandbox.enabled, .sandbox.autoAllowBashIfSandboxed] | map(tostring) | join(" ")' "$settings")"
   check_eq "${settings##*/} runs only cmux, gh, short, git push, claude-custom ctx7 and pnpm outside the sandbox" '["cmux *","gh *","short *","git push *","claude-custom ctx7 *","pnpm *"]' \
