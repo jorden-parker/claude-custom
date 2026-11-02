@@ -1,0 +1,270 @@
+#!/bin/bash
+set -euo pipefail
+
+lease_dir="${CLAUDE_OLLAMA_LEASE_DIR:-$HOME/.claude-ollama/lease}"
+lock_dir="$lease_dir/lease.lock"
+ollama_url="${OLLAMA_HOST:-http://127.0.0.1:11434}"
+case "$ollama_url" in http://*|https://*) ;; *) ollama_url="http://$ollama_url" ;; esac
+keep_alive="${CLAUDE_OLLAMA_KEEP_ALIVE:-30m}"
+heartbeat_seconds="${CLAUDE_OLLAMA_LEASE_HEARTBEAT:-120}"
+poll_seconds="${CLAUDE_OLLAMA_LEASE_POLL:-1}"
+refused_status=3
+lock_tries=200
+name=""
+model=""
+holder_pid="$PPID"
+num_ctx=""
+rung=""
+exclusive=""
+wait_seconds=""
+watch_pid=""
+fast_marker=""
+
+usage() {
+  cat >&2 <<'EOF'
+usage: ollama-lease acquire NAME [--model M] [--pid N] [--num-ctx N] [--rung R] [--exclusive] [--wait SECONDS]
+       ollama-lease release NAME [--pid N]
+       ollama-lease holders
+       ollama-lease heartbeat --watch-pid N [--model M] [--fast-marker FILE]
+EOF
+  exit 2
+}
+
+option_value() {
+  [ $# -ge 2 ] || usage
+  printf '%s' "$2"
+}
+
+parse_options() {
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --model) model="$(option_value "$@")"; shift 2 ;;
+      --pid) holder_pid="$(option_value "$@")"; shift 2 ;;
+      --num-ctx) num_ctx="$(option_value "$@")"; shift 2 ;;
+      --rung) rung="$(option_value "$@")"; shift 2 ;;
+      --wait) wait_seconds="$(option_value "$@")"; shift 2 ;;
+      --watch-pid) watch_pid="$(option_value "$@")"; shift 2 ;;
+      --fast-marker) fast_marker="$(option_value "$@")"; shift 2 ;;
+      --exclusive) exclusive=1; shift ;;
+      *) usage ;;
+    esac
+  done
+}
+
+prepare_dir() {
+  (umask 077; mkdir -p "$lease_dir")
+  chmod 700 "$lease_dir"
+}
+
+drop_lock() {
+  rmdir "$lock_dir" 2>/dev/null || true
+}
+
+remove_stale_lock() {
+  [ -n "$(find "$lock_dir" -maxdepth 0 -mmin +1 2>/dev/null)" ] && rmdir "$lock_dir" 2>/dev/null || true
+}
+
+take_lock() {
+  local tries=0
+  until mkdir "$lock_dir" 2>/dev/null; do
+    remove_stale_lock
+    tries=$((tries + 1))
+    [ "$tries" -lt "$lock_tries" ] || { echo "ollama lease: $lock_dir is held" >&2; exit 1; }
+    sleep 0.05
+  done
+  trap drop_lock EXIT
+}
+
+pid_of() {
+  local file="${1##*/}"
+  file="${file%.json}"
+  case "$file" in ''|*[!0-9]*) return 1 ;; esac
+  printf '%s' "$file"
+}
+
+pid_alive() {
+  kill -0 "$1" 2>/dev/null
+}
+
+holder_line() {
+  jq -r '[.name, .model // "", .rung // ""] | @tsv' "$1" 2>/dev/null
+}
+
+lease_files() {
+  local file
+  for file in "$lease_dir"/*.json; do
+    [ -f "$file" ] || continue
+    pid_of "$file" >/dev/null || continue
+    printf '%s\n' "$file"
+  done
+}
+
+prune_dead() {
+  local file pid
+  while IFS= read -r file; do
+    pid="$(pid_of "$file")"
+    pid_alive "$pid" || rm -f "$file"
+  done < <(lease_files)
+}
+
+other_holders() {
+  local file pid holder_name holder_model holder_rung
+  while IFS= read -r file; do
+    pid="$(pid_of "$file")"
+    [ "$pid" != "$holder_pid" ] || continue
+    IFS=$'\t' read -r holder_name holder_model holder_rung < <(holder_line "$file") || continue
+    printf '%s\t%s\t%s\t%s\n' "$holder_name" "$pid" "$holder_model" "$holder_rung"
+  done < <(lease_files)
+}
+
+blocking_holder() {
+  if [ -n "$exclusive" ]; then
+    other_holders | head -n 1
+  else
+    other_holders | awk -F '\t' '$1 == "session" { print; exit }'
+  fi
+}
+
+running_server_env() {
+  local pid
+  pid="$(pgrep -x ollama | head -n 1)" || true
+  [ -n "$pid" ] || return 1
+  if [ -r "/proc/$pid/environ" ]; then
+    tr '\0' '\n' < "/proc/$pid/environ"
+  else
+    ps -Eo command -p "$pid" | tr ' ' '\n'
+  fi
+}
+
+server_max_loaded_models() {
+  running_server_env 2>/dev/null | sed -n 's/^OLLAMA_MAX_LOADED_MODELS=//p' | head -n 1
+}
+
+distinct_model_count() {
+  { other_holders | cut -f 3; printf '%s\n' "$model"; } | grep -v '^$' | sort -u | wc -l | tr -d ' '
+}
+
+models_fit() {
+  local cap
+  cap="$(server_max_loaded_models)"
+  [ -n "$cap" ] && [ "$cap" -ge "$(distinct_model_count)" ] 2>/dev/null
+}
+
+write_lease() {
+  local target="$lease_dir/$holder_pid.json"
+  (umask 077; jq -cn --arg name "$name" --arg model "$model" --arg num_ctx "$num_ctx" --arg rung "$rung" \
+    --arg started "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '{name: $name, model: (if $model == "" then null else $model end),
+      num_ctx: (if $num_ctx == "" then null else ($num_ctx | tonumber) end),
+      rung: (if $rung == "" then null else $rung end), started: $started}' > "$target.tmp")
+  mv -f "$target.tmp" "$target"
+}
+
+refusal() {
+  local holder_name holder_pid_ holder_model
+  IFS=$'\t' read -r holder_name holder_pid_ holder_model _ <<< "$1"
+  echo "ollama lease: held by $holder_name (pid $holder_pid_, model $holder_model); run after that session ends or set OLLAMA_MAX_LOADED_MODELS=2" >&2
+}
+
+try_acquire() {
+  take_lock
+  prune_dead
+  blocker="$(blocking_holder)"
+  if [ -z "$blocker" ] || { [ -z "$exclusive" ] && models_fit; }; then
+    write_lease
+    drop_lock
+    return 0
+  fi
+  drop_lock
+  return "$refused_status"
+}
+
+deadline_passed() {
+  awk -v start="$1" -v now="$(date +%s)" -v limit="$wait_seconds" 'BEGIN { exit !(now - start >= limit) }'
+}
+
+acquire() {
+  local started blocker=""
+  started="$(date +%s)"
+  while :; do
+    try_acquire && return 0
+    if [ -z "$wait_seconds" ] || deadline_passed "$started"; then break; fi
+    sleep "$poll_seconds"
+  done
+  refusal "$blocker"
+  exit "$refused_status"
+}
+
+release() {
+  local file="$lease_dir/$holder_pid.json"
+  take_lock
+  prune_dead
+  [ "$(holder_line "$file" | cut -f 1)" = "$name" ] && rm -f "$file"
+  drop_lock
+  return 0
+}
+
+holders() {
+  local file pid holder_name holder_model holder_rung
+  take_lock
+  while IFS= read -r file; do
+    pid="$(pid_of "$file")"
+    IFS=$'\t' read -r holder_name holder_model holder_rung < <(holder_line "$file") || continue
+    if pid_alive "$pid"; then
+      echo "live $holder_name pid $pid model ${holder_model:--} rung ${holder_rung:--}"
+    else
+      echo "stale $holder_name pid $pid model ${holder_model:--}"
+      rm -f "$file"
+    fi
+  done < <(lease_files)
+  drop_lock
+}
+
+leased_model() {
+  holder_line "$lease_dir/$watch_pid.json" | cut -f 2
+}
+
+send_keep_alive() {
+  command -v curl >/dev/null 2>&1 || return 0
+  curl -s -o /dev/null -m 10 -X POST "$ollama_url/api/generate" \
+    -d "{\"model\":\"$1\",\"keep_alive\":\"$keep_alive\"}" >/dev/null 2>&1 || true
+}
+
+heartbeat_interval() {
+  if [ -n "$fast_marker" ] && [ -e "$fast_marker" ]; then
+    awk -v seconds="$heartbeat_seconds" 'BEGIN { print seconds / 2 }'
+  else
+    printf '%s' "$heartbeat_seconds"
+  fi
+}
+
+heartbeat() {
+  local leased
+  [ -n "$watch_pid" ] || usage
+  while pid_alive "$watch_pid"; do
+    sleep "$(heartbeat_interval)"
+    pid_alive "$watch_pid" || break
+    leased="${model:-$(leased_model)}"
+    [ -z "$leased" ] || send_keep_alive "$leased"
+  done
+}
+
+[ $# -ge 1 ] || usage
+command_name="$1"
+shift
+case "$command_name" in
+  acquire|release)
+    [ $# -ge 1 ] || usage
+    name="$1"
+    shift
+    ;;
+esac
+parse_options "$@"
+prepare_dir
+case "$command_name" in
+  acquire) acquire ;;
+  release) release ;;
+  holders) holders ;;
+  heartbeat) heartbeat ;;
+  *) usage ;;
+esac

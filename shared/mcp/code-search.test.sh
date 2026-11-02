@@ -253,6 +253,16 @@ allowed="$(CODE_SEARCH_EMBED=1 search "password check" | reply_text)"
 check "with embeddings allowed the query is embedded even when the model is not loaded" [ "$(embedded_inputs_last_call)" = "1" ]
 check "with embeddings allowed there is no words-only note" lacks "$allowed" "words only"
 
+model_loaded
+mkdir -p "$tmp/relaunch"
+: > "$tmp/relaunch/embed-off"
+rm -f "$tmp/embed.log"
+embed_off="$(CLAUDE_OLLAMA_RELAUNCH_DIR="$tmp/relaunch" CODE_SEARCH_EMBED=1 search "password check" | reply_text)"
+check "an embed-off file in the relaunch dir stops embedding even when allowed and loaded" [ ! -e "$tmp/embed.log" ]
+check "with embeddings off the reply says words only" contains "$embed_off" "words only"
+check "with embeddings off the words still find the code" first_line_starts_with "$embed_off" "src/auth.py:1-2"
+model_unloaded
+
 chmod 000 "$repo/src/chart.py"
 still="$(search "chart" | reply_text)"
 chmod 644 "$repo/src/chart.py"
