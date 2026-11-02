@@ -1,0 +1,18 @@
+[
+  {
+    "match": "edit or add the test first",
+    "steps": [
+      "edit the test file the reason names, beside the file (X_test.go, X.test.ts or X.test.sh), with one failing case",
+      "run it (go test ./..., pnpm test or ./X.test.sh) and watch that case fail",
+      "retry the edit"
+    ]
+  },
+  {
+    "match": "changed; run it",
+    "steps": [
+      "run the test the reason names (go test ./..., pnpm test or ./X.test.sh)",
+      "watch the new case fail",
+      "retry the edit"
+    ]
+  }
+]

@@ -1,0 +1,18 @@
+[
+  {
+    "match": "Text search refused",
+    "steps": [
+      "call mcp__code-search__semantic_search once with a plain-words query",
+      "Read only the ranges it returns",
+      "then git grep -n the exact name if a definition is still missing"
+    ]
+  },
+  {
+    "match": "node_modules refused",
+    "steps": [
+      "call Skill find-docs for the library's docs, or mcp__dev__dev_deps to check it is installed",
+      "Read node_modules/<name>/package.json only for its version",
+      "after one find-docs lookup this turn, node_modules opens for details"
+    ]
+  }
+]

@@ -449,11 +449,36 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   an error flag) is never recorded. Before an exact same-turn repeat whose stamp
   is unchanged it denies with
   `same result as call #N this turn, unchanged since; use it` and writes a
-  friction line carrying `saved_bytes`. `bin/check-config` fails when an Ollama
-  profile lacks either hook, and `bin/tool-telemetry-report` prints a friction
-  section (trips per hook, cache hits, bytes saved). Tests:
+  friction line carrying `saved_bytes`. A Read's served content (64 KiB or less)
+  is also kept as a 0600 snapshot under `cache/friction/<session_id>.snapshots/`
+  (stale ones pruned at each record). When the same Read repeats after the
+  file's mtime changed, the hook diffs the snapshot against the file: identical
+  content is the same denial; otherwise it rewrites the call through
+  `updatedInput` (`permissionDecision: allow`) to the changed span plus 3 lines
+  of margin, at most 300 lines, with `additionalContext`
+  `lines A-B changed since call #N; showing only them` (or
+  `showing only A-C (read on from C+1 for the rest)` when cut); a file with no
+  snapshot passes through whole. Recovery recipes are data:
+  `ollama/recipes/<hook>.json` holds `{"match": regex, "steps": [...]}` entries
+  for `bash-output-guard`, `read-range-guard`, `tool-nudge` and `tdd-guard`;
+  `shared/hooks/recovery_recipes.py` appends the first match's steps (numbered,
+  at most 3, `Recovery: 1. ...; 2. ...`) to the plan-reset line, and
+  `tdd-guard.py` appends them to the `additionalContext` it returns on the
+  strike that lets an edit through (naming the expected test file). An unmatched
+  reason gets no steps. `bin/check-config` validates every recipe file (hook
+  exists, regex compiles, one to three non-empty steps) and fails when an Ollama
+  profile lacks either hook. `bin/tool-telemetry-report` prints a friction
+  section (trips per hook, cache hits, bytes saved) and a `guards` table
+  (denials, trips and trips per 100 denials per hook) ending in `lint:` lines: a
+  hook over 20 trips per 100 denials across 30 or more denials is
+  `lint: <hook>: message unclear or rule too strict: <most common reason>`, else
+  `lint: none flagged`. `claude-ollama doctor` runs that report on the session's
+  telemetry log when it exists and prints `ok   guards: none flagged` or one
+  `warn guards: <hook>: <lint text>` per flagged hook. Tests:
   `shared/hooks/friction_budget.test.sh`,
-  `shared/hooks/repeat-call-cache.test.sh`, and the three guards' tests.
+  `shared/hooks/repeat-call-cache.test.sh`, `shared/hooks/tdd-guard.test.sh`,
+  `bin/tool-telemetry-report.test.sh`, `bin/claude-ollama.test.sh` and the three
+  guards' tests.
 - `shared/hooks/name-nudge.py` is wired only in the Ollama profiles, as
   PreToolUse on Edit, Write and MultiEdit. It never denies: when the written
   text declares a placeholder name (`tmp`, `data2`, `obj`, `handleStuff`, a

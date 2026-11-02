@@ -8,6 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from hook_telemetry import record_hook_event
+from recovery_recipes import recovery_line
 
 PLAIN_DENIALS = 3
 READ_RANGE_BUCKET = 300
@@ -81,11 +82,11 @@ def describe(tool_name, tool_input):
     return tool_name
 
 
-def plan_reset(hook, count, tool_name, tool_input, alternative):
+def plan_reset(hook, count, tool_name, tool_input, alternative, reason):
     return (
         f"Stop retrying: {hook} has refused {count} near-identical {tool_name} calls this turn "
         f"({describe(tool_name, tool_input)}). The one allowed alternative: {alternative}. "
-        "Do not try this again; do the alternative or move on."
+        "Do not try this again; do the alternative or move on." + recovery_line(hook, reason)
     )
 
 
@@ -104,7 +105,7 @@ def deny_reason(hook, event, reason, alternative):
         return reason
     trip = f"plan reset after {count} near-identical {tool_name} denials"
     record_hook_event(hook, event, "friction", trip, {"fingerprint": fingerprint_hash(key)})
-    return plan_reset(hook, count, tool_name, tool_input, alternative)
+    return plan_reset(hook, count, tool_name, tool_input, alternative, reason)
 
 
 def main():

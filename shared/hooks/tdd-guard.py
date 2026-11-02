@@ -7,6 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from hook_telemetry import record_denial, record_hook_event
+from recovery_recipes import recovery_line
 
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit"}
 CODE_SUFFIXES = {".go", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py", ".sh", ".bash", ".zsh"}
@@ -157,6 +158,18 @@ def deny(reason):
     }
 
 
+def strike_context(state, path):
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "additionalContext": (
+                f"tdd-guard let {path.name} through after {STRIKE_LIMIT} refusals; its test is "
+                f"{expected_test_name(path)}.{recovery_line('tdd-guard', deny_reason(state, path))}"
+            ),
+        }
+    }
+
+
 def gate(state, event):
     tool_name = event.get("tool_name", "")
     tool_input = event.get("tool_input") or {}
@@ -169,7 +182,7 @@ def gate(state, event):
     state["strikes"][str(path)] = strikes
     if strikes > STRIKE_LIMIT:
         record_hook_event("tdd-guard", event, "allow-after-strikes", str(path))
-        return None
+        return strike_context(state, path)
     return deny(deny_reason(state, path))
 
 
@@ -189,9 +202,11 @@ def main():
     elif hook_event == "PreToolUse":
         output = gate(state, event)
     save_state(path, state)
-    if output:
+    if output is None:
+        return
+    if "permissionDecisionReason" in output["hookSpecificOutput"]:
         record_denial("tdd-guard", event, output["hookSpecificOutput"]["permissionDecisionReason"])
-        print(json.dumps(output))
+    print(json.dumps(output))
 
 
 if __name__ == "__main__":

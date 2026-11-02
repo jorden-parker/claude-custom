@@ -95,6 +95,21 @@ expect allow 'python shares the dir scope' Edit "$py_source"
 expect deny  'another session starts locked' Edit "$go_source" s2
 expect deny  'second strike' Edit "$go_source" s2
 expect allow 'third strike lets the edit through' Edit "$go_source" s2
+event PreToolUse Edit "$go_source" s2 >/dev/null
+event PreToolUse Edit "$go_source" s2 >/dev/null
+event PreToolUse Edit "$other_source" s2 >/dev/null
+event PreToolUse Edit "$other_source" s2 >/dev/null
+strike_output="$(event PreToolUse Edit "$other_source" s2)"
+for expected in '"additionalContext"' 'Recovery: 1. ' 'run.test.sh' '2. run' '3. retry the edit'; do
+  if ! printf '%s' "$strike_output" | grep -qF -- "$expected"; then
+    echo "FAIL: the third strike names the recovery recipe: lacks [$expected]"
+    failures=$((failures + 1))
+  fi
+done
+if printf '%s' "$strike_output" | grep -q '"permissionDecision"'; then
+  echo "FAIL: the third strike's context carries no permission decision"
+  failures=$((failures + 1))
+fi
 if ! grep -q '"kind": "allow-after-strikes"' "$CLAUDE_TOOL_TELEMETRY"; then
   echo "FAIL: the third strike should be recorded"
   failures=$((failures + 1))

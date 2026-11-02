@@ -748,6 +748,20 @@ PATH="$sandbox/realbin:$PATH" CLAUDE_OLLAMA_INCIDENT_WATCHER="$repo/ollama/incid
   STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_server_env" run_capture "$repo/bin/claude-ollama" doctor 27b
 check_eq "doctor with a server log no rule matches exit status" 1 "$?"
 check_that "doctor fails when the classifier is blind to the server log" grep -qxF "fail incident classifier is blind to the server log format (update ollama/incidents/watcher.py rules)" "$sandbox/out"
+check_that "doctor skips the guard lint without a telemetry log" grep -qxF "ok   guards: not checked (no telemetry log)" "$sandbox/out"
+mkdir -p "$HOME/.claude-ollama/telemetry"
+{
+  for _ in $(seq 30); do echo '{"time":1,"session":"c","kind":"deny","hook":"read-range-guard","tool":"Read","reason":"a.py has 900 lines"}'; done
+  for _ in $(seq 7); do echo '{"time":1,"session":"c","kind":"friction","hook":"read-range-guard","tool":"Read","reason":"plan reset after 4 near-identical Read denials","fingerprint":"aa"}'; done
+} > "$HOME/.claude-ollama/telemetry/tool-calls.jsonl"
+PATH="$sandbox/realbin:$PATH" CLAUDE_OLLAMA_INCIDENT_WATCHER="$repo/ollama/incidents/watcher.py" HOMEBREW_PREFIX="$sandbox/brew" \
+  STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_server_env" run_capture "$repo/bin/claude-ollama" doctor 27b
+check_that "doctor warns about a guard the telemetry flags" grep -qxF "warn guards: read-range-guard: message unclear or rule too strict: a.py has 900 lines" "$sandbox/out"
+head -n 3 "$HOME/.claude-ollama/telemetry/tool-calls.jsonl" > "$sandbox/few.jsonl"
+mv "$sandbox/few.jsonl" "$HOME/.claude-ollama/telemetry/tool-calls.jsonl"
+PATH="$sandbox/realbin:$PATH" CLAUDE_OLLAMA_INCIDENT_WATCHER="$repo/ollama/incidents/watcher.py" HOMEBREW_PREFIX="$sandbox/brew" \
+  STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_server_env" run_capture "$repo/bin/claude-ollama" doctor 27b
+check_that "doctor reports no flagged guard" grep -qxF "ok   guards: none flagged" "$sandbox/out"
 
 new_sandbox
 STUB_OLLAMA_SHOW_EXIT=1 STUB_OLLAMA_PID=42 run_capture "$repo/bin/claude-ollama" doctor 27b
