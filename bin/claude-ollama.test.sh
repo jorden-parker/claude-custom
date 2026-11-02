@@ -69,6 +69,7 @@ new_sandbox() {
   unset STUB_OLLAMA_PID STUB_OLLAMA_ENV STUB_CURL_EXIT STUB_OLLAMA_NUM_CTX STUB_AGENT_EXIT CMUX_SOCKET_PATH CLAUDE_OLLAMA_CMUX
   unset STUB_SHASUM_DIGEST STUB_INSPECT_EXIT STUB_CLAUDE_STDERR CLAUDE_CONSOLE_STATE_DIR
   unset CLAUDE_TOOL_TELEMETRY CLAUDE_OLLAMA_TELEMETRY STUB_CLAUDE_RELAUNCH_ONCE STUB_CLAUDE_RELAUNCH_PROMPT STUB_CLAUDE_EXIT CLAUDE_OLLAMA_RELAUNCH
+  unset STUB_CLAUDE_LADDER_ONCE STUB_CLAUDE_EMBED_OFF STUB_CLAUDE_SLEEP CLAUDE_OLLAMA_LEASE CLAUDE_OLLAMA_LADDER CLAUDE_OLLAMA_LEASE_HEARTBEAT
   export SHELL=/bin/zsh
   record_installed_parameters
   export CLAUDE_OLLAMA_MANAGED_SETTINGS="$sandbox/managed-settings.json"
@@ -89,6 +90,13 @@ for arg; do echo "ARG: \$arg"; done
 if [ -n "\${CLAUDE_OLLAMA_RELAUNCH_DIR:-}" ]; then
   for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "\$CLAUDE_OLLAMA_RELAUNCH_DIR/claude.pid" ] && break; sleep 0.1; done
   cat "\$CLAUDE_OLLAMA_RELAUNCH_DIR/claude.pid" > "$sandbox/pid-file-seen" 2>/dev/null
+fi
+for lease_file in "$HOME/.claude-ollama/lease"/*.json; do [ -f "\$lease_file" ] && jq -c . "\$lease_file" >> "$sandbox/lease-seen"; done
+[ -n "\${STUB_CLAUDE_SLEEP:-}" ] && sleep "\$STUB_CLAUDE_SLEEP"
+if [ -n "\${STUB_CLAUDE_LADDER_ONCE:-}" ] && [ ! -e "$sandbox/laddered" ]; then
+  : > "$sandbox/laddered"
+  [ -z "\${STUB_CLAUDE_EMBED_OFF:-}" ] || : > "\$CLAUDE_OLLAMA_RELAUNCH_DIR/embed-off"
+  echo '{"rung":"context-down","context":32768,"reason":"3 truncated prompts within 10 minutes"}' > "\$CLAUDE_OLLAMA_RELAUNCH_DIR/ladder"
 fi
 if [ -n "\${STUB_CLAUDE_RELAUNCH_ONCE:-}" ] && [ ! -e "$sandbox/relaunched" ]; then
   : > "$sandbox/relaunched"
@@ -149,6 +157,7 @@ EOF
   cat > "$sandbox/stubbin/python3" <<EOF
 #!/bin/sh
 echo "\$*" >> "$sandbox/python.log"
+echo "\${CODE_SEARCH_EMBED-unset}" > "$sandbox/indexer-embed-env"
 EOF
   cat > "$sandbox/stubbin/ollama-agent" <<EOF
 #!/bin/sh
@@ -195,6 +204,12 @@ EOF
   export CLAUDE_OLLAMA_PROXY_BIN="$sandbox/stubbin/messages-proxy"
   export CLAUDE_OLLAMA_PROXY=0
   unset STUB_PROXY_PORT
+  cat > "$sandbox/stubbin/ladder" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" > "$sandbox/ladder-args"
+EOF
+  chmod +x "$sandbox/stubbin/ladder"
+  export CLAUDE_OLLAMA_LADDER_BIN="$sandbox/stubbin/ladder"
 }
 
 link_system_tools() {
@@ -1357,6 +1372,76 @@ check_eq "the launcher exits with claude's status" 3 "$?"
 run_capture env CLAUDE_OLLAMA_RELAUNCH=0 "$repo/bin/claude-ollama" 27b -p hi
 check_eq "CLAUDE_OLLAMA_RELAUNCH=0 execs claude in the launcher's place" "$$" "$(cat "$sandbox/claude-ppid")"
 check_eq "and sets no relaunch dir" unset "$(cat "$sandbox/relaunch-dir-env")"
+
+lease_dir="$HOME/.claude-ollama/lease"
+healthy_two="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2 OLLAMA_NUM_PARALLEL=1"
+rm -rf "$lease_dir" "$sandbox/lease-seen" "$sandbox/ladder-args"
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture env CLAUDE_OLLAMA_LEASE_HEARTBEAT=0.1 STUB_CLAUDE_SLEEP=0.5 "$repo/bin/claude-ollama" 27b -p hi
+session_lease="$(grep '"name":"session"' "$sandbox/lease-seen" | head -n 1)"
+check_eq "a launch holds a session lease while claude runs" session "$(printf '%s\n' "$session_lease" | jq -r .name)"
+check_eq "the session lease names the model" qwen3.8-27b-cc "$(printf '%s\n' "$session_lease" | jq -r .model)"
+check_eq "the session lease records the model's num_ctx" 65536 "$(printf '%s\n' "$session_lease" | jq -r .num_ctx)"
+check_that "the indexer holds an embedding lease" grep -q '"name":"embedding","model":"qwen3-embedding:0.6b"' "$sandbox/lease-seen"
+check_eq "the launcher releases the session lease on exit" "" "$(ls "$lease_dir"/*.json 2>/dev/null)"
+check_that "a heartbeat keeps the model alive while claude runs" test "$(grep -c '"model":"qwen3.8-27b-cc","keep_alive":"30m"' "$sandbox/curl.log")" -ge 2
+check_eq "the indexer may embed when the server keeps the session and the embedding model" 1 "$(cat "$sandbox/indexer-embed-env")"
+ladder_args="$(for _ in $(seq 25); do [ -s "$sandbox/ladder-args" ] && break; sleep 0.2; done; cat "$sandbox/ladder-args" 2>/dev/null)"
+check_that "the ladder follows the session's incidents file" contains "$ladder_args" "--incidents $(cat "$incidents_dir/current")"
+check_that "the ladder knows the relaunch dir" contains "$ladder_args" "--relaunch-dir $relaunch_root/"
+check_that "the ladder stops with the launch" contains "$ladder_args" "--watch-pid "
+check_that "the ladder knows the model's context" contains "$ladder_args" "--context 65536"
+rm -f "$sandbox/ladder-args"
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture env CLAUDE_OLLAMA_LADDER=0 "$repo/bin/claude-ollama" 27b -p hi
+sleep 1
+check_not "CLAUDE_OLLAMA_LADDER=0 starts no ladder" test -e "$sandbox/ladder-args"
+
+holder_pid="$(sleep 60 >/dev/null 2>&1 & echo $!)"
+mkdir -p "$lease_dir"
+printf '{"name":"review","model":"qwen3.6-35b-cc","num_ctx":null,"rung":null,"started":"2026-01-01T00:00:00Z"}\n' > "$lease_dir/$holder_pid.json"
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_that "a review lease on another model still lets a session launch when the server keeps two" grep -q '^ARGS:' "$sandbox/out"
+check_eq "but the indexer runs words-only when the embedding model would be a third" 0 "$(cat "$sandbox/indexer-embed-env")"
+printf '{"name":"session","model":"qwen3.6-35b-cc","num_ctx":null,"rung":null,"started":"2026-01-01T00:00:00Z"}\n' > "$lease_dir/$holder_pid.json"
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=1" run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_eq "a second session on another model is refused when the server keeps one" 3 "$?"
+check_that "the refusal names the holder" grep -qxF "ollama lease: held by session (pid $holder_pid, model qwen3.6-35b-cc); run after that session ends or set OLLAMA_MAX_LOADED_MODELS=2" "$sandbox/err"
+check_not "a refused launch does not start claude" grep -q '^ARGS:' "$sandbox/out"
+CLAUDE_OLLAMA_SPEED_CHECK="$sandbox/stubbin/speed-check" STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture "$repo/bin/claude-ollama" speed-check
+check_eq "speed-check is refused while a session lease exists" 3 "$?"
+check_that "the speed-check refusal names the holder" grep -qF "ollama lease: held by session (pid $holder_pid" "$sandbox/err"
+check_not "a refused speed-check never runs" grep -q 'speed-check args' "$sandbox/out"
+printf '#!/bin/sh\necho "reviewer args: $*"\n' > "$sandbox/stubbin/reviewer"
+chmod +x "$sandbox/stubbin/reviewer"
+CLAUDE_OLLAMA_REVIEWER="$sandbox/stubbin/reviewer" STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_MAX_LOADED_MODELS=1" run_capture "$repo/bin/claude-ollama" review 27b 12
+check_eq "a review on another model is refused when the server keeps one" 3 "$?"
+check_not "a refused review never runs" grep -q 'reviewer args' "$sandbox/out"
+CLAUDE_OLLAMA_REVIEWER="$sandbox/stubbin/reviewer" STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture "$repo/bin/claude-ollama" review 27b 12
+check_that "a review runs when the server keeps two models" grep -q '^reviewer args' "$sandbox/out"
+CLAUDE_OLLAMA_LEASE_DIR="$lease_dir" "$repo/bin/ollama-lease" holders >/dev/null
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_MAX_LOADED_MODELS=1" run_capture env CLAUDE_OLLAMA_LEASE=0 "$repo/bin/claude-ollama" 27b -p hi
+check_that "CLAUDE_OLLAMA_LEASE=0 launches past a held lease" grep -q '^ARGS:' "$sandbox/out"
+check_eq "CLAUDE_OLLAMA_LEASE=0 writes no lease" "$lease_dir/$holder_pid.json" "$(ls "$lease_dir"/*.json)"
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture "$repo/bin/claude-ollama" doctor 27b
+check_that "doctor reports the live lease holder" grep -qxF "ok   lease held by session (pid $holder_pid, model qwen3.6-35b-cc)" "$sandbox/out"
+kill "$holder_pid" 2>/dev/null
+wait "$holder_pid" 2>/dev/null
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture "$repo/bin/claude-ollama" doctor 27b
+check_that "doctor reports a stale lease whose pid is dead" grep -qxF "warn stale lease session (pid $holder_pid) removed" "$sandbox/out"
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture "$repo/bin/claude-ollama" doctor 27b
+check_that "doctor reports no lease holders" grep -qxF "ok   no lease holders" "$sandbox/out"
+
+rm -f "$sandbox/laddered" "$sandbox/lease-seen"
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture env STUB_CLAUDE_LADDER_ONCE=1 STUB_CLAUDE_EMBED_OFF=1 "$repo/bin/claude-ollama" 27b "finish the tests"
+check_eq "a ladder file starts claude a second time" 2 "$(grep -c '^ARGS:' "$sandbox/out")"
+check_that "the ladder relaunch names the rung and the reason" grep -qxF "claude-ollama: ladder context-down: 3 truncated prompts within 10 minutes" "$sandbox/err"
+ladder_settings="$(settings_arg | tail -n 1)"
+check_eq "the second run uses the ladder settings" "$HOME/.claude-ollama/ladder-settings.json" "$ladder_settings"
+check_eq "the ladder settings lower the context budget and keep the headroom" 20480 "$(jq -r .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS "$ladder_settings")"
+check_that "the second run continues the conversation without the prompt" grep -qF -- "--tools Bash,Read,Edit,Write,Skill,TaskStop --continue" "$sandbox/out"
+check_not "the second run drops the prompt" grep -qF -- "--continue finish the tests" "$sandbox/out"
+check_eq "the lease records the rung after the relaunch" context-down "$(tail -n 1 "$sandbox/lease-seen" | jq -r .rung)"
+check_eq "an embed-off file turns the search server's embeddings off on relaunch" 0 "$(cat "$sandbox/embed-env")"
+check_not "the ladder file is consumed" test -e "$relaunch_root/$(cat "$sandbox/claude-ppid")/ladder"
 
 if [ "$failures" -eq 0 ]; then
   echo "all passed"

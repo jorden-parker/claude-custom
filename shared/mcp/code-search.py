@@ -66,7 +66,15 @@ CANDIDATES = 50
 RRF_K = 60
 PS_TIMEOUT = 1
 EMBED_ALLOWED = os.environ.get("CODE_SEARCH_EMBED") == "1"
-WORDS_ONLY_NOTE = "words only: the embedding model is not loaded, so synonyms will not match; use the code's own terms."
+
+
+def embed_turned_off():
+    relaunch_dir = os.environ.get("CLAUDE_OLLAMA_RELAUNCH_DIR")
+    return bool(relaunch_dir) and (Path(relaunch_dir) / "embed-off").exists()
+
+
+EMBED_OFF = embed_turned_off()
+WORDS_ONLY_NOTE ="words only: the embedding model is not loaded, so synonyms will not match; use the code's own terms."
 
 TOOL = {
     "name": "semantic_search",
@@ -421,6 +429,8 @@ def build_index(launcher_alive):
 
 
 def embedding_available():
+    if EMBED_OFF:
+        return False
     return EMBED_ALLOWED or embedding_loaded()
 
 

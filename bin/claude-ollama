@@ -22,6 +22,13 @@ relaunch_args=()
 relaunch_note=""
 relaunch_prompt=""
 relaunch_percent=""
+lease_bin="${CLAUDE_OLLAMA_LEASE_BIN:-$repo_dir/bin/ollama-lease}"
+heartbeat_pid=""
+ladder_profile="$session_config_dir/ladder-profile.json"
+ladder_settings="$session_config_dir/ladder-settings.json"
+ladder_rung=""
+ladder_context=""
+ladder_reason=""
 qwen_home="$session_config_dir/qwen"
 append_prompt="$session_config_dir/append-prompt.md"
 fetch_domains_file="${XDG_CONFIG_HOME:-$HOME/.config}/claude-custom/fetch-domains"
@@ -291,10 +298,74 @@ warm_embedding_model() {
     -d "{\"model\":\"$embedding_model\",\"input\":\"warm up\",\"keep_alive\":\"$keep_alive\"}" >/dev/null 2>&1
 }
 
+lease_on() {
+  [ "${CLAUDE_OLLAMA_LEASE:-}" != 0 ]
+}
+
+acquire_lease() {
+  lease_on || return 0
+  "$lease_bin" acquire "$@" --pid "$$"
+}
+
+release_session_lease() {
+  lease_on || return 0
+  "$lease_bin" release session --pid "$$" >/dev/null 2>&1 || true
+}
+
+claim_session() {
+  lease_on || return 0
+  acquire_lease session --model "$model" --num-ctx "$(modelfile_num_ctx)" || exit 3
+  trap end_launch EXIT
+}
+
+record_session_rung() {
+  acquire_lease session --model "$model" --num-ctx "$(modelfile_num_ctx)" --rung "$ladder_rung" >/dev/null 2>&1 || true
+}
+
+start_heartbeat() {
+  lease_on || return 0
+  nohup "$lease_bin" heartbeat --watch-pid "$$" --fast-marker "$relaunch_dir/heartbeat-fast" >/dev/null 2>&1 &
+  heartbeat_pid=$!
+}
+
+stop_heartbeat() {
+  [ -z "$heartbeat_pid" ] || kill "$heartbeat_pid" 2>/dev/null || true
+}
+
+end_launch() {
+  stop_heartbeat
+  release_session_lease
+  remove_relaunch_dir
+}
+
+leased_indexer() {
+  if lease_on; then
+    cat <<'SH'
+"$1" acquire embedding --model "$2" --pid $$ >/dev/null 2>&1 || export CODE_SEARCH_EMBED=0
+exec python3 "$3" --index --watch-pid "$4"
+SH
+  else
+    cat <<'SH'
+exec python3 "$3" --index --watch-pid "$4"
+SH
+  fi
+}
+
 warm_search_index() {
   [ -z "${CLAUDE_OLLAMA_NO_INDEX:-}" ] || return 0
   git rev-parse --show-toplevel >/dev/null 2>&1 || return 0
-  nohup python3 "$repo_dir/shared/mcp/code-search.py" --index --watch-pid "$$" >/dev/null 2>&1 &
+  nohup sh -c "$(leased_indexer)" indexer "$lease_bin" "$embedding_model" "$repo_dir/shared/mcp/code-search.py" "$$" >/dev/null 2>&1 &
+}
+
+ladder_bin() {
+  echo "${CLAUDE_OLLAMA_LADDER_BIN:-$profile_dir/incidents/ladder.py}"
+}
+
+start_ladder() {
+  [ "${CLAUDE_OLLAMA_LADDER:-}" = 0 ] && return 0
+  [ -n "${CLAUDE_OLLAMA_INCIDENTS_FILE:-}" ] || return 0
+  nohup "$(ladder_bin)" --incidents "$CLAUDE_OLLAMA_INCIDENTS_FILE" --relaunch-dir "$relaunch_dir" \
+    --watch-pid "$$" --context "$(modelfile_num_ctx)" >/dev/null 2>&1 &
 }
 
 rotate_launcher_log() {
@@ -479,7 +550,13 @@ write_launch_settings() {
 }
 
 configured_settings_file() {
-  if [ -e "$profile_file" ]; then echo "$profile_settings"; else launch_base_settings; fi
+  if [ -n "$ladder_context" ]; then
+    echo "$ladder_settings"
+  elif [ -e "$profile_file" ]; then
+    echo "$profile_settings"
+  else
+    launch_base_settings
+  fi
 }
 
 launch_settings_file() {
@@ -601,8 +678,8 @@ remove_relaunch_dir() {
 prepare_relaunch_dir() {
   (umask 077; mkdir -p "$relaunch_dir")
   chmod 700 "$relaunch_root" "$relaunch_dir"
-  rm -f "$relaunch_dir/relaunch"
-  trap remove_relaunch_dir EXIT
+  rm -f "$relaunch_dir/relaunch" "$relaunch_dir/ladder" "$relaunch_dir/embed-off" "$relaunch_dir/heartbeat-fast"
+  trap end_launch EXIT
   remove_stale_relaunch_dirs
   export CLAUDE_OLLAMA_RELAUNCH_DIR="$relaunch_dir"
 }
@@ -679,18 +756,75 @@ set_relaunch_args() {
   esac
 }
 
+set_ladder_args() {
+  relaunch_args=("$@")
+  if ends_with_prompt "$@"; then
+    unset "relaunch_args[${#relaunch_args[@]}-1]"
+  fi
+  case " ${relaunch_args[*]:-} " in
+    *" --continue "*|*" -c "*) ;;
+    *) relaunch_args+=(--continue) ;;
+  esac
+}
+
+read_ladder_file() {
+  local ladder_file="$relaunch_dir/ladder"
+  ladder_rung="$(jq -r '.rung // empty' "$ladder_file" 2>/dev/null)"
+  ladder_context="$(jq -r '.context // empty' "$ladder_file" 2>/dev/null)"
+  ladder_reason="$(jq -r '.reason // empty' "$ladder_file" 2>/dev/null)"
+  rm -f "$ladder_file"
+}
+
+write_ladder_settings() {
+  local target
+  target="$(mktemp "$ladder_profile.XXXXXX")"
+  { jq --argjson context "$ladder_context" '.context = $context' "$profile_file" 2>/dev/null \
+    || printf '{"context": %s}\n' "$ladder_context"; } > "$target"
+  mv -f "$target" "$ladder_profile"
+  "$profile_overlay" settings "$(launch_base_settings)" "$ladder_profile" "$ladder_settings"
+  [ -z "$proxy_url" ] || write_proxy_settings
+}
+
+apply_ladder() {
+  read_ladder_file
+  echo "claude-ollama: ladder $ladder_rung: $ladder_reason" >&2
+  [ -z "$ladder_context" ] || { write_ladder_settings && build_claude_args; }
+  record_session_rung
+}
+
+honour_embed_off() {
+  [ -e "$relaunch_dir/embed-off" ] || return 0
+  export CODE_SEARCH_EMBED=0
+}
+
+relaunch_pending() {
+  [ -e "$relaunch_dir/relaunch" ] || [ -e "$relaunch_dir/ladder" ]
+}
+
+prepare_relaunch() {
+  [ ! -e "$relaunch_dir/ladder" ] || apply_ladder
+  if [ -e "$relaunch_dir/relaunch" ]; then
+    read_relaunch_sentinel
+    announce_relaunch
+    record_relaunch_incident
+    set_relaunch_args "$@"
+  else
+    set_ladder_args "$@"
+  fi
+  honour_embed_off
+}
+
 launch_claude() {
   if [ "${CLAUDE_OLLAMA_RELAUNCH:-}" = 0 ]; then
     exec "$repo_dir/shared/sandbox-env" claude "${claude_args[@]}" "$@"
   fi
   prepare_relaunch_dir
+  start_heartbeat
+  start_ladder
   local status=0
   run_claude "${claude_args[@]}" "$@" || status=$?
-  while [ -e "$relaunch_dir/relaunch" ]; do
-    read_relaunch_sentinel
-    announce_relaunch
-    record_relaunch_incident
-    set_relaunch_args "$@"
+  while relaunch_pending; do
+    prepare_relaunch "$@"
     status=0
     run_claude "${claude_args[@]}" "${relaunch_args[@]}" || status=$?
   done
@@ -1067,10 +1201,31 @@ check_classifier() {
   fi
 }
 
+report_lease() {
+  local state holder_name holder_pid holder_model
+  read -r state holder_name _ holder_pid _ holder_model _ <<< "$1"
+  case "$state" in
+    live) report ok "lease held by $holder_name (pid $holder_pid, model $holder_model)" ;;
+    stale) report warn "stale lease $holder_name (pid $holder_pid) removed" ;;
+  esac
+}
+
+check_leases() {
+  local line count=0
+  lease_on || return 0
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    count=$((count + 1))
+    report_lease "$line"
+  done < <("$lease_bin" holders 2>/dev/null)
+  [ "$count" -gt 0 ] || report ok "no lease holders"
+}
+
 doctor() {
   local status=0
   write_launch_settings
   report ok "jq on PATH"
+  check_leases
   check_model_present model "$model" "run claude-ollama $size to pull and create it" || status=1
   check_model_present "embedding model" "$embedding_model" "pick 'Set up embedding model' in claude-ollama" || status=1
   check_digests || status=1
@@ -1281,8 +1436,8 @@ case "${1:-}" in
       --print-config) mode=print-config; shift ;;
       doctor) mode=doctor; shift ;;
     esac ;;
-  speed-check) exec "${CLAUDE_OLLAMA_SPEED_CHECK:-$repo_dir/bin/speed-check}" "${@:2}" ;;
-  thinking-check) exec "${CLAUDE_OLLAMA_SPEED_CHECK:-$repo_dir/bin/speed-check}" --thinking-only ;;
+  speed-check) acquire_lease speed-check --exclusive || exit 3; exec "${CLAUDE_OLLAMA_SPEED_CHECK:-$repo_dir/bin/speed-check}" "${@:2}" ;;
+  thinking-check) acquire_lease speed-check --exclusive || exit 3; exec "${CLAUDE_OLLAMA_SPEED_CHECK:-$repo_dir/bin/speed-check}" --thinking-only ;;
 esac
 
 [ "$mode" != logs ] || follow_logs "$@"
@@ -1308,12 +1463,14 @@ fi
 run_review() {
   local target="$1"
   shift
+  acquire_lease review --model "$model" || exit 3
   ensure_model
   warm_model
   exec "${CLAUDE_OLLAMA_REVIEWER:-$repo_dir/bin/pr-review-local}" --model "$model" --base-url "$ollama_url" "$@" "$target"
 }
 
 run_mock_spike() {
+  acquire_lease mock-spike --model "$model" || exit 3
   ensure_model
   warm_model
   exec "${CLAUDE_OLLAMA_MOCK_SPIKE:-$repo_dir/bin/mock-spike}" --model "$model" --base-url "$ollama_url" "$@"
@@ -1357,6 +1514,7 @@ apply_server_env
 ensure_model
 ensure_embedding_model
 verify_installed_models
+claim_session
 allow_search_embeddings
 warm_embedding_model
 warm_search_index
@@ -1385,14 +1543,17 @@ launch_fetch_domains="$(fetch_domains)"
 write_launch_settings
 start_messages_proxy
 write_append_prompt
-claude_args=(
-  --settings "$(launch_settings_file)"
-  --system-prompt-file "$profile_dir/system-prompt.md"
-  --append-system-prompt-file "$append_prompt"
-  --strict-mcp-config
-  --mcp-config "$(mcp_config)"
-  --model "$model"
-  --tools "$(launch_tools)"
-)
+build_claude_args() {
+  claude_args=(
+    --settings "$(launch_settings_file)"
+    --system-prompt-file "$profile_dir/system-prompt.md"
+    --append-system-prompt-file "$append_prompt"
+    --strict-mcp-config
+    --mcp-config "$(mcp_config)"
+    --model "$model"
+    --tools "$(launch_tools)"
+  )
+}
+build_claude_args
 stop_launcher_log claude
 launch_claude "$@"

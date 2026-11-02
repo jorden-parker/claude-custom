@@ -761,6 +761,74 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   gets); when the port never appears it warns and keeps the direct URL. It only
   observes: no rewriting, no tool pruning. Tests: `bin/messages-proxy.test.sh`
   (stub upstream), `bin/claude-ollama.test.sh` (stub proxy).
+- Residency lease: `bin/ollama-lease` (bash 3.2, `jq`) keeps one file per
+  holder, `<pid>.json` with `{name, model, num_ctx, rung, started}`, under
+  `${CLAUDE_OLLAMA_LEASE_DIR:-~/.claude-ollama/lease}` (0700/0600), guarded by a
+  `lease.lock` directory taken with `mkdir` (macOS has no `flock` command; a
+  lock older than a minute is removed). Every call removes the files whose pid
+  is dead.
+  `acquire NAME [--model M] [--pid N] [--num-ctx N] [--rung R] [--exclusive] [--wait SECONDS]`
+  succeeds at once when no `session` lease is held by another pid, or when the
+  running server's `OLLAMA_MAX_LOADED_MODELS` (read like `claude-ollama` does)
+  is at least the number of distinct models the holders plus the request would
+  load; otherwise it exits 3 with one stderr line,
+  `ollama lease: held by <name> (pid N, model M); run after that session ends or set OLLAMA_MAX_LOADED_MODELS=2`,
+  after polling every `CLAUDE_OLLAMA_LEASE_POLL` seconds (default 1) for
+  `--wait`. `--exclusive` refuses while any other holder exists.
+  `release NAME [--pid N]` removes that pid's file, `holders` prints
+  `live NAME pid N model M rung R` or `stale NAME pid N model M` (and removes
+  the stale file), and
+  `heartbeat --watch-pid N [--model M] [--fast-marker FILE]` sends a
+  `keep_alive` generate request for the leased model every
+  `${CLAUDE_OLLAMA_LEASE_HEARTBEAT:-120}` seconds (halved while the marker
+  exists) until the pid dies. `bin/claude-ollama` acquires `session` (model,
+  `num_ctx`) right after the model checks and before the indexer, so the
+  indexer's `embedding` lease (held by the `sh -c` pid that execs
+  `code-search.py --index`; a refusal sets `CODE_SEARCH_EMBED=0`, words only)
+  never crowds the session out; `launch_claude` starts the heartbeat and the
+  EXIT trap (`end_launch`) stops it, releases the lease and removes the relaunch
+  dir. `review` and `mock-spike` acquire their own names with the size's model,
+  `speed-check` and `thinking-check` acquire `--exclusive`, and each exits 3 on
+  a refusal. `CLAUDE_OLLAMA_LEASE=0` turns all of it off;
+  `CLAUDE_OLLAMA_LEASE_BIN` overrides the script for tests. `doctor` prints
+  `ok   lease held by NAME (pid N, model M)`,
+  `warn stale lease NAME (pid N) removed` or `ok   no lease holders`. Tests:
+  `bin/ollama-lease.test.sh` (stub `pgrep`, `ps`, `curl`, sleeping pids),
+  `bin/claude-ollama.test.sh`.
+- Degrade ladder: `ollama/incidents/ladder.py` (stdlib only; it imports
+  `FileTail`, `IncidentLog`, `process_alive` and `now_iso` from `watcher.py`)
+  runs outside the sandbox beside the watcher (`launch_claude` starts it after
+  `prepare_relaunch_dir` with
+  `--incidents $CLAUDE_OLLAMA_INCIDENTS_FILE --relaunch-dir DIR --watch-pid $$ --context NUM_CTX`;
+  `CLAUDE_OLLAMA_LADDER=0` turns it off, `CLAUDE_OLLAMA_LADDER_BIN` overrides it
+  for tests; `bin/check-config` fails when the launcher stops starting it). It
+  follows the session's incidents file from its start and binds each rung to
+  evidence, at most once per session: three `reprefilled` rows whose
+  `preceded_by.kind` is `embed` within 10 minutes fire `embeddings-off` (touches
+  `$CLAUDE_OLLAMA_RELAUNCH_DIR/embed-off`); three after `expired` fire
+  `heartbeat` (touches `heartbeat-fast`, which halves the lease heartbeat
+  interval); three `truncated` rows fire `context-down` (writes `ladder` as
+  `{"rung", "context", "reason"}`, the context being the next lower size in
+  `ollama/sizes.json` or 75% of the current rounded down to 1024 and never below
+  16384, then sends SIGTERM to the pid in `claude.pid` only when `ps -o comm=`
+  names a node or claude process, like `handoff-relaunch.py`). A fired rung
+  appends a `degraded` incident (`detail: "<rung>: <reason>"`,
+  `rule: "ladder/<rung>"`, also to `.latest`); a row no rung is bound to only
+  appends `{"kind": "ladder", "ts", "note": "<cause> after <kind>: no rung"}`
+  once per note. `ladder.py --inspect FILE` prints the `<rung>: <reason>` lines
+  an incidents file would fire, or `none`. The launcher's relaunch loop also
+  wakes on a `ladder` file: it prints `claude-ollama: ladder <rung>: <reason>`,
+  writes `~/.claude-ollama/ladder-profile.json` (the size's profile plus
+  `context`) through `shared/profile-overlay settings` into
+  `ladder-settings.json`, so `CLAUDE_CODE_MAX_CONTEXT_TOKENS` keeps the headroom
+  margin, re-acquires the session lease with `--rung`, and runs `claude` again
+  with the same flags, a trailing prompt dropped and `--continue` added; a
+  handoff sentinel in the same pass still wins the arguments. Every relaunch
+  exports `CODE_SEARCH_EMBED=0` while `embed-off` exists, and `code-search.py`
+  itself answers words only while that file is in `$CLAUDE_OLLAMA_RELAUNCH_DIR`.
+  Tests: `ollama/incidents/ladder.test.sh` (inline incident rows, a sleeping
+  pid, a stub `ps`), `bin/claude-ollama.test.sh` (stub ladder,
+  `STUB_CLAUDE_LADDER_ONCE`), `shared/mcp/code-search.test.sh`.
 - `shared/mcp/code-search.py` is the `semantic_search` MCP server (JSON-RPC over
   stdio, stdlib only). It ranks 40-line chunks by their words (BM25) on every
   search, adds a vector ranking through Ollama `/api/embed` only while
