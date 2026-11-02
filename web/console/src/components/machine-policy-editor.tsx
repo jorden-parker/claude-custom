@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { levelBoxClass } from "@/lib/level-style";
 import type { InvalidLine, PolicyFile } from "@/lib/machine-policy-rules";
 
 type PolicyFileState = {
@@ -105,8 +106,8 @@ export function MachinePolicyEditor() {
   return (
     <div className="flex flex-col gap-6">
       <p className="text-sm text-muted-foreground">Folder: {state.dir}</p>
-      {error ? <p className="text-sm text-red-600">{error}</p> : null}
-      {message ? <p className="text-sm text-green-700">{message}</p> : null}
+      {error ? <p className="text-sm text-error-foreground">{error}</p> : null}
+      {message ? <p className="text-sm text-success-foreground">{message}</p> : null}
       {EDITABLE_FILES.map((file) => (
         <PolicyCard
           key={`${file}:${state.files[file].text ?? ""}`}
@@ -168,7 +169,7 @@ function InvalidLines({ invalid }: { invalid: InvalidLine[] }) {
     return null;
   }
   return (
-    <div className="rounded-md border border-amber-500/60 bg-amber-500/10 px-4 py-3 text-sm">
+    <div className={levelBoxClass("warn")}>
       <p className="font-medium">The launcher ignores these lines</p>
       <ul className="mt-2 flex flex-col gap-1">
         {invalid.map((entry, index) => (

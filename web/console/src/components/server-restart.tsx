@@ -98,16 +98,16 @@ function RestartNotice({ phase }: { phase: RestartPhase }) {
     return null;
   }
   if (phase === "failed") {
-    return <p className="text-sm text-red-700 dark:text-red-400">The run did not finish, so Ollama was not restarted.</p>;
+    return <p className="text-sm text-error-foreground">The run did not finish, so Ollama was not restarted.</p>;
   }
   if (phase === "restarting") {
     return <p className="animate-pulse text-sm text-muted-foreground">Ollama restarting…</p>;
   }
   if (phase === "back") {
-    return <p className="text-sm text-green-700 dark:text-green-400">Ollama is back up.</p>;
+    return <p className="text-sm text-success-foreground">Ollama is back up.</p>;
   }
   return (
-    <p className="text-sm text-red-700 dark:text-red-400">
+    <p className="text-sm text-error-foreground">
       Ollama did not come back in 30 s — see{" "}
       <Link href="/logs" className="underline">
         Logs

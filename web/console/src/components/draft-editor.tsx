@@ -54,7 +54,7 @@ export function DraftEditor({ id }: { id: string }) {
   }, [id]);
 
   if (loadError !== null) {
-    return <p className="text-sm text-red-600">{loadError}</p>;
+    return <p className="text-sm text-error-foreground">{loadError}</p>;
   }
   if (saved === null || draft === null) {
     return <p className="text-sm text-muted-foreground">Loading draft…</p>;

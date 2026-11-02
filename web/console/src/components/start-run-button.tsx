@@ -51,7 +51,7 @@ export function StartRunButton({
         {pending ? <Loader2 className="animate-spin" /> : null}
         {children}
       </Button>
-      {message === null ? null : <p className="text-sm text-red-700 dark:text-red-400">{message}</p>}
+      {message === null ? null : <p className="text-sm text-error-foreground">{message}</p>}
     </div>
   );
 }

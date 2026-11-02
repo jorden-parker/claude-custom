@@ -128,7 +128,7 @@ function StageBar({ stage }: { stage: NonNullable<RunState["stage"]> }) {
         Stage {stage.number} of {stage.total} — {stage.title}
       </p>
       <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-        <div className="h-full rounded-full bg-blue-500 transition-[width] duration-500" style={{ width: `${percent}%` }} />
+        <div className="h-full rounded-full bg-info-foreground transition-[width] duration-500" style={{ width: `${percent}%` }} />
       </div>
     </div>
   );

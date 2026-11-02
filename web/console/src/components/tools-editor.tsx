@@ -63,7 +63,7 @@ export function ToolsEditor() {
   if (error !== null) {
     return (
       <div className="flex flex-col gap-2 text-sm">
-        <p className="text-red-700 dark:text-red-400">{error}</p>
+        <p className="text-error-foreground">{error}</p>
         <p className="text-muted-foreground">
           Open claude-tools once in a terminal, sync the tool list, then reload this page.
         </p>
@@ -156,7 +156,7 @@ function ToolTableRow({
   const changed = edit.permission !== tool.permission || edit.disabled !== tool.disabled;
   const keepsOffSwitch = edit.permission === "allow" || edit.permission === "ask";
   return (
-    <tr className={`border-b align-top ${changed ? "bg-amber-50 dark:bg-amber-950/30" : ""}`}>
+    <tr className={`border-b align-top ${changed ? "bg-warning" : ""}`}>
       <td className="py-2 pr-3 font-mono">{tool.name}</td>
       <td className="py-2 pr-3 text-muted-foreground">{tool.description}</td>
       <td className="py-2 pr-3">

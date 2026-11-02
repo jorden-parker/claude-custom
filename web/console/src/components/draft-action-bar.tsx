@@ -36,7 +36,7 @@ export function DraftActionBar({
       <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
         <span>{dirty ? "Unsaved changes" : status.notice}</span>
         {status.error ? (
-          <span className="text-red-600">{status.error}</span>
+          <span className="text-error-foreground">{status.error}</span>
         ) : null}
       </div>
       <div className="flex flex-wrap items-center gap-2">
@@ -80,7 +80,7 @@ export function DraftActionBar({
 function RepoLine({ repo, project }: { repo: string | null; project: string }) {
   if (repo === null) {
     return (
-      <span className="text-sm text-red-600">
+      <span className="text-sm text-error-foreground">
         No GitHub origin in {project}
       </span>
     );

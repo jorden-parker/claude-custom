@@ -15,9 +15,9 @@ const POLL_MS = 5000;
 const FLASH_MS = 2000;
 
 const STATE_STYLE: Record<SizeState, string> = {
-  installed: "bg-green-500/15 text-green-700 dark:text-green-400",
+  installed: "bg-success text-success-foreground",
   missing: "bg-muted text-muted-foreground",
-  mismatch: "bg-red-500/15 text-red-700 dark:text-red-400",
+  mismatch: "bg-error text-error-foreground",
 };
 
 type Polled = { snapshot: ModelsSnapshot | null; pruneRunning: boolean };
@@ -38,7 +38,7 @@ export function ModelsView() {
 
 function OllamaDownBanner() {
   return (
-    <p className="rounded-md border border-red-500/40 p-3 text-sm text-red-700 dark:text-red-400">
+    <p className="rounded-md border border-error-border p-3 text-sm text-error-foreground">
       Ollama is not running. Start it, then this page refreshes on its own.
     </p>
   );
@@ -140,14 +140,14 @@ function PruneSection({ models, disabled }: { models: InstalledModel[]; disabled
       {confirming ? (
         <PruneConfirm models={models} onConfirm={removeNames} onCancel={() => setConfirming(false)} />
       ) : null}
-      {message === null ? null : <p className="text-sm text-red-700 dark:text-red-400">{message}</p>}
+      {message === null ? null : <p className="text-sm text-error-foreground">{message}</p>}
     </div>
   );
 }
 
 function SizeRow({ size, flashing }: { size: SizeStatus; flashing: boolean }) {
   const state = sizeStateOf(size);
-  const flash = flashing ? "bg-green-500/10" : "";
+  const flash = flashing ? "bg-success" : "";
   return (
     <tr className={`animate-in fade-in transition-colors duration-1000 ${flash}`}>
       <td className="py-2 font-medium">{size.size}</td>
@@ -186,7 +186,7 @@ function ModelRow({ model }: { model: InstalledModel }) {
       </td>
       <td>{gigabytes(model.bytes)} GB</td>
       <td>
-        {model.loaded ? <span aria-label="loaded" className="inline-block size-2 animate-pulse rounded-full bg-green-500" /> : null}
+        {model.loaded ? <span aria-label="loaded" className="inline-block size-2 animate-pulse rounded-full bg-success-foreground" /> : null}
       </td>
     </tr>
   );

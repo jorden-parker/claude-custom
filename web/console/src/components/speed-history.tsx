@@ -61,8 +61,8 @@ function FailureCard({ failure }: { failure: RunSummary }) {
   return (
     <Card>
       <CardContent className="flex flex-col gap-2 text-sm">
-        <span className="font-medium text-red-700 dark:text-red-400">Speed check failed · {failure.startedAt}</span>
-        <p className="text-xs text-muted-foreground">The run page shows its "speed-check stopped" line.</p>
+        <span className="font-medium text-error-foreground">Speed check failed · {failure.startedAt}</span>
+        <p className="text-xs text-muted-foreground">The run page shows its &quot;speed-check stopped&quot; line.</p>
         <Link href={`/runs/${encodeURIComponent(failure.id)}`} className="text-xs underline">
           Open run
         </Link>

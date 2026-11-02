@@ -148,8 +148,8 @@ describe("ReviewBody review states", () => {
     ]);
     const markup = renderToStaticMarkup(<ReviewBody state={state} elapsedSeconds={5} />);
 
-    expect(markup).toContain("bg-blue-600");
-    expect(markup).toContain("bg-green-600");
+    expect(markup).toContain("bg-info-foreground");
+    expect(markup).toContain("bg-success-foreground");
     expect(markup).toContain("confidence: low");
     expect(markup).not.toContain("confidence: high");
   });

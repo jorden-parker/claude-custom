@@ -40,7 +40,7 @@ export function ConfigCard({ size }: { size: string }) {
 
 function ConfigBody({ config, failure }: { config: ConfigResponse | null; failure: string | null }) {
   if (failure !== null) {
-    return <p className="text-sm text-red-500">{failure}</p>;
+    return <p className="text-sm text-error-foreground">{failure}</p>;
   }
   if (config === null) {
     return <p className="text-sm text-muted-foreground">Reading settings...</p>;
@@ -48,7 +48,7 @@ function ConfigBody({ config, failure }: { config: ConfigResponse | null; failur
   if (config.code !== 0) {
     return (
       <div className="flex flex-col gap-2 text-sm">
-        <p className="text-red-500">Reading settings failed (exit {config.code})</p>
+        <p className="text-error-foreground">Reading settings failed (exit {config.code})</p>
         <pre className="whitespace-pre-wrap break-all rounded-lg bg-muted/40 p-3 font-mono text-xs">{config.stderr}</pre>
       </div>
     );

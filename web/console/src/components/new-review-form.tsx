@@ -99,7 +99,7 @@ export function NewReviewFields({ sizes, size, pr, projectDir, onSizeChange, onP
         </StartRunButton>
       </div>
       {pr === "" || prValid ? null : (
-        <p className="text-sm text-red-700 dark:text-red-400">Enter a PR number, such as 12.</p>
+        <p className="text-sm text-error-foreground">Enter a PR number, such as 12.</p>
       )}
     </section>
   );

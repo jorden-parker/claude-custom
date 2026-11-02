@@ -4,14 +4,9 @@ import { AlertTriangle, CheckCircle2, Loader2, XCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useRunStream } from "@/components/run-view";
 import { checksFromLines, doctorSummary, type DoctorCheck, type DoctorLevel } from "@/lib/doctor-checks";
+import { levelTextClass } from "@/lib/level-style";
 
 const ROW_DELAY_MS = 40;
-
-const levelIconClass: Record<DoctorLevel, string> = {
-  ok: "text-emerald-600",
-  warn: "text-amber-500",
-  fail: "text-red-500",
-};
 
 type DoctorChecklistProps = {
   checks: readonly DoctorCheck[];
@@ -57,7 +52,7 @@ export function DoctorChecklist({ checks, other, running }: DoctorChecklistProps
 }
 
 function LevelIcon({ level }: { level: DoctorLevel }) {
-  const className = `mt-0.5 size-4 shrink-0 ${levelIconClass[level]}`;
+  const className = `mt-0.5 size-4 shrink-0 ${levelTextClass(level)}`;
   if (level === "ok") {
     return <CheckCircle2 className={className} />;
   }

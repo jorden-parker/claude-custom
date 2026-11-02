@@ -149,7 +149,7 @@ function HistoryList({
                 <span className="text-muted-foreground">{entry.source}</span>
                 <span>{formatTime(entry.at)}</span>
                 {entry.id === highlightId ? (
-                  <span className="font-medium text-green-700">new</span>
+                  <span className="font-medium text-success-foreground">new</span>
                 ) : null}
               </span>
               <span className="break-all font-mono text-xs">{entry.path}</span>
@@ -210,7 +210,7 @@ function ChangeDetail({
         </div>
       )}
       {message === null ? null : (
-        <p className="text-sm text-red-700 dark:text-red-400">{message}</p>
+        <p className="text-sm text-error-foreground">{message}</p>
       )}
     </div>
   );
@@ -265,10 +265,10 @@ function DiffView({ before, after }: { before: string | null; after: string }) {
 
 function diffClass(part: { added?: boolean; removed?: boolean }): string {
   if (part.added) {
-    return "bg-green-100 text-green-900 dark:bg-green-950 dark:text-green-200";
+    return "bg-success text-success-foreground";
   }
   if (part.removed) {
-    return "bg-red-100 text-red-900 dark:bg-red-950 dark:text-red-200";
+    return "bg-error text-error-foreground";
   }
   return "text-muted-foreground";
 }

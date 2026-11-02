@@ -23,7 +23,7 @@ export function DraftList() {
   }, []);
 
   if (error !== null) {
-    return <p className="text-sm text-red-600">{error}</p>;
+    return <p className="text-sm text-error-foreground">{error}</p>;
   }
   if (rows === null) {
     return <p className="text-sm text-muted-foreground">Loading drafts…</p>;
@@ -69,7 +69,7 @@ function InvalidRow({ id, reason }: { id: string; reason: string }) {
         <Badge variant="destructive">invalid</Badge>
         <span className="font-mono text-xs">{id}</span>
       </div>
-      <span className="text-sm text-red-600">{reason}</span>
+      <span className="text-sm text-error-foreground">{reason}</span>
     </>
   );
 }

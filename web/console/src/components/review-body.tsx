@@ -228,12 +228,12 @@ function FileStateIcon({ file, status }: { file: FileView; status: ReviewState["
     return <PauseCircleIcon className="size-4 shrink-0 text-muted-foreground" />;
   }
   if (state === "running") {
-    return <Loader2Icon className="size-4 shrink-0 animate-spin text-blue-500" />;
+    return <Loader2Icon className="size-4 shrink-0 animate-spin text-info-foreground" />;
   }
   if (/error|fail/i.test(file.outcome ?? "")) {
-    return <CircleAlertIcon className="size-4 shrink-0 text-red-500" />;
+    return <CircleAlertIcon className="size-4 shrink-0 text-error-foreground" />;
   }
-  return <CircleCheckIcon className="size-4 shrink-0 text-green-600" />;
+  return <CircleCheckIcon className="size-4 shrink-0 text-success-foreground" />;
 }
 
 const fileStatusText: Record<FileView["state"], (file: FileView) => string> = {
@@ -317,16 +317,16 @@ function ReportSection({ report }: { report: string }) {
 }
 
 const LABEL_CLASSES: Record<string, string> = {
-  issue: "bg-amber-500 text-black",
-  suggestion: "bg-amber-500 text-black",
-  question: "bg-blue-600 text-white",
+  issue: "bg-warning-foreground text-background",
+  suggestion: "bg-warning-foreground text-background",
+  question: "bg-info-foreground text-background",
   nitpick: "text-muted-foreground",
-  praise: "bg-green-600 text-white",
+  praise: "bg-success-foreground text-background",
 };
 
 function labelClass(finding: FindingView): string {
   if (finding.blocking) {
-    return "bg-destructive text-white";
+    return "bg-destructive text-background";
   }
   return LABEL_CLASSES[finding.label] ?? "bg-muted text-foreground";
 }

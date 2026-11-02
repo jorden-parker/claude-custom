@@ -40,7 +40,7 @@ export function ServerEnvEditor() {
   }, [reloadCount]);
 
   if (loadError !== null) {
-    return <p className="text-sm text-red-700 dark:text-red-400">{loadError}</p>;
+    return <p className="text-sm text-error-foreground">{loadError}</p>;
   }
   if (snapshot === null) {
     return <p className="text-sm text-muted-foreground">Reading the LaunchAgent…</p>;
@@ -83,7 +83,7 @@ function ServerEnvForm({ snapshot, edits, onEdit, runId, onStarted, onBack }: Se
       </Link>
       {snapshot.conflicts.map((text) => (
         <Card key={text}>
-          <CardContent className="text-sm text-amber-700 dark:text-amber-400">{text}</CardContent>
+          <CardContent className="text-sm text-warning-foreground">{text}</CardContent>
         </Card>
       ))}
       <ul className="flex flex-col gap-3">
@@ -157,7 +157,7 @@ function VariableHeader({ variable }: { variable: ServerVariable }) {
     <div className="flex flex-wrap items-center gap-2">
       <span className="font-mono text-sm font-medium">{variable.name}</span>
       {isDifferent(variable) ? (
-        <Badge variant="outline" className="text-amber-700 dark:text-amber-400">
+        <Badge variant="outline" className="text-warning-foreground">
           differs
         </Badge>
       ) : null}
@@ -182,7 +182,7 @@ function ValueInput({
       aria-invalid={invalid}
       value={value}
       onChange={(event) => onEdit(name, event.target.value)}
-      className={`rounded-md border bg-background px-2 py-1 font-mono text-sm ${invalid ? "ring-2 ring-red-500" : ""}`}
+      className={`rounded-md border bg-background px-2 py-1 font-mono text-sm ${invalid ? "ring-2 ring-error-border" : ""}`}
     />
   );
 }

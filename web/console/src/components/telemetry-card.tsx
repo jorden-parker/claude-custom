@@ -18,7 +18,7 @@ export function TelemetryCard({ report }: TelemetryCardProps) {
     );
   }
   if (report.error !== undefined) {
-    return <p className="text-sm text-red-700 dark:text-red-400">{report.error}</p>;
+    return <p className="text-sm text-error-foreground">{report.error}</p>;
   }
   return (
     <pre className="overflow-x-auto whitespace-pre rounded-xl bg-muted p-4 font-mono text-xs">

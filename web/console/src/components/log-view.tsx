@@ -5,14 +5,15 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useFollowScroll } from "@/components/use-follow-scroll";
+import { levelTextClass } from "@/lib/level-style";
 import { type LogFrame, type LogLevel } from "@/lib/log-line";
 import type { LogSource } from "@/lib/log-path";
 
 const MAX_LINES = 5000;
 
 const levelClass: Record<LogLevel, string> = {
-  error: "text-red-500",
-  warn: "text-amber-500",
+  error: levelTextClass("error"),
+  warn: levelTextClass("warn"),
   info: "",
   debug: "text-muted-foreground",
 };
@@ -118,7 +119,7 @@ function StatusPill({
 }) {
   if (error !== null) {
     return (
-      <Badge variant="outline" className="w-fit break-all text-red-500">
+      <Badge variant="outline" className={`w-fit break-all ${levelTextClass("error")}`}>
         {error}
       </Badge>
     );
@@ -131,7 +132,7 @@ function StatusPill({
     );
   }
   return (
-    <Badge variant="outline" className="w-fit break-all text-emerald-600">
+    <Badge variant="outline" className="w-fit break-all text-success-foreground">
       following {path}
     </Badge>
   );

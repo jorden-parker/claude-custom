@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { levelBoxClass } from "@/lib/level-style";
 import { SUGGESTED_HOSTS, isValidHost, normalizeHost } from "@/lib/fetch-domain-rules";
 
 type FetchDomainState = {
@@ -103,11 +104,11 @@ export function FetchDomainsEditor() {
 
   return (
     <div className="flex flex-col gap-6 pb-24">
-      <p className="rounded-md border border-amber-500/60 bg-amber-500/10 px-4 py-3 text-sm">
+      <p className={levelBoxClass("warn")}>
         Each host listed here can be read by the local model&apos;s sessions.
       </p>
       <FilePath path={saved?.path ?? null} />
-      {error ? <p className="text-sm text-red-600">{error}</p> : null}
+      {error ? <p className="text-sm text-error-foreground">{error}</p> : null}
       <IgnoredLines ignored={saved?.ignored ?? []} />
 
       <AddHostForm onAdd={addHost} />
@@ -121,7 +122,7 @@ export function FetchDomainsEditor() {
       <HistorySection entries={history} />
 
       {dirty ? <UnsavedBar saving={saving} onDiscard={discard} onSave={() => void save()} /> : null}
-      {message ? <p className="text-sm text-green-700">{message}</p> : null}
+      {message ? <p className="text-sm text-success-foreground">{message}</p> : null}
     </div>
   );
 }
@@ -177,9 +178,9 @@ function AddHostForm({ onAdd }: { onAdd: (host: string) => void }) {
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           placeholder="docs.example.com"
-          className={`rounded-md border bg-background px-3 py-2 text-sm ${draftError ? "border-red-500 ring-2 ring-red-500" : "border-input"}`}
+          className={`rounded-md border bg-background px-3 py-2 text-sm ${draftError ? "border-error-border ring-2 ring-error-border" : "border-input"}`}
         />
-        {draftError ? <span className="text-xs text-red-600">{draftError}</span> : null}
+        {draftError ? <span className="text-xs text-error-foreground">{draftError}</span> : null}
       </div>
       <Button type="submit" variant="outline" disabled={isEmpty || draftError !== null}>
         Add
@@ -230,7 +231,7 @@ function IgnoredLines({ ignored }: { ignored: string[] }) {
     return null;
   }
   return (
-    <div className="rounded-md border border-amber-500/60 bg-amber-500/10 px-4 py-3 text-sm">
+    <div className={levelBoxClass("warn")}>
       <p className="font-medium">Ignored lines in the file</p>
       <ul className="mt-2 flex flex-col gap-1">
         {ignored.map((line, index) => (
