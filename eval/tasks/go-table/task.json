@@ -1,0 +1,6 @@
+{
+  "prompt": "go test ./... fails: Clamp in clamp.go must keep value inside [low, high]. Fix clamp.go so the table test in clamp_test.go passes.",
+  "test": "go test ./...",
+  "timeout_seconds": 300,
+  "language": "go"
+}

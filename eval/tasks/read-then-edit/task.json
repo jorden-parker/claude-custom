@@ -1,0 +1,6 @@
+{
+  "prompt": "python3 -m unittest -q test_pricing fails: a weight exactly at a tier limit (1, 5 or 20 kg) must stay in the lower tier. The bug is in pricing.py, a long file; read it in parts, fix it, and make the test pass.",
+  "test": "python3 -m unittest -q test_pricing",
+  "timeout_seconds": 300,
+  "language": "python"
+}

@@ -1,0 +1,10 @@
+diff --git a/word-count.sh b/word-count.sh
+index b51ce9a..1f1a595 100755
+--- a/word-count.sh
++++ b/word-count.sh
+@@ -1,4 +1,4 @@
+ #!/usr/bin/env bash
+ set -eu
+ input_file="$1"
+-wc -l < "$input_file" | tr -d ' '
++wc -w < "$input_file" | tr -d ' '

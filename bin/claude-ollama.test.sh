@@ -716,9 +716,26 @@ check_eq "mock-spike exit status" 0 "$?"
 check_that "mock-spike runs the spike with the size's model and server" \
   grep -qxF "SPIKE: --model qwen3.8-27b-cc --base-url http://127.0.0.1:11434 --runs 2" "$sandbox/out"
 unset CLAUDE_OLLAMA_MOCK_SPIKE
+cat > "$sandbox/stubbin/task-eval" <<EOF
+#!/bin/sh
+echo "TASKS: \$*"
+EOF
+chmod +x "$sandbox/stubbin/task-eval"
+export CLAUDE_OLLAMA_TASK_EVAL="$sandbox/stubbin/task-eval"
+: > "$sandbox/curl.log"
+run_capture "$repo/bin/claude-ollama" task-eval 27b --runs 2 --task shell-fix </dev/null
+check_eq "task-eval exit status" 0 "$?"
+check_that "task-eval runs the eval with the size and this launcher" \
+  grep -qxF "TASKS: 27b --launcher $repo/bin/claude-ollama --runs 2 --task shell-fix" "$sandbox/out"
+check_that "task-eval warms the model" warm_up_logged
+check_not "task-eval does not launch claude itself" grep -q '^ARGS:' "$sandbox/out"
+run_capture "$repo/bin/claude-ollama" task-eval --json </dev/null
+check_that "task-eval without a size uses the default" grep -qxF "TASKS: 27b --launcher $repo/bin/claude-ollama --json" "$sandbox/out"
+unset CLAUDE_OLLAMA_TASK_EVAL
 unset CLAUDE_OLLAMA_REVIEWER
 run_capture "$repo/bin/claude-ollama" --help
 check_that "claude-ollama help lists logs" grep -q '^logs \[-n LINES|--path\]: ' "$sandbox/out"
+check_that "claude-ollama help lists task-eval" grep -q '^task-eval \[size\] \[--task NAME\]... \[--runs N\] \[--json\]: ' "$sandbox/out"
 
 new_sandbox
 STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2 OLLAMA_NUM_PARALLEL=1" run_capture "$repo/bin/claude-ollama" doctor 27b

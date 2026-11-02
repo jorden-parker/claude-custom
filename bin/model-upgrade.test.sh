@@ -65,6 +65,12 @@ echo "pr-review-eval $*" >> "$CALLS"
 echo "{\"scenarios\": {}, \"total\": {\"caught\": 4, \"bugs\": 4, \"false_blockers\": 0, \"verdicts_ok\": 6, \"unparsable\": ${STUB_UNPARSABLE:-0}}}"
 EOF
 
+cat > "$stubs/task-eval" <<'EOF'
+#!/bin/sh
+echo "task-eval $*" >> "$CALLS"
+echo "{\"model\": \"qwen3.8-27b-cc-next\", \"size\": \"27b\", \"runs\": [], \"total\": {\"green\": ${STUB_TASK_GREEN:-5}, \"runs\": 5, \"median_seconds\": ${STUB_TASK_MEDIAN:-40.0}, \"p90_seconds\": 60.0}}"
+EOF
+
 chmod +x "$stubs"/*
 
 fail() {
@@ -78,13 +84,17 @@ has() {
 
 upgrade_args=(27b)
 
+baseline_dir=""
+
 run_upgrade() {
   run_dir="$(mktemp -d "$tmp/run.XXXXXX")"
   export CALLS="$run_dir/calls.log"
   : > "$CALLS"
+  [ -z "$baseline_dir" ] || { mkdir -p "$run_dir/home"; cp -R "$baseline_dir" "$run_dir/home/bench-results"; }
   env PATH="$stubs:$PATH" HOME="$run_dir/home" \
     MODEL_UPGRADE_MODELS="$stubs/ollama-models" MODEL_UPGRADE_SPEED_CHECK="$stubs/speed-check" \
     MODEL_UPGRADE_PROBE="$stubs/ollama-cache-probe" MODEL_UPGRADE_EVAL="$stubs/pr-review-eval" \
+    MODEL_UPGRADE_TASK_EVAL="$stubs/task-eval" \
     "$@" "$check_script" ${upgrade_args[@]+"${upgrade_args[@]}"} > "$run_dir/out" 2> "$run_dir/err"
   status=$?
 }
@@ -173,6 +183,38 @@ run_upgrade
 [ "$status" -eq 0 ] || fail "--eval passes a clean review (got $status)"
 grep -qxF 'pr-review-eval --model qwen3.8-27b-cc-next --json' "$CALLS" || fail "--eval runs the review eval on the candidate"
 has "eval: 4 of 4 bugs caught, 0 false blockers, 0 unparsable" out || fail "--eval prints the eval verdict"
+grep -qxF 'task-eval --model qwen3.8-27b-cc-next --json' "$CALLS" || fail "--eval runs the task eval on the candidate"
+has "tasks: 5/5 green, median 40.0s (no baseline)" out || fail "--eval without a baseline only records the task eval"
+grep -q '"task_eval"' "$run_dir"/home/bench-results/upgrade-27b-*.json || fail "the report keeps the task eval"
+
+write_baseline() {
+  printf '{"model": "%s", "size": "27b", "runs": [], "total": {"green": %s, "runs": 5, "median_seconds": %s, "p90_seconds": 70.0}}\n' "$2" "$3" "$4" > "$baseline_dir/task-eval-$1.json"
+}
+
+baseline_dir="$tmp/baselines"
+mkdir -p "$baseline_dir"
+write_baseline 20250101-000000 qwen3.8-27b-cc 5 100.0
+write_baseline 20250102-000000 qwen3.8-27b-cc 5 40.0
+write_baseline 20250103-000000 qwen3.8-27b-cc-next 5 10.0
+run_upgrade
+[ "$status" -eq 0 ] || fail "--eval passes when the task eval matches the newest baseline (got $status)"
+has "tasks: 5/5 green, median 40.0s (baseline 5/5, 40.0s): PASS" out || fail "--eval names the current model's newest baseline"
+
+run_upgrade STUB_TASK_GREEN=4
+[ "$status" -eq 1 ] || fail "a green count below the baseline fails the upgrade (got $status)"
+has "tasks: 4/5 green, median 40.0s (baseline 5/5, 40.0s): FAIL" out || fail "a dropped green count prints FAIL"
+
+run_upgrade STUB_TASK_MEDIAN=50.0
+[ "$status" -eq 0 ] || fail "a median 25% above the baseline still passes (got $status)"
+
+run_upgrade STUB_TASK_MEDIAN=50.1
+[ "$status" -eq 1 ] || fail "a median more than 25% above the baseline fails the upgrade (got $status)"
+has "tasks: 5/5 green, median 50.1s (baseline 5/5, 40.0s): FAIL" out || fail "a slower median prints FAIL"
+
+write_baseline 20250104-000000 qwen3.8-27b-cc 5 null
+run_upgrade STUB_TASK_MEDIAN=90.0
+[ "$status" -eq 0 ] || fail "a baseline with no green median only gates the green count (got $status)"
+baseline_dir=""
 
 run_upgrade STUB_UNPARSABLE=2
 [ "$status" -eq 1 ] || fail "review replies that do not parse fail the upgrade (got $status)"

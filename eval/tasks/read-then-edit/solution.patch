@@ -1,0 +1,13 @@
+diff --git a/pricing.py b/pricing.py
+index 4797762..8fc505f 100644
+--- a/pricing.py
++++ b/pricing.py
+@@ -421,7 +421,7 @@ def antarctic_per_kg():
+ 
+ def tier_index(weight_kg):
+     for index, limit in enumerate(TIER_LIMITS_KG):
+-        if weight_kg < limit:
++        if weight_kg <= limit:
+             return index
+     return len(TIER_LIMITS_KG)
+ 

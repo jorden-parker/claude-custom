@@ -1640,6 +1640,7 @@ case "${1:-}" in
     echo "rescue [size] [--out FILE] [--since MINUTES]: write one redacted markdown report (doctor, config, logs, incidents, proxy stats) to paste into a bug report"
     echo "review [size] PR [--post]: review a pull request with the size's model, one file per request"
     echo "mock-spike [size] [--runs N] [--brief NAME]...: measure how well the size's model streams json-render mockup patches"
+    echo "task-eval [size] [--task NAME]... [--runs N] [--json]: time the size's model from prompt to a green test on the eval/tasks coding tasks"
     echo "ui [--port N]: serve the console (runs, health, logs, models, reviews) at http://127.0.0.1:8765/"
     echo "reviews [--port N]: serve live and past reviews at http://127.0.0.1:8765/"
     echo "fetch domains: list hostnames in ~/.config/claude-custom/fetch-domains to give sessions WebFetch for them"
@@ -1661,6 +1662,7 @@ case "${1:-}" in
   prepare-embedding) mode=prepare-embedding; shift ;;
   review) mode=review; shift ;;
   mock-spike) mode=mock-spike; shift ;;
+  task-eval) mode=task-eval; shift ;;
   ui) mode=ui; shift ;;
   reviews) mode=reviews; shift ;;
   prepare) mode=prepare; shift ;;
@@ -1728,6 +1730,13 @@ run_mock_spike() {
   exec "${CLAUDE_OLLAMA_MOCK_SPIKE:-$repo_dir/bin/mock-spike}" --model "$model" --base-url "$ollama_url" "$@"
 }
 
+run_task_eval() {
+  acquire_lease task-eval --model "$model" || exit 3
+  ensure_model
+  warm_model
+  exec "${CLAUDE_OLLAMA_TASK_EVAL:-$repo_dir/bin/task-eval}" "$size" --launcher "$repo_dir/bin/claude-ollama" "$@"
+}
+
 if [ $# -gt 0 ] && is_configured_size "$1"; then
   size="$1"
   shift
@@ -1758,6 +1767,7 @@ case "$mode" in
   rescue) run_rescue "$@" ;;
   review) run_review "$review_target" "$@" ;;
   mock-spike) run_mock_spike "$@" ;;
+  task-eval) run_task_eval "$@" ;;
   prepare) ensure_model; exit 0 ;;
 esac
 

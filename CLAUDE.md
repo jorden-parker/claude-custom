@@ -124,12 +124,26 @@ before changing how any file gets applied.
   `bin/ollama-models.test.sh` (stub `ollama`, stub `curl`)
 - Model upgrade: `bin/model-upgrade SIZE [--eval] [--keep] [--force]` pulls a
   behind base into `MODEL-next`, runs `speed-check --thinking-only --model`, the
-  cache probe and (with `--eval`) `pr-review-eval`, saves
+  cache probe and (with `--eval`) `pr-review-eval` and `task-eval`, saves
   `~/bench-results/upgrade-SIZE-*.json`, then promotes the candidate to the
   size's `-cc` model on a pass or removes it and the local base on a fail
-  (`--keep` keeps the candidate). It prints the `pin` command and never writes
-  the pin; GGUF sizes are refused. Tests: `bin/model-upgrade.test.sh` (stub
-  `ollama`, stub tools)
+  (`--keep` keeps the candidate). With `--eval` the gate also reads the current
+  model's newest `~/bench-results/task-eval-*.json` and fails when the
+  candidate's green count drops or its median seconds rise by more than 25%
+  (without one it only records, `tasks: ... (no baseline)`). It prints the `pin`
+  command and never writes the pin; GGUF sizes are refused. Tests:
+  `bin/model-upgrade.test.sh` (stub `ollama`, stub tools)
+- Task eval:
+  `bin/task-eval [size|--model M] [--task NAME]... [--runs N] [--json] [--launcher PATH]`
+  times the work harness from prompt to a green test on each task in
+  `eval/tasks/` (see `docs/task-eval.md`) and prints a scorecard
+  (`task result seconds calls denials` per run, a `total:` line and a paste
+  block); `--json` prints the report and saves
+  `~/bench-results/task-eval-<utc>.json`.
+  `claude-ollama task-eval [size] [args]` warms the size's model and execs it
+  with `--launcher` (`CLAUDE_OLLAMA_TASK_EVAL` overrides the script; tests stub
+  it). Tests: `bin/task-eval.test.sh` (stub launchers, stub `pmset`;
+  `make test-tasks`)
 - Config check: `bin/check-config` (prints `all passed`; static checks that the
   `ollama/` and `personal/` config files agree with each other)
 - Sync check: `claude-custom sync-check [--write] [--against FILE]` prints the
@@ -428,6 +442,25 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `--scenario NAME` picks some) with `pr-review-local --range`, checks each
   verdict, and prints a scorecard ending in a `total:` line; tests:
   `bin/pr-review-eval.test.sh` (stub reviewer)
+- Task eval: `bin/task-eval` measures what the user feels, seconds from prompt
+  to a green test. Each `eval/tasks/<name>/` has `task.json` (`prompt`, `test`,
+  `timeout_seconds`, `language`), a `fixture/` project whose test fails until
+  the change is made, and a `solution.patch` that makes it pass (the test script
+  applies every patch through a stub launcher, so each fixture is red before and
+  green after). Per run it copies the fixture to a temp dir, `git init`s and
+  commits it, runs `LAUNCHER <size> -p "<prompt>" [--model M]` there in print
+  mode with `CLAUDE_OLLAMA_NO_INDEX=1`, `CLAUDE_OLLAMA_BEACON=0`,
+  `CLAUDE_OLLAMA_PROXY=0`, drafts and incidents off and `CLAUDE_TOOL_TELEMETRY`
+  on a temp file, stops the launcher past `timeout_seconds` (SIGTERM to its
+  process group, then SIGKILL), runs the test command, and records `green`,
+  `red` or `timeout`, wall-clock seconds, `calls`, `denials` (`kind: deny`
+  lines) and `nudges` (`budget` or `friction` lines) from the telemetry file,
+  `output_bytes`, and at the start the power state (`pmset -g batt`: `ac`,
+  `battery`, `unknown`) and `cpu_speed_limit` (`pmset -g therm`). The `total:`
+  line is `N/M green, median seconds S, p90 P` over the green runs (`-` when
+  none). Five tasks ship: `shell-fix`, `python-impl`, `go-table`,
+  `rename-safely` and `read-then-edit` (a 443-line file, so the read-range guard
+  matters); there is no `ts-vitest`, since vitest needs `node_modules`.
 - Mockup spike: `claude-ollama mock-spike [size] [--runs N] [--brief NAME]...`
   (`bin/mock-spike --model M [--base-url URL] [--out FILE]`) streams three
   mockup briefs through Ollama `/api/chat` with the json-render catalog prompt

@@ -1,0 +1,31 @@
+diff --git a/bin/greet b/bin/greet
+index ec1f51c..d5cfbad 100755
+--- a/bin/greet
++++ b/bin/greet
+@@ -1,4 +1,4 @@
+ #!/usr/bin/env bash
+ set -eu
+ . "$(dirname "$0")/../lib/users.sh"
+-echo "hello, $(fetch_user "$1")"
++echo "hello, $(load_user "$1")"
+diff --git a/bin/whoami-by-id b/bin/whoami-by-id
+index 34a1f56..39e51fe 100755
+--- a/bin/whoami-by-id
++++ b/bin/whoami-by-id
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env bash
+ set -eu
+ . "$(dirname "$0")/../lib/users.sh"
+-user_name="$(fetch_user "$1")"
++user_name="$(load_user "$1")"
+ echo "$1 is $user_name"
+diff --git a/lib/users.sh b/lib/users.sh
+index 7976bca..def9200 100644
+--- a/lib/users.sh
++++ b/lib/users.sh
+@@ -1,4 +1,4 @@
+-fetch_user() {
++load_user() {
+   local user_id="$1"
+   case "$user_id" in
+     1) echo "ada" ;;

@@ -1,0 +1,12 @@
+diff --git a/slugify.py b/slugify.py
+index bfb12ca..777bec0 100644
+--- a/slugify.py
++++ b/slugify.py
+@@ -1,2 +1,6 @@
++import re
++
++
+ def slugify(title):
+-    raise NotImplementedError
++    words = re.sub(r"[^a-z0-9\s-]", "", title.lower())
++    return "-".join(part for part in re.split(r"[\s-]+", words) if part)

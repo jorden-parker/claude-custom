@@ -1,0 +1,6 @@
+{
+  "prompt": "Implement slugify in slugify.py so that python3 -m unittest -q test_slugify passes. Read test_slugify.py for the expected behaviour.",
+  "test": "python3 -m unittest -q test_slugify",
+  "timeout_seconds": 300,
+  "language": "python"
+}
