@@ -15,3 +15,4 @@ go/cmd/ollama-agent/ollama-agent
 .next/
 __pycache__/
 ollama/weights/
+.playwright-mcp/
