@@ -420,7 +420,8 @@ one-point change.
 ### Console
 
 `claude-ollama ui [--port N]` serves a local console at `http://127.0.0.1:8765/`
-(loopback only). Its home page links to each section; the reviews list is at
+(loopback only). Every page shares one sidebar that marks the current page and
+collapses to icons. Its home page links to each section; the reviews list is at
 `/reviews` in the log directory (`$PR_REVIEW_LOG_DIR`, else
 `~/.local/share/claude-custom/reviews`), and `claude-ollama reviews [--port N]`
 runs the same server and prints that link. A running review streams live: its
@@ -463,12 +464,19 @@ posts comments to GitHub.
 
 #### Health, Config and Logs
 
-`/health` reads the same checks as `claude-ollama doctor` for the size you pick:
-a checklist that fills in row by row, with a summary such as "19 ok · 2 warn · 4
-fail", and the last ten doctor runs for that size, linked to `/runs`. Its
-settings card shows `claude-ollama --print-config` for the size, with the
+`/health` (Checks) reads the same checks as `claude-ollama doctor` for the size
+you pick: a checklist that fills in row by row, with a summary such as "19 ok ·
+2 warn · 4 fail", and the last ten doctor runs for that size, linked to `/runs`.
+Its settings card shows `claude-ollama --print-config` for the size, with the
 `command` value and a copy button. Both only read; "Run checks" starts a doctor
 run as `/runs` does.
+
+Under them, "More checks" has one card per further check, each with a Run
+button, its latest result and a link to that run. Thinking check runs
+`claude-ollama thinking-check` (it pulls the MLX sizes first, so it can be
+slow). Config check runs `bin/check-config`. Outdated models runs
+`bin/ollama-models outdated`. Qwen doctor runs `claude-ollama qwen doctor` for
+the size you pick.
 
 `/logs` follows the Ollama server log live. The path comes from
 `claude-ollama logs --path` (LaunchAgent plist, else the Homebrew log, else
