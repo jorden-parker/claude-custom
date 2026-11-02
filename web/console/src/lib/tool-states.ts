@@ -2,6 +2,10 @@ export const PERMISSIONS = ["default", "allow", "ask", "deny"] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
 
+export const TOOL_STATES = [...PERMISSIONS, "off"] as const;
+
+export type ToolState = (typeof TOOL_STATES)[number];
+
 export type ToolRow = {
   name: string;
   description: string;

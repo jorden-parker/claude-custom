@@ -34,6 +34,10 @@ four parts:
   the rules and `-set NAME=perm[,off]` saves them without the TUI (scope last).
   The console's `/tools` page drives both: `GET /api/tools` reads `-json`, and
   the Save button runs `tools-set` (`-set` per change) against the user file.
+  The `/profiles` pages drive `GET /api/profiles` and
+  `GET`/`PUT /api/profiles/<id>`, which edit
+  `$XDG_CONFIG_HOME/claude-custom/profiles/<id>.json` (validated by
+  `web/console/src/lib/profile-rules.ts`; an empty PUT deletes the file).
 - **Agent TUI** (`go/cmd/ollama-agent/`): a Go/Bubble Tea app that edits the
   `OLLAMA_*` variables in a `local.ollama` LaunchAgent and reloads it, since
   launchd never reads `~/.zshenv`. `-json` prints the variables and conflicts

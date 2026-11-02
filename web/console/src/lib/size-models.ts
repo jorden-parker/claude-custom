@@ -18,6 +18,36 @@ export function modelForSize(repoDir: string, size: string): string | null {
   }
 }
 
+export type SizeSettings = { context: number | null; parameters: Record<string, number> };
+
+export function sizeSettings(repoDir: string, size: string): SizeSettings {
+  const entry = sizesEntry(repoDir, size);
+  return {
+    context: typeof entry?.context === "number" ? entry.context : null,
+    parameters: numericParameters(entry?.parameters),
+  };
+}
+
+type SizesEntry = { context?: unknown; parameters?: unknown };
+
+function sizesEntry(repoDir: string, size: string): SizesEntry | null {
+  try {
+    const sizes = JSON.parse(readFileSync(join(repoDir, "ollama", "sizes.json"), "utf8")) as Record<string, SizesEntry>;
+    return Object.hasOwn(sizes, size) ? sizes[size] : null;
+  } catch {
+    return null;
+  }
+}
+
+function numericParameters(raw: unknown): Record<string, number> {
+  if (typeof raw !== "object" || raw === null) {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.entries(raw).filter((entry): entry is [string, number] => typeof entry[1] === "number"),
+  );
+}
+
 export function baseModelForSize(repoDir: string, size: string): string | null {
   if (!SIZE_NAME.test(size)) {
     return null;

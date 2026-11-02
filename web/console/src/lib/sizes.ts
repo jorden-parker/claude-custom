@@ -10,6 +10,10 @@ export function consoleRepoDir(): string {
   return process.env.CLAUDE_CUSTOM_HOME ?? "";
 }
 
+export function listSizes(): string[] {
+  return configuredSizes(consoleRepoDir());
+}
+
 export function configuredSizes(repoDir: string): string[] {
   const profileDir = path.join(repoDir, "ollama");
   if (repoDir === "" || !fs.existsSync(profileDir)) {

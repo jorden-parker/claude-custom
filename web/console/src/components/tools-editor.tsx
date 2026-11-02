@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { StartRunButton } from "@/components/start-run-button";
 import { Button } from "@/components/ui/button";
+import { ToolStateTable } from "@/components/tool-state-table";
 import type { RunSummary } from "@/lib/run-log";
 import {
   PERMISSIONS,
@@ -95,26 +96,14 @@ export function ToolsEditor() {
       {report.tools.length === 0 ? (
         <p className="text-sm text-muted-foreground">No tools in the catalog.</p>
       ) : (
-        <table className="w-full text-left text-sm">
-          <thead>
-            <tr className="border-b text-muted-foreground">
-              <th className="py-2 pr-3 font-medium">Tool</th>
-              <th className="py-2 pr-3 font-medium">Description</th>
-              <th className="py-2 pr-3 font-medium">Permission</th>
-            </tr>
-          </thead>
-          <tbody>
-            {report.tools.map((tool) => (
-              <ToolTableRow
-                key={tool.name}
-                tool={tool}
-                edit={drafts[tool.name]}
-                onPermission={(permission) => changePermission(tool.name, permission)}
-                onOff={(disabled) => changeOff(tool.name, disabled)}
-              />
-            ))}
-          </tbody>
-        </table>
+        <ToolStateTable
+          rows={report.tools}
+          states={permissionsOf(drafts)}
+          options={PERMISSIONS}
+          isChanged={(name) => isEdited(report.tools, drafts, name)}
+          onChange={changePermission}
+          aside={(name) => keepOutOfContext(drafts[name], (disabled) => changeOff(name, disabled))}
+        />
       )}
       {assignments.length === 0 ? null : (
         <div className="sticky bottom-0 flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-background p-3 shadow-sm">
@@ -142,54 +131,31 @@ export function ToolsEditor() {
   );
 }
 
-function ToolTableRow({
-  tool,
-  edit,
-  onPermission,
-  onOff,
-}: {
-  tool: ToolRow;
-  edit: ToolEdit;
-  onPermission: (permission: Permission) => void;
-  onOff: (disabled: boolean) => void;
-}) {
-  const changed = edit.permission !== tool.permission || edit.disabled !== tool.disabled;
+function permissionsOf(drafts: Record<string, ToolEdit>): Record<string, Permission> {
+  return Object.fromEntries(Object.entries(drafts).map(([name, edit]) => [name, edit.permission]));
+}
+
+function isEdited(rows: readonly ToolRow[], drafts: Record<string, ToolEdit>, name: string): boolean {
+  const row = rows.find((candidate) => candidate.name === name);
+  const edit = drafts[name];
+  return row !== undefined && (edit.permission !== row.permission || edit.disabled !== row.disabled);
+}
+
+function keepOutOfContext(edit: ToolEdit, onOff: (disabled: boolean) => void) {
   const keepsOffSwitch = edit.permission === "allow" || edit.permission === "ask";
+  if (!keepsOffSwitch) {
+    return null;
+  }
   return (
-    <tr className={`border-b align-top ${changed ? "bg-warning" : ""}`}>
-      <td className="py-2 pr-3 font-mono">{tool.name}</td>
-      <td className="py-2 pr-3 text-muted-foreground">{tool.description}</td>
-      <td className="py-2 pr-3">
-        <div className="flex flex-col items-start gap-2">
-          <div role="group" aria-label={`Permission for ${tool.name}`} className="inline-flex rounded-md border">
-            {PERMISSIONS.map((permission) => (
-              <button
-                key={permission}
-                type="button"
-                aria-pressed={edit.permission === permission}
-                onClick={() => onPermission(permission)}
-                className={`px-2 py-1 text-xs first:rounded-l-md last:rounded-r-md ${
-                  edit.permission === permission ? "bg-muted font-medium" : "hover:bg-muted/60"
-                }`}
-              >
-                {permission}
-              </button>
-            ))}
-          </div>
-          {keepsOffSwitch ? (
-            <label className="flex items-center gap-2 text-xs">
-              <input
-                type="checkbox"
-                role="switch"
-                aria-label="Keep out of context"
-                checked={edit.disabled}
-                onChange={(event) => onOff(event.target.checked)}
-              />
-              Keep out of context
-            </label>
-          ) : null}
-        </div>
-      </td>
-    </tr>
+    <label className="flex items-center gap-2 text-xs">
+      <input
+        type="checkbox"
+        role="switch"
+        aria-label="Keep out of context"
+        checked={edit.disabled}
+        onChange={(event) => onOff(event.target.checked)}
+      />
+      Keep out of context
+    </label>
   );
 }

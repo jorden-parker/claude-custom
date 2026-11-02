@@ -27,8 +27,12 @@ export function policyProblem(file: PolicyFile): string | null {
 }
 
 export function readPolicyText(file: PolicyFile): string | null {
+  return readTextOrNull(policyPath(file));
+}
+
+export function readTextOrNull(target: string): string | null {
   try {
-    return fs.readFileSync(policyPath(file), "utf8");
+    return fs.readFileSync(target, "utf8");
   } catch {
     return null;
   }
@@ -40,6 +44,10 @@ export function writePolicyText(file: PolicyFile, text: string): void {
   if (problem !== null) {
     throw new Error(problem);
   }
+  writePrivateText(target, text);
+}
+
+export function writePrivateText(target: string, text: string): void {
   fs.mkdirSync(path.dirname(target), { recursive: true, mode: FOLDER_MODE });
   const temporary = `${target}.${process.pid}.${Date.now()}.tmp`;
   fs.writeFileSync(temporary, text, { mode: FILE_MODE });
@@ -69,7 +77,7 @@ export function overlayDenyRules(): string[] {
   }
 }
 
-function isSymlink(target: string): boolean {
+export function isSymlink(target: string): boolean {
   try {
     return fs.lstatSync(target).isSymbolicLink();
   } catch {

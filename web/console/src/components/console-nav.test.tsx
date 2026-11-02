@@ -41,6 +41,13 @@ describe("ConsoleNav", () => {
       screen.getByRole("link", { name: "Reviews" }).hasAttribute("data-active"),
     ).toBe(false);
   });
+
+  it("links to Profiles and to Global tools in the nav", () => {
+    renderNav();
+
+    expect(screen.getByRole("link", { name: "Profiles" }).getAttribute("href")).toBe("/profiles");
+    expect(screen.getByRole("link", { name: "Global tools" }).getAttribute("href")).toBe("/tools");
+  });
 });
 
 describe("isActiveSection", () => {

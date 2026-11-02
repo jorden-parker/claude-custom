@@ -16,4 +16,9 @@ describe("CONSOLE_SECTIONS", () => {
     const hrefs = CONSOLE_SECTIONS.map((section) => section.href);
     expect(new Set(hrefs).size).toBe(hrefs.length);
   });
+
+  it("places Profiles after Global tools", () => {
+    const hrefs = CONSOLE_SECTIONS.map((section) => section.href);
+    expect(hrefs.indexOf("/profiles")).toBe(hrefs.indexOf("/tools") + 1);
+  });
 });

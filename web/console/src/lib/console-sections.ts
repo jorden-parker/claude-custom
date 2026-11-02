@@ -34,8 +34,13 @@ export const CONSOLE_SECTIONS: readonly ConsoleSection[] = [
   },
   {
     href: "/tools",
-    title: "Tools",
-    summary: "Allow, ask or deny each tool in your user settings",
+    title: "Global tools",
+    summary: "~/.claude/settings.json, every session",
+  },
+  {
+    href: "/profiles",
+    title: "Profiles",
+    summary: "Per-profile tools, sandbox, model, MCP servers and env",
   },
   {
     href: "/benchmarks",

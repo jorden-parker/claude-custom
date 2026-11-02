@@ -159,6 +159,7 @@ check_pages() {
       *) check_page "$route" ;;
     esac
   done < <(find "$app_dir" -name page.tsx | sort)
+  check_page /profiles/claude-code
 }
 
 check_api() {
@@ -185,6 +186,7 @@ check_apis() {
 /api/reviews
 /api/drafts
 /api/tools
+/api/profiles
 /api/telemetry
 /api/speed-reports
 /api/server

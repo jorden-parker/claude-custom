@@ -4,7 +4,7 @@ import { ToolsEditor } from "@/components/tools-editor";
 export default function ToolsPage() {
   return (
     <>
-      <PageHeading title="Tools" />
+      <PageHeading title="Global tools" />
       <ToolsEditor />
     </>
   );
