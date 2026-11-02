@@ -1,0 +1,267 @@
+#!/usr/bin/env python3
+import argparse
+import hashlib
+import http.client
+import json
+import os
+import sys
+import threading
+import time
+import uuid
+from datetime import datetime, timezone
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlsplit
+
+MESSAGES_PATH = "/v1/messages"
+REQUEST_ID_HEADER = "X-Claude-Ollama-Request"
+DIFF_CHARS = 200
+WATCH_INTERVAL_SECONDS = 1.0
+STREAM_CHUNK_BYTES = 4096
+UPSTREAM_TIMEOUT_SECONDS = 1800
+HOP_BY_HOP_HEADERS = {"connection", "keep-alive", "proxy-connection", "transfer-encoding", "upgrade", "host", "content-length"}
+
+
+def parse_args(argv):
+    parser = argparse.ArgumentParser(description="Observe /v1/messages traffic between Claude Code and Ollama without changing it.")
+    parser.add_argument("--upstream", required=True)
+    parser.add_argument("--port", type=int, required=True)
+    parser.add_argument("--port-file")
+    parser.add_argument("--log", required=True)
+    parser.add_argument("--watch-pid", type=int)
+    return parser.parse_args(argv)
+
+
+def canonical(value):
+    return json.dumps(value, sort_keys=True, separators=(",", ":"))
+
+
+def prompt_sections(body):
+    sections = []
+    if "system" in body:
+        sections.append(("system", canonical(body["system"])))
+    if "tools" in body:
+        sections.append(("tools", canonical(body["tools"])))
+    for index, message in enumerate(body.get("messages") or []):
+        sections.append((f"message:{index}", canonical(message)))
+    return sections
+
+
+def prefix_hashes(sections):
+    running = hashlib.sha256()
+    hashes = []
+    for _, text in sections:
+        running.update(text.encode("utf-8"))
+        hashes.append(running.hexdigest())
+    return hashes
+
+
+def first_difference(old, new):
+    for index, (old_char, new_char) in enumerate(zip(old, new)):
+        if old_char != new_char:
+            return index
+    return min(len(old), len(new))
+
+
+def byte_offset(text, char_index):
+    return len(text[:char_index].encode("utf-8"))
+
+
+class SectionTracker:
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.previous_sections = None
+        self.previous_hashes = None
+
+    def compare(self, sections):
+        hashes = prefix_hashes(sections)
+        with self.lock:
+            report = self.divergence(sections, hashes)
+            self.previous_sections = sections
+            self.previous_hashes = hashes
+        return report
+
+    def divergence(self, sections, hashes):
+        report = {"sections": len(sections), "stable_sections": 0, "diverged_at": None, "offset": None, "diff": None}
+        if self.previous_hashes is None:
+            return report
+        stable = 0
+        for old_hash, new_hash in zip(self.previous_hashes, hashes):
+            if old_hash != new_hash:
+                break
+            stable += 1
+        report["stable_sections"] = stable
+        if stable < len(sections):
+            name, text = sections[stable]
+            old_text = self.previous_sections[stable][1] if stable < len(self.previous_sections) else ""
+            char_index = first_difference(old_text, text)
+            report["diverged_at"] = name
+            report["offset"] = byte_offset(text, char_index)
+            report["diff"] = text[char_index : char_index + DIFF_CHARS]
+        return report
+
+
+class RequestLog:
+    def __init__(self, path):
+        self.path = path
+        self.lock = threading.Lock()
+        folder = os.path.dirname(path) or "."
+        os.makedirs(folder, mode=0o700, exist_ok=True)
+        os.chmod(folder, 0o700)
+
+    def append(self, row):
+        line = json.dumps(row, separators=(",", ":")) + "\n"
+        with self.lock:
+            descriptor = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+            with os.fdopen(descriptor, "a") as handle:
+                handle.write(line)
+            os.chmod(self.path, 0o600)
+
+
+def now_iso():
+    return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def process_alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def forwarded_headers(headers, request_id):
+    kept = [(name, value) for name, value in headers.items() if name.lower() not in HOP_BY_HOP_HEADERS]
+    if request_id:
+        kept.append((REQUEST_ID_HEADER, request_id))
+    return kept
+
+
+def returned_headers(headers):
+    return [(name, value) for name, value in headers.items() if name.lower() not in HOP_BY_HOP_HEADERS]
+
+
+def observe_request(body, tracker, log):
+    try:
+        parsed = json.loads(body)
+    except ValueError:
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    request_id = str(uuid.uuid4())
+    row = {"ts": now_iso(), "request_id": request_id}
+    row.update(tracker.compare(prompt_sections(parsed)))
+    row["prompt_bytes"] = len(body)
+    log.append(row)
+    return request_id
+
+
+class ProxyHandler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+    upstream = None
+    tracker = None
+    log = None
+
+    def log_message(self, format, *args):
+        return
+
+    def do_GET(self):
+        self.forward(b"")
+
+    def do_POST(self):
+        self.forward(self.read_body())
+
+    def do_PUT(self):
+        self.forward(self.read_body())
+
+    def do_DELETE(self):
+        self.forward(self.read_body())
+
+    def read_body(self):
+        length = int(self.headers.get("Content-Length") or 0)
+        return self.rfile.read(length) if length else b""
+
+    def forward(self, body):
+        request_id = None
+        if self.command == "POST" and self.path == MESSAGES_PATH:
+            request_id = observe_request(body, self.tracker, self.log)
+        connection = http.client.HTTPConnection(self.upstream.hostname, self.upstream.port, timeout=UPSTREAM_TIMEOUT_SECONDS)
+        try:
+            connection.putrequest(self.command, self.path, skip_host=True, skip_accept_encoding=True)
+            for name, value in forwarded_headers(self.headers, request_id):
+                connection.putheader(name, value)
+            connection.putheader("Host", self.upstream.netloc)
+            connection.putheader("Content-Length", str(len(body)))
+            connection.endheaders(body)
+            reply = connection.getresponse()
+            self.relay(reply)
+        except (OSError, http.client.HTTPException) as error:
+            self.send_error(502, f"upstream failed: {error}")
+        finally:
+            connection.close()
+
+    def relay(self, reply):
+        self.send_response_only(reply.status, reply.reason)
+        for name, value in returned_headers(reply.headers):
+            self.send_header(name, value)
+        chunked = reply.headers.get("Transfer-Encoding", "").lower() == "chunked"
+        if chunked:
+            self.send_header("Transfer-Encoding", "chunked")
+        elif reply.headers.get("Content-Length") is not None:
+            self.send_header("Content-Length", reply.headers["Content-Length"])
+        else:
+            self.send_header("Connection", "close")
+            self.close_connection = True
+        self.end_headers()
+        while True:
+            chunk = reply.read1(STREAM_CHUNK_BYTES) if hasattr(reply, "read1") else reply.read(STREAM_CHUNK_BYTES)
+            if not chunk:
+                break
+            if chunked:
+                self.wfile.write(b"%x\r\n%s\r\n" % (len(chunk), chunk))
+            else:
+                self.wfile.write(chunk)
+            self.wfile.flush()
+        if chunked:
+            self.wfile.write(b"0\r\n\r\n")
+            self.wfile.flush()
+
+
+def publish_port(path, port):
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(descriptor, "w") as handle:
+        handle.write(f"{port}\n")
+
+
+def watch_pid(pid, server):
+    while process_alive(pid):
+        time.sleep(WATCH_INTERVAL_SECONDS)
+    server.shutdown()
+
+
+def serve(options):
+    upstream = urlsplit(options.upstream)
+    if upstream.scheme != "http" or not upstream.hostname:
+        raise SystemExit(f"messages-proxy: --upstream must be an http:// URL, got {options.upstream}")
+    handler = type("BoundProxyHandler", (ProxyHandler,), {
+        "upstream": upstream,
+        "tracker": SectionTracker(),
+        "log": RequestLog(options.log),
+    })
+    server = ThreadingHTTPServer(("127.0.0.1", options.port), handler)
+    server.daemon_threads = True
+    if options.port_file:
+        publish_port(options.port_file, server.server_port)
+    if options.watch_pid is not None:
+        threading.Thread(target=watch_pid, args=(options.watch_pid, server), daemon=True).start()
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+
+
+if __name__ == "__main__":
+    serve(parse_args(sys.argv[1:]))

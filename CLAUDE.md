@@ -705,6 +705,29 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   (`fixtures/server-log.txt` covers every cause and passes `--check-rules`),
   `shared/hooks/incident-note.test.sh`, `bin/claude-ollama.test.sh` (stub
   watcher; doctor runs the real one on a stub log), the console's vitest suite.
+- Messages proxy:
+  `bin/messages-proxy --upstream URL --port N --log FILE [--port-file PATH] [--watch-pid PID]`
+  (stdlib only) listens on `127.0.0.1:N` (`0` picks a free port and
+  `--port-file` publishes it, 0600) and forwards every request to Ollama
+  unchanged, SSE streamed back as it arrives; it exits when the watched pid
+  dies. For each `POST /v1/messages` it hashes the body's sections in order
+  (`system`, `tools`, each `messages` entry, each as
+  `json.dumps(sort_keys=True, separators=(",", ":"))`) as cumulative sha256
+  prefixes, compares them with the previous request's and appends one JSON line
+  to `--log` (0700 dir, 0600 file): `ts`, `request_id` (uuid4, also sent
+  upstream as `X-Claude-Ollama-Request`), `sections`, `stable_sections`,
+  `diverged_at` (`system`, `tools`, `message:N` or null), `offset` (byte within
+  that section's canonical text), `diff` (at most 200 chars from there) and
+  `prompt_bytes`; nothing else of the body is logged. `bin/claude-ollama` starts
+  it before `launch_claude` unless `CLAUDE_OLLAMA_PROXY=0`
+  (`CLAUDE_OLLAMA_PROXY_BIN` overrides the script; tests stub it), with
+  `--watch-pid $$`, the log at `$CLAUDE_CONSOLE_STATE_DIR/proxy/requests.jsonl`
+  when that dir exists, else `~/.claude-ollama/proxy/requests.jsonl`, waits for
+  the port file and writes `~/.claude-ollama/proxy-settings.json` with
+  `env.ANTHROPIC_BASE_URL` pointed at the proxy (the settings file `claude`
+  gets); when the port never appears it warns and keeps the direct URL. It only
+  observes: no rewriting, no tool pruning. Tests: `bin/messages-proxy.test.sh`
+  (stub upstream), `bin/claude-ollama.test.sh` (stub proxy).
 - `shared/mcp/code-search.py` is the `semantic_search` MCP server (JSON-RPC over
   stdio, stdlib only). It ranks 40-line chunks by their words (BM25) on every
   search, adds a vector ranking through Ollama `/api/embed` only while

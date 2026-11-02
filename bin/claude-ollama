@@ -27,6 +27,9 @@ append_prompt="$session_config_dir/append-prompt.md"
 fetch_domains_file="${XDG_CONFIG_HOME:-$HOME/.config}/claude-custom/fetch-domains"
 fetch_settings="$session_config_dir/fetch-settings.json"
 profile_settings="$session_config_dir/profile-settings.json"
+proxy_settings="$session_config_dir/proxy-settings.json"
+proxy_port_file="$session_config_dir/proxy.port"
+proxy_url=""
 profiles_dir="${XDG_CONFIG_HOME:-$HOME/.config}/claude-custom/profiles"
 profile_overlay="$repo_dir/shared/profile-overlay"
 fetch_domain_pattern='^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z][a-z0-9-]*[a-z0-9]$'
@@ -470,12 +473,61 @@ write_profile_settings() {
 
 write_launch_settings() {
   mkdir -p "$session_config_dir"
+  rm -f "$proxy_settings"
   write_fetch_settings
   write_profile_settings
 }
 
-launch_settings_file() {
+configured_settings_file() {
   if [ -e "$profile_file" ]; then echo "$profile_settings"; else launch_base_settings; fi
+}
+
+launch_settings_file() {
+  if [ -e "$proxy_settings" ]; then echo "$proxy_settings"; else configured_settings_file; fi
+}
+
+messages_proxy() {
+  echo "${CLAUDE_OLLAMA_PROXY_BIN:-$repo_dir/bin/messages-proxy}"
+}
+
+proxy_log_dir() {
+  if [ -n "${CLAUDE_CONSOLE_STATE_DIR:-}" ] && [ -d "$CLAUDE_CONSOLE_STATE_DIR" ]; then
+    echo "$CLAUDE_CONSOLE_STATE_DIR/proxy"
+  else
+    echo "$session_config_dir/proxy"
+  fi
+}
+
+wait_for_proxy_port() {
+  for _ in $(seq 50); do
+    [ -s "$proxy_port_file" ] && return 0
+    sleep 0.1
+  done
+  return 1
+}
+
+start_messages_proxy() {
+  [ "${CLAUDE_OLLAMA_PROXY:-}" = 0 ] && return 0
+  local upstream port
+  upstream="$(jq -r '.env.ANTHROPIC_BASE_URL // empty' "$(configured_settings_file)")"
+  [ -n "$upstream" ] || return 0
+  rm -f "$proxy_port_file"
+  nohup "$(messages_proxy)" --upstream "$upstream" --port 0 --port-file "$proxy_port_file" \
+    --log "$(proxy_log_dir)/requests.jsonl" --watch-pid "$$" >/dev/null 2>&1 &
+  if ! wait_for_proxy_port; then
+    echo "claude-ollama: messages proxy did not start; claude talks to $upstream directly" >&2
+    return 0
+  fi
+  port="$(tr -cd '0-9' < "$proxy_port_file")"
+  proxy_url="http://127.0.0.1:$port"
+  write_proxy_settings
+}
+
+write_proxy_settings() {
+  local target
+  target="$(mktemp "$proxy_settings.XXXXXX")"
+  jq --arg url "$proxy_url" '.env.ANTHROPIC_BASE_URL = $url' "$(configured_settings_file)" > "$target"
+  mv -f "$target" "$proxy_settings"
 }
 
 base_tools() {
@@ -1331,6 +1383,7 @@ if [ "$harness" = qwen ]; then
 fi
 launch_fetch_domains="$(fetch_domains)"
 write_launch_settings
+start_messages_proxy
 write_append_prompt
 claude_args=(
   --settings "$(launch_settings_file)"

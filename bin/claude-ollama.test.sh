@@ -183,6 +183,18 @@ EOF
   chmod +x "$sandbox/stubbin/incident-watcher"
   export CLAUDE_OLLAMA_INCIDENT_WATCHER="$sandbox/stubbin/incident-watcher"
   unset CLAUDE_OLLAMA_INCIDENTS CLAUDE_OLLAMA_INCIDENTS_FILE
+  cat > "$sandbox/stubbin/messages-proxy" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" > "$sandbox/proxy-args"
+while [ \$# -gt 0 ]; do
+  [ "\$1" = --port-file ] && echo "\${STUB_PROXY_PORT:-48000}" > "\$2"
+  shift
+done
+EOF
+  chmod +x "$sandbox/stubbin/messages-proxy"
+  export CLAUDE_OLLAMA_PROXY_BIN="$sandbox/stubbin/messages-proxy"
+  export CLAUDE_OLLAMA_PROXY=0
+  unset STUB_PROXY_PORT
 }
 
 link_system_tools() {
@@ -955,6 +967,26 @@ run_capture env CLAUDE_OLLAMA_INCIDENTS=0 "$repo/bin/claude-ollama" 27b -p hi
 sleep 1
 check_not "CLAUDE_OLLAMA_INCIDENTS=0 starts no watcher" test -e "$sandbox/watcher-args"
 check_eq "and the session gets no incidents file" "" "$(session_env CLAUDE_OLLAMA_INCIDENTS_FILE)"
+launch_base_url() {
+  jq -r .env.ANTHROPIC_BASE_URL "$(sed -n 's/^ARGS: --settings \([^ ]*\).*/\1/p' "$sandbox/out" | tail -1)"
+}
+run_capture env -u CLAUDE_OLLAMA_PROXY "$repo/bin/claude-ollama" 27b -p hi
+proxy_args="$(cat "$sandbox/proxy-args" 2>/dev/null)"
+check_that "the messages proxy forwards to the profile's Ollama URL" contains "$proxy_args" "--upstream $(jq -r .env.ANTHROPIC_BASE_URL "$repo/ollama/settings.27b.json")"
+check_that "the messages proxy picks a free loopback port" contains "$proxy_args" "--port 0 "
+check_that "the messages proxy publishes its port" contains "$proxy_args" "--port-file $session_config/proxy.port"
+check_that "the messages proxy logs in the session config without a console state dir" contains "$proxy_args" "--log $session_config/proxy/requests.jsonl"
+check_that "the messages proxy stops with the launch" contains "$proxy_args" "--watch-pid "
+check_eq "claude is pointed at the proxy" "http://127.0.0.1:48000" "$(launch_base_url)"
+rm -f "$sandbox/proxy-args"
+mkdir -p "$sandbox/console-state"
+run_capture env -u CLAUDE_OLLAMA_PROXY CLAUDE_CONSOLE_STATE_DIR="$sandbox/console-state" STUB_PROXY_PORT=48001 "$repo/bin/claude-ollama" 27b -p hi
+check_that "the messages proxy logs under the console state dir when it exists" contains "$(cat "$sandbox/proxy-args")" "--log $sandbox/console-state/proxy/requests.jsonl"
+check_eq "claude is pointed at the proxy's published port" "http://127.0.0.1:48001" "$(launch_base_url)"
+rm -f "$sandbox/proxy-args"
+run_capture env CLAUDE_OLLAMA_PROXY=0 "$repo/bin/claude-ollama" 27b -p hi
+check_not "CLAUDE_OLLAMA_PROXY=0 starts no proxy" test -e "$sandbox/proxy-args"
+check_eq "and claude keeps the direct Ollama URL" "$(jq -r .env.ANTHROPIC_BASE_URL "$repo/ollama/settings.27b.json")" "$(launch_base_url)"
 cmux_socket="$sandbox/cmux.sock"
 /usr/bin/python3 -c 'import socket, sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])' "$cmux_socket"
 cat > "$sandbox/stubbin/cmux" <<'EOF'
