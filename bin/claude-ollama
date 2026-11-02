@@ -41,6 +41,7 @@ fetch_settings="$session_config_dir/fetch-settings.json"
 profile_settings="$session_config_dir/profile-settings.json"
 proxy_settings="$session_config_dir/proxy-settings.json"
 proxy_port_file="$session_config_dir/proxy.port"
+proxy_record_dir="$session_config_dir/proxy/record"
 proxy_url=""
 profiles_dir="${XDG_CONFIG_HOME:-$HOME/.config}/claude-custom/profiles"
 profile_overlay="$repo_dir/shared/profile-overlay"
@@ -703,10 +704,11 @@ start_messages_proxy() {
   upstream="$(jq -r '.env.ANTHROPIC_BASE_URL // empty' "$(configured_settings_file)")"
   [ -n "$upstream" ] || return 0
   rm -f "$proxy_port_file"
-  local record_args=()
-  [ "${CLAUDE_OLLAMA_PROXY_RECORD:-}" != 1 ] || record_args=(--record "$session_config_dir/proxy/record")
+  local proxy_mode_args=()
+  [ "${CLAUDE_OLLAMA_PROXY_RECORD:-}" != 1 ] || proxy_mode_args=(--record "$proxy_record_dir")
+  [ "${CLAUDE_OLLAMA_PROXY_STABILIZE:-}" != 1 ] || proxy_mode_args+=(--stabilize)
   nohup "$(messages_proxy)" --upstream "$upstream" --port 0 --port-file "$proxy_port_file" \
-    --log "$(proxy_log_dir)/requests.jsonl" --watch-pid "$$" ${record_args[@]+"${record_args[@]}"} >/dev/null 2>&1 &
+    --log "$(proxy_log_dir)/requests.jsonl" --watch-pid "$$" ${proxy_mode_args[@]+"${proxy_mode_args[@]}"} >/dev/null 2>&1 &
   if ! wait_for_proxy_port; then
     echo "claude-ollama: messages proxy did not start; claude talks to $upstream directly" >&2
     return 0
@@ -1640,6 +1642,7 @@ case "${1:-}" in
     echo "rescue [size] [--out FILE] [--since MINUTES]: write one redacted markdown report (doctor, config, logs, incidents, proxy stats) to paste into a bug report"
     echo "review [size] PR [--post]: review a pull request with the size's model, one file per request"
     echo "mock-spike [size] [--runs N] [--brief NAME]...: measure how well the size's model streams json-render mockup patches"
+    echo "prefix-ab [size] [--limit N] [--json]: replay the recorded prompts verbatim and stabilised and report the cache gain"
     echo "ui [--port N]: serve the console (runs, health, logs, models, reviews) at http://127.0.0.1:8765/"
     echo "reviews [--port N]: serve live and past reviews at http://127.0.0.1:8765/"
     echo "fetch domains: list hostnames in ~/.config/claude-custom/fetch-domains to give sessions WebFetch for them"
@@ -1661,6 +1664,7 @@ case "${1:-}" in
   prepare-embedding) mode=prepare-embedding; shift ;;
   review) mode=review; shift ;;
   mock-spike) mode=mock-spike; shift ;;
+  prefix-ab) mode=prefix-ab; shift ;;
   ui) mode=ui; shift ;;
   reviews) mode=reviews; shift ;;
   prepare) mode=prepare; shift ;;
@@ -1728,6 +1732,11 @@ run_mock_spike() {
   exec "${CLAUDE_OLLAMA_MOCK_SPIKE:-$repo_dir/bin/mock-spike}" --model "$model" --base-url "$ollama_url" "$@"
 }
 
+run_prefix_ab() {
+  acquire_lease prefix-ab --model "$model" || exit 3
+  exec "${CLAUDE_OLLAMA_PREFIX_AB:-$repo_dir/bin/prefix-ab}" --record "$proxy_record_dir" --model "$model" --base-url "$ollama_url" "$@"
+}
+
 if [ $# -gt 0 ] && is_configured_size "$1"; then
   size="$1"
   shift
@@ -1758,6 +1767,7 @@ case "$mode" in
   rescue) run_rescue "$@" ;;
   review) run_review "$review_target" "$@" ;;
   mock-spike) run_mock_spike "$@" ;;
+  prefix-ab) run_prefix_ab "$@" ;;
   prepare) ensure_model; exit 0 ;;
 esac
 

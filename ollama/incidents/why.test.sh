@@ -62,6 +62,8 @@ check "a drift at system is the verdict without incidents" line_has verdict "pro
 check "the drift evidence shows the diverging offset" line_has evidence "offset 41"
 check "the drift evidence quotes the diff" line_has evidence 'Monday 2026-11-02'
 check "the drift fix names the volatile text" line_has fix 'move the volatile line after the stable prefix: "Monday 2026-11-02'
+check "the drift fix names the stabilize switch" line_has fix 'CLAUDE_OLLAMA_PROXY_STABILIZE=1'
+check "the drift fix names the prefix bench" line_has fix 'claude-ollama prefix-ab'
 check "the prefix rate skips the first request" line_has prefix "67% of 3 requests stable through tools"
 check "the top diverging sections carry counts" line_has drift "system 1 · message:4 1"
 

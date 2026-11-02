@@ -157,6 +157,7 @@ describe("validateProfileOverride", () => {
     ["CLAUDE_OLLAMA_LADDER", "1", "Guards", true],
     ["CLAUDE_OLLAMA_LEASE", "1", "Ollama residency", true],
     ["CLAUDE_OLLAMA_FIT", "1", "Ollama residency", true],
+    ["CLAUDE_OLLAMA_PROXY_STABILIZE", "0", "Prompt and context", true],
     ["CLAUDE_OLLAMA_PROXY_RECORD", "0", "Diagnostics", true],
     ["CLAUDE_OLLAMA_BEACON", "1", "Diagnostics", true],
   ])("%s is a switch defaulting to %s under %s", (key, defaultValue, group, ollamaOnly) => {
@@ -174,6 +175,7 @@ describe("validateProfileOverride", () => {
     const labelOf = (key: string) => PROFILE_ENV_FIELDS.find((field) => field.key === key)?.label;
     expect(labelOf("CLAUDE_OLLAMA_PROXY")).toBe("Observe prompt drift through the messages proxy");
     expect(labelOf("CLAUDE_OLLAMA_PROXY_RECORD")).toBe("Record every request body for replay benches");
+    expect(labelOf("CLAUDE_OLLAMA_PROXY_STABILIZE")).toBe("Move volatile prompt lines after the stable prefix");
     expect(labelOf("CLAUDE_CUSTOM_FRICTION")).toBe("Reset a looping guard after three identical denials");
     expect(labelOf("CLAUDE_OLLAMA_LEASE")).toBe("Hold an Ollama residency lease and heartbeat");
     expect(labelOf("CLAUDE_OLLAMA_LEASE_HEARTBEAT")).toBe("Seconds between keep-alive heartbeats");

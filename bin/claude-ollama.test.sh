@@ -716,6 +716,20 @@ check_eq "mock-spike exit status" 0 "$?"
 check_that "mock-spike runs the spike with the size's model and server" \
   grep -qxF "SPIKE: --model qwen3.8-27b-cc --base-url http://127.0.0.1:11434 --runs 2" "$sandbox/out"
 unset CLAUDE_OLLAMA_MOCK_SPIKE
+cat > "$sandbox/stubbin/prefix-ab" <<EOF
+#!/bin/sh
+echo "AB: \$*"
+EOF
+chmod +x "$sandbox/stubbin/prefix-ab"
+rm -f "$sandbox/proxy-args"
+CLAUDE_OLLAMA_PREFIX_AB="$sandbox/stubbin/prefix-ab" run_capture "$repo/bin/claude-ollama" prefix-ab 27b --limit 3 </dev/null
+check_eq "prefix-ab exit status" 0 "$?"
+check_that "prefix-ab replays the session record dir with the size's model and server" \
+  grep -qxF "AB: --record $HOME/.claude-ollama/proxy/record --model qwen3.8-27b-cc --base-url http://127.0.0.1:11434 --limit 3" "$sandbox/out"
+check_not "prefix-ab does not launch claude" grep -q '^ARGS:' "$sandbox/out"
+check_not "prefix-ab does not start the proxy" test -e "$sandbox/proxy-args"
+CLAUDE_OLLAMA_PREFIX_AB="$sandbox/stubbin/prefix-ab" run_capture "$repo/bin/claude-ollama" prefix-ab </dev/null
+check_that "prefix-ab without a size uses the default" grep -q 'AB: --record .* --model qwen3.8-27b-cc ' "$sandbox/out"
 unset CLAUDE_OLLAMA_REVIEWER
 run_capture "$repo/bin/claude-ollama" --help
 check_that "claude-ollama help lists logs" grep -q '^logs \[-n LINES|--path\]: ' "$sandbox/out"
@@ -1049,6 +1063,10 @@ check_eq "and claude keeps the direct Ollama URL" "$(jq -r .env.ANTHROPIC_BASE_U
 rm -f "$sandbox/proxy-args"
 run_capture env -u CLAUDE_OLLAMA_PROXY CLAUDE_OLLAMA_PROXY_RECORD=1 "$repo/bin/claude-ollama" 27b -p hi
 check_that "CLAUDE_OLLAMA_PROXY_RECORD=1 records bodies under the session proxy dir" contains "$(cat "$sandbox/proxy-args")" "--record $session_config/proxy/record"
+check_not "without CLAUDE_OLLAMA_PROXY_STABILIZE the proxy only observes" contains "$(cat "$sandbox/proxy-args")" "--stabilize"
+rm -f "$sandbox/proxy-args"
+run_capture env -u CLAUDE_OLLAMA_PROXY CLAUDE_OLLAMA_PROXY_STABILIZE=1 "$repo/bin/claude-ollama" 27b -p hi
+check_that "CLAUDE_OLLAMA_PROXY_STABILIZE=1 passes --stabilize to the proxy" contains "$(cat "$sandbox/proxy-args")" "--stabilize"
 rm -f "$sandbox/proxy-args"
 run_capture env -u CLAUDE_OLLAMA_PROXY "$repo/bin/claude-ollama" 27b -p hi
 check_not "the proxy records nothing by default" contains "$(cat "$sandbox/proxy-args")" "--record"
@@ -1703,6 +1721,7 @@ CLAUDE_CONSOLE_STATE_DIR="$sandbox/state" CLAUDE_OLLAMA_WHY_BIN="$sandbox/stubbi
 check_that "why reads the console state dir when it is set" grep -qxF -- "--proxy-log $sandbox/state/proxy/requests.jsonl --incidents-dir $sandbox/state/incidents" "$sandbox/why-args"
 run_capture "$repo/bin/claude-ollama" --help
 check_that "usage lists why" grep -q '^why \[--since MINUTES\] \[--json\]' "$sandbox/out"
+check_that "usage lists prefix-ab" grep -q '^prefix-ab \[size\] \[--limit N\] \[--json\]' "$sandbox/out"
 mkdir -p "$sandbox/realbin"
 ln -s "$real_python3" "$sandbox/realbin/python3"
 PATH="$sandbox/realbin:$PATH" run_capture "$repo/bin/claude-ollama" why

@@ -122,6 +122,44 @@ body = {
 sys.stdout.write(json.dumps(body, indent=1))
 PY
 
+cat > "$tmp/volatile_body.py" <<'PY'
+import json
+import sys
+
+layout, opening, date, big, tool_text, last = sys.argv[1:7]
+lines = [opening, f"The session began on {date}.", big, "You are a terse assistant.", "Keep replies short."]
+lines = [line for line in lines if line]
+system = "\n".join(lines) if layout == "string" else [{"type": "text", "text": line} for line in lines]
+body = {
+    "model": "stub",
+    "max_tokens": 16,
+    "stream": True,
+    "system": system,
+    "tools": [{"name": "read_file", "description": tool_text, "input_schema": {"type": "object"}}],
+    "messages": [{"role": "user", "content": last}],
+}
+sys.stdout.write(json.dumps(body, indent=1))
+PY
+
+cat > "$tmp/system_prefix.py" <<'PY'
+import json
+import sys
+
+body = json.loads(open(sys.argv[1]).read())
+system = body["system"]
+text = system if isinstance(system, str) else "\n".join(block["text"] for block in system)
+print(text.rsplit("\n", 1)[0])
+PY
+
+cat > "$tmp/system_offset_of.py" <<'PY'
+import json
+import sys
+
+body = json.loads(open(sys.argv[1]).read())
+canonical = json.dumps(body["system"], sort_keys=True, separators=(",", ":"))
+print(len(canonical[: canonical.index(sys.argv[2])].encode("utf-8")))
+PY
+
 cat > "$tmp/section_bytes.py" <<'PY'
 import json
 import sys
@@ -249,6 +287,7 @@ check "the diff stays short" [ "$(row_field "$(log_row 2)" '.diff | length')" -l
 check "a system change leaves no stable sections" [ "$(row_field "$(log_row 2)" .stable_sections)" = 0 ]
 check "every row has a timestamp" [ "$(row_field "$(log_row 2)" .ts)" != null ]
 check "the log never holds the whole prompt" lacks_text "terse assistant" "$run_dir/proxy/requests.jsonl"
+check "without --stabilize a row has no stabilized key" [ "$(row_field "$(log_row 2)" 'has("stabilized")')" = false ]
 check "the ledger prices the system prompt" [ "$(row_field "$(log_row 1)" .ledger.system)" = "$(python3 "$tmp/section_bytes.py" "$run_dir/first.json" system)" ]
 check "the ledger prices each tool schema by name" [ "$(row_field "$(log_row 1)" .ledger.tools.read_file)" = "$(python3 "$tmp/section_bytes.py" "$run_dir/first.json" tools)" ]
 check "the ledger lists only the request's tools" [ "$(row_field "$(log_row 1)" '.ledger.tools | keys | join(",")')" = read_file ]
@@ -304,6 +343,72 @@ curl -sf "$proxy_url/api/version" > /dev/null
 check "other routes record nothing" [ "$(find "$run_dir/record" -name '*.json' | wc -l | tr -d ' ')" = 1 ]
 
 stop_proxy
+stop_upstream
+start_upstream && start_proxy --stabilize --record "$run_dir/record"
+volatile_body() { python3 "$tmp/volatile_body.py" "$@"; }
+upstream_body_file() { printf '%s' "$(upstream_row "$1")" | jq -r .body > "$run_dir/upstream-$1.json"; echo "$run_dir/upstream-$1.json"; }
+upstream_system_texts() { jq -c '[.system[].text]' "$(upstream_body_file "$1")"; }
+system_prefix_of() { python3 "$tmp/system_prefix.py" "$(upstream_body_file "$1")"; }
+byte_length() { printf '%s' "$1" | wc -c | tr -d ' '; }
+big_a="$(printf 'A%.0s' $(seq 500))"
+big_b="$(printf 'B%.0s' $(seq 500))"
+volatile_body array "" "Sunday 2026-11-01" "" "Read a file." hello > "$run_dir/v1.json"
+volatile_body array "" "Monday 2026-11-02" "" "Read a file." hello > "$run_dir/v2.json"
+volatile_body array "" "Tuesday 2026-11-03" "" "Read a file." hello > "$run_dir/v3.json"
+volatile_body array "" "Wednesday 2026-11-04" "$big_a" "Read a file." hello > "$run_dir/v4.json"
+volatile_body array "" "Wednesday 2026-11-04" "$big_b" "Read a file." hello > "$run_dir/v5.json"
+volatile_body array "" "Wednesday 2026-11-04" "$big_b" "Read a file carefully." hello > "$run_dir/v6.json"
+
+send "$run_dir/v1.json" "$run_dir/v1.out"
+check "--stabilize forwards a first body byte-for-byte" upstream_body_is 1 "$run_dir/v1.json"
+check "--stabilize rows list the moved lines" [ "$(row_field "$(log_row 1)" '.stabilized | length')" = 0 ]
+check "--stabilize rows count the moved bytes" [ "$(row_field "$(log_row 1)" .moved_bytes)" = 0 ]
+
+send "$run_dir/v2.json" "$run_dir/v2.out"
+check "a short changed line is learned and moved to the tail of the system" [ "$(upstream_system_texts 2)" = '["You are a terse assistant.","Keep replies short.\nThe session began on Monday 2026-11-02."]' ]
+check "the row names the moved line with its date masked" [ "$(row_field "$(log_row 2)" '.stabilized | join(",")')" = "The session began on <weekday> ####-##-##." ]
+check "the row counts the moved bytes" [ "$(row_field "$(log_row 2)" .moved_bytes)" = "$(byte_length 'The session began on Monday 2026-11-02.')" ]
+
+send "$run_dir/v3.json" "$run_dir/v3.out"
+check "the next request keeps the moved line at the tail" [ "$(upstream_system_texts 3)" = '["You are a terse assistant.","Keep replies short.\nThe session began on Tuesday 2026-11-03."]' ]
+check "the prefix before the moved line is byte-stable" [ "$(system_prefix_of 3)" = "$(system_prefix_of 2)" ]
+check "the divergence is now at the tail" [ "$(row_field "$(log_row 3)" .offset)" -ge "$(python3 "$tmp/system_offset_of.py" "$run_dir/upstream-3.json" "The session began")" ]
+check "the messages are never touched" [ "$(jq -c .messages "$run_dir/upstream-3.json")" = "$(jq -c .messages "$run_dir/v3.json")" ]
+check "the tools are never touched" [ "$(jq -c .tools "$run_dir/upstream-3.json")" = "$(jq -c .tools "$run_dir/v3.json")" ]
+check "--record keeps the original body, not the stabilized one" cmp -s "$run_dir/record/$(row_field "$(log_row 3)" .request_id).json" "$run_dir/v3.json"
+
+send "$run_dir/v4.json" "$run_dir/v4.out"
+send "$run_dir/v5.json" "$run_dir/v5.out"
+check "a 500-byte change is not learned" [ "$(row_field "$(log_row 5)" '.stabilized | join(",")')" = "The session began on <weekday> ####-##-##." ]
+check "the big line stays in place" [ "$(jq -r '.system[0].text' "$(upstream_body_file 5)")" = "$big_b" ]
+
+send "$run_dir/v6.json" "$run_dir/v6.out"
+check "a tools change is logged" [ "$(row_field "$(log_row 6)" .diverged_at)" = tools ]
+check "a tools change is not moved" [ "$(jq -c .tools "$(upstream_body_file 6)")" = "$(jq -c .tools "$run_dir/v6.json")" ]
+
+stop_proxy
+stop_upstream
+start_upstream && start_proxy --stabilize
+volatile_body string "Today's date: 2026-11-02" "Sunday 2026-11-01" "" "Read a file." hello > "$run_dir/s1.json"
+volatile_body string "Today's date: 2026-11-02" "Monday 2026-11-02" "" "Read a file." hello > "$run_dir/s2.json"
+volatile_body string "14:05" "Monday 2026-11-02" "" "Read a file." hello > "$run_dir/s3.json"
+send "$run_dir/s1.json" "$run_dir/s1.out"
+check "a hard-rule date line moves on the first request" [ "$(jq -r .system "$(upstream_body_file 1)")" = "The session began on Sunday 2026-11-01.
+You are a terse assistant.
+Keep replies short.
+Today's date: 2026-11-02" ]
+check "the hard-rule row names the masked line" [ "$(row_field "$(log_row 1)" '.stabilized | join(",")')" = "Today's date: ####-##-##" ]
+send "$run_dir/s2.json" "$run_dir/s2.out"
+check "a string system gets its volatile lines appended in order" [ "$(jq -r .system "$(upstream_body_file 2)")" = "You are a terse assistant.
+Keep replies short.
+Today's date: 2026-11-02
+The session began on Monday 2026-11-02." ]
+send "$run_dir/s3.json" "$run_dir/s3.out"
+check "a line that is only a time is volatile" [ "$(row_field "$(log_row 3)" '.stabilized | join(",")')" = "##:##,The session began on <weekday> ####-##-##." ]
+
+stop_proxy
+stop_upstream
+start_upstream
 "$proxy" --upstream "$upstream_url" --port 0 --port-file "$run_dir/proxy.port" --log "$run_dir/proxy/requests.jsonl" 2> "$run_dir/proxy.err" &
 proxy_pid=$!
 check "port 0 publishes the bound port" wait_for_file "$run_dir/proxy.port"

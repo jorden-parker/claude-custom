@@ -211,6 +211,18 @@ before changing how any file gets applied.
   tests) on the proxy log and the current incidents file and prints one verdict,
   one evidence line, one `fix:` line, a `prefix:` hit-rate line and a `drift:`
   line; tests: `ollama/incidents/why.test.sh`
+- Prefix A/B: `claude-ollama prefix-ab [size] [--limit N] [--json]` (dispatched
+  like `review`: the size's model, before any pull or launch) execs
+  `bin/prefix-ab --record ~/.claude-ollama/proxy/record --model M --base-url URL`
+  (stdlib; `CLAUDE_OLLAMA_PREFIX_AB` overrides it for tests), which replays the
+  recorded bodies twice in ts order, verbatim and through the proxy's
+  `stabilize_bodies` (the script is imported as a module, no server starts),
+  unloading the model between the passes, and prints a two-column table of cache
+  hit % per request (from `cache_read_input_tokens`, else prefill time per token
+  against the first request, like the probe's fallback), a `mean` row and
+  `stabilize: worth it (+N points mean hit rate)` or `stabilize: no gain` (under
+  one point); `--json` prints `requests`, `mean`, `gain_points` and `verdict`.
+  Tests: `bin/prefix-ab.test.sh` (stub server)
 - Rescue report: `claude-ollama rescue [size] [--out FILE] [--since MINUTES]`
   (dispatched like `doctor`: no pull, no launch; `ollama/rescue.py`, stdlib
   only, does the work and `CLAUDE_OLLAMA_RESCUE_BIN` overrides it for tests)
@@ -910,10 +922,25 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `~/.claude-ollama/proxy/requests.jsonl`, waits for the port file and writes
   `~/.claude-ollama/proxy-settings.json` with `env.ANTHROPIC_BASE_URL` pointed
   at the proxy (the settings file `claude` gets); when the port never appears it
-  warns and keeps the direct URL. It only observes: no rewriting, no tool
-  pruning. The console's Logs page has a Proxy tab (`source=proxy` on both log
-  routes, reading only `$CLAUDE_CONSOLE_STATE_DIR/proxy/requests.jsonl`) with a
-  header (prefix hit rate, average prompt bytes, the top three diverging
+  warns and keeps the direct URL. By default it only observes: no rewriting, no
+  tool pruning. `--stabilize` (the launcher passes it only when
+  `CLAUDE_OLLAMA_PROXY_STABILIZE=1`) adds the prefix stabiliser: when two
+  consecutive requests differ inside `system` by a span that, widened to whole
+  lines, is at most 400 bytes with the rest identical, each changed line's text
+  (digits `#`, weekday and month names `<weekday>`/`<month>`) is learned as
+  volatile for the session; a hard rule table seeds the set (a line that is only
+  a date or time, a line starting with `Today's date`, `Current date` or
+  `The current time`). Every volatile line found in `system` is removed from its
+  place and appended after the rest (a string gets them as final lines; an array
+  of text blocks gets them at the end of its last text block, a block left empty
+  is dropped), so the bytes before it are stable; nothing is dropped, `tools`
+  are never rewritten (a changed schema is logged, not moved) and `messages` are
+  never touched. The forwarded body is the re-serialised JSON, the sections and
+  `prompt_bytes` are hashed on what was forwarded, `--record` keeps the
+  original, and the row gains `stabilized` (the masked lines moved) and
+  `moved_bytes`. The console's Logs page has a Proxy tab (`source=proxy` on both
+  log routes, reading only `$CLAUDE_CONSOLE_STATE_DIR/proxy/requests.jsonl`)
+  with a header (prefix hit rate, average prompt bytes, the top three diverging
   sections), each row as `diverged_at · offset · diff` (`stable · N sections`
   when nothing changed) and a ledger panel listing the latest request's tool
   schemas by bytes with a bar (`web/console/src/lib/proxy-log.ts`:
@@ -940,7 +967,8 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `the request Ns before it diverged at X` or `no request within 5s before it`),
   `fix:` (one command or variable: `bin/ollama-profiles`,
   `OLLAMA_MAX_LOADED_MODELS=2` plus `CLAUDE_OLLAMA_LEASE`, `OLLAMA_KEEP_ALIVE`,
-  `move the volatile line after the stable prefix: "<diff>"`,
+  `move the volatile line after the stable prefix: "<diff>"` followed by
+  `CLAUDE_OLLAMA_PROXY_STABILIZE=1` and `claude-ollama prefix-ab`,
   `CLAUDE_OLLAMA_HANDOFF_PCT`, `ladder.py --inspect`, `claude-ollama doctor`, or
   `nothing to do`), `prefix: N% of M requests stable through tools` (a request
   counts when `diverged_at` is null or a `message:N`; the first row, with
@@ -1157,19 +1185,20 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `CLAUDE_OLLAMA_NO_INDEX`, `CLAUDE_OLLAMA_OPEN_DRAFTS`, `CLAUDE_OLLAMA_CMUX`,
   `CLAUDE_OLLAMA_RELAUNCH`, `CLAUDE_OLLAMA_INCIDENTS`, `CLAUDE_OLLAMA_PROXY`
   (default on), `CLAUDE_OLLAMA_PROXY_RECORD` (default off),
-  `CLAUDE_CUSTOM_FRICTION` (on), `CLAUDE_OLLAMA_LEASE` (on),
-  `CLAUDE_OLLAMA_LADDER` (on), `CLAUDE_OLLAMA_FIT` (on), `CLAUDE_OLLAMA_BEACON`
-  (on) and `CLAUDE_OLLAMA_RULE_CARDS` (on), plus `CLAUDE_OLLAMA_HANDOFF_PCT` (a
-  whole percent from 30 to 85, default 70) and `CLAUDE_OLLAMA_LEASE_HEARTBEAT`
-  (whole seconds from 30 to 600, default 120). That list must equal
-  `PROFILE_ENV_KEYS` in `web/console/src/lib/profile-rules.ts`, and this file
-  and `docs/ollama.md` must name every key (`bin/check-config` checks both); the
-  console's Profiles page shows each key by the plain label, default and help
-  sentence in `PROFILE_ENV_FIELDS`, never the variable name, grouped under the
-  field's `group`, and hides every Ollama-only field from the `claude-code`
-  profile, which of the harness switches sees only `CLAUDE_CUSTOM_FRICTION`. It
-  refuses a symlinked profile, and `Agent` never reaches an Ollama profile. The
-  overlay sets `sandbox.enabled` and the ask rule
+  `CLAUDE_OLLAMA_PROXY_STABILIZE` (off), `CLAUDE_CUSTOM_FRICTION` (on),
+  `CLAUDE_OLLAMA_LEASE` (on), `CLAUDE_OLLAMA_LADDER` (on), `CLAUDE_OLLAMA_FIT`
+  (on), `CLAUDE_OLLAMA_BEACON` (on) and `CLAUDE_OLLAMA_RULE_CARDS` (on), plus
+  `CLAUDE_OLLAMA_HANDOFF_PCT` (a whole percent from 30 to 85, default 70) and
+  `CLAUDE_OLLAMA_LEASE_HEARTBEAT` (whole seconds from 30 to 600, default 120).
+  That list must equal `PROFILE_ENV_KEYS` in
+  `web/console/src/lib/profile-rules.ts`, and this file and `docs/ollama.md`
+  must name every key (`bin/check-config` checks both); the console's Profiles
+  page shows each key by the plain label, default and help sentence in
+  `PROFILE_ENV_FIELDS`, never the variable name, grouped under the field's
+  `group`, and hides every Ollama-only field from the `claude-code` profile,
+  which of the harness switches sees only `CLAUDE_CUSTOM_FRICTION`. It refuses a
+  symlinked profile, and `Agent` never reaches an Ollama profile. The overlay
+  sets `sandbox.enabled` and the ask rule
   `Bash(dangerouslyDisableSandbox:true)`, so every personal session (subagents
   and `--agent pr-review` included) runs Claude's shell commands inside Claude
   Code's sandbox and asks before one runs outside it; `bin/check-config` checks
