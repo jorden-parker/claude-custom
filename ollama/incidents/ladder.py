@@ -18,6 +18,11 @@ MIN_CONTEXT = 16384
 LOWER_CONTEXT_SHARE = 0.75
 CLAUDE_PROCESS_NAMES = ("node", "claude")
 DEFAULT_SIZES = Path(__file__).resolve().parent.parent / "sizes.json"
+DEFAULT_LEASE_BIN = Path(__file__).resolve().parent.parent.parent / "bin" / "ollama-lease"
+RECOVERY_QUIET_SECONDS = 1200
+FIT_RETRY_SECONDS = 60
+RECOVERABLE_RUNGS = ("embeddings-off", "context-down")
+LAUNCH_RUNG_REASON = "did not fit at launch"
 
 
 def preceded_kind(row):
@@ -34,6 +39,7 @@ RUNGS = (
     ("heartbeat", reprefilled_after("expired"), "re-prefills after a keep-alive expiry"),
     ("context-down", lambda row: row.get("cause") == "truncated", "truncated prompts"),
 )
+DESCRIPTIONS = {name: description for name, _, description in RUNGS}
 
 
 def parse_options(argv):
@@ -44,6 +50,11 @@ def parse_options(argv):
     parser.add_argument("--context", type=int)
     parser.add_argument("--sizes", default=str(DEFAULT_SIZES))
     parser.add_argument("--interval", type=float, default=1.0)
+    parser.add_argument("--model")
+    parser.add_argument("--embedding")
+    parser.add_argument("--lease-bin", default=os.environ.get("CLAUDE_OLLAMA_LEASE_BIN", str(DEFAULT_LEASE_BIN)))
+    parser.add_argument("--rung", action="append", default=[], choices=RECOVERABLE_RUNGS)
+    parser.add_argument("--quiet-seconds", type=float, default=RECOVERY_QUIET_SECONDS)
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--inspect", metavar="FILE")
     options = parser.parse_args(argv)
@@ -109,8 +120,29 @@ def terminate_claude(relaunch_dir):
 class Evidence:
     def __init__(self):
         self.fired = {}
+        self.fired_order = []
+        self.last_seen = {}
         self.times = {name: [] for name, _, _ in RUNGS}
         self.noted = set()
+
+    def mark_fired(self, name, reason, when):
+        self.fired[name] = reason
+        self.fired_order.append(name)
+        self.last_seen[name] = when
+
+    def recover(self, name):
+        self.fired.pop(name, None)
+        self.fired_order.remove(name)
+        self.last_seen.pop(name, None)
+        self.times[name] = []
+
+    def in_effect(self, name):
+        return name in self.fired
+
+    def quiet_rungs(self, now, quiet_seconds):
+        for name in reversed(self.fired_order):
+            if name in RECOVERABLE_RUNGS and now - self.last_seen[name] >= quiet_seconds:
+                yield name
 
     def consider(self, row):
         matched = False
@@ -119,9 +151,10 @@ class Evidence:
                 continue
             matched = True
             if name in self.fired:
+                self.last_seen[name] = max(self.last_seen[name], row_time(row))
                 continue
             if self.gathered(name, row_time(row)):
-                self.fired[name] = f"{EVIDENCE_COUNT} {description} {WINDOW_LABEL}"
+                self.mark_fired(name, f"{EVIDENCE_COUNT} {description} {WINDOW_LABEL}", row_time(row))
                 yield name, self.fired[name]
         if not matched and row.get("cause") != "degraded":
             note = self.note_for(row)
@@ -143,6 +176,66 @@ class Evidence:
         return f"{key}: no rung"
 
 
+def quiet_label(quiet_seconds):
+    return f"{int(quiet_seconds // 60)} minutes without"
+
+
+def recovery_reason(name, quiet_seconds):
+    return f"{quiet_label(quiet_seconds)} {DESCRIPTIONS[name]}, memory fits"
+
+
+class Recovery:
+    def __init__(self, options, evidence):
+        self.options = options
+        self.evidence = evidence
+        self.ladder_up = Path(options.relaunch_dir) / "ladder-up"
+        self.proposed = None
+        self.next_fit_at = 0.0
+        for name in options.rung:
+            evidence.mark_fired(name, LAUNCH_RUNG_REASON, time.time())
+
+    def poll(self):
+        if self.proposed is not None:
+            if self.ladder_up.exists():
+                return
+            self.evidence.recover(self.proposed)
+            self.proposed = None
+            self.next_fit_at = 0.0
+        now = time.time()
+        for name in self.evidence.quiet_rungs(now, self.options.quiet_seconds):
+            if now < self.next_fit_at:
+                return
+            self.next_fit_at = now + FIT_RETRY_SECONDS
+            if self.fit_passes(name):
+                self.propose(name)
+            return
+
+    def propose(self, name):
+        reason = recovery_reason(name, self.options.quiet_seconds)
+        self.ladder_up.write_text(json.dumps({"rung": name, "reason": reason}))
+        self.proposed = name
+
+    def fit_context(self, name):
+        lowered = name != "context-down" and self.evidence.in_effect("context-down")
+        return lower_context(self.options.context, self.options.sizes) if lowered else self.options.context
+
+    def fit_arguments(self, name):
+        arguments = [self.options.lease_bin, "fit", "--model", self.options.model, "--num-ctx", str(self.fit_context(name))]
+        embeddings_on = name == "embeddings-off" or not self.evidence.in_effect("embeddings-off")
+        if self.options.embedding and embeddings_on:
+            arguments += ["--embedding", self.options.embedding]
+        return arguments
+
+    def fit_passes(self, name):
+        if not self.options.model or not self.options.context:
+            return False
+        try:
+            output = subprocess.run(self.fit_arguments(name), capture_output=True, text=True, check=False).stdout
+            return json.loads(output).get("fits") is True
+        except (OSError, ValueError, AttributeError):
+            return False
+
+
 class Ladder:
     def __init__(self, options):
         self.options = options
@@ -150,6 +243,7 @@ class Ladder:
         self.log = IncidentLog(options.incidents)
         self.tail = FileTail(options.incidents, start_at_end=False)
         self.evidence = Evidence()
+        self.recovery = Recovery(options, self.evidence)
 
     def poll(self):
         for row in parse_rows(self.tail.new_lines()):
@@ -158,6 +252,7 @@ class Ladder:
                     self.log.record_health({"kind": "ladder", "ts": now_iso(), "note": text})
                 else:
                     self.fire(name, text)
+        self.recovery.poll()
 
     def fire(self, name, reason):
         if name == "embeddings-off":
@@ -190,6 +285,8 @@ def inspect(path):
         rows = list(parse_rows(handle))
     for row in rows:
         lines += [f"{name}: {text}" for name, text in evidence.consider(row) if name]
+    for name in evidence.quiet_rungs(time.time(), RECOVERY_QUIET_SECONDS):
+        lines.append(f"up {name}: {quiet_label(RECOVERY_QUIET_SECONDS)} {DESCRIPTIONS[name]}")
     print("\n".join(lines) if lines else "none")
 
 

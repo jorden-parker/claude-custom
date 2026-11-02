@@ -982,14 +982,43 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   a refusal. `CLAUDE_OLLAMA_LEASE=0` turns all of it off;
   `CLAUDE_OLLAMA_LEASE_BIN` overrides the script for tests. `doctor` prints
   `ok   lease held by NAME (pid N, model M)`,
-  `warn stale lease NAME (pid N) removed` or `ok   no lease holders`. Tests:
-  `bin/ollama-lease.test.sh` (stub `pgrep`, `ps`, `curl`, sleeping pids),
-  `bin/claude-ollama.test.sh`.
+  `warn stale lease NAME (pid N) removed` or `ok   no lease holders`.
+  `fit --model M --num-ctx N [--embedding E]` prints one JSON line
+  `{model_bytes, kv_bytes, embedding_bytes, total_bytes, free_bytes, fits, margin_bytes, estimate}`:
+  the model and embedding bytes are the `size` of each in `/api/tags`; the KV
+  bytes are `num_ctx * block_count * 2 * head_count_kv * key_length * bytes`
+  from the `Metadata` of `ollama show M --verbose` with `OLLAMA_KV_CACHE_TYPE`
+  of the running server as the bytes per element (f16 2, q8_0 1, q4_0 0.5), or a
+  flat 25% of the model bytes with `estimate: rough` when a field is missing;
+  the free bytes are `sysctl -n hw.memsize` minus the active and wired pages of
+  `vm_stat` on macOS, or `MemAvailable` from `/proc/meminfo`
+  (`CLAUDE_OLLAMA_MEMINFO` overrides the path) when that file is readable. It
+  exits 1 with `ollama lease: /api/tags lists no M` or
+  `ollama lease: cannot read the free memory`. `bin/claude-ollama` runs it
+  before claiming the session lease (`CLAUDE_OLLAMA_FIT=0` skips it; a fit that
+  fails prints `claude-ollama: memory fit: unknown (<reason>)` and the launch
+  goes on) and prints
+  `claude-ollama: memory fit: model 16.0 GiB + kv 8.0 GiB + embedding 0.6 GiB = 24.6 GiB of 28.9 GiB free`.
+  When it does not fit the launcher starts on the lowest rung that does:
+  `claude-ollama: ladder embeddings-off: does not fit with the embedding model (N GiB short)`
+  (exports `CODE_SEARCH_EMBED=0`, takes no embedding lease, touches `embed-off`
+  in the relaunch dir), then
+  `claude-ollama: ladder context-down: does not fit at num_ctx N (N GiB short); starting at M`
+  (the next lower size's context from `ollama/sizes.json`, else 75% rounded to
+  1024 and never below 16384, through the same `ladder-settings.json` path, one
+  step only;
+  `claude-ollama: memory fit: still N GiB short at num_ctx M with the embeddings off`
+  when even that is short). The session lease records the rung and the lower
+  `num_ctx`, and the ladder is started with one `--rung R` per rung in effect.
+  `doctor` prints `ok   memory fit: ...` or
+  `warn memory fit: ... (N GiB short)`. Tests: `bin/ollama-lease.test.sh` (stub
+  `pgrep`, `ps`, `curl`, `ollama`, `sysctl`, `vm_stat`, a `meminfo` file,
+  sleeping pids), `bin/claude-ollama.test.sh` (`STUB_MEMSIZE`, `show-verbose`).
 - Degrade ladder: `ollama/incidents/ladder.py` (stdlib only; it imports
   `FileTail`, `IncidentLog`, `process_alive` and `now_iso` from `watcher.py`)
   runs outside the sandbox beside the watcher (`launch_claude` starts it after
   `prepare_relaunch_dir` with
-  `--incidents $CLAUDE_OLLAMA_INCIDENTS_FILE --relaunch-dir DIR --watch-pid $$ --context NUM_CTX`;
+  `--incidents $CLAUDE_OLLAMA_INCIDENTS_FILE --relaunch-dir DIR --watch-pid $$ --context NUM_CTX --model M --embedding E --lease-bin PATH [--rung R]...`;
   `CLAUDE_OLLAMA_LADDER=0` turns it off, `CLAUDE_OLLAMA_LADDER_BIN` overrides it
   for tests; `bin/check-config` fails when the launcher stops starting it). It
   follows the session's incidents file from its start and binds each rung to
@@ -1005,20 +1034,51 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   appends a `degraded` incident (`detail: "<rung>: <reason>"`,
   `rule: "ladder/<rung>"`, also to `.latest`); a row no rung is bound to only
   appends `{"kind": "ladder", "ts", "note": "<cause> after <kind>: no rung"}`
-  once per note. `ladder.py --inspect FILE` prints the `<rung>: <reason>` lines
-  an incidents file would fire, or `none`. The launcher's relaunch loop also
-  wakes on a `ladder` file: it prints `claude-ollama: ladder <rung>: <reason>`,
-  writes `~/.claude-ollama/ladder-profile.json` (the size's profile plus
-  `context`) through `shared/profile-overlay settings` into
-  `ladder-settings.json`, so `CLAUDE_CODE_MAX_CONTEXT_TOKENS` keeps the headroom
-  margin, re-acquires the session lease with `--rung`, and runs `claude` again
-  with the same flags, a trailing prompt dropped and `--continue` added; a
-  handoff sentinel in the same pass still wins the arguments. Every relaunch
-  exports `CODE_SEARCH_EMBED=0` while `embed-off` exists, and `code-search.py`
-  itself answers words only while that file is in `$CLAUDE_OLLAMA_RELAUNCH_DIR`.
-  Tests: `ollama/incidents/ladder.test.sh` (inline incident rows, a sleeping
-  pid, a stub `ps`), `bin/claude-ollama.test.sh` (stub ladder,
-  `STUB_CLAUDE_LADDER_ONCE`), `shared/mcp/code-search.test.sh`.
+  once per note. Recovery ratchet: the ladder remembers the newest row of each
+  fired rung's cause (a `--rung R` given at start counts as fired at launch),
+  and once `embeddings-off` or `context-down` has seen none for
+  `--quiet-seconds` (default 1200) it runs
+  `ollama-lease fit --model M --num-ctx N [--embedding E]` (the context before
+  that rung, the other rung's degradation kept; at most once a minute) and, when
+  `fits` is true, writes `$CLAUDE_OLLAMA_RELAUNCH_DIR/ladder-up` as
+  `{"rung", "reason": "20 minutes without <description>, memory fits"}`. It
+  proposes the last rung down first, one rung at a time: the next is considered
+  only after the launcher removed the file, which also lets that rung fire again
+  on new evidence. `heartbeat` is never recovered. `ladder.py --inspect FILE`
+  prints the `<rung>: <reason>` lines an incidents file would fire, then
+  `up <rung>: 20 minutes without <description>` for each pending recovery, or
+  `none`. The launcher honours `ladder-up` only on a handoff relaunch (never on
+  its own, and never on a ladder relaunch): it removes `embed-off` and allows
+  the embeddings again for `embeddings-off`, or drops the ladder context and
+  returns to the profile settings for `context-down`, prints
+  `claude-ollama: ladder up: <rung> recovered (<reason>)`, appends a `recovered`
+  incident (`detail: "<rung>: <reason>"`, `rule: "ladder/up"`) and re-acquires
+  the session lease with the rung still in effect, if any. The launcher's
+  relaunch loop also wakes on a `ladder` file: it prints
+  `claude-ollama: ladder <rung>: <reason>`, writes
+  `~/.claude-ollama/ladder-profile.json` (the size's profile plus `context`)
+  through `shared/profile-overlay settings` into `ladder-settings.json`, so
+  `CLAUDE_CODE_MAX_CONTEXT_TOKENS` keeps the headroom margin, re-acquires the
+  session lease with `--rung`, and runs `claude` again with the same flags, a
+  trailing prompt dropped and `--continue` added; a handoff sentinel in the same
+  pass still wins the arguments. Every relaunch exports `CODE_SEARCH_EMBED=0`
+  while `embed-off` exists, and `code-search.py` itself answers words only while
+  that file is in `$CLAUDE_OLLAMA_RELAUNCH_DIR`. Tests:
+  `ollama/incidents/ladder.test.sh` (inline incident rows, a sleeping pid, a
+  stub `ps`, a stub `ollama-lease` with `STUB_FIT`), `bin/claude-ollama.test.sh`
+  (stub ladder, `STUB_CLAUDE_LADDER_ONCE`, `STUB_CLAUDE_LADDER_UP`),
+  `shared/mcp/code-search.test.sh`. The console's Server page has a Residency
+  card (`web/console/src/components/residency-card.tsx`,
+  `web/console/src/lib/lease.ts`): `GET /api/lease` runs
+  `bin/ollama-lease holders` with `CLAUDE_CUSTOM_HOME` and answers
+  `{holders, rung, fit}` (the live `session` holder's rung and the newest
+  `claude-ollama: memory fit:` line of the launcher log under the console state
+  dir), and the "Promote back up" button posts `{rung}` to
+  `POST /api/lease/promote`, which writes `ladder-up`
+  (`reason: "promoted from the console"`, 0600) into
+  `~/.claude-ollama/relaunch/<pid>` of the live session, refusing (409) a
+  session on another rung or without a relaunch dir; the same-origin rule of
+  `proxy.ts` applies.
 - `shared/mcp/code-search.py` is the `semantic_search` MCP server (JSON-RPC over
   stdio, stdlib only). It ranks 40-line chunks by their words (BM25) on every
   search, adds a vector ranking through Ollama `/api/embed` only while

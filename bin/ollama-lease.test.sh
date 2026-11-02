@@ -175,6 +175,86 @@ sleepers="$sleepers $!"
 sleep 3
 check_that "with the fast marker the heartbeat halves its interval" grep -q '"model":"qwen3.8-27b-cc","keep_alive":"5m"' "$tmp/curl.log"
 
+cat > "$tmp/stubbin/ollama" <<EOF
+#!/bin/sh
+[ "\$1" = show ] || exit 1
+cat "$tmp/show-output"
+EOF
+cat > "$tmp/stubbin/sysctl" <<'EOF'
+#!/bin/sh
+echo "${STUB_MEMSIZE:-34359738368}"
+EOF
+cat > "$tmp/stubbin/vm_stat" <<'EOF'
+#!/bin/sh
+printf 'Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages free:    1000.\nPages active:  %s.\nPages inactive: 50000.\nPages wired down: %s.\n' "${STUB_ACTIVE_PAGES:-100000}" "${STUB_WIRED_PAGES:-100000}"
+EOF
+chmod +x "$tmp/stubbin/ollama" "$tmp/stubbin/sysctl" "$tmp/stubbin/vm_stat"
+cat > "$tmp/stubbin/curl" <<EOF
+#!/bin/sh
+echo "\$*" >> "$tmp/curl.log"
+case "\$*" in *api/tags*) cat "$tmp/tags.json" ;; esac
+EOF
+printf '{"models":[{"name":"qwen3.8-27b-cc","size":17179869184},{"name":"qwen3-embedding:0.6b","size":644245094}]}\n' > "$tmp/tags.json"
+cat > "$tmp/show-output" <<'EOF'
+  Model
+    architecture        qwen3
+    parameters          27.4B
+    context length      262144
+    embedding length    5120
+    quantization        Q4_K_M
+
+  Metadata
+    general.architecture                qwen3
+    qwen3.attention.head_count          40
+    qwen3.attention.head_count_kv       8
+    qwen3.attention.key_length          128
+    qwen3.block_count                   64
+EOF
+fit_field() {
+  jq -r ".$1" "$tmp/out"
+}
+
+STUB_OLLAMA_ENV="OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_MAX_LOADED_MODELS=2" run "$lease" fit --model qwen3.8-27b-cc --num-ctx 65536 --embedding qwen3-embedding:0.6b
+check_eq "fit exits 0 when the models fit" 0 "$?"
+check_eq "fit reads the model bytes from /api/tags" 17179869184 "$(fit_field model_bytes)"
+check_eq "fit estimates the KV cache from the layers, kv heads, head dim and cache type" 8589934592 "$(fit_field kv_bytes)"
+check_eq "fit reads the embedding model bytes" 644245094 "$(fit_field embedding_bytes)"
+check_eq "fit sums the three" 26414048870 "$(fit_field total_bytes)"
+check_eq "fit takes the free bytes as memsize minus wired and active pages" 31082938368 "$(fit_field free_bytes)"
+check_eq "fit says it fits" true "$(fit_field fits)"
+check_eq "fit prints the margin" 4668889498 "$(fit_field margin_bytes)"
+check_eq "fit names the estimate exact when every field is known" exact "$(fit_field estimate)"
+
+STUB_OLLAMA_ENV="OLLAMA_KV_CACHE_TYPE=f16" run "$lease" fit --model qwen3.8-27b-cc --num-ctx 65536
+check_eq "an f16 cache doubles the KV bytes" 17179869184 "$(fit_field kv_bytes)"
+check_eq "without --embedding the embedding bytes are 0" 0 "$(fit_field embedding_bytes)"
+STUB_OLLAMA_ENV="" run "$lease" fit --model qwen3.8-27b-cc --num-ctx 65536
+check_eq "without a cache type the KV cache counts as f16" 17179869184 "$(fit_field kv_bytes)"
+STUB_OLLAMA_ENV="OLLAMA_KV_CACHE_TYPE=q4_0" run "$lease" fit --model qwen3.8-27b-cc --num-ctx 65536
+check_eq "a q4_0 cache halves the q8_0 KV bytes" 4294967296 "$(fit_field kv_bytes)"
+
+STUB_MEMSIZE=17179869184 STUB_ACTIVE_PAGES=0 STUB_WIRED_PAGES=0 STUB_OLLAMA_ENV="OLLAMA_KV_CACHE_TYPE=q8_0" run "$lease" fit --model qwen3.8-27b-cc --num-ctx 65536 --embedding qwen3-embedding:0.6b
+check_eq "fit exits 0 when the models do not fit" 0 "$?"
+check_eq "fit says it does not fit" false "$(fit_field fits)"
+check_eq "the margin goes negative by the shortfall" -9234179686 "$(fit_field margin_bytes)"
+
+printf '  Model\n    architecture        qwen3\n    parameters          27.4B\n' > "$tmp/show-output"
+STUB_OLLAMA_ENV="OLLAMA_KV_CACHE_TYPE=q8_0" run "$lease" fit --model qwen3.8-27b-cc --num-ctx 65536
+check_eq "without the metadata fields the KV cache is a quarter of the model" 4294967296 "$(fit_field kv_bytes)"
+check_eq "and the estimate is rough" rough "$(fit_field estimate)"
+
+mkdir -p "$tmp/proc"
+printf 'MemTotal:       65536000 kB\nMemFree:         1000000 kB\nMemAvailable:   30000000 kB\n' > "$tmp/proc/meminfo"
+CLAUDE_OLLAMA_MEMINFO="$tmp/proc/meminfo" STUB_OLLAMA_ENV="OLLAMA_KV_CACHE_TYPE=q8_0" run "$lease" fit --model qwen3.8-27b-cc --num-ctx 65536
+check_eq "on Linux the free bytes are MemAvailable" 30720000000 "$(fit_field free_bytes)"
+
+printf '{"models":[]}\n' > "$tmp/tags.json"
+run "$lease" fit --model qwen3.8-27b-cc --num-ctx 65536
+check_eq "fit exits 1 when /api/tags lacks the model" 1 "$?"
+check_eq "and says which model is missing" "ollama lease: /api/tags lists no qwen3.8-27b-cc" "$(cat "$tmp/err")"
+run "$lease" fit --model qwen3.8-27b-cc
+check_eq "fit without --num-ctx exits 2" 2 "$?"
+
 run "$lease" acquire
 check_eq "acquire without a name exits 2" 2 "$?"
 run "$lease" bogus
