@@ -154,7 +154,7 @@ def main():
     if any(starts_dev_server(segment) for segment in segments(command)):
         record_denial("dev-server-guard", payload, REASON)
         print(json.dumps(deny(REASON)))
-    elif any(runs_arbitrary_pnpm_code(segment) for segment in segments(command)):
+    elif any(runs_arbitrary_pnpm_code(segment) for segment in segments_with_quoted_words(command)):
         record_denial("dev-server-guard", payload, PNPM_EXEC_REASON)
         print(json.dumps(deny(PNPM_EXEC_REASON)))
     elif pnpm_shares_the_line(command):
