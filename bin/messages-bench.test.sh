@@ -347,6 +347,90 @@ if ! bench_run --model stub --prefix-tokens 2000 --tool-trials 2 --json > "$run_
 fi
 python3 "$tmp/inspect.py" json-shape "$run_dir/report.json" || fail "--json prints runs and tool_calls"
 
+cat > "$tmp/replay_dir.py" <<'PY'
+import json
+import os
+import sys
+from pathlib import Path
+
+folder = Path(sys.argv[1])
+folder.mkdir()
+bodies = [
+    ("zzz-first", 100, {"model": "recorded", "max_tokens": 50, "stream": False, "thinking": {"type": "disabled"}, "system": "be terse", "messages": [{"role": "user", "content": "first recorded turn"}]}),
+    ("aaa-second", 200, {"model": "recorded", "max_tokens": 50, "stream": True, "messages": [{"role": "user", "content": "second recorded turn"}]}),
+    ("mmm-third", 300, {"model": "recorded", "max_tokens": 50, "messages": [{"role": "user", "content": "third recorded turn"}]}),
+]
+for name, age, body in bodies:
+    path = folder / f"{name}.json"
+    path.write_text(json.dumps(body))
+    os.utime(path, (1_700_000_000 + age, 1_700_000_000 + age))
+(folder / "notes.txt").write_text("ignored")
+PY
+
+cat > "$tmp/replay_inspect.py" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+command, path = sys.argv[1:3]
+requests = [] if command == "json" else [json.loads(line)["body"] for line in Path(path).read_text().splitlines()]
+if command == "order":
+    turns = [request["messages"][0]["content"] for request in requests]
+    if turns != ["first recorded turn", "second recorded turn", "third recorded turn"][: len(turns)]:
+        print(f"FAIL: replay order was {turns}")
+        sys.exit(1)
+elif command == "shape":
+    for request in requests:
+        if request.get("model") != "stub" or request.get("stream") is not True:
+            print(f"FAIL: replayed request had model {request.get('model')!r} stream {request.get('stream')!r}")
+            sys.exit(1)
+        if request.get("system") != "be terse" and request["messages"][0]["content"] == "first recorded turn":
+            print("FAIL: the replayed body lost its system prompt")
+            sys.exit(1)
+elif command == "thinking":
+    expected = json.loads(sys.argv[3])
+    for request in requests:
+        if request.get("thinking") != expected:
+            print(f"FAIL: replayed thinking was {request.get('thinking')!r}")
+            sys.exit(1)
+elif command == "json":
+    report = json.loads(Path(path).read_text())
+    runs = report.get("runs", [])
+    if [run.get("request_id") for run in runs] != ["zzz-first", "aaa-second", "mmm-third"]:
+        print(f"FAIL: json runs were {runs}")
+        sys.exit(1)
+    if any(key not in runs[0] for key in ("input_tokens", "ttft_seconds", "prefill_tokens_per_second")):
+        print("FAIL: a replay run lacks its timing keys")
+        sys.exit(1)
+PY
+
+python3 "$tmp/replay_dir.py" "$tmp/replay"
+start_stub "$healthy" || exit 1
+bench_run --model stub --replay "$tmp/replay" > "$run_dir/stdout" 2> "$run_dir/stderr" || fail "--replay exits 0 against a healthy stub"
+python3 "$tmp/replay_inspect.py" order "$run_dir/requests.log" || fail "--replay sends the bodies in ts order"
+python3 "$tmp/replay_inspect.py" shape "$run_dir/requests.log" || fail "--replay substitutes the model, streams and keeps the body"
+python3 "$tmp/replay_inspect.py" thinking "$run_dir/requests.log" null || fail "--replay drops the recorded thinking under the default flag"
+[ "$(wc -l < "$run_dir/requests.log" | tr -d ' ')" = 3 ] || fail "--replay sends one request per recorded body and skips other files"
+grep -Eq '^zzz-first +2000 ' "$run_dir/stdout" || fail "stdout has a row per request naming its id and prompt tokens"
+grep -Eq '^replay: 3 requests' "$run_dir/stdout" || fail "stdout ends with a replay summary"
+grep -q 'ttft' "$run_dir/stdout" || fail "the replay summary reports ttft"
+
+start_stub "$healthy" || exit 1
+bench_run --model stub --replay "$tmp/replay" --limit 2 --thinking disabled > "$run_dir/stdout" 2> "$run_dir/stderr" || fail "--replay --limit exits 0"
+[ "$(wc -l < "$run_dir/requests.log" | tr -d ' ')" = 2 ] || fail "--limit replays only the first N bodies"
+python3 "$tmp/replay_inspect.py" order "$run_dir/requests.log" || fail "--limit keeps ts order"
+python3 "$tmp/replay_inspect.py" thinking "$run_dir/requests.log" '{"type": "disabled"}' || fail "--thinking disabled applies to replayed bodies"
+
+start_stub "$healthy" || exit 1
+bench_run --model stub --replay "$tmp/replay" --json > "$run_dir/report.json" 2> "$run_dir/stderr" || fail "--replay --json exits 0"
+python3 "$tmp/replay_inspect.py" json "$run_dir/report.json" || fail "--replay --json lists one run per request id"
+
+mkdir "$tmp/empty-replay"
+if bench_run --model stub --replay "$tmp/empty-replay" > /dev/null 2> "$tmp/empty.err"; then
+  fail "an empty replay dir exits 1"
+fi
+grep -q 'messages-bench:' "$tmp/empty.err" || fail "an empty replay dir prints a messages-bench: error"
+
 if "$bench" --base-url http://127.0.0.1:9 --model stub > "$tmp/unreachable.out" 2> "$tmp/unreachable.err"; then
   fail "unreachable server exits 1"
 fi

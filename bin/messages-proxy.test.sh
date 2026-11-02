@@ -290,6 +290,19 @@ check "refused requests write no log row" [ "$(row_count)" = 5 ]
 check "the log file is private" [ "$(mode_of "$run_dir/proxy/requests.jsonl")" = 600 ]
 check "the log folder is private" [ "$(mode_of "$run_dir/proxy")" = 700 ]
 
+check "a proxy without --record saves no body" [ ! -e "$run_dir/record" ]
+stop_proxy
+start_proxy --record "$run_dir/record"
+send "$run_dir/first.json" "$run_dir/recorded.out"
+recorded="$run_dir/record/$(row_field "$(log_row 6)" .request_id).json"
+check "--record saves the body under the request id" [ -f "$recorded" ]
+check "the recorded body is the request byte-for-byte" cmp -s "$recorded" "$run_dir/first.json"
+check "the recorded body is private" [ "$(mode_of "$recorded")" = 600 ]
+check "the record folder is private" [ "$(mode_of "$run_dir/record")" = 700 ]
+check "the recorded request still reaches the upstream" upstream_body_is 12 "$run_dir/first.json"
+curl -sf "$proxy_url/api/version" > /dev/null
+check "other routes record nothing" [ "$(find "$run_dir/record" -name '*.json' | wc -l | tr -d ' ')" = 1 ]
+
 stop_proxy
 "$proxy" --upstream "$upstream_url" --port 0 --port-file "$run_dir/proxy.port" --log "$run_dir/proxy/requests.jsonl" 2> "$run_dir/proxy.err" &
 proxy_pid=$!

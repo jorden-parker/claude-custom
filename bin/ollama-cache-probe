@@ -31,6 +31,9 @@ QUESTION_TWO = "Question two: summarise section two in one sentence."
 ANSWER_ONE = "Section one is filler text about the probe."
 UNRELATED_PROMPT = "Reply with the word OK."
 TABLE_HEADER = ("scenario", "prompt", "evaluated", "hit %", "prefill s")
+REPLAY_HEADER = ("request", "prompt", "cached", "hit %", "prefill s")
+REPLAY_MAX_TOKENS = 1
+ANTHROPIC_VERSION = "2023-06-01"
 BASIS_TOKEN_COUNT = "token_count"
 BASIS_PREFILL_TIME = "prefill_time"
 BASIS_LABELS = {
@@ -74,6 +77,7 @@ def parse_args(argv):
     parser.add_argument("--prefix-tokens", type=positive_int, default=DEFAULT_PREFIX_TOKENS)
     parser.add_argument("--side-model", default=DEFAULT_SIDE_MODEL)
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
+    parser.add_argument("--replay", help="folder of recorded /v1/messages bodies (messages-proxy --record) to send in ts order")
     parser.add_argument("--json", action="store_true")
     return parser.parse_args(argv)
 
@@ -121,11 +125,11 @@ def early_edit_index(prefix):
     return min(EARLY_EDIT_CHAR, len(prefix) - 1)
 
 
-def post_json(base_url, path, payload):
+def post_json(base_url, path, payload, headers=None):
     request = urllib.request.Request(
         base_url + path,
         data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", **(headers or {})},
     )
     with urllib.request.urlopen(request, timeout=900) as response:
         return json.loads(response.read())
@@ -422,6 +426,90 @@ def json_report(args, probe, loaded: list[str], basis, rows):
     }
 
 
+def replay_paths(folder):
+    paths = sorted(Path(folder).glob("*.json"), key=lambda path: (path.stat().st_mtime, path.name))
+    if not paths:
+        raise ProbeError(f"no .json bodies in {folder}")
+    return paths
+
+
+def replay_body(probe, path):
+    try:
+        body = json.loads(path.read_text())
+    except (OSError, ValueError) as error:
+        raise ProbeError(f"{path}: {error}") from error
+    if not isinstance(body, dict):
+        raise ProbeError(f"{path} does not hold a JSON object")
+    body.update({"model": probe.model, "stream": False, "max_tokens": REPLAY_MAX_TOKENS, "temperature": 0})
+    return body
+
+
+def send_replay(probe, body):
+    started = time.monotonic()
+    response = post_json(probe.base_url, "/v1/messages", body, {"anthropic-version": ANTHROPIC_VERSION, "x-api-key": "local"})
+    usage = response.get("usage") or {}
+    return {
+        "prompt_tokens": usage.get("input_tokens", 0),
+        "cached_tokens": usage.get("cache_read_input_tokens"),
+        "prefill_seconds": time.monotonic() - started,
+    }
+
+
+def replay_hit_percent(measured, cold_rate):
+    if measured["cached_tokens"] is not None:
+        return count_hit_percent(measured["prompt_tokens"], measured["prompt_tokens"] - measured["cached_tokens"])
+    return time_hit_percent(cold_rate, measured["prompt_tokens"], measured["prefill_seconds"])
+
+
+def replay_rows(probe, paths):
+    rows = []
+    cold_rate = 0.0
+    for index, path in enumerate(paths, 1):
+        print(f"[{index}/{len(paths)}] {path.stem}: sending the recorded body...", file=sys.stderr, flush=True)
+        measured = send_replay(probe, replay_body(probe, path))
+        if index == 1:
+            cold_rate = measured["prefill_seconds"] / measured["prompt_tokens"] if measured["prompt_tokens"] else 0.0
+        rows.append({"request_id": path.stem, **measured, "hit_percent": None if index == 1 else replay_hit_percent(measured, cold_rate)})
+    return rows
+
+
+def replay_cell(row):
+    hit = "-" if row["hit_percent"] is None else f"{row['hit_percent']:.1f}"
+    cached = "-" if row["cached_tokens"] is None else str(row["cached_tokens"])
+    return f"{row['request_id']:<38}{row['prompt_tokens']:>10}{cached:>11}{hit:>8}{row['prefill_seconds']:>11.2f}"
+
+
+def reused_pairs(rows):
+    return sum(1 for row in rows[1:] if row["hit_percent"] is not None and is_reused({"hit_percent": row["hit_percent"]}))
+
+
+def replay_verdict(rows):
+    return f"Replay: {reused_pairs(rows)} of {len(rows) - 1} consecutive requests reused the cache (hit >= {REUSED_PERCENT:.0f}%)."
+
+
+def print_replay_table(rows):
+    header = REPLAY_HEADER
+    print(f"{header[0]:<38}{header[1]:>10}{header[2]:>11}{header[3]:>8}{header[4]:>11}")
+    for row in rows:
+        print(replay_cell(row))
+    print()
+    print(replay_verdict(rows))
+
+
+def replay_report(args, probe):
+    paths = replay_paths(args.replay)
+    unload_model(probe)
+    rows = replay_rows(probe, paths)
+    if args.json:
+        report = {"model": probe.model, "num_ctx": probe.num_ctx, "replay_dir": args.replay, "replay": rows, "pairs": len(rows) - 1, "reused_pairs": reused_pairs(rows)}
+        print(json.dumps(report, indent=2))
+    else:
+        print(f"server: {probe.base_url}")
+        print(f"model: {probe.model}  replay: {len(paths)} bodies from {args.replay}")
+        print_replay_table(rows)
+    return 0
+
+
 def make_probe(args):
     return Probe(
         base_url=args.base_url,
@@ -434,6 +522,8 @@ def make_probe(args):
 
 def report(args):
     probe = make_probe(args)
+    if args.replay:
+        return replay_report(args, probe)
     has_side_model = lists_model(probe.base_url, probe.side_model)
     loaded = loaded_models(probe.base_url)
     if is_loaded(probe.model, loaded):

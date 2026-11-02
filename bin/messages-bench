@@ -8,6 +8,7 @@ import time
 import urllib.error
 import urllib.request
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 
 DEFAULT_BASE_URL = "http://localhost:11434"
 DEFAULT_AUTH_TOKEN = "local"
@@ -43,6 +44,17 @@ THINKING_FIELDS = {
     THINKING_OMIT: {},
     THINKING_CLAUDE_CODE: {"thinking": {"type": "adaptive"}, "output_config": {"effort": "high"}},
     THINKING_DISABLED: {"thinking": {"type": "disabled"}, "output_config": {"effort": "high"}},
+}
+REPLAY_ROW_FORMAT = "{request:<36} {input:>8} {cached:>8} {ttft:>8} {prefill:>10} {decode:>10} {think:>8} {text:>8}"
+REPLAY_HEADER_CELLS = {
+    "request": "request",
+    "input": "input",
+    "cached": "cached",
+    "ttft": "ttft s",
+    "prefill": "prefill t/s",
+    "decode": "decode t/s",
+    "think": "think",
+    "text": "text s",
 }
 ROW_FORMAT = (
     "{prefix:<8} {scenario:<8} {input:>8} {cached:>8} {ttft:>8} {prefill:>10} {decode:>10} {think:>8} {text:>8}"
@@ -92,6 +104,20 @@ class Run:
     text_ttft_seconds: float | None
 
 
+@dataclass
+class ReplayRun:
+    request_id: str
+    input_tokens: int
+    cache_read_tokens: int | None
+    ttft_seconds: float
+    output_tokens: int
+    decode_seconds: float
+    prefill_tokens_per_second: float
+    decode_tokens_per_second: float | None
+    thinking_chars: int
+    text_ttft_seconds: float | None
+
+
 def positive_int(text):
     value = int(text)
     if value < 1:
@@ -122,7 +148,9 @@ def parse_args(argv):
         default=THINKING_OMIT,
         help="thinking fields to send: omit (default, what the bench-off uses), claude-code (what Claude Code sends), disabled (what a claude-ollama session sends)",
     )
-    output =parser.add_mutually_exclusive_group()
+    parser.add_argument("--replay", help="folder of recorded /v1/messages bodies (messages-proxy --record) to send in ts order")
+    parser.add_argument("--limit", type=positive_int, help="replay at most N bodies")
+    output = parser.add_mutually_exclusive_group()
     output.add_argument("--json", action="store_true")
     output.add_argument("--jsonl", action="store_true")
     return parser.parse_args(argv)
@@ -283,6 +311,60 @@ def measure_run(config, prefix_tokens, scenario, prompt):
     return make_run(stream_message(config, body), prefix_tokens, scenario, prompt)
 
 
+def replay_paths(folder, limit):
+    paths = sorted(Path(folder).glob("*.json"), key=lambda path: (path.stat().st_mtime, path.name))
+    if not paths:
+        raise BenchError(f"no .json bodies in {folder}")
+    return paths[:limit] if limit else paths
+
+
+def replay_body(config, path):
+    try:
+        body = json.loads(path.read_text())
+    except (OSError, ValueError) as error:
+        raise BenchError(f"{path}: {error}") from error
+    if not isinstance(body, dict):
+        raise BenchError(f"{path} does not hold a JSON object")
+    body["model"] = config.model
+    body["stream"] = True
+    body.pop("thinking", None)
+    body.pop("output_config", None)
+    body.update(THINKING_FIELDS[config.thinking])
+    return body
+
+
+def make_replay_run(stream, request_id):
+    if stream.first_delta_seconds is None:
+        raise BenchError(f"replay of {request_id} produced no content_block_delta")
+    ttft = stream.first_delta_seconds
+    decode_seconds = stream.last_event_seconds - ttft
+    return ReplayRun(
+        request_id=request_id,
+        input_tokens=stream.input_tokens,
+        cache_read_tokens=stream.cache_read_tokens,
+        ttft_seconds=ttft,
+        output_tokens=stream.output_tokens,
+        decode_seconds=decode_seconds,
+        prefill_tokens_per_second=stream.input_tokens / ttft,
+        decode_tokens_per_second=rate(stream.output_tokens, decode_seconds),
+        thinking_chars=stream.thinking_chars,
+        text_ttft_seconds=stream.first_text_seconds,
+    )
+
+
+def measure_replay(config, path):
+    return make_replay_run(stream_message(config, replay_body(config, path)), path.stem)
+
+
+def replay_jobs(config):
+    return [(f"replay {path.stem}", functools.partial(measure_replay, config, path)) for path in replay_paths(config.replay, config.limit)]
+
+
+def run_replay(config):
+    results = run_jobs(replay_jobs(config), functools.partial(stream_result, config))
+    return {"base_url": config.base_url, "model": config.model, "replay_dir": config.replay, "runs": [asdict(run) for run in results]}
+
+
 def tool_call_parsed(stream):
     if stream.tool_name != TOOL_NAME:
         return False
@@ -319,7 +401,7 @@ def emit_line(record):
 
 
 def stream_result(config, result):
-    if config.jsonl and isinstance(result, Run):
+    if config.jsonl and isinstance(result, (Run, ReplayRun)):
         emit_line({"type": "run", **asdict(result)})
 
 
@@ -378,19 +460,61 @@ def render_table(report):
     return "\n".join(lines)
 
 
+def median(values):
+    ordered = sorted(values)
+    middle = len(ordered) // 2
+    if len(ordered) % 2:
+        return ordered[middle]
+    return (ordered[middle - 1] + ordered[middle]) / 2
+
+
+def format_replay_row(run):
+    return REPLAY_ROW_FORMAT.format(
+        request=run["request_id"],
+        input=run["input_tokens"],
+        cached=cell(run["cache_read_tokens"], "{}"),
+        ttft=f"{run['ttft_seconds']:.2f}",
+        prefill=f"{run['prefill_tokens_per_second']:.1f}",
+        decode=cell(run["decode_tokens_per_second"], "{:.1f}"),
+        think=run["thinking_chars"],
+        text=cell(run["text_ttft_seconds"], "{:.2f}"),
+    )
+
+
+def render_replay_table(report):
+    runs = report["runs"]
+    lines = [REPLAY_ROW_FORMAT.format(**REPLAY_HEADER_CELLS)]
+    lines.extend(format_replay_row(run) for run in runs)
+    lines.append(
+        f"replay: {len(runs)} requests from {report['replay_dir']}, "
+        f"ttft median {median([run['ttft_seconds'] for run in runs]):.2f} s, "
+        f"prefill median {median([run['prefill_tokens_per_second'] for run in runs]):.1f} t/s, "
+        f"prompt tokens median {median([run['input_tokens'] for run in runs]):.0f}"
+    )
+    lines.append(f"server: {report['base_url']} model: {report['model']}")
+    return "\n".join(lines)
+
+
+def print_report(config, report):
+    if config.jsonl:
+        if "tool_calls" in report:
+            emit_line({"type": "tool_calls", **report["tool_calls"]})
+    elif config.json:
+        print(json.dumps(report, indent=2))
+    elif config.replay:
+        print(render_replay_table(report))
+    else:
+        print(render_table(report))
+
+
 def main(argv):
     config = parse_args(argv)
     try:
-        report = run_bench(config)
+        report = run_replay(config) if config.replay else run_bench(config)
     except BenchError as error:
         print(f"messages-bench: {error}", file=sys.stderr)
         return 1
-    if config.jsonl:
-        emit_line({"type": "tool_calls", **report["tool_calls"]})
-    elif config.json:
-        print(json.dumps(report, indent=2))
-    else:
-        print(render_table(report))
+    print_report(config, report)
     return 0
 
 

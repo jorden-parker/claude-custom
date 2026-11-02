@@ -1037,6 +1037,42 @@ rm -f "$sandbox/proxy-args"
 run_capture env CLAUDE_OLLAMA_PROXY=0 "$repo/bin/claude-ollama" 27b -p hi
 check_not "CLAUDE_OLLAMA_PROXY=0 starts no proxy" test -e "$sandbox/proxy-args"
 check_eq "and claude keeps the direct Ollama URL" "$(jq -r .env.ANTHROPIC_BASE_URL "$repo/ollama/settings.27b.json")" "$(launch_base_url)"
+rm -f "$sandbox/proxy-args"
+run_capture env -u CLAUDE_OLLAMA_PROXY CLAUDE_OLLAMA_PROXY_RECORD=1 "$repo/bin/claude-ollama" 27b -p hi
+check_that "CLAUDE_OLLAMA_PROXY_RECORD=1 records bodies under the session proxy dir" contains "$(cat "$sandbox/proxy-args")" "--record $session_config/proxy/record"
+rm -f "$sandbox/proxy-args"
+run_capture env -u CLAUDE_OLLAMA_PROXY "$repo/bin/claude-ollama" 27b -p hi
+check_not "the proxy records nothing by default" contains "$(cat "$sandbox/proxy-args")" "--record"
+cat > "$sandbox/stubbin/rescue" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" > "$sandbox/rescue-args"
+while [ \$# -gt 0 ]; do
+  [ "\$1" = --server-env ] && cp "\$2" "$sandbox/rescue-server-env"
+  shift
+done
+echo "~/.claude-ollama/rescue/x.md"
+EOF
+chmod +x "$sandbox/stubbin/rescue"
+rm -f "$sandbox/ollama.log"
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_KEEP_ALIVE=30m" run_capture env CLAUDE_OLLAMA_RESCUE_BIN="$sandbox/stubbin/rescue" "$repo/bin/claude-ollama" rescue 27b --since 30 --out "$sandbox/rescue.md"
+check_eq "rescue exit status" 0 "$?"
+rescue_args="$(cat "$sandbox/rescue-args" 2>/dev/null)"
+check_that "rescue hands the script the launcher" contains "$rescue_args" "/bin/claude-ollama --size 27b"
+check_that "rescue hands the script the fingerprint tool" contains "$rescue_args" "/bin/sync-fingerprint"
+check_that "rescue hands the script the lease tool" contains "$rescue_args" "--lease-bin "
+check_that "rescue hands the script the session dir" contains "$rescue_args" "--session-dir $session_config"
+check_that "rescue hands the script the console state dir" contains "$rescue_args" "--state-dir "
+check_that "rescue hands the script the Ollama URL" contains "$rescue_args" "--ollama-url http://127.0.0.1:11434"
+check_that "rescue passes its own flags through" contains "$rescue_args" "--since 30 --out $sandbox/rescue.md"
+check_that "rescue hands over the running server env" grep -qx "OLLAMA_KEEP_ALIVE=30m" "$sandbox/rescue-server-env"
+check_that "rescue prints the script's output" grep -q "rescue/x.md" "$sandbox/out"
+check_not "rescue does not launch claude" grep -q '^ARGS:' "$sandbox/out"
+check_not "rescue does not pull or create" grep -sqE '^(pull|create) ' "$sandbox/ollama.log"
+rm -f "$sandbox/rescue-args"
+run_capture env CLAUDE_OLLAMA_RESCUE_BIN="$sandbox/stubbin/rescue" "$repo/bin/claude-ollama" rescue
+check_that "rescue without a size uses the default size" contains "$(cat "$sandbox/rescue-args" 2>/dev/null)" "--size 27b"
+run_capture "$repo/bin/claude-ollama" --help
+check_that "usage lists rescue" grep -q '^rescue ' "$sandbox/out"
 cmux_socket="$sandbox/cmux.sock"
 /usr/bin/python3 -c 'import socket, sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])' "$cmux_socket"
 cat > "$sandbox/stubbin/cmux" <<'EOF'
