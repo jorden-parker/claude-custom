@@ -162,6 +162,13 @@ EOF
   chmod +x "$sandbox/stubbin/draft-opener"
   export CLAUDE_OLLAMA_DRAFT_OPENER="$sandbox/stubbin/draft-opener"
   unset CLAUDE_OLLAMA_OPEN_DRAFTS CLAUDE_OLLAMA_DRAFTS_DIR
+  cat > "$sandbox/stubbin/incident-watcher" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" > "$sandbox/watcher-args"
+EOF
+  chmod +x "$sandbox/stubbin/incident-watcher"
+  export CLAUDE_OLLAMA_INCIDENT_WATCHER="$sandbox/stubbin/incident-watcher"
+  unset CLAUDE_OLLAMA_INCIDENTS CLAUDE_OLLAMA_INCIDENTS_FILE
 }
 
 link_system_tools() {
@@ -880,6 +887,8 @@ check_that "claude-ollama help lists ui" grep -qF -- "ui [--port N]: serve the c
 
 new_sandbox /tmp
 session_config="$HOME/.claude-ollama"
+mkdir -p "$HOME/.ollama/logs"
+: > "$HOME/.ollama/logs/server.log"
 run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "claude-ollama runs claude directly, with no sandbox-runtime" grep -q '^ARGS: --settings' "$sandbox/out"
 check_that "claude-ollama still passes claude args through" grep -qF -- "--tools Bash,Read,Edit,Write,Skill,TaskStop -p hi" "$sandbox/out"
@@ -898,6 +907,21 @@ check_that "the opener watches the session's drafts" contains "$draft_opener_arg
 check_that "the opener reads the console token the session cannot" contains "$draft_opener_args" "--token-file $sandbox/home/.local/share/claude-custom/console/tokens/8765"
 check_that "the opener's redirect pages sit where the session cannot read" contains "$draft_opener_args" "--pages $sandbox/home/.local/share/claude-custom/console/open-drafts"
 check_that "the opener stops with the launch" contains "$draft_opener_args" "--watch-pid "
+incidents_dir="$sandbox/home/.local/share/claude-custom/console/incidents"
+incident_watcher_args="$(for _ in $(seq 25); do [ -s "$sandbox/watcher-args" ] && break; sleep 0.2; done; cat "$sandbox/watcher-args" 2>/dev/null)"
+check_that "the incident watcher follows the Ollama server log" contains "$incident_watcher_args" "--log "
+check_that "the incident watcher knows the session's model" contains "$incident_watcher_args" "--model $(jq -r .model "$repo/ollama/settings.27b.json")"
+check_that "the incident watcher scans the session's transcripts for compactions" contains "$incident_watcher_args" "--transcripts $session_config/projects"
+check_that "the incident watcher stops with the launch" contains "$incident_watcher_args" "--watch-pid "
+check_that "the incident watcher writes a per-session file in the console state" contains "$incident_watcher_args" "--out $incidents_dir/"
+check_eq "incidents/current names the session's incidents file" "$(cat "$incidents_dir/current")" "$(sed -n 's/.*--out \([^ ]*\).*/\1/p' "$sandbox/watcher-args")"
+check_eq "the session is told where its incidents are" "$(cat "$incidents_dir/current")" "$(session_env CLAUDE_OLLAMA_INCIDENTS_FILE)"
+check_eq "the incidents folder is private" 700 "$(stat -f %Lp "$incidents_dir" 2>/dev/null || stat -c %a "$incidents_dir")"
+rm -f "$sandbox/watcher-args"
+run_capture env CLAUDE_OLLAMA_INCIDENTS=0 "$repo/bin/claude-ollama" 27b -p hi
+sleep 1
+check_not "CLAUDE_OLLAMA_INCIDENTS=0 starts no watcher" test -e "$sandbox/watcher-args"
+check_eq "and the session gets no incidents file" "" "$(session_env CLAUDE_OLLAMA_INCIDENTS_FILE)"
 cmux_socket="$sandbox/cmux.sock"
 /usr/bin/python3 -c 'import socket, sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])' "$cmux_socket"
 cat > "$sandbox/stubbin/cmux" <<'EOF'

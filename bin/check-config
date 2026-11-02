@@ -247,9 +247,14 @@ gates_node_modules_reads() {
   jq -e '[.hooks.PreToolUse[] | select(.matcher | test("Read") and test("Skill")) | .hooks[].command] | any(test("tool-nudge"))' "$1" >/dev/null
 }
 
+notes_incidents() {
+  jq -e '[.hooks.UserPromptSubmit[].hooks[].command] | any(test("incident-note"))' "$1" >/dev/null
+}
+
 for settings in "$repo"/ollama/settings.*.json; do
   check_that "${settings##*/} runs tool-nudge.py before Bash and semantic_search" gates_text_search "$settings"
   check_that "${settings##*/} runs tool-nudge.py before Read and Skill" gates_node_modules_reads "$settings"
+  check_that "${settings##*/} runs incident-note.py on each prompt" notes_incidents "$settings"
 done
 
 check_eq "tool-telemetry counts the same line limit that bash-output-trim applies" \

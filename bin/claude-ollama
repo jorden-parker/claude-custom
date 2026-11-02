@@ -374,6 +374,26 @@ start_draft_opener() {
     "${browser_args[@]}" >/dev/null 2>&1 &
 }
 
+incident_log_args() {
+  local log
+  log="$(server_log_path)" || return 0
+  printf '%s\n' --log "$log"
+}
+
+start_incident_watcher() {
+  [ "${CLAUDE_OLLAMA_INCIDENTS:-}" = 0 ] && return 0
+  local incidents_dir="$console_state_dir/incidents" incidents_file log_args=()
+  incidents_file="$incidents_dir/$(date -u +%Y%m%d-%H%M%S)-$$.jsonl"
+  (umask 077; mkdir -p "$incidents_dir" && chmod 700 "$incidents_dir" && printf '%s\n' "$incidents_file" > "$incidents_dir/current") || return 0
+  while IFS= read -r arg; do
+    log_args+=("$arg")
+  done < <(incident_log_args)
+  export CLAUDE_OLLAMA_INCIDENTS_FILE="$incidents_file"
+  nohup "${CLAUDE_OLLAMA_INCIDENT_WATCHER:-$profile_dir/incidents/watcher.py}" ${log_args[@]+"${log_args[@]}"} \
+    --model "$model" --out "$incidents_file" --watch-pid "$$" \
+    --transcripts "$session_config_dir/projects" >/dev/null 2>&1 &
+}
+
 fetch_domains() {
   local line domain seen=" "
   [ -r "$fetch_domains_file" ] || return 0
@@ -1143,6 +1163,7 @@ fi
 prepare_session_config
 prepare_drafts_dir
 start_draft_opener
+start_incident_watcher
 export CLAUDE_CONFIG_DIR="$session_config_dir"
 export CLAUDE_CODE_TMPDIR="$session_config_dir/tmp"
 if [ "$harness" = qwen ]; then

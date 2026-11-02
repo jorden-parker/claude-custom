@@ -99,6 +99,49 @@ describe("GET /api/logs/events", () => {
     expect(replayed).toContain("claude-ollama: launch 27b in /work");
   });
 
+  it("streams the current session's incidents when asked for them", async () => {
+    process.env.CLAUDE_CONSOLE_STATE_DIR = repo;
+    const incidentsDir = path.join(repo, "incidents");
+    const incidents = path.join(incidentsDir, "20261102-140000-42.jsonl");
+    fs.mkdirSync(incidentsDir);
+    fs.writeFileSync(path.join(incidentsDir, "current"), `${incidents}\n`);
+    fs.writeFileSync(
+      incidents,
+      '{"ts": "2026-11-02T14:01:30.100Z", "cause": "aborted", "detail": "context canceled", "tokens": null}\n',
+    );
+    const controller = new AbortController();
+    const response = await GET(
+      new Request("http://127.0.0.1/api/logs/events?source=incidents", {
+        signal: controller.signal,
+      }),
+    );
+    const reader = response.body!.getReader();
+    const replayed = await readUntil(reader, (text) =>
+      text.includes("aborted"),
+    );
+    fs.appendFileSync(
+      incidents,
+      '{"ts": "2026-11-02T14:02:13.000Z", "cause": "evicted", "detail": "starting llama-server", "tokens": null}\n',
+    );
+    const tail = await readUntil(reader, (text) => text.includes("evicted"));
+    controller.abort();
+    delete process.env.CLAUDE_CONSOLE_STATE_DIR;
+    expect(replayed).toContain('\\"cause\\": \\"aborted\\"');
+    expect(tail).toContain("starting llama-server");
+  });
+
+  it("answers 404 when no session has written incidents", async () => {
+    process.env.CLAUDE_CONSOLE_STATE_DIR = repo;
+    const response = await GET(
+      new Request("http://127.0.0.1/api/logs/events?source=incidents"),
+    );
+    delete process.env.CLAUDE_CONSOLE_STATE_DIR;
+    expect(response.status).toBe(404);
+    expect(await response.text()).toBe(
+      "No incidents file yet; the next claude-ollama launch starts the watcher",
+    );
+  });
+
   it("streams the log's lines, then tails a line appended later", async () => {
     fs.writeFileSync(
       logFile,

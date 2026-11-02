@@ -5,6 +5,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useFollowScroll } from "@/components/use-follow-scroll";
+import {
+  INCIDENT_CAUSES,
+  incidentCounts,
+  incidentFrame,
+  parseIncident,
+  type Incident,
+} from "@/lib/incidents";
 import { levelTextClass } from "@/lib/level-style";
 import { type LogFrame, type LogLevel } from "@/lib/log-line";
 import type { LogSource } from "@/lib/log-path";
@@ -36,6 +43,7 @@ export function LogView() {
         <TabsList>
           <TabsTrigger value="server">Ollama server</TabsTrigger>
           <TabsTrigger value="launcher">Launcher</TabsTrigger>
+          <TabsTrigger value="incidents">Incidents</TabsTrigger>
         </TabsList>
       </Tabs>
       <LogPanel key={source} source={source} />
@@ -47,20 +55,49 @@ function LogPanel({ source }: { source: LogSource }) {
   const stream = useLogStream(source);
   const [frozenAt, setFrozenAt] = useState<number | null>(null);
   const [filter, setFilter] = useState("");
+  const incidents =
+    source === "incidents" ? parseIncidents(stream.lines) : null;
+  const lines =
+    incidents === null ? stream.lines : incidents.map(incidentFrame);
 
   return (
     <div className="flex flex-col gap-3">
       <StatusPill path={stream.path} error={stream.error} />
+      {incidents === null ? null : <IncidentCounts incidents={incidents} />}
       <LogToolbar
         filter={filter}
         onFilter={setFilter}
         paused={frozenAt !== null}
-        newCount={frozenAt === null ? 0 : stream.lines.length - frozenAt}
+        newCount={frozenAt === null ? 0 : lines.length - frozenAt}
         onTogglePause={() =>
-          setFrozenAt(frozenAt === null ? stream.lines.length : null)
+          setFrozenAt(frozenAt === null ? lines.length : null)
         }
       />
-      <LogOutput lines={visibleLines(stream.lines, frozenAt, filter)} />
+      <LogOutput lines={visibleLines(lines, frozenAt, filter)} />
+    </div>
+  );
+}
+
+function parseIncidents(lines: LogFrame[]): Incident[] {
+  return lines.flatMap((line) => {
+    const incident = parseIncident(line.text);
+    return incident === null ? [] : [incident];
+  });
+}
+
+function IncidentCounts({ incidents }: { incidents: Incident[] }) {
+  const counts = incidentCounts(incidents);
+  return (
+    <div className="flex flex-wrap gap-2" aria-label="incident counts">
+      {INCIDENT_CAUSES.map((cause) => (
+        <Badge
+          key={cause}
+          variant="outline"
+          className={counts[cause] === 0 ? "text-muted-foreground" : ""}
+        >
+          {cause} {counts[cause]}
+        </Badge>
+      ))}
     </div>
   );
 }
@@ -119,7 +156,10 @@ function StatusPill({
 }) {
   if (error !== null) {
     return (
-      <Badge variant="outline" className={`w-fit break-all ${levelTextClass("error")}`}>
+      <Badge
+        variant="outline"
+        className={`w-fit break-all ${levelTextClass("error")}`}
+      >
         {error}
       </Badge>
     );
@@ -132,7 +172,10 @@ function StatusPill({
     );
   }
   return (
-    <Badge variant="outline" className="w-fit break-all text-success-foreground">
+    <Badge
+      variant="outline"
+      className="w-fit break-all text-success-foreground"
+    >
       following {path}
     </Badge>
   );

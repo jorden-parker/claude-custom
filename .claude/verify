@@ -13,6 +13,7 @@ tests_for() {
     *.test.sh) printf '%s\n' "$1" ;;
     bin/claude-custom) printf '%s\n' personal/install.test.sh bin/claude-ollama.test.sh ;;
     ollama/drafts/*) printf '%s\n' ollama/drafts/opener.test.sh bin/claude-ollama.test.sh ;;
+    ollama/incidents/*) printf '%s\n' ollama/incidents/watcher.test.sh bin/claude-ollama.test.sh ;;
     shared/mcp/draft_store.py) printf '%s\n' shared/mcp/repo-tools.test.sh ;;
     shared/mcp/github_tools.py) printf '%s\n' shared/mcp/repo-tools.test.sh ;;
     shared/mcp/mcp_stdio.py) printf '%s\n' shared/mcp/code-search.test.sh shared/mcp/repo-tools.test.sh shared/mcp/dev-server.test.sh ;;
