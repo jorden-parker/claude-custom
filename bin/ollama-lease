@@ -19,6 +19,9 @@ exclusive=""
 wait_seconds=""
 watch_pid=""
 fast_marker=""
+embedding_model=""
+meminfo="${CLAUDE_OLLAMA_MEMINFO:-/proc/meminfo}"
+rough_kv_share=0.25
 
 usage() {
   cat >&2 <<'EOF'
@@ -26,6 +29,7 @@ usage: ollama-lease acquire NAME [--model M] [--pid N] [--num-ctx N] [--rung R] 
        ollama-lease release NAME [--pid N]
        ollama-lease holders
        ollama-lease heartbeat --watch-pid N [--model M] [--fast-marker FILE]
+       ollama-lease fit --model M --num-ctx N [--embedding E]
 EOF
   exit 2
 }
@@ -45,6 +49,7 @@ parse_options() {
       --wait) wait_seconds="$(option_value "$@")"; shift 2 ;;
       --watch-pid) watch_pid="$(option_value "$@")"; shift 2 ;;
       --fast-marker) fast_marker="$(option_value "$@")"; shift 2 ;;
+      --embedding) embedding_model="$(option_value "$@")"; shift 2 ;;
       --exclusive) exclusive=1; shift ;;
       *) usage ;;
     esac
@@ -249,6 +254,74 @@ heartbeat() {
   done
 }
 
+model_bytes_of() {
+  local bytes
+  bytes="$(curl -s -m 10 "$ollama_url/api/tags" 2>/dev/null | jq -r --arg name "$1" '.models[]? | select(.name == $name or .model == $name) | .size' 2>/dev/null | head -n 1)"
+  case "$bytes" in ''|*[!0-9]*) echo "ollama lease: /api/tags lists no $1" >&2; return 1 ;; esac
+  printf '%s' "$bytes"
+}
+
+show_metadata() {
+  ollama show "$model" --verbose 2>/dev/null | awk -v key="$1" '$1 ~ ("\\." key "$") { print $2; exit }'
+}
+
+kv_bytes_per_element() {
+  case "$(running_server_env 2>/dev/null | sed -n 's/^OLLAMA_KV_CACHE_TYPE=//p' | head -n 1)" in
+    q8_0) echo 1 ;;
+    q4_0) echo 0.5 ;;
+    *) echo 2 ;;
+  esac
+}
+
+exact_kv_bytes() {
+  local layers kv_heads head_dim
+  layers="$(show_metadata block_count)"
+  kv_heads="$(show_metadata attention.head_count_kv)"
+  head_dim="$(show_metadata attention.key_length)"
+  [ -n "$layers" ] && [ -n "$kv_heads" ] && [ -n "$head_dim" ] || return 1
+  awk -v ctx="$num_ctx" -v layers="$layers" -v heads="$kv_heads" -v dim="$head_dim" -v per="$(kv_bytes_per_element)" \
+    'BEGIN { printf "%.0f", ctx * layers * 2 * heads * dim * per }'
+}
+
+rough_kv_bytes() {
+  awk -v bytes="$1" -v share="$rough_kv_share" 'BEGIN { printf "%.0f", bytes * share }'
+}
+
+free_bytes_linux() {
+  awk '$1 == "MemAvailable:" { printf "%.0f", $2 * 1024; exit }' "$meminfo"
+}
+
+free_bytes_macos() {
+  local memsize
+  memsize="$(sysctl -n hw.memsize 2>/dev/null)" || return 1
+  vm_stat | awk -v memsize="$memsize" '
+    /page size of/ { page = $8 }
+    /^Pages active:/ { active = $3 }
+    /^Pages wired down:/ { wired = $4 }
+    END { printf "%.0f", memsize - (active + wired) * page }'
+}
+
+free_bytes() {
+  local bytes
+  if [ -r "$meminfo" ]; then bytes="$(free_bytes_linux)"; else bytes="$(free_bytes_macos)"; fi
+  case "$bytes" in ''|*[!0-9]*) echo "ollama lease: cannot read the free memory" >&2; return 1 ;; esac
+  printf '%s' "$bytes"
+}
+
+fit() {
+  local model_bytes kv_bytes embedding_bytes=0 estimate=exact free
+  [ -n "$model" ] && [ -n "$num_ctx" ] || usage
+  model_bytes="$(model_bytes_of "$model")" || exit 1
+  kv_bytes="$(exact_kv_bytes)" || { kv_bytes="$(rough_kv_bytes "$model_bytes")"; estimate=rough; }
+  [ -z "$embedding_model" ] || embedding_bytes="$(model_bytes_of "$embedding_model")" || exit 1
+  free="$(free_bytes)" || exit 1
+  jq -cn --argjson model "$model_bytes" --argjson kv "$kv_bytes" --argjson embedding "$embedding_bytes" \
+    --argjson free "$free" --arg estimate "$estimate" \
+    '{model_bytes: $model, kv_bytes: $kv, embedding_bytes: $embedding, total_bytes: ($model + $kv + $embedding),
+      free_bytes: $free, fits: ($model + $kv + $embedding <= $free), margin_bytes: ($free - $model - $kv - $embedding),
+      estimate: $estimate}'
+}
+
 [ $# -ge 1 ] || usage
 command_name="$1"
 shift
@@ -266,5 +339,6 @@ case "$command_name" in
   release) release ;;
   holders) holders ;;
   heartbeat) heartbeat ;;
+  fit) fit ;;
   *) usage ;;
 esac

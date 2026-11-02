@@ -70,6 +70,7 @@ new_sandbox() {
   unset STUB_SHASUM_DIGEST STUB_INSPECT_EXIT STUB_CLAUDE_STDERR CLAUDE_CONSOLE_STATE_DIR
   unset CLAUDE_TOOL_TELEMETRY CLAUDE_OLLAMA_TELEMETRY STUB_CLAUDE_RELAUNCH_ONCE STUB_CLAUDE_RELAUNCH_PROMPT STUB_CLAUDE_EXIT CLAUDE_OLLAMA_RELAUNCH
   unset STUB_CLAUDE_LADDER_ONCE STUB_CLAUDE_EMBED_OFF STUB_CLAUDE_SLEEP CLAUDE_OLLAMA_LEASE CLAUDE_OLLAMA_LADDER CLAUDE_OLLAMA_LEASE_HEARTBEAT
+  unset STUB_CLAUDE_LADDER_UP STUB_CLAUDE_LADDER_UP_AFTER_LADDER STUB_CLAUDE_LADDER_UP_NO_HANDOFF STUB_MEMSIZE CLAUDE_OLLAMA_FIT
   export SHELL=/bin/zsh
   record_installed_parameters
   export CLAUDE_OLLAMA_MANAGED_SETTINGS="$sandbox/managed-settings.json"
@@ -93,6 +94,13 @@ if [ -n "\${CLAUDE_OLLAMA_RELAUNCH_DIR:-}" ]; then
 fi
 for lease_file in "$HOME/.claude-ollama/lease"/*.json; do [ -f "\$lease_file" ] && jq -c . "\$lease_file" >> "$sandbox/lease-seen"; done
 [ -n "\${STUB_CLAUDE_SLEEP:-}" ] && sleep "\$STUB_CLAUDE_SLEEP"
+ls "\${CLAUDE_OLLAMA_RELAUNCH_DIR:-/nonexistent}" 2>/dev/null | tr '\n' ' ' >> "$sandbox/relaunch-entries"
+echo >> "$sandbox/relaunch-entries"
+if [ -n "\${STUB_CLAUDE_LADDER_UP:-}" ] && [ ! -e "$sandbox/laddered-up" ] && { [ -z "\${STUB_CLAUDE_LADDER_UP_AFTER_LADDER:-}" ] || [ -e "$sandbox/laddered" ]; }; then
+  : > "$sandbox/laddered-up"
+  printf '{"rung":"%s","reason":"20 minutes without an incident and the memory fits"}\n' "\$STUB_CLAUDE_LADDER_UP" > "\$CLAUDE_OLLAMA_RELAUNCH_DIR/ladder-up"
+  [ -n "\${STUB_CLAUDE_LADDER_UP_NO_HANDOFF:-}" ] || jq -cn '{note: "note.md", prompt: "go on", percent: 71}' > "\$CLAUDE_OLLAMA_RELAUNCH_DIR/relaunch"
+fi
 if [ -n "\${STUB_CLAUDE_LADDER_ONCE:-}" ] && [ ! -e "$sandbox/laddered" ]; then
   : > "$sandbox/laddered"
   [ -z "\${STUB_CLAUDE_EMBED_OFF:-}" ] || : > "\$CLAUDE_OLLAMA_RELAUNCH_DIR/embed-off"
@@ -124,6 +132,7 @@ if [ "\$1" = show ]; then
       | awk -v ctx="\$STUB_OLLAMA_NUM_CTX" -v temperature="\$STUB_OLLAMA_TEMPERATURE" \\
         '\$1 == "num_ctx" && ctx { \$2 = ctx } \$1 == "temperature" && temperature { \$2 = temperature } { print }'
   fi
+  if [ "\$3" = --verbose ]; then cat "$sandbox/show-verbose" 2>/dev/null; fi
   exit "\${STUB_OLLAMA_SHOW_EXIT:-0}"
 fi
 if [ "\$1" = create ]; then sed 's/^/modelfile: /' "\$4" >> "$sandbox/ollama.log"; fi
@@ -1455,6 +1464,102 @@ check_not "the second run drops the prompt" grep -qF -- "--continue finish the t
 check_eq "the lease records the rung after the relaunch" context-down "$(tail -n 1 "$sandbox/lease-seen" | jq -r .rung)"
 check_eq "an embed-off file turns the search server's embeddings off on relaunch" 0 "$(cat "$sandbox/embed-env")"
 check_not "the ladder file is consumed" test -e "$relaunch_root/$(cat "$sandbox/claude-ppid")/ladder"
+
+new_sandbox
+pinned_tags | jq '.models |= map(if .name == "qwen3-embedding:0.6b" then . + {size: 644245094} else . end) | .models += [{name: "qwen3.8-27b-cc", size: 17179869184}]' > "$sandbox/tags.json"
+cat > "$sandbox/stubbin/sysctl" <<'EOF'
+#!/bin/sh
+echo "${STUB_MEMSIZE:-34359738368}"
+EOF
+cat > "$sandbox/stubbin/vm_stat" <<'EOF'
+#!/bin/sh
+printf 'Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages active:  100000.\nPages wired down: 100000.\n'
+EOF
+chmod +x "$sandbox/stubbin/sysctl" "$sandbox/stubbin/vm_stat"
+printf '  Model\n    architecture        qwen3\n\n  Metadata\n    qwen3.attention.head_count_kv       8\n    qwen3.attention.key_length          128\n    qwen3.block_count                   64\n' > "$sandbox/show-verbose"
+last_session_lease() { grep '"name":"session"' "$sandbox/lease-seen" | tail -n 1; }
+fit_line="claude-ollama: memory fit: model 16.0 GiB + kv 8.0 GiB + embedding 0.6 GiB = 24.6 GiB of 28.9 GiB free"
+incidents_dir="$sandbox/home/.local/share/claude-custom/console/incidents"
+relaunch_root="$HOME/.claude-ollama/relaunch"
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_that "a launch prints the memory fit before claude starts" grep -qxF "$fit_line" "$sandbox/err"
+check_eq "a fitting launch keeps the embeddings on" 1 "$(cat "$sandbox/embed-env")"
+check_eq "a fitting launch holds its lease on no rung" null "$(last_session_lease | jq -r .rung)"
+ladder_args="$(for _ in $(seq 25); do [ -s "$sandbox/ladder-args" ] && break; sleep 0.2; done; cat "$sandbox/ladder-args" 2>/dev/null)"
+check_that "the ladder knows the model and the embedding model for its recovery fit" contains "$ladder_args" "--model qwen3.8-27b-cc --embedding qwen3-embedding:0.6b"
+check_that "the ladder knows the lease script" contains "$ladder_args" "--lease-bin $repo/bin/ollama-lease"
+check_not "a fitting launch names no rung to the ladder" contains "$ladder_args" "--rung"
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture env CLAUDE_OLLAMA_FIT=0 "$repo/bin/claude-ollama" 27b -p hi
+check_not "CLAUDE_OLLAMA_FIT=0 skips the memory fit" grep -q "memory fit" "$sandbox/err"
+check_that "CLAUDE_OLLAMA_FIT=0 still launches" grep -q '^ARGS:' "$sandbox/out"
+
+rm -f "$sandbox/lease-seen" "$sandbox/ladder-args"
+STUB_MEMSIZE=29276800000 STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_that "a launch short by the embedding model prints the fit" grep -qxF "claude-ollama: memory fit: model 16.0 GiB + kv 8.0 GiB + embedding 0.6 GiB = 24.6 GiB of 24.2 GiB free" "$sandbox/err"
+check_that "and starts on the embeddings-off rung" grep -qxF "claude-ollama: ladder embeddings-off: does not fit with the embedding model (0.4 GiB short)" "$sandbox/err"
+check_eq "the embeddings-off start turns the search embeddings off" 0 "$(cat "$sandbox/embed-env")"
+check_eq "the indexer runs words only on the embeddings-off rung" 0 "$(cat "$sandbox/indexer-embed-env")"
+check_eq "the lease records the embeddings-off rung" embeddings-off "$(last_session_lease | jq -r .rung)"
+check_that "the embeddings-off start touches embed-off for the relaunch loop" grep -q "embed-off" "$sandbox/relaunch-entries"
+ladder_args="$(for _ in $(seq 25); do [ -s "$sandbox/ladder-args" ] && break; sleep 0.2; done; cat "$sandbox/ladder-args" 2>/dev/null)"
+check_that "the ladder is told the rung in effect" contains "$ladder_args" "--rung embeddings-off"
+check_not "no context-down line when the rung above fits" grep -q "ladder context-down" "$sandbox/err"
+check_eq "the embeddings-off start keeps the profile settings" "$repo/ollama/settings.27b.json" "$(settings_arg)"
+
+rm -f "$sandbox/lease-seen" "$sandbox/ladder-args"
+STUB_MEMSIZE=25276800000 STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_that "a launch short by more than the embedding model steps to embeddings-off first" grep -qxF "claude-ollama: ladder embeddings-off: does not fit with the embedding model (4.1 GiB short)" "$sandbox/err"
+check_that "then to the next lower context" grep -qxF "claude-ollama: ladder context-down: does not fit at num_ctx 65536 (3.5 GiB short); starting at 32768" "$sandbox/err"
+check_eq "the context-down start uses the ladder settings" "$HOME/.claude-ollama/ladder-settings.json" "$(settings_arg)"
+check_eq "the ladder settings keep the headroom below the lower context" 20480 "$(jq -r .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS "$HOME/.claude-ollama/ladder-settings.json")"
+check_eq "the lease records the context-down rung" context-down "$(last_session_lease | jq -r .rung)"
+check_eq "the lease records the lower num_ctx" 32768 "$(last_session_lease | jq -r .num_ctx)"
+ladder_args="$(for _ in $(seq 25); do [ -s "$sandbox/ladder-args" ] && break; sleep 0.2; done; cat "$sandbox/ladder-args" 2>/dev/null)"
+check_that "the ladder is told both rungs in effect" contains "$ladder_args" "--rung embeddings-off --rung context-down"
+check_that "the ladder keeps the full context as its recovery target" contains "$ladder_args" "--context 65536"
+STUB_MEMSIZE=21276800000 STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_that "a launch nothing fits warns and still starts" grep -qxF "claude-ollama: memory fit: still 3.2 GiB short at num_ctx 32768 with the embeddings off" "$sandbox/err"
+check_that "the launch nothing fits still runs claude" grep -q '^ARGS:' "$sandbox/out"
+rm -f "$sandbox/stubbin/sysctl"
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_that "a fit that cannot be computed is reported, not fatal" grep -qxF "claude-ollama: memory fit: unknown (ollama lease: cannot read the free memory)" "$sandbox/err"
+check_that "and the launch goes on" grep -q '^ARGS:' "$sandbox/out"
+cat > "$sandbox/stubbin/sysctl" <<'EOF'
+#!/bin/sh
+echo "${STUB_MEMSIZE:-34359738368}"
+EOF
+chmod +x "$sandbox/stubbin/sysctl"
+
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture "$repo/bin/claude-ollama" doctor 27b
+check_that "doctor reports a fitting memory as ok" grep -qxF "ok   memory fit: model 16.0 GiB + kv 8.0 GiB + embedding 0.6 GiB = 24.6 GiB of 28.9 GiB free" "$sandbox/out"
+STUB_MEMSIZE=29276800000 STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture "$repo/bin/claude-ollama" doctor 27b
+check_that "doctor warns when the models do not fit" grep -qxF "warn memory fit: model 16.0 GiB + kv 8.0 GiB + embedding 0.6 GiB = 24.6 GiB of 24.2 GiB free (0.4 GiB short)" "$sandbox/out"
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture env CLAUDE_OLLAMA_FIT=0 "$repo/bin/claude-ollama" doctor 27b
+check_not "doctor skips the fit with CLAUDE_OLLAMA_FIT=0" grep -q "memory fit" "$sandbox/out"
+
+rm -f "$sandbox/lease-seen" "$sandbox/laddered" "$sandbox/laddered-up" "$sandbox/relaunch-entries"
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture env STUB_CLAUDE_LADDER_ONCE=1 STUB_CLAUDE_EMBED_OFF=1 STUB_CLAUDE_LADDER_UP=embeddings-off STUB_CLAUDE_LADDER_UP_AFTER_LADDER=1 "$repo/bin/claude-ollama" 27b "finish the tests"
+check_eq "a ladder-up with a handoff sentinel starts claude a third time" 3 "$(grep -c '^ARGS:' "$sandbox/out")"
+check_that "the handoff relaunch announces the recovered rung" grep -qxF "claude-ollama: ladder up: embeddings-off recovered (20 minutes without an incident and the memory fits)" "$sandbox/err"
+check_eq "the recovered rung turns the search embeddings back on" 1 "$(cat "$sandbox/embed-env")"
+check_not "the recovery removes embed-off" grep -q "embed-off" <<< "$(tail -n 1 "$sandbox/relaunch-entries")"
+check_that "the recovery is recorded as an incident" grep -q '"cause":"recovered","detail":"embeddings-off: 20 minutes without an incident and the memory fits","tokens":null,"rule":"ladder/up"' "$(cat "$incidents_dir/current")"
+check_eq "the lease keeps the context-down rung still in effect" context-down "$(last_session_lease | jq -r .rung)"
+check_eq "the third run keeps the ladder settings" "$HOME/.claude-ollama/ladder-settings.json" "$(settings_arg | tail -n 1)"
+check_that "the third run resumes the handoff" grep -qF -- "--tools Bash,Read,Edit,Write,Skill,TaskStop /handoff go on" "$sandbox/out"
+
+rm -f "$sandbox/lease-seen" "$sandbox/laddered" "$sandbox/laddered-up" "$sandbox/relaunch-entries"
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture env STUB_CLAUDE_LADDER_ONCE=1 STUB_CLAUDE_LADDER_UP=context-down STUB_CLAUDE_LADDER_UP_AFTER_LADDER=1 "$repo/bin/claude-ollama" 27b -p hi
+check_that "a context-down recovery is announced" grep -qxF "claude-ollama: ladder up: context-down recovered (20 minutes without an incident and the memory fits)" "$sandbox/err"
+check_eq "the recovered run returns to the profile settings" "$repo/ollama/settings.27b.json" "$(settings_arg | tail -n 1)"
+check_eq "the lease is back on no rung" null "$(last_session_lease | jq -r .rung)"
+check_eq "the lease is back on the full num_ctx" 65536 "$(last_session_lease | jq -r .num_ctx)"
+
+rm -f "$sandbox/lease-seen" "$sandbox/laddered" "$sandbox/laddered-up" "$sandbox/relaunch-entries"
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture env STUB_CLAUDE_LADDER_ONCE=1 STUB_CLAUDE_LADDER_UP=embeddings-off STUB_CLAUDE_LADDER_UP_NO_HANDOFF=1 "$repo/bin/claude-ollama" 27b -p hi
+check_eq "a ladder relaunch alone starts claude twice" 2 "$(grep -c '^ARGS:' "$sandbox/out")"
+check_not "a ladder-up is never honoured on a ladder relaunch" grep -q "ladder up" "$sandbox/err"
+check_that "the ladder-up file waits for the next handoff relaunch" grep -q "ladder-up" <<< "$(tail -n 1 "$sandbox/relaunch-entries")"
 
 new_sandbox
 launch_beacon="$HOME/.local/share/claude-custom/console/beacon/$(hostname -s).json"

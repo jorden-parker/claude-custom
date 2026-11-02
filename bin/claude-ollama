@@ -29,6 +29,11 @@ ladder_settings="$session_config_dir/ladder-settings.json"
 ladder_rung=""
 ladder_context=""
 ladder_reason=""
+session_rung=""
+fit_embed_off=""
+fit_summary=""
+fit_margin=""
+bytes_per_gib=1073741824
 qwen_home="$session_config_dir/qwen"
 append_prompt="$session_config_dir/append-prompt.md"
 fetch_domains_file="${XDG_CONFIG_HOME:-$HOME/.config}/claude-custom/fetch-domains"
@@ -286,13 +291,21 @@ embedding_model_fits() {
   [ -n "$cap" ] && [ "$cap" -ge 2 ] 2>/dev/null
 }
 
+embeddings_wanted() {
+  [ -z "$fit_embed_off" ] && embedding_model_fits
+}
+
 allow_search_embeddings() {
+  if [ -n "$fit_embed_off" ]; then
+    export CODE_SEARCH_EMBED=0
+    return 0
+  fi
   embedding_model_fits || return 0
   export CODE_SEARCH_EMBED=1
 }
 
 warm_embedding_model() {
-  embedding_model_fits || return 0
+  embeddings_wanted || return 0
   command -v curl >/dev/null 2>&1 || return 0
   curl -s -o /dev/null -m 30 -X POST "$ollama_url/api/embed" \
     -d "{\"model\":\"$embedding_model\",\"input\":\"warm up\",\"keep_alive\":\"$keep_alive\"}" >/dev/null 2>&1
@@ -312,14 +325,98 @@ release_session_lease() {
   "$lease_bin" release session --pid "$$" >/dev/null 2>&1 || true
 }
 
+session_num_ctx() {
+  if [ -n "$ladder_context" ]; then echo "$ladder_context"; else modelfile_num_ctx; fi
+}
+
 claim_session() {
   lease_on || return 0
-  acquire_lease session --model "$model" --num-ctx "$(modelfile_num_ctx)" || exit 3
+  acquire_lease session --model "$model" --num-ctx "$(session_num_ctx)" --rung "$session_rung" || exit 3
   trap end_launch EXIT
 }
 
 record_session_rung() {
-  acquire_lease session --model "$model" --num-ctx "$(modelfile_num_ctx)" --rung "$ladder_rung" >/dev/null 2>&1 || true
+  acquire_lease session --model "$model" --num-ctx "$(session_num_ctx)" --rung "$session_rung" >/dev/null 2>&1 || true
+}
+
+fit_on() {
+  [ "${CLAUDE_OLLAMA_FIT:-}" != 0 ]
+}
+
+run_fit() {
+  if [ -n "$2" ]; then
+    "$lease_bin" fit --model "$model" --num-ctx "$1" --embedding "$2"
+  else
+    "$lease_bin" fit --model "$model" --num-ctx "$1"
+  fi
+}
+
+gib() {
+  awk -v bytes="$1" -v unit="$bytes_per_gib" 'BEGIN { printf "%.1f GiB", bytes / unit }'
+}
+
+read_fit() {
+  local model_bytes kv_bytes embedding_bytes total_bytes free_bytes
+  IFS=$'\t' read -r model_bytes kv_bytes embedding_bytes total_bytes free_bytes fit_margin < <(
+    jq -r '[.model_bytes, .kv_bytes, .embedding_bytes, .total_bytes, .free_bytes, .margin_bytes] | @tsv' <<< "$1")
+  fit_summary="model $(gib "$model_bytes") + kv $(gib "$kv_bytes") + embedding $(gib "$embedding_bytes") = $(gib "$total_bytes") of $(gib "$free_bytes") free"
+}
+
+fit_fits() {
+  [ "$(jq -r .fits <<< "$1")" = true ]
+}
+
+fit_shortfall() {
+  gib "${fit_margin#-}"
+}
+
+measure_fit() {
+  local fit_error
+  fit_error="$(mktemp)"
+  if ! fit_result="$(run_fit "$@" 2>"$fit_error")"; then
+    echo "claude-ollama: memory fit: unknown ($(head -n 1 "$fit_error"))" >&2
+    rm -f "$fit_error"
+    return 1
+  fi
+  rm -f "$fit_error"
+  read_fit "$fit_result"
+}
+
+lower_context_of() {
+  local lower
+  lower="$(jq -r --argjson current "$1" '[.[] | .context | select(. < $current)] | max // empty' "$profile_dir/sizes.json" 2>/dev/null)"
+  if [ -n "$lower" ]; then echo "$lower"; return; fi
+  awk -v current="$1" 'BEGIN { rounded = int(current * 0.75 / 1024) * 1024; print (rounded < 16384 ? 16384 : rounded) }'
+}
+
+start_without_embeddings() {
+  fit_embed_off=1
+  session_rung=embeddings-off
+  echo "claude-ollama: ladder embeddings-off: does not fit with the embedding model ($(fit_shortfall) short)" >&2
+  measure_fit "$(modelfile_num_ctx)" "" || return 1
+  fit_fits "$fit_result"
+}
+
+start_on_lower_context() {
+  ladder_rung=context-down
+  ladder_context="$(lower_context_of "$(modelfile_num_ctx)")"
+  session_rung=context-down
+  echo "claude-ollama: ladder context-down: does not fit at num_ctx $(modelfile_num_ctx) ($(fit_shortfall) short); starting at $ladder_context" >&2
+  measure_fit "$ladder_context" "" || return 1
+  fit_fits "$fit_result" || echo "claude-ollama: memory fit: still $(fit_shortfall) short at num_ctx $ladder_context with the embeddings off" >&2
+}
+
+check_memory_fit() {
+  local embedding="" fit_result
+  fit_on || return 0
+  ! embedding_model_fits || embedding="$embedding_model"
+  measure_fit "$(modelfile_num_ctx)" "$embedding" || return 0
+  echo "claude-ollama: memory fit: $fit_summary" >&2
+  fit_fits "$fit_result" && return 0
+  if [ -n "$embedding" ]; then
+    start_without_embeddings && return 0
+  fi
+  start_on_lower_context || true
 }
 
 start_heartbeat() {
@@ -339,7 +436,7 @@ end_launch() {
 }
 
 leased_indexer() {
-  if lease_on; then
+  if lease_on && embeddings_wanted; then
     cat <<'SH'
 "$1" acquire embedding --model "$2" --pid $$ >/dev/null 2>&1 || export CODE_SEARCH_EMBED=0
 exec python3 "$3" --index --watch-pid "$4"
@@ -361,11 +458,19 @@ ladder_bin() {
   echo "${CLAUDE_OLLAMA_LADDER_BIN:-$profile_dir/incidents/ladder.py}"
 }
 
+ladder_rung_args() {
+  [ -z "$fit_embed_off" ] || printf -- '--rung\nembeddings-off\n'
+  [ -z "$ladder_context" ] || printf -- '--rung\ncontext-down\n'
+}
+
 start_ladder() {
+  local rung_args=()
   [ "${CLAUDE_OLLAMA_LADDER:-}" = 0 ] && return 0
   [ -n "${CLAUDE_OLLAMA_INCIDENTS_FILE:-}" ] || return 0
+  while IFS= read -r arg; do rung_args+=("$arg"); done < <(ladder_rung_args)
   nohup "$(ladder_bin)" --incidents "$CLAUDE_OLLAMA_INCIDENTS_FILE" --relaunch-dir "$relaunch_dir" \
-    --watch-pid "$$" --context "$(modelfile_num_ctx)" >/dev/null 2>&1 &
+    --watch-pid "$$" --context "$(modelfile_num_ctx)" --model "$model" --embedding "$embedding_model" \
+    --lease-bin "$lease_bin" ${rung_args[@]+"${rung_args[@]}"} >/dev/null 2>&1 &
 }
 
 rotate_launcher_log() {
@@ -687,7 +792,8 @@ remove_relaunch_dir() {
 prepare_relaunch_dir() {
   (umask 077; mkdir -p "$relaunch_dir")
   chmod 700 "$relaunch_root" "$relaunch_dir"
-  rm -f "$relaunch_dir/relaunch" "$relaunch_dir/ladder" "$relaunch_dir/embed-off" "$relaunch_dir/heartbeat-fast"
+  rm -f "$relaunch_dir/relaunch" "$relaunch_dir/ladder" "$relaunch_dir/ladder-up" "$relaunch_dir/embed-off" "$relaunch_dir/heartbeat-fast"
+  [ -z "$fit_embed_off" ] || : > "$relaunch_dir/embed-off"
   trap end_launch EXIT
   remove_stale_relaunch_dirs
   export CLAUDE_OLLAMA_RELAUNCH_DIR="$relaunch_dir"
@@ -707,11 +813,15 @@ relaunch_tokens() {
     '(($percent | tonumber) * ($context | tonumber) / 100) | floor' 2>/dev/null || echo null
 }
 
-record_relaunch_incident() {
+append_incident() {
   local file="${CLAUDE_OLLAMA_INCIDENTS_FILE:-}"
   [ -n "$file" ] && [ -d "${file%/*}" ] || return 0
-  (umask 077; jq -cn --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg detail "$relaunch_note" --argjson tokens "$(relaunch_tokens)" \
-    '{ts: $ts, cause: "relaunched", detail: $detail, tokens: $tokens}' >> "$file")
+  (umask 077; jq -cn --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg cause "$1" --arg detail "$2" --argjson tokens "$3" --arg rule "${4:-}" \
+    '{ts: $ts, cause: $cause, detail: $detail, tokens: $tokens} + (if $rule == "" then {} else {rule: $rule} end)' >> "$file")
+}
+
+record_relaunch_incident() {
+  append_incident relaunched "$relaunch_note" "$(relaunch_tokens)"
 }
 
 announce_relaunch() {
@@ -796,8 +906,45 @@ write_ladder_settings() {
 
 apply_ladder() {
   read_ladder_file
+  session_rung="$ladder_rung"
   echo "claude-ollama: ladder $ladder_rung: $ladder_reason" >&2
   [ -z "$ladder_context" ] || { write_ladder_settings && build_claude_args; }
+  record_session_rung
+}
+
+remaining_rung() {
+  if [ -n "$ladder_context" ]; then echo context-down
+  elif [ -e "$relaunch_dir/embed-off" ]; then echo embeddings-off
+  fi
+}
+
+restore_embeddings() {
+  rm -f "$relaunch_dir/embed-off"
+  fit_embed_off=""
+  unset CODE_SEARCH_EMBED
+  allow_search_embeddings
+}
+
+restore_context() {
+  ladder_rung=""
+  ladder_context=""
+  [ -z "$proxy_url" ] || write_proxy_settings
+  build_claude_args
+}
+
+apply_ladder_up() {
+  local ladder_up="$relaunch_dir/ladder-up" rung reason
+  rung="$(jq -r '.rung // empty' "$ladder_up" 2>/dev/null)"
+  reason="$(jq -r '.reason // empty' "$ladder_up" 2>/dev/null)"
+  rm -f "$ladder_up"
+  case "$rung" in
+    embeddings-off) restore_embeddings ;;
+    context-down) restore_context ;;
+    *) return 0 ;;
+  esac
+  echo "claude-ollama: ladder up: $rung recovered ($reason)" >&2
+  append_incident recovered "$rung: $reason" null ladder/up
+  session_rung="$(remaining_rung)"
   record_session_rung
 }
 
@@ -817,6 +964,7 @@ prepare_relaunch() {
     announce_relaunch
     record_relaunch_incident
     set_relaunch_args "$@"
+    [ ! -e "$relaunch_dir/ladder-up" ] || apply_ladder_up
   else
     set_ladder_args "$@"
   fi
@@ -1226,6 +1374,22 @@ check_classifier() {
   fi
 }
 
+fit_report() {
+  local embedding="" fit_result
+  fit_on || return 0
+  ! embedding_model_fits || embedding="$embedding_model"
+  if ! fit_result="$(run_fit "$(modelfile_num_ctx)" "$embedding" 2>&1)"; then
+    report warn "memory fit: $fit_result"
+    return 0
+  fi
+  read_fit "$fit_result"
+  if fit_fits "$fit_result"; then
+    report ok "memory fit: $fit_summary"
+  else
+    report warn "memory fit: $fit_summary ($(fit_shortfall) short)"
+  fi
+}
+
 report_lease() {
   local state holder_name holder_pid holder_model
   read -r state holder_name _ holder_pid _ holder_model _ <<< "$1"
@@ -1251,6 +1415,7 @@ doctor() {
   write_launch_settings
   report ok "jq on PATH"
   check_leases
+  fit_report
   check_model_present model "$model" "run claude-ollama $size to pull and create it" || status=1
   check_model_present "embedding model" "$embedding_model" "pick 'Set up embedding model' in claude-ollama" || status=1
   check_digests || status=1
@@ -1540,6 +1705,7 @@ apply_server_env
 ensure_model
 ensure_embedding_model
 verify_installed_models
+check_memory_fit
 claim_session
 allow_search_embeddings
 warm_embedding_model
@@ -1568,6 +1734,7 @@ if [ "$harness" = qwen ]; then
 fi
 launch_fetch_domains="$(fetch_domains)"
 write_launch_settings
+[ -z "$ladder_context" ] || write_ladder_settings
 start_messages_proxy
 write_append_prompt
 build_claude_args() {
