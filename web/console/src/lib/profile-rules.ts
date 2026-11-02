@@ -178,7 +178,7 @@ export const PROFILE_ENV_FIELDS: readonly ProfileEnvField[] = [
   {
     key: "CLAUDE_OLLAMA_TEST_AFTER_EDIT",
     label: "After each edit: suggest the test, or run it",
-    help: "Suggest names the test to run after an edit; run executes it and reports pass or the first failing lines. Run executes repo test code outside the Bash sandbox and is enabled only here, in the profile file the sandboxed session cannot write, so leave it on suggest for repos you do not trust.",
+    help: "Suggest names the test to run after an edit; run executes it under macOS Seatbelt with the same profile as claude-ollama qwen and reports pass or the first failing lines, and only suggests on other platforms. Run is enabled only here, in the profile file the sandboxed session cannot write, so leave it on suggest for repos you do not trust.",
     group: "Guards",
     kind: "choice",
     choices: TEST_AFTER_EDIT_CHOICES,

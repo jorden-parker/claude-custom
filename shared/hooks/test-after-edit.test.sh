@@ -9,6 +9,8 @@ export CLAUDE_TOOL_TELEMETRY="$sandbox/telemetry.jsonl"
 export CLAUDE_CONFIG_DIR="$sandbox/config"
 export TEST_AFTER_EDIT_CACHE_DIR="$sandbox/cache"
 export TEST_AFTER_EDIT_TIMEOUT=5
+export TEST_AFTER_EDIT_PLATFORM=darwin
+export SANDBOX_PROFILE_SOURCE="$hooks_dir/../../ollama/qwen-sandbox.sb"
 project="$sandbox/project"
 mkdir -p "$project/.git" "$project/.claude" "$project/shared/hooks" "$project/go/internal/parse" "$project/web/src/lib" "$project/py" "$project/other" "$sandbox/lonely" "$sandbox/bin"
 printf '#!/bin/sh\necho verify "$@" >> "%s"\n' "$sandbox/verify.log" > "$project/.claude/verify"
@@ -47,6 +49,19 @@ exit "\${STUB_EXIT:-0}"
 SCRIPT
   chmod +x "$sandbox/bin/$stub"
 done
+cat > "$sandbox/bin/sandbox-exec" <<'SCRIPT'
+#!/bin/sh
+echo "sandbox-exec $*" >> "$STUB_LOG"
+while [ "$1" = -f ] || [ "$1" = -D ]; do
+  if [ "$1" = -f ]; then
+    echo "profile_mode=$(stat -f %Lp "$2" 2>/dev/null || stat -c %a "$2")" >> "$STUB_LOG"
+    if cmp -s "$2" "$SANDBOX_PROFILE_SOURCE"; then echo "profile_same=yes" >> "$STUB_LOG"; else echo "profile_same=no" >> "$STUB_LOG"; fi
+  fi
+  shift 2
+done
+exec "$@"
+SCRIPT
+chmod +x "$sandbox/bin/sandbox-exec"
 export PATH="$sandbox/bin:$PATH"
 export STUB_LOG="$sandbox/stub.log"
 
@@ -106,6 +121,12 @@ export SESSION=run
 pass_line="$(CLAUDE_SANDBOX_CACHE_DIR=/tmp/sandbox-cache GOMODCACHE=/tmp/sandbox-cache/go context_of Edit "$project/shared/hooks/tool.py")"
 expect_has 'run mode reports a pass with the command and the seconds' "$pass_line" 'tests: pass (./shared/hooks/tool.test.sh, ' 's)'
 expect_lacks 'run mode never returns the output' "$pass_line" 'all passed'
+sandbox_line="$(grep '^sandbox-exec ' "$STUB_LOG")"
+expect_has 'run mode runs the command under sandbox-exec with the rendered profile and the Seatbelt params' "$sandbox_line" \
+  'sandbox-exec -f ' "-D TARGET_DIR=$project " "-D HOME_DIR=$HOME " "-D CACHE_DIR=$HOME/.cache/claude-sandbox " '-D TMP_DIR=' '-D QWEN_DIR=' '-D RUNTIME_DIR=' "/shared/host-env $project/shared/hooks/tool.test.sh"
+expect_eq 'the rendered profile is a 0600 temp file' 'profile_mode=600' "$(grep profile_mode= "$STUB_LOG")"
+expect_eq 'the rendered profile is the qwen Seatbelt profile' 'profile_same=yes' "$(grep profile_same= "$STUB_LOG")"
+expect_eq 'the rendered profile and its scratch folder are removed after the run' 0 "$(find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'test-after-edit.*' | wc -l | tr -d ' ')"
 expect_eq 'run mode ran the test once' 1 "$(grep -c '^run ' "$STUB_LOG")"
 expect_eq 'run mode goes through host-env, so the sandbox cache never leaks into the test' 'GOMODCACHE=unset' "$(grep GOMODCACHE "$STUB_LOG")"
 cached_line="$(context_of Edit "$project/shared/hooks/tool.py")"
@@ -147,6 +168,29 @@ expect_eq 'run mode never runs a test edited earlier in the session' \
   "$(SESSION=guard1 context_of Edit "$project/shared/hooks/tool.py")"
 expect_has 'another session still runs it' "$(SESSION=guard2 context_of Edit "$project/shared/hooks/tool.py")" 'tests: pass (./shared/hooks/tool.test.sh, '
 runs_before="$(grep -c '^run ' "$STUB_LOG")"
+expect_eq 'another platform only suggests' \
+  'run now: ./shared/hooks/tool.test.sh (not run: no sandbox on this platform)' \
+  "$(TEST_AFTER_EDIT_PLATFORM=linux SESSION=guard2 context_of Edit "$project/shared/hooks/tool.py")"
+expect_eq 'a missing sandbox-exec only suggests' \
+  'run now: ./shared/hooks/tool.test.sh (not run: no sandbox on this platform)' \
+  "$(CLAUDE_OLLAMA_SANDBOX_EXEC=/nonexistent/sandbox-exec SESSION=guard2 context_of Edit "$project/shared/hooks/tool.py")"
+mkdir -p "$CLAUDE_CONFIG_DIR/cache/test-after-edit"
+printf 'not json' > "$CLAUDE_CONFIG_DIR/cache/test-after-edit/guard5.json"
+expect_eq 'an unreadable session record refuses to run' \
+  'run now: ./shared/hooks/tool.test.sh (not run: session record unreadable)' \
+  "$(SESSION=guard5 context_of Edit "$project/shared/hooks/tool.py")"
+expect_eq 'an unreadable record is left as it is, so the session keeps refusing' 'not json' "$(cat "$CLAUDE_CONFIG_DIR/cache/test-after-edit/guard5.json")"
+ln -s "$project/shared/hooks/tool.test.sh" "$project/shared/hooks/link-to-test.sh"
+SESSION=guard6 context_of Edit "$project/shared/hooks/link-to-test.sh" >/dev/null
+expect_eq 'a test edited through another name is still the same file' \
+  'run now: ./shared/hooks/tool.test.sh (not run: test edited this session)' \
+  "$(SESSION=guard6 context_of Edit "$project/shared/hooks/tool.py")"
+expect_eq 'a test edited through a link that hides its name is still a test' \
+  'run now: ./shared/hooks/tool.test.sh (not run: edited file is a test)' \
+  "$(SESSION=guard7 context_of Edit "$project/shared/hooks/link-to-test.sh")"
+record_identity="$(python3 -c 'import json,sys; rows=json.load(open(sys.argv[1]))["edited"]; print(all(isinstance(row.get("dev"), int) and isinstance(row.get("ino"), int) for row in rows), len(rows) > 0)' "$CLAUDE_CONFIG_DIR/cache/test-after-edit/guard6.json")"
+expect_eq 'the session record stores each edited path with its device and inode' 'True True' "$record_identity"
+expect_eq 'no staged temp file is left beside the record' 0 "$(find "$CLAUDE_CONFIG_DIR/cache/test-after-edit" -name '.staged-*' | wc -l | tr -d ' ')"
 SESSION=guard3 context_of Write "$project/.claude/verify" >/dev/null
 expect_eq 'run mode never runs a verify script edited this session' \
   'run now: .claude/verify other/run.sh (not run: test edited this session)' \

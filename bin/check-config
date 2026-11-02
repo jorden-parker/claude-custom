@@ -440,6 +440,10 @@ for hook in bash-output-guard read-range-guard tool-nudge tdd-guard; do
   check_that "ollama/recipes/$hook.json exists for the guard that uses it" test -f "$repo/ollama/recipes/$hook.json"
 done
 
+check_eq "test-after-edit supplies every Seatbelt parameter the qwen sandbox profile reads, and no other" \
+  "$(grep -o '(param "[A-Z_]*")' "$repo/ollama/qwen-sandbox.sb" | sed 's/(param "\(.*\)")/\1/' | sort -u)" \
+  "$(sed -n 's/^SEATBELT_PARAMS = (\(.*\))$/\1/p' "$repo/shared/hooks/test-after-edit.py" | tr -d '" ' | tr ',' '\n' | grep . | sort -u)"
+check_that "test-after-edit renders the same Seatbelt profile claude-ollama qwen stages" grep -qF 'qwen-sandbox.sb' "$repo/shared/hooks/test-after-edit.py"
 check_eq "tool-telemetry counts the same line limit that bash-output-trim applies" \
   "$(sed -n 's/^MAX_LINES = //p' "$repo/shared/hooks/bash-output-trim.py")" \
   "$(sed -n 's/^TRIM_LINE_LIMIT = //p' "$repo/shared/hooks/tool-telemetry.py")"
