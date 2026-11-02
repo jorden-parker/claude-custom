@@ -12,7 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from hook_telemetry import record_hook_event
-from test_scope import expected_test_path, is_code, resolve_test
+from test_scope import expected_test_path, is_code, is_test, resolve_test, within
 
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit"}
 HOST_ENV = Path(__file__).resolve().parents[1] / "host-env"
@@ -23,6 +23,36 @@ LINE_LIMIT = 300
 FAILURE_LINES = 4
 FAILURE_SIGNAL = re.compile(r"FAIL|error|panic|traceback|exception|assert|not ok|expected", re.IGNORECASE)
 MODES = {"suggest", "run"}
+
+
+def session_record_path(session_id):
+    config_dir = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
+    return config_dir / "cache" / "test-after-edit" / f"{session_id}.json"
+
+
+def load_edited_paths(record):
+    try:
+        return set(json.loads(record.read_text()))
+    except (OSError, ValueError):
+        return set()
+
+
+def remember_edited_path(record, edited, path):
+    edited.add(str(path))
+    record.parent.mkdir(parents=True, exist_ok=True)
+    record.write_text(json.dumps(sorted(edited)))
+
+
+def refusal_reason(resolved, path, cwd, edited):
+    if not within(path, cwd):
+        return "outside the project"
+    if is_test(path):
+        return "edited file is a test"
+    if resolved["test"] == path or resolved["argv"][0] == str(path):
+        return "edited file is the program"
+    if str(resolved["test"]) in edited:
+        return "test edited this session"
+    return None
 
 
 def mode_from_env():
@@ -98,13 +128,16 @@ def missing_test_line(path):
     return f"no test found beside {path.name}; write {expected_test_path(path)} first"
 
 
-def context_for(mode, event, path):
+def context_for(mode, event, path, edited):
     cwd = Path(event.get("cwd") or os.getcwd()).resolve()
     resolved = resolve_test(path, cwd)
     if resolved is None:
         return missing_test_line(path), {"found": False, "result": None, "seconds": None}
     if mode == "suggest":
         return f"run now: {resolved['display']}", {"found": True, "result": None, "seconds": None}
+    reason = refusal_reason(resolved, path, cwd, edited)
+    if reason is not None:
+        return f"run now: {resolved['display']} (not run: {reason})", {"found": True, "result": "refused", "seconds": None}
     result, line, seconds = run_outcome(resolved, path)
     return line, {"found": True, "result": result, "seconds": seconds}
 
@@ -114,14 +147,17 @@ def main():
         event = json.load(sys.stdin)
     except ValueError:
         return
-    mode = mode_from_env()
     tool_input = event.get("tool_input") or {}
     path = Path(tool_input.get("file_path") or "")
-    if mode is None or event.get("hook_event_name") != "PostToolUse" or event.get("tool_name") not in EDIT_TOOLS:
+    if event.get("hook_event_name") != "PostToolUse" or event.get("tool_name") not in EDIT_TOOLS or not path.name:
         return
-    if not path.name or not is_code(path, tool_input, event.get("tool_name")):
+    record = session_record_path(event.get("session_id", "nosession"))
+    edited = load_edited_paths(record)
+    remember_edited_path(record, edited, path.resolve())
+    mode = mode_from_env()
+    if mode is None or not is_code(path, tool_input, event.get("tool_name")):
         return
-    line, fields = context_for(mode, event, path.resolve())
+    line, fields = context_for(mode, event, path.resolve(), edited)
     record_hook_event("test-after-edit", event, "test-after-edit", line.split("\n")[0], {"mode": mode, **fields})
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": line}}))
 

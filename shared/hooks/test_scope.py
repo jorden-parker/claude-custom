@@ -6,6 +6,7 @@ CODE_SUFFIXES = {".go", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py", ".s
 PACKAGE_SUFFIXES = {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"}
 TEST_NAME = re.compile(r"(^|[._-])(test|tests|spec)([._-]|$)")
 TEST_DIRS = {"test", "tests", "__tests__", "testdata", "fixtures", "eval", ".claude"}
+RUNNABLE_TEST_DIRS = TEST_DIRS - {".claude"}
 VITEST_SUFFIXES = (".ts", ".tsx", ".js", ".jsx", ".mts", ".mjs")
 PROJECT_MARKERS = (".git", ".claude")
 
@@ -31,14 +32,26 @@ def stem_of(path):
     return path.name.split(".")[0] if path.suffix else path.name
 
 
+def has_test_name(path):
+    return bool(TEST_NAME.search(stem_of(path))) or ".test." in path.name or ".spec." in path.name
+
+
 def is_test(path):
-    if TEST_NAME.search(stem_of(path)) or ".test." in path.name or ".spec." in path.name:
-        return True
-    return any(part in TEST_DIRS for part in path.parts)
+    return has_test_name(path) or any(part in TEST_DIRS for part in path.parts)
 
 
-def nearest_dir_with(path, marker):
+def is_runnable_test(path):
+    return has_test_name(path) or any(part in RUNNABLE_TEST_DIRS for part in path.parts)
+
+
+def within(path, root):
+    return path == root or root in path.parents
+
+
+def nearest_dir_with(path, marker, root=None):
     for parent in path.parents:
+        if root is not None and not within(parent, root):
+            return None
         if (parent / marker).exists():
             return parent
     return None
@@ -67,7 +80,7 @@ def expected_test_path(path):
 
 def project_root(path, cwd):
     for marker in PROJECT_MARKERS:
-        root = nearest_dir_with(path, marker)
+        root = nearest_dir_with(path, marker, cwd)
         if root is not None:
             return root
     return cwd
@@ -104,7 +117,7 @@ KIND_FINDERS = {".go": go_test_file, ".py": pytest_file, **{suffix: vitest_file 
 
 
 def test_file_for(path):
-    if is_test(path) and path.is_file():
+    if is_runnable_test(path) and path.is_file():
         return path
     finder = KIND_FINDERS.get(path.suffix)
     found = finder(path) if finder else None
@@ -126,14 +139,14 @@ def shown_command(words, run_dir, cwd):
 
 
 def go_command(test, cwd):
-    module_root = nearest_dir_with(test, "go.mod") or test.parent
+    module_root = nearest_dir_with(test, "go.mod", cwd) or test.parent
     package = relative_to(test.parent, module_root)
     words = ["go", "test", "./" + package if package != "." else "."]
     return {"test": test, "argv": words, "cwd": module_root, "display": shown_command(words, module_root, cwd)}
 
 
 def vitest_command(test, cwd):
-    package_root = nearest_dir_with(test, "package.json") or test.parent
+    package_root = nearest_dir_with(test, "package.json", cwd) or test.parent
     run_dir = project_root(test, cwd)
     words = ["pnpm", "-C", relative_to(package_root, run_dir), "exec", "vitest", "run", relative_to(test, package_root)]
     return {"test": test, "argv": words, "cwd": run_dir, "display": shown_command(words, run_dir, cwd)}
@@ -147,15 +160,18 @@ def pytest_command(test, cwd):
 
 def shell_command(test, cwd):
     run_dir = project_root(test, cwd)
-    words = ["./" + relative_to(test, run_dir)]
+    shown = relative_to(test, run_dir)
+    words = [shown if shown.startswith("/") else "./" + shown]
     return {"test": test, "argv": [str(test)], "cwd": run_dir, "display": shown_command(words, run_dir, cwd)}
 
 
 def verify_command(path, cwd):
-    root = nearest_dir_with(path, Path(".claude") / "verify")
+    root = nearest_dir_with(path, Path(".claude") / "verify", cwd)
     if root is None:
         return None
     verify = root / ".claude" / "verify"
+    if verify == path:
+        return None
     words = [".claude/verify", relative_to(path, root)]
     return {"test": verify, "argv": [str(verify), str(path)], "cwd": root, "display": shown_command(words, root, cwd)}
 

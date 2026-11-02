@@ -505,12 +505,23 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `run now: <command>`, or
   `no test found beside <file>; write <expected test path> first`, and executes
   nothing. `CLAUDE_OLLAMA_TEST_AFTER_EDIT=run` runs the command through
-  `shared/host-env` (outside the Bash sandbox, so only for repos you trust) with
-  a 60 s timeout (`TEST_AFTER_EDIT_TIMEOUT` overrides it in tests) and a 2 MiB
-  output cap, caches a pass by the content hashes of the edited file and the
-  test under `~/.cache/claude-custom/test-after-edit`
-  (`TEST_AFTER_EDIT_CACHE_DIR` overrides), and returns
-  `tests: pass (<command>, 2.1s)` (`cached` on a hit),
+  `shared/host-env`, outside the Bash sandbox: it executes the repo's test code
+  as you, so it is enabled only from the profile file
+  (`~/.config/claude-custom/profiles/<id>.json`), which the sandboxed session
+  cannot write, and only for repos you trust. Run mode still falls back to the
+  suggestion, with `(not run: <reason>)` appended, when the edited file is
+  itself a test, when the resolved test or `.claude/verify` was edited earlier
+  in the session (the hook records every edited path per session under
+  `${CLAUDE_CONFIG_DIR:-~/.claude}/cache/test-after-edit/`), when the edited
+  file would be the program, or when the edited path lies outside the event's
+  `cwd`; the resolver never looks above that `cwd` for `go.mod`, `package.json`,
+  `.git` or `.claude/verify`, and a file under `.claude` is never a test to run
+  (`RUNNABLE_TEST_DIRS`; tdd-guard's `TEST_DIRS` keeps `.claude` so such edits
+  still pass it). It runs with a 60 s timeout (`TEST_AFTER_EDIT_TIMEOUT`
+  overrides it in tests) and a 2 MiB output cap, caches a pass by the content
+  hashes of the edited file and the test under
+  `~/.cache/claude-custom/test-after-edit` (`TEST_AFTER_EDIT_CACHE_DIR`
+  overrides), and returns `tests: pass (<command>, 2.1s)` (`cached` on a hit),
   `tests: FAIL (<command>):` plus the first failing line and the next three (300
   characters each, never the log), or
   `tests: timed out after 60s (<command>); run it yourself`.
