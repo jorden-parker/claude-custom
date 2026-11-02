@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   CONTEXT_CAP,
+  PROFILE_ENV_FIELDS,
+  PROFILE_ENV_KEYS,
   overrideCount,
   validateProfileOverride,
   type ProfileRules,
@@ -107,12 +109,41 @@ describe("validateProfileOverride", () => {
     expect(rejected({ thinking: true }, CLAUDE_CODE)).toBe("thinking only applies to Ollama profiles");
   });
 
-  it("allows only the four launcher env keys with 0 or 1", () => {
+  it("allows only the launcher env switches with 0 or 1", () => {
     expect(accepted({ env: { CLAUDE_OLLAMA_TELEMETRY: "0" } }, OLLAMA)).toEqual({
       env: { CLAUDE_OLLAMA_TELEMETRY: "0" },
     });
+    expect(accepted({ env: { CLAUDE_OLLAMA_RELAUNCH: "0", CLAUDE_OLLAMA_INCIDENTS: "1" } }, OLLAMA)).toEqual({
+      env: { CLAUDE_OLLAMA_RELAUNCH: "0", CLAUDE_OLLAMA_INCIDENTS: "1" },
+    });
     expect(rejected({ env: { PATH: "/tmp" } }, OLLAMA)).toBe("unknown env key PATH");
     expect(rejected({ env: { CLAUDE_OLLAMA_CMUX: "off" } }, OLLAMA)).toBe("CLAUDE_OLLAMA_CMUX must be 0 or 1");
+    expect(rejected({ env: { CLAUDE_OLLAMA_RELAUNCH: "2" } }, OLLAMA)).toBe("CLAUDE_OLLAMA_RELAUNCH must be 0 or 1");
+  });
+
+  it("takes the handoff threshold as a whole percent from 30 to 85", () => {
+    expect(accepted({ env: { CLAUDE_OLLAMA_HANDOFF_PCT: "60" } }, OLLAMA)).toEqual({
+      env: { CLAUDE_OLLAMA_HANDOFF_PCT: "60" },
+    });
+    const message = "CLAUDE_OLLAMA_HANDOFF_PCT must be a whole number from 30 to 85";
+    for (const value of ["20", "90", "7.5", "abc", 60]) {
+      expect(rejected({ env: { CLAUDE_OLLAMA_HANDOFF_PCT: value } }, OLLAMA)).toBe(message);
+    }
+  });
+
+  it("lists a labelled field for every env key", () => {
+    expect(PROFILE_ENV_FIELDS.map((field) => field.key)).toEqual([...PROFILE_ENV_KEYS]);
+    expect(PROFILE_ENV_FIELDS.every((field) => field.label !== field.key)).toBe(true);
+    expect(PROFILE_ENV_FIELDS.find((field) => field.key === "CLAUDE_OLLAMA_HANDOFF_PCT")).toMatchObject({
+      kind: "percent",
+      defaultValue: "70",
+      ollamaOnly: true,
+    });
+    expect(PROFILE_ENV_FIELDS.find((field) => field.key === "CLAUDE_OLLAMA_TELEMETRY")).toMatchObject({
+      kind: "switch",
+      defaultValue: "1",
+      ollamaOnly: false,
+    });
   });
 
   it("rejects keys it does not know and non-object bodies", () => {

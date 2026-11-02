@@ -32,7 +32,82 @@ export const PROFILE_ENV_KEYS = [
   "CLAUDE_OLLAMA_NO_INDEX",
   "CLAUDE_OLLAMA_OPEN_DRAFTS",
   "CLAUDE_OLLAMA_CMUX",
+  "CLAUDE_OLLAMA_RELAUNCH",
+  "CLAUDE_OLLAMA_HANDOFF_PCT",
+  "CLAUDE_OLLAMA_INCIDENTS",
 ] as const;
+
+export type ProfileEnvKey = (typeof PROFILE_ENV_KEYS)[number];
+
+export type ProfileEnvField = {
+  key: ProfileEnvKey;
+  label: string;
+  help: string;
+  kind: "switch" | "percent";
+  defaultValue: string;
+  ollamaOnly: boolean;
+};
+
+export const HANDOFF_PERCENT_RANGE = { min: 30, max: 85, step: 5 } as const;
+
+export const PROFILE_ENV_FIELDS: readonly ProfileEnvField[] = [
+  {
+    key: "CLAUDE_OLLAMA_TELEMETRY",
+    label: "Session telemetry",
+    help: "One JSON line per tool call in ~/.claude-ollama/telemetry; never the tool input.",
+    kind: "switch",
+    defaultValue: "1",
+    ollamaOnly: false,
+  },
+  {
+    key: "CLAUDE_OLLAMA_NO_INDEX",
+    label: "Skip the code search index",
+    help: "Off indexes the project in the background at launch; on leaves semantic_search ranking by words only.",
+    kind: "switch",
+    defaultValue: "0",
+    ollamaOnly: false,
+  },
+  {
+    key: "CLAUDE_OLLAMA_OPEN_DRAFTS",
+    label: "Open drafts in the browser",
+    help: "A saved PR or review draft opens on the console's Drafts page.",
+    kind: "switch",
+    defaultValue: "1",
+    ollamaOnly: false,
+  },
+  {
+    key: "CLAUDE_OLLAMA_CMUX",
+    label: "cmux browser tools",
+    help: "The dev server's page tools drive a cmux browser split when the session runs in a cmux terminal.",
+    kind: "switch",
+    defaultValue: "1",
+    ollamaOnly: false,
+  },
+  {
+    key: "CLAUDE_OLLAMA_RELAUNCH",
+    label: "Hand off before the context fills",
+    help: "At the threshold the model saves a /handoff note and a fresh session resumes it; off means Claude Code compacts at 88% instead.",
+    kind: "switch",
+    defaultValue: "1",
+    ollamaOnly: true,
+  },
+  {
+    key: "CLAUDE_OLLAMA_HANDOFF_PCT",
+    label: "Hand off at (% of context)",
+    help: `A whole percent from ${HANDOFF_PERCENT_RANGE.min} to ${HANDOFF_PERCENT_RANGE.max}; empty keeps 70.`,
+    kind: "percent",
+    defaultValue: "70",
+    ollamaOnly: true,
+  },
+  {
+    key: "CLAUDE_OLLAMA_INCIDENTS",
+    label: "Record Ollama incidents",
+    help: "Logs page, Incidents tab.",
+    kind: "switch",
+    defaultValue: "1",
+    ollamaOnly: true,
+  },
+];
 
 export const PARAMETER_RANGES: Record<string, ParameterRange> = {
   temperature: { min: 0, max: 2 },
@@ -43,7 +118,7 @@ export const PARAMETER_RANGES: Record<string, ParameterRange> = {
 };
 const TOP_LEVEL_KEYS = ["tools", "sandbox", "context", "thinking", "parameters", "mcp", "env"];
 const OLLAMA_ONLY_KEYS = ["context", "thinking", "parameters", "mcp"];
-const ENV_VALUES = ["0", "1"];
+const SWITCH_VALUES = ["0", "1"];
 
 export function validateProfileOverride(body: unknown, rules: ProfileRules): Validation {
   if (!isRecord(body)) {
@@ -101,7 +176,7 @@ function sectionProblem(body: Record<string, unknown>, rules: ProfileRules): str
     thinkingProblem(body.thinking) ??
     parametersProblem(body.parameters) ??
     mcpProblem(body.mcp) ??
-    envProblem(body.env)
+    envProblem(body.env, rules)
   );
 }
 
@@ -176,15 +251,38 @@ function mcpEntryProblem(name: string, enabled: unknown): string | null {
   return typeof enabled === "boolean" ? null : `${name} must be true or false`;
 }
 
-function envProblem(env: unknown): string | null {
-  return recordProblem(env, "env") ?? firstProblem(entriesOf(env), ([name, value]) => envEntryProblem(name, value));
+function envProblem(env: unknown, rules: ProfileRules): string | null {
+  return (
+    recordProblem(env, "env") ?? firstProblem(entriesOf(env), ([name, value]) => envEntryProblem(name, value, rules))
+  );
 }
 
-function envEntryProblem(name: string, value: unknown): string | null {
-  if (!(PROFILE_ENV_KEYS as readonly string[]).includes(name)) {
+function envEntryProblem(name: string, value: unknown, rules: ProfileRules): string | null {
+  const field = PROFILE_ENV_FIELDS.find((candidate) => candidate.key === name);
+  if (field === undefined) {
     return `unknown env key ${name}`;
   }
-  return typeof value === "string" && ENV_VALUES.includes(value) ? null : `${name} must be 0 or 1`;
+  if (field.ollamaOnly && rules.kind === "claude-code") {
+    return `${name} only applies to Ollama profiles`;
+  }
+  return field.kind === "percent" ? percentProblem(name, value) : switchProblem(name, value);
+}
+
+function switchProblem(name: string, value: unknown): string | null {
+  return typeof value === "string" && SWITCH_VALUES.includes(value) ? null : `${name} must be 0 or 1`;
+}
+
+function percentProblem(name: string, value: unknown): string | null {
+  const { min, max } = HANDOFF_PERCENT_RANGE;
+  return isWholePercent(value, min, max) ? null : `${name} must be a whole number from ${min} to ${max}`;
+}
+
+function isWholePercent(value: unknown, min: number, max: number): boolean {
+  if (typeof value !== "string" || !/^\d+$/.test(value)) {
+    return false;
+  }
+  const percent = Number(value);
+  return percent >= min && percent <= max;
 }
 
 function withoutDefaults(tools: Record<string, ToolState> | undefined): Record<string, ToolState> | undefined {

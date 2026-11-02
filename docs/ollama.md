@@ -540,15 +540,19 @@ it. `Agent` cannot be enabled for Ollama (there is no side model). A `context`
 or `parameters` override recreates the `-cc` model at launch, as the Modelfile
 drift fix does, and `doctor` checks the same values. `thinking: true` turns the
 model's thinking on for that size (off by default, see above). `env` takes only
-`CLAUDE_OLLAMA_TELEMETRY`, `CLAUDE_OLLAMA_NO_INDEX`, `CLAUDE_OLLAMA_OPEN_DRAFTS`
-and `CLAUDE_OLLAMA_CMUX`, and a variable already set in your shell wins. A
-symlinked profile stops the launch. `claude-ollama --print-config SIZE` and
-`doctor` show the profile path and the overrides in effect. `/history` lists
-every settings and LaunchAgent change, with a diff and a Restore button;
-recording is on by default and `CLAUDE_CUSTOM_HISTORY=off` turns it off. While
-it runs, the command writes the page URL to `.web-url` in the log directory and
-removes that file when it exits. The console token lives in
-`$CLAUDE_CONSOLE_STATE_DIR/tokens/<port>` (default
+`CLAUDE_OLLAMA_TELEMETRY`, `CLAUDE_OLLAMA_NO_INDEX`,
+`CLAUDE_OLLAMA_OPEN_DRAFTS`, `CLAUDE_OLLAMA_CMUX`, `CLAUDE_OLLAMA_RELAUNCH` (`0`
+keeps the single exec), `CLAUDE_OLLAMA_HANDOFF_PCT` (a whole percent from 30 to
+85, default 70) and `CLAUDE_OLLAMA_INCIDENTS` (`0` turns the incident watcher
+off); the Profiles page's Env tab labels each one in plain words with its
+default, and shows the handoff and incident fields only for the Ollama profiles.
+A variable already set in your shell wins. A symlinked profile stops the launch.
+`claude-ollama --print-config SIZE` and `doctor` show the profile path and the
+overrides in effect. `/history` lists every settings and LaunchAgent change,
+with a diff and a Restore button; recording is on by default and
+`CLAUDE_CUSTOM_HISTORY=off` turns it off. While it runs, the command writes the
+page URL to `.web-url` in the log directory and removes that file when it exits.
+The console token lives in `$CLAUDE_CONSOLE_STATE_DIR/tokens/<port>` (default
 `~/.local/share/claude-custom/console/tokens/<port>`, mode `0600`), so two
 consoles on different ports keep their own tokens. The token is not in the
 environment; the session's sandbox denies reading both that folder and the

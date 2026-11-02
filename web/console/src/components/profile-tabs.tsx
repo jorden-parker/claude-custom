@@ -6,10 +6,12 @@ import type { ProfileDetail } from "@/lib/profile-base";
 import {
   CONTEXT_CAP,
   CONTEXT_MINIMUM,
+  HANDOFF_PERCENT_RANGE,
   OLLAMA_MCP_SERVERS,
   PARAMETER_RANGES,
-  PROFILE_ENV_KEYS,
+  PROFILE_ENV_FIELDS,
   toolStatesFor,
+  type ProfileEnvField,
   type ProfileOverride,
 } from "@/lib/profile-rules";
 import {
@@ -209,24 +211,69 @@ function HookTable({ detail }: { detail: ProfileDetail }) {
   );
 }
 
-export function ProfileEnvTab({ draft, update }: Pick<FieldProps, "draft" | "update">) {
+export function ProfileEnvTab({ detail, draft, update }: FieldProps) {
+  const fields = PROFILE_ENV_FIELDS.filter((field) => !field.ollamaOnly || detail.kind === "ollama");
   return (
-    <div className="flex flex-col gap-3 text-sm">
-      {PROFILE_ENV_KEYS.map((key) => (
-        <FieldRow key={key} label={key}>
-          <Select
-            aria-label={key}
-            value={draft.env?.[key] ?? "default"}
-            onChange={(event) => update((current) => withEnv(current, key, envOrNull(event.target.value)))}
-          >
-            <option value="default">default</option>
-            <option value="0">0</option>
-            <option value="1">1</option>
-          </Select>
-        </FieldRow>
+    <div className="flex flex-col gap-4 text-sm">
+      {fields.map((field) => (
+        <EnvField key={field.key} field={field} value={draft.env?.[field.key]} update={update} />
       ))}
     </div>
   );
+}
+
+type EnvFieldProps = { field: ProfileEnvField; value: string | undefined; update: ProfileUpdate };
+
+function EnvField({ field, value, update }: EnvFieldProps) {
+  const setValue = (next: string | null) => update((current) => withEnv(current, field.key, next));
+  return (
+    <div className="grid grid-cols-[14rem_1fr] items-start gap-3">
+      <div className="flex flex-col gap-1">
+        <span>{field.label}</span>
+        <span className="text-xs text-muted-foreground">{field.help}</span>
+      </div>
+      {field.kind === "switch" ? (
+        <EnvSwitch field={field} value={value} setValue={setValue} />
+      ) : (
+        <EnvPercent field={field} value={value} setValue={setValue} />
+      )}
+    </div>
+  );
+}
+
+type EnvInputProps = { field: ProfileEnvField; value: string | undefined; setValue: (next: string | null) => void };
+
+function EnvSwitch({ field, value, setValue }: EnvInputProps) {
+  return (
+    <Select
+      aria-label={field.label}
+      value={value ?? "default"}
+      onChange={(event) => setValue(envOrNull(event.target.value))}
+    >
+      <option value="default">default ({switchWord(field.defaultValue)})</option>
+      <option value="0">off</option>
+      <option value="1">on</option>
+    </Select>
+  );
+}
+
+function EnvPercent({ field, value, setValue }: EnvInputProps) {
+  return (
+    <Input
+      type="number"
+      aria-label={field.label}
+      min={HANDOFF_PERCENT_RANGE.min}
+      max={HANDOFF_PERCENT_RANGE.max}
+      step={HANDOFF_PERCENT_RANGE.step}
+      placeholder={field.defaultValue}
+      value={value ?? ""}
+      onChange={(event) => setValue(textOrNull(event.target.value))}
+    />
+  );
+}
+
+function switchWord(value: string): string {
+  return value === "1" ? "on" : "off";
 }
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -244,4 +291,8 @@ function numberOrNull(text: string): number | null {
 
 function envOrNull(value: string): string | null {
   return value === "default" ? null : value;
+}
+
+function textOrNull(value: string): string | null {
+  return value === "" ? null : value;
 }

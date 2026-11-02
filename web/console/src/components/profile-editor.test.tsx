@@ -151,6 +151,70 @@ describe("ProfileEditor", () => {
     expect(screen.getByText("Unsaved changes")).toBeTruthy();
   });
 
+  it("labels the env switches with their defaults and hides the handoff fields from claude-code", async () => {
+    mockProfileApi(CLAUDE_CODE_DETAIL);
+    render(<ProfileEditor id="claude-code" />);
+    await screen.findByText("Fetch a web page");
+
+    fireEvent.click(screen.getByRole("tab", { name: "Env" }));
+
+    const telemetry = (await screen.findByRole("combobox", { name: "Session telemetry" })) as HTMLSelectElement;
+    expect(telemetry.options[telemetry.selectedIndex].text).toBe("default (on)");
+    expect(screen.queryByText("CLAUDE_OLLAMA_TELEMETRY")).toBeNull();
+    expect(screen.queryByRole("combobox", { name: "Hand off before the context fills" })).toBeNull();
+    expect(screen.queryByRole("spinbutton", { name: "Hand off at (% of context)" })).toBeNull();
+  });
+
+  it("saves the handoff percent as a string and removes the key when cleared", async () => {
+    const fetchMock = mockProfileApi(OLLAMA_DETAIL, () =>
+      jsonResponse({ override: { env: { CLAUDE_OLLAMA_HANDOFF_PCT: "60" } } }),
+    );
+    render(<ProfileEditor id="ollama-27b" />);
+    await screen.findByText("Fetch a web page");
+
+    fireEvent.click(screen.getByRole("tab", { name: "Env" }));
+    const percent = (await screen.findByRole("spinbutton", { name: "Hand off at (% of context)" })) as HTMLInputElement;
+    expect(percent.getAttribute("placeholder")).toBe("70");
+
+    fireEvent.change(percent, { target: { value: "60" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/profiles/ollama-27b",
+        expect.objectContaining({ method: "PUT", body: JSON.stringify({ env: { CLAUDE_OLLAMA_HANDOFF_PCT: "60" } }) }),
+      ),
+    );
+
+    fireEvent.change(percent, { target: { value: "" } });
+    expect(screen.getByText("Unsaved changes")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/profiles/ollama-27b",
+        expect.objectContaining({ method: "PUT", body: JSON.stringify({}) }),
+      ),
+    );
+  });
+
+  it("saves the relaunch switch as 0 when turned off", async () => {
+    const fetchMock = mockProfileApi(OLLAMA_DETAIL);
+    render(<ProfileEditor id="ollama-27b" />);
+    await screen.findByText("Fetch a web page");
+
+    fireEvent.click(screen.getByRole("tab", { name: "Env" }));
+    const relaunch = await screen.findByRole("combobox", { name: "Hand off before the context fills" });
+    expect(screen.getByText(/a fresh session resumes it/)).toBeTruthy();
+
+    fireEvent.change(relaunch, { target: { value: "0" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/profiles/ollama-27b",
+        expect.objectContaining({ method: "PUT", body: JSON.stringify({ env: { CLAUDE_OLLAMA_RELAUNCH: "0" } }) }),
+      ),
+    );
+  });
+
   it("lists the hooks read-only and toggles the Ollama MCP servers", async () => {
     mockProfileApi(OLLAMA_DETAIL);
     render(<ProfileEditor id="ollama-27b" />);
