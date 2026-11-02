@@ -1,8 +1,21 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
-import { cancelRun, startRun, type CancelDeps, type StartDeps } from "./start-run";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+  type Mock,
+} from "vitest";
+import {
+  cancelRun,
+  startRun,
+  type CancelDeps,
+  type StartDeps,
+} from "./start-run";
 import type { RunSummary } from "./run-log";
 
 const RUN_ID = "20261026-101500-doctor-3fa9";
@@ -44,26 +57,34 @@ describe("startRun", () => {
     const result = await startRun("doctor", { size: "27b" }, depsWith());
 
     expect(result).toEqual({ ok: true, id: RUN_ID });
-    expect(spawnDetached).toHaveBeenCalledWith(`${repo}/bin/console-run`, [
-      "--log",
-      path.join(runsDirectory, `${RUN_ID}.jsonl`),
-      "--id",
-      RUN_ID,
-      "--command",
-      "doctor",
-      "--label",
-      "Doctor (27b)",
-      "--",
-      `${repo}/bin/claude-ollama`,
-      "doctor",
-      "27b",
-    ], undefined);
+    expect(spawnDetached).toHaveBeenCalledWith(
+      `${repo}/bin/console-run`,
+      [
+        "--log",
+        path.join(runsDirectory, `${RUN_ID}.jsonl`),
+        "--id",
+        RUN_ID,
+        "--command",
+        "doctor",
+        "--label",
+        "Doctor (27b)",
+        "--",
+        `${repo}/bin/claude-ollama`,
+        "doctor",
+        "27b",
+      ],
+      undefined,
+    );
   });
 
   it("runs a review in the project folder", async () => {
     vi.stubEnv("CONSOLE_PROJECT_DIR", repo);
 
-    const result = await startRun("review", { size: "27b", pr: "12" }, depsWith());
+    const result = await startRun(
+      "review",
+      { size: "27b", pr: "12" },
+      depsWith(),
+    );
 
     expect(result).toEqual({ ok: true, id: "20261026-101500-review-3fa9" });
     expect(spawnDetached.mock.calls[0]?.[2]).toBe(repo);
@@ -72,12 +93,20 @@ describe("startRun", () => {
   it("refuses an unknown command without starting anything", async () => {
     const result = await startRun("pull", {}, depsWith());
 
-    expect(result).toEqual({ ok: false, status: 400, message: "Unknown command or parameters" });
+    expect(result).toEqual({
+      ok: false,
+      status: 400,
+      message: "Unknown command or parameters",
+    });
     expect(spawnDetached).not.toHaveBeenCalled();
   });
 
   it("refuses parameters the command does not accept", async () => {
-    const result = await startRun("doctor", { size: "27b; rm -rf ~" }, depsWith());
+    const result = await startRun(
+      "doctor",
+      { size: "27b; rm -rf ~" },
+      depsWith(),
+    );
 
     expect(result).toMatchObject({ ok: false, status: 400 });
     expect(spawnDetached).not.toHaveBeenCalled();
@@ -92,16 +121,27 @@ describe("startRun", () => {
       startedAt: "",
       seconds: 1,
     };
-    const result = await startRun("doctor", { size: "27b" }, depsWith({ listRuns: () => [running] }));
+    const result = await startRun(
+      "doctor",
+      { size: "27b" },
+      depsWith({ listRuns: () => [running] }),
+    );
 
     expect(result).toMatchObject({ ok: false, status: 409 });
     expect(spawnDetached).not.toHaveBeenCalled();
   });
 
   it("reports a failure when the log never appears", async () => {
-    const result = await startRun("doctor", { size: "27b" }, depsWith({ waitForFile: async () => false }));
+    const result = await startRun(
+      "doctor",
+      { size: "27b" },
+      depsWith({ waitForFile: async () => false }),
+    );
 
     expect(result).toMatchObject({ ok: false, status: 500 });
+    expect(result).toMatchObject({
+      message: expect.stringContaining("check the Runs list"),
+    });
   });
 });
 
@@ -123,12 +163,25 @@ describe("cancelRun", () => {
     fs.writeFileSync(path.join(runsDirectory, `${RUN_ID}.jsonl`), body);
   }
 
-  const startLine = { t: 0, kind: "start", id: RUN_ID, command: "doctor", label: "Doctor (27b)", argv: [], pid: 4242, started_at: "2026-10-26T10:15:00Z" };
+  const startLine = {
+    t: 0,
+    kind: "start",
+    id: RUN_ID,
+    command: "doctor",
+    label: "Doctor (27b)",
+    argv: [],
+    pid: 4242,
+    started_at: "2026-10-26T10:15:00Z",
+  };
 
   it("sends SIGTERM to the runner pid of a running run", () => {
     writeRun([startLine]);
 
-    const result = cancelRun(RUN_ID, { runsDir: runsDirectory, isAlive: () => true, kill });
+    const result = cancelRun(RUN_ID, {
+      runsDir: runsDirectory,
+      isAlive: () => true,
+      kill,
+    });
 
     expect(result).toEqual({ ok: true });
     expect(kill).toHaveBeenCalledWith(4242, "SIGTERM");
@@ -137,7 +190,11 @@ describe("cancelRun", () => {
   it("refuses a run that has already ended", () => {
     writeRun([startLine, { t: 3, kind: "end", code: 0, cancelled: false }]);
 
-    const result = cancelRun(RUN_ID, { runsDir: runsDirectory, isAlive: () => true, kill });
+    const result = cancelRun(RUN_ID, {
+      runsDir: runsDirectory,
+      isAlive: () => true,
+      kill,
+    });
 
     expect(result).toMatchObject({ ok: false, status: 409 });
     expect(kill).not.toHaveBeenCalled();
@@ -146,14 +203,22 @@ describe("cancelRun", () => {
   it("refuses a lost run whose runner is gone", () => {
     writeRun([startLine]);
 
-    const result = cancelRun(RUN_ID, { runsDir: runsDirectory, isAlive: () => false, kill });
+    const result = cancelRun(RUN_ID, {
+      runsDir: runsDirectory,
+      isAlive: () => false,
+      kill,
+    });
 
     expect(result).toMatchObject({ ok: false, status: 409 });
     expect(kill).not.toHaveBeenCalled();
   });
 
   it("returns 404 for an id that is not a run", () => {
-    const result = cancelRun("../../etc", { runsDir: runsDirectory, isAlive: () => true, kill });
+    const result = cancelRun("../../etc", {
+      runsDir: runsDirectory,
+      isAlive: () => true,
+      kill,
+    });
 
     expect(result).toMatchObject({ ok: false, status: 404 });
     expect(kill).not.toHaveBeenCalled();

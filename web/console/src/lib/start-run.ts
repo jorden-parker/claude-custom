@@ -15,7 +15,7 @@ import {
   type RunSummary,
 } from "./run-log";
 
-const WAIT_FOR_FILE_MS = 2000;
+const WAIT_FOR_FILE_MS = 15000;
 const WAIT_STEP_MS = 50;
 
 export type StartDeps = {
@@ -23,7 +23,11 @@ export type StartDeps = {
   runsDir: string;
   now: () => Date;
   randomHex: () => string;
-  spawnDetached: (command: string, args: string[], cwd: string | undefined) => void;
+  spawnDetached: (
+    command: string,
+    args: string[],
+    cwd: string | undefined,
+  ) => void;
   listRuns: () => RunSummary[];
   waitForFile: (file: string) => Promise<boolean>;
 };
@@ -39,8 +43,7 @@ export type StartResult =
   | { ok: false; status: 400 | 409 | 500; message: string };
 
 export type CancelResult =
-  | { ok: true }
-  | { ok: false; status: 404 | 409; message: string };
+  { ok: true } | { ok: false; status: 404 | 409; message: string };
 
 export async function startRun(
   name: string,
@@ -55,25 +58,41 @@ export async function startRun(
   if (!argv) {
     return { ok: false, status: 400, message: "Unknown command or parameters" };
   }
-  if (deps.listRuns().some((run) => run.command === name && run.status === "running")) {
-    return { ok: false, status: 409, message: `${command.label(params)} is already running` };
+  if (
+    deps
+      .listRuns()
+      .some((run) => run.command === name && run.status === "running")
+  ) {
+    return {
+      ok: false,
+      status: 409,
+      message: `${command.label(params)} is already running`,
+    };
   }
   const id = newRunId(name, deps.now(), deps.randomHex());
   const file = path.join(deps.runsDir, `${id}.jsonl`);
-  deps.spawnDetached(`${deps.repoDir}/bin/console-run`, [
-    "--log",
-    file,
-    "--id",
-    id,
-    "--command",
-    name,
-    "--label",
-    command.label(params),
-    "--",
-    ...argv,
-  ], command.cwd?.());
+  deps.spawnDetached(
+    `${deps.repoDir}/bin/console-run`,
+    [
+      "--log",
+      file,
+      "--id",
+      id,
+      "--command",
+      name,
+      "--label",
+      command.label(params),
+      "--",
+      ...argv,
+    ],
+    command.cwd?.(),
+  );
   if (!(await deps.waitForFile(file))) {
-    return { ok: false, status: 500, message: "The run did not start" };
+    return {
+      ok: false,
+      status: 500,
+      message: `No run log appeared within ${WAIT_FOR_FILE_MS / 1000} s; the run may still be starting, so check the Runs list before retrying`,
+    };
   }
   return { ok: true, id };
 }
@@ -85,7 +104,10 @@ export function cancelRun(id: string, deps: CancelDeps): CancelResult {
   }
   const events = parseRunEvents(fs.readFileSync(file, "utf8"));
   const pid = events.find((event) => event.kind === "start")?.pid;
-  if (typeof pid !== "number" || runStatus(events, deps.isAlive) !== "running") {
+  if (
+    typeof pid !== "number" ||
+    runStatus(events, deps.isAlive) !== "running"
+  ) {
     return { ok: false, status: 409, message: "Run is not running" };
   }
   deps.kill(pid, "SIGTERM");
@@ -105,10 +127,18 @@ export function startDeps(): StartDeps {
 }
 
 export function cancelDeps(): CancelDeps {
-  return { runsDir: runsDir(), isAlive: isProcessAlive, kill: (pid, signal) => process.kill(pid, signal) };
+  return {
+    runsDir: runsDir(),
+    isAlive: isProcessAlive,
+    kill: (pid, signal) => process.kill(pid, signal),
+  };
 }
 
-function spawnRunnerDetached(command: string, args: string[], cwd: string | undefined): void {
+function spawnRunnerDetached(
+  command: string,
+  args: string[],
+  cwd: string | undefined,
+): void {
   const child = spawn(command, args, { detached: true, stdio: "ignore", cwd });
   child.on("error", () => undefined);
   child.unref();
