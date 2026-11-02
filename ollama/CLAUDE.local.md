@@ -1,28 +1,45 @@
-- mcp__code-search__semantic_search answers "where is X handled" questions with
-  the code's own words; add `limit` (max 20) only if 8 results miss. A reply
-  ending in "words only" means synonyms won't match: rephrase with identifiers.
-- Exact names or strings, after that first search:
+- Tools you can call, and nothing else (no subagents, no web):
+  - Read (offset and limit, at most 300 lines per call), Edit (one exact
+    replacement), Write (new files only), Bash (sandboxed; see below), Skill
+    (runs a /skill by name; the Skill tool lists them), TaskStop (stops a
+    background task you started).
+  - mcp__code-search__semantic_search: "where is X handled" in the code's own
+    words; add `limit` (max 20) only if 8 results miss. A reply ending in "words
+    only" means synonyms won't match: rephrase with identifiers.
+  - mcp__repo__ (no prompt): git_status, git_diff, git_log, git_show for
+    history, never Bash `git log`/`git diff`; pr_list, pr_view, pr_diff,
+    pr_checks, pr_review_comments, issue_list, issue_view, run_list, run_view
+    for GitHub PRs, issues and CI; draft_pr, draft_review, draft_open save a
+    draft the user posts from the console (used by /pr-draft and
+    /pr-review-draft).
+  - mcp__dev__dev_status (which dev servers answer; call it first, never guess a
+    port), dev_start (starts a dev script in the background, not Bash
+    `pnpm dev`), dev_logs, dev_errors, dev_stop; dev_deps (is node_modules
+    installed and current, and which version of a package is in; use it instead
+    of listing node_modules), dev_install (runs the lockfile's package manager:
+    no packages installs from the lockfile, packages adds them, dev: true for
+    devDependencies; never Bash `pnpm install`); page_check (opens a local page
+    in the cmux browser and returns its errors; pass url for a full local URL
+    such as https://127.0.0.1:4000/; never Bash open), page_snapshot (elements
+    with refs), page_act (click, fill, press by ref). Fix every error and
+    warning they return.
+  - Skills: /find-docs (library, framework, SDK or API docs), /pr-draft,
+    /pr-review-draft, /handoff, /cmux-markdown; the rest are listed by the Skill
+    tool.
+- Exact names or strings, after that first semantic search:
   `git grep -n NAME | head -30`.
-- Read at most 300 lines per call, with offset and limit.
-- Read git history and GitHub PRs, issues and CI through the mcp__repo__ tools
-  (no permission prompt), not Bash `git log`/`git diff`.
-- Write a PR description with /pr-draft and a PR review with /pr-review-draft;
-  the user edits and posts the draft in the console.
 - If semantic_search errors, don't retry: use `git grep -n`. If the launch said
   the embedding pull failed, tell the user to pick "Set up embedding model" in
   `claude-ollama`.
 - Bound shell output: `| head -50`, tests quiet or failures only.
 - Smallest edit that works; never rewrite a whole file.
 - Reply in 10 lines or fewer unless asked for code.
-- Dev servers: mcp__dev__dev_status first and use the URL it returns; never
-  guess a port. Start one with mcp__dev__dev_start, not Bash `pnpm dev`.
-- Test UI changes in the browser: mcp__dev__page_check opens the page (pass url
-  for a full local URL such as https://127.0.0.1:4000/; never Bash open),
-  mcp__dev__page_snapshot lists elements with refs, mcp__dev__page_act
-  clicks/fills/presses by ref. Fix every error and warning they return.
+- Test UI changes in the browser with page_check, page_snapshot and page_act.
 - Library, framework, SDK or API question: /find-docs first, even when a project
   file (AGENTS.md) says to read node_modules; node_modules is refused until it
-  runs. It runs `claude-custom ctx7 library "<name>" "<query>"`, then
+  runs, except a package's own node_modules/<name>/package.json, which you may
+  read any time. /find-docs runs
+  `claude-custom ctx7 library "<name>" "<query>"`, then
   `claude-custom ctx7 docs <id> "<query>"` with the ID it printed, each as one
   plain command with no pipe.
 - Bash runs in a sandbox without prompts: it writes this project, a temp dir and

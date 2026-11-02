@@ -42,7 +42,15 @@ STACK_LINE = re.compile(r"^\s+at ")
 PORT_FLAG = re.compile(r"(?:-p|--port)[ =](\d+)")
 FRAMEWORK_PORTS = {"next": 3000, "vite": 5173}
 FRAMEWORK_DEFAULT = "the framework default"
-LOCKFILES = [("pnpm-lock.yaml", "pnpm"), ("yarn.lock", "yarn"), ("bun.lockb", "bun"), ("bun.lock", "bun")]
+LOCKFILES = [("pnpm-lock.yaml", "pnpm"), ("yarn.lock", "yarn"), ("bun.lockb", "bun"), ("bun.lock", "bun"), ("package-lock.json", "npm")]
+INSTALL_MARKERS = {"pnpm": ".modules.yaml", "npm": ".package-lock.json", "yarn": ".yarn-integrity"}
+ADD_COMMANDS = {"pnpm": ["add"], "yarn": ["add"], "bun": ["add"], "npm": ["install"]}
+DEV_FLAGS = {"pnpm": "-D", "yarn": "-D", "bun": "-d", "npm": "--save-dev"}
+PACKAGE_SPEC = re.compile(r"^(?:@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*(?:@[^\s/\\]+)?$")
+DEPENDENCY_FIELDS = ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies")
+INSTALL_TIMEOUT_SECONDS = 600
+PACKAGE_RULE = "packages must be package names such as react, @types/node or zod@3, separated by spaces"
+NOT_A_PACKAGE_DIR = "{} has no tracked package.json; dev_status and dev_deps list the app dirs"
 OUTSIDE_REPOSITORY = "paths must stay inside the repository"
 SCRIPT_RULE = "dev_start runs only dev, start or dev:* scripts"
 PATH_RULE = "path must start with a single /"
@@ -549,6 +557,156 @@ def dev_start(arguments):
     return wait_until_ready(dir_text, server)
 
 
+def package_dirs():
+    return [str(PurePath(name).parent) for name in tracked_package_files() if "node_modules" not in PurePath(name).parts]
+
+
+def require_package_dir(dir_text):
+    if dir_text not in package_dirs():
+        raise ToolError(NOT_A_PACKAGE_DIR.format(dir_text))
+
+
+def package_data(dir_text):
+    try:
+        data = json.loads((ROOT / dir_text / "package.json").read_text())
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def declared_dependencies(dir_text):
+    declared = {}
+    for field in DEPENDENCY_FIELDS:
+        entries = package_data(dir_text).get(field)
+        if isinstance(entries, dict):
+            declared.update({name: f"{field} {wanted}" for name, wanted in entries.items() if name not in declared})
+    return declared
+
+
+def module_folders(dir_text):
+    folder = (ROOT / dir_text).resolve()
+    root = ROOT.resolve()
+    folders = []
+    while True:
+        folders.append(folder / "node_modules")
+        if folder == root or root not in folder.parents:
+            return folders
+        folder = folder.parent
+
+
+def installed_version(dir_text, name):
+    for modules in module_folders(dir_text):
+        try:
+            data = json.loads((modules / name / "package.json").read_text())
+        except (OSError, ValueError):
+            continue
+        version = data.get("version") if isinstance(data, dict) else None
+        return str(version) if version else "unknown version"
+    return None
+
+
+def dependency_line(dir_text, name, declared):
+    version = installed_version(dir_text, name)
+    wanted = declared.get(name, "not in package.json")
+    if version is None:
+        return f"{name}: missing ({wanted}); run dev_install"
+    return f"{name}: {version} ({wanted})"
+
+
+def install_marker(dir_text):
+    manager = package_manager_for(dir_text)
+    modules = ROOT / dir_text / "node_modules"
+    return manager, modules / INSTALL_MARKERS.get(manager, "")
+
+
+def lockfile_for(dir_text):
+    for folder in [(ROOT / dir_text).resolve(), *(ROOT / dir_text).resolve().parents]:
+        for lockfile, _manager in LOCKFILES:
+            if (folder / lockfile).is_file():
+                return folder / lockfile
+        if folder == ROOT.resolve():
+            return None
+    return None
+
+
+def install_state(dir_text):
+    manager, marker = install_marker(dir_text)
+    modules = ROOT / dir_text / "node_modules"
+    if not modules.is_dir() and not any(folder.is_dir() for folder in module_folders(dir_text)):
+        return f"node_modules: missing; run dev_install ({manager})"
+    lockfile = lockfile_for(dir_text)
+    if lockfile is not None and marker.is_file() and lockfile.stat().st_mtime > marker.stat().st_mtime:
+        return f"node_modules: older than {lockfile.name}; run dev_install ({manager})"
+    return f"node_modules: installed ({manager})"
+
+
+def package_names(arguments):
+    names = (arguments.text("packages") or "").replace(",", " ").split()
+    if any(not PACKAGE_SPEC.match(name) for name in names):
+        raise ToolError(PACKAGE_RULE)
+    return names
+
+
+def bare_name(spec):
+    version_at = spec.find("@", 1)
+    return spec if version_at < 0 else spec[:version_at]
+
+
+def dev_deps(arguments):
+    dir_text = project_dir(arguments)
+    require_package_dir(dir_text)
+    declared = declared_dependencies(dir_text)
+    names = [bare_name(spec) for spec in package_names(arguments)] or sorted(declared)
+    lines = [f"{dir_text}: {install_state(dir_text)}"]
+    lines.extend(dependency_line(dir_text, name, declared) for name in names)
+    return "\n".join(lines)
+
+
+def install_argv(manager, names, dev):
+    if not names:
+        return [manager, "install"]
+    return [manager, *ADD_COMMANDS[manager], *([DEV_FLAGS[manager]] if dev else []), *names]
+
+
+def run_install(dir_text, argv):
+    try:
+        completed = subprocess.run(
+            argv,
+            cwd=ROOT / dir_text,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=INSTALL_TIMEOUT_SECONDS,
+            check=False,
+            env={**os.environ, **DEV_SERVER_ENV},
+        )
+    except OSError as error:
+        raise ToolError(f"cannot run {argv[0]}: {error}") from None
+    except subprocess.TimeoutExpired:
+        raise ToolError(f"{' '.join(argv)} did not finish within {INSTALL_TIMEOUT_SECONDS} seconds") from None
+    return completed
+
+
+def install_report(argv, completed):
+    output = [ANSI_CODES.sub("", line) for line in (completed.stdout + completed.stderr).splitlines()]
+    status = "ok" if completed.returncode == 0 else f"failed (exit {completed.returncode})"
+    errors = error_block(output)[-REPLY_TAIL_LINES:]
+    tail = [line for line in output[-REPLY_TAIL_LINES:] if line not in errors]
+    return "\n".join([f"{' '.join(argv)}: {status}", *errors, *tail])
+
+
+def dev_install(arguments):
+    dir_text = project_dir(arguments)
+    require_package_dir(dir_text)
+    names = package_names(arguments)
+    argv = install_argv(package_manager_for(dir_text), names, arguments.switch("dev"))
+    completed = run_install(dir_text, argv)
+    report = install_report(argv, completed)
+    if completed.returncode != 0:
+        raise ToolError(report)
+    return report + "\n" + dev_deps(Arguments({"dir": dir_text, "packages": " ".join(names)}, ("dir", "packages")))
+
+
 def dev_logs(arguments):
     dir_text = project_dir(arguments)
     count = arguments.whole_number("lines", DEFAULT_LOG_LINES, MAX_LOG_LINES)
@@ -922,6 +1080,20 @@ TOOLS = [
     ),
     tool("dev_stop", "Stop a dev server this session started.", DIR_PROPERTY),
     tool(
+        "dev_deps",
+        "Whether a package dir's node_modules is installed and current, and the installed version of each named package (default: every dependency in package.json). Use this instead of listing node_modules.",
+        {**DIR_PROPERTY, "packages": text_property("Package names to check, separated by spaces (default all dependencies)")},
+    ),
+    tool(
+        "dev_install",
+        "Run the package manager the lockfile names: install from the lockfile, or add the named packages (dev puts them in devDependencies). Returns the result and dev_deps for what was installed. Use this, never Bash pnpm install.",
+        {
+            **DIR_PROPERTY,
+            "packages": text_property("Packages to add, such as zod or @types/node@22, separated by spaces (default: install from the lockfile)"),
+            "dev": switch_property("Add the packages as devDependencies"),
+        },
+    ),
+    tool(
         "page_check",
         "Open or reload a page of the running dev server in the cmux browser and return its browser errors, console warnings and Next.js errors. Run after every UI change. Use this, never Bash open, for local URLs.",
         {
@@ -951,6 +1123,8 @@ TOOL_HANDLERS = {
     "dev_logs": (dev_logs, ("dir", "errors_only", "lines")),
     "dev_errors": (dev_errors, ("dir",)),
     "dev_stop": (dev_stop, ("dir",)),
+    "dev_deps": (dev_deps, ("dir", "packages")),
+    "dev_install": (dev_install, ("dir", "packages", "dev")),
     "page_check": (page_check, ("dir", "path", "url")),
     "page_snapshot": (page_snapshot, ()),
     "page_act": (page_act, ("action", "target", "text")),

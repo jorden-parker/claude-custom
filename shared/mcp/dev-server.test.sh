@@ -56,7 +56,7 @@ ln -s "$(command -v python3)" "$tmp/bin-nocmux/python3"
 openssl req -x509 -newkey rsa:2048 -nodes -keyout "$tmp/key.pem" -out "$tmp/cert.pem" -subj /CN=localhost -days 1 >/dev/null 2>&1
 export FAKE_TLS_CERT="$tmp/cert.pem" FAKE_TLS_KEY="$tmp/key.pem"
 printf '{"name":"root","private":true}\n' > "$tmp/project/package.json"
-printf '{"name":"app","scripts":{"dev":"fake-server","dev:web":"fake-server","dev:https":"fake-server --experimental-https","build":"next build"}}\n' > "$tmp/project/app/package.json"
+printf '{"name":"app","scripts":{"dev":"fake-server","dev:web":"fake-server","dev:https":"fake-server --experimental-https","build":"next build"},"dependencies":{"zod":"^3"},"devDependencies":{"@types/node":"^22"}}\n' > "$tmp/project/app/package.json"
 git -C "$tmp/project" init -q
 git -C "$tmp/project" add -A
 git -C "$tmp/project" -c user.name=test -c user.email=test@example.test commit -qm init
@@ -67,6 +67,19 @@ printf '%s\n' "$*" >> "$DEV_TEST_DIR/npm.log"
 case "$*" in
   "run dev:https") FAKE_TLS=1 exec python3 "$DEV_TEST_DIR/fake-next.py" ;;
   "run dev" | "run dev:"*) exec python3 "$DEV_TEST_DIR/fake-next.py" ;;
+  install*)
+    shift
+    for package in "$@"; do
+      [ "$package" = --save-dev ] && continue
+      [ "$package" = fail-pkg ] && { echo "npm ERR! 404 Not Found: fail-pkg"; exit 1; }
+      mkdir -p "node_modules/${package%@[0-9]*}"
+      printf '{"version":"1.2.3"}\n' > "node_modules/${package%@[0-9]*}/package.json"
+    done
+    mkdir -p node_modules
+    touch node_modules/.package-lock.json
+    echo "added packages"
+    exit 0
+    ;;
 esac
 exit 1
 SH
@@ -279,8 +292,30 @@ session() {
   run_in_project python3 "$tmp/session.py" "$server" "$@" > "$out"
 }
 
-check "tools/list lists the eight dev tools" \
-  [ "$(call list)" = "dev_status dev_start dev_logs dev_errors dev_stop page_check page_snapshot page_act" ]
+check "tools/list lists the ten dev tools" \
+  [ "$(call list)" = "dev_status dev_start dev_logs dev_errors dev_stop dev_deps dev_install page_check page_snapshot page_act" ]
+
+deps_before="$(call dev_deps '{"dir":"app"}')"
+check "dev_deps says node_modules is missing before an install" contains "$deps_before" "node_modules: missing; run dev_install (npm)"
+check "and lists every declared dependency as missing" contains "$deps_before" "zod: missing (dependencies ^3); run dev_install"
+check "dev_deps refuses a package name that looks like an option" error_with "$(call dev_deps '{"dir":"app","packages":"-rf"}')" "package names"
+check "dev_deps refuses a dir without a tracked package.json" error_with "$(call dev_deps '{"dir":"nowhere"}')" "no tracked package.json"
+install_out="$(call dev_install '{"dir":"app"}')"
+check "dev_install runs the lockfile's package manager install" grep -qx "install" "$tmp/npm.log"
+check "dev_install reports success and the install state" contains "$install_out" "npm install: ok"
+check "and says node_modules is installed afterwards" contains "$install_out" "node_modules: installed (npm)"
+add_out="$(call dev_install '{"dir":"app","packages":"zod@3 @types/node","dev":true}')"
+check "dev_install adds named packages as devDependencies" grep -qx "install --save-dev zod@3 @types/node" "$tmp/npm.log"
+check "and reports each added package's installed version" contains "$add_out" "zod: 1.2.3 (dependencies ^3)"
+check "including a scoped package" contains "$add_out" "@types/node: 1.2.3 (devDependencies ^22)"
+failed_out="$(call dev_install '{"dir":"app","packages":"fail-pkg"}')"
+check "a failed install is an error with the package manager's error lines" error_with "$failed_out" "failed (exit 1)"
+check "and keeps the error line" contains "$failed_out" "npm ERR! 404"
+touch "$tmp/project/app/package-lock.json"
+check "dev_deps says node_modules is older than a newer lockfile" \
+  contains "$(call dev_deps '{"dir":"app","packages":"zod"}')" "node_modules: older than package-lock.json; run dev_install (npm)"
+rm -f "$tmp/project/app/package-lock.json"
+check "dev_deps names a package that is not in package.json" contains "$(call dev_deps '{"dir":"app","packages":"left-pad"}')" "left-pad: missing (not in package.json)"
 
 status="$(call dev_status '{}')"
 check "dev_status with nothing running says no dev server answers, naming the app dir" \
@@ -583,7 +618,7 @@ check "dev_start finds a server on the requested script's own port" \
   contains "$(call dev_start '{"dir":"app","script":"dev:held"}')" "already running at http://localhost:$fake_port"
 check "and it launches nothing beside that server" [ "$(launches_of_held_script)" = "0" ]
 stop_fake_next
-printf '{"name":"app","scripts":{"dev":"fake-server","dev:web":"fake-server","dev:https":"fake-server --experimental-https","build":"next build"}}\n' > "$tmp/project/app/package.json"
+printf '{"name":"app","scripts":{"dev":"fake-server","dev:web":"fake-server","dev:https":"fake-server --experimental-https","build":"next build"},"dependencies":{"zod":"^3"},"devDependencies":{"@types/node":"^22"}}\n' > "$tmp/project/app/package.json"
 
 cat > "$tmp/framework-port.py" <<'PY'
 import importlib.util

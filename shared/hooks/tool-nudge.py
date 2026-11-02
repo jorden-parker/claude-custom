@@ -80,16 +80,25 @@ def is_file_lookup(words):
     return bool(words) and (words[0] in FILE_LOOKUP_COMMANDS or is_search_words(words))
 
 
+def is_package_manifest(path):
+    parts = Path(path).parts
+    if "node_modules" not in parts:
+        return False
+    inside = parts[parts.index("node_modules") + 1 :]
+    return inside[-1:] == ("package.json",) and len(inside) == (3 if inside[0].startswith("@") else 2)
+
+
+def is_docs_path(word):
+    return "node_modules" in word and not is_package_manifest(word)
+
+
 def reads_node_modules(command):
-    return any(
-        is_file_lookup(words) and any("node_modules" in word for word in words[1:])
-        for words in pipeline_heads(command)
-    )
+    return any(is_file_lookup(words) and any(is_docs_path(word) for word in words[1:]) for words in pipeline_heads(command))
 
 
 def opens_node_modules(tool_name, tool_input):
     if tool_name == "Read":
-        return "node_modules" in Path(tool_input.get("file_path", "")).parts
+        return is_docs_path(tool_input.get("file_path", ""))
     if tool_name == "Bash":
         return reads_node_modules(tool_input.get("command", ""))
     return False

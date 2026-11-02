@@ -217,15 +217,39 @@ allows_repo_tools() {
 }
 
 allows_read_only_dev_tools() {
-  jq -e '.permissions.allow as $allowed | all(["mcp__dev__dev_status", "mcp__dev__dev_logs", "mcp__dev__dev_errors", "mcp__dev__page_check", "mcp__dev__page_snapshot", "mcp__dev__page_act"][]; . as $tool | any($allowed[]; . == $tool))' "$1" >/dev/null
+  jq -e '.permissions.allow as $allowed | all(["mcp__dev__dev_status", "mcp__dev__dev_logs", "mcp__dev__dev_errors", "mcp__dev__dev_deps", "mcp__dev__page_check", "mcp__dev__page_snapshot", "mcp__dev__page_act"][]; . as $tool | any($allowed[]; . == $tool))' "$1" >/dev/null
 }
 
 asks_before_dev_start() {
-  jq -e '.permissions.allow | all(. != "mcp__dev" and . != "mcp__dev__dev_start" and . != "mcp__dev__dev_stop")' "$1" >/dev/null
+  jq -e '.permissions.allow | all(. != "mcp__dev" and . != "mcp__dev__dev_start" and . != "mcp__dev__dev_stop" and . != "mcp__dev__dev_install")' "$1" >/dev/null
 }
 
 check_that "CLAUDE.local.md tells the model to use the repo tools" grep -qF 'mcp__repo__' "$repo/ollama/CLAUDE.local.md"
 check_that "CLAUDE.local.md tells the model to use the dev tools" grep -qF 'mcp__dev__dev_status' "$repo/ollama/CLAUDE.local.md"
+
+session_tool_names() {
+  python3 - "$repo" <<'PYTHON'
+import re
+import sys
+from pathlib import Path
+
+repo = Path(sys.argv[1])
+names = set(re.findall(r'tools="([A-Za-z,]+)"', (repo / "bin" / "claude-ollama").read_text())[0].split(","))
+for server in ("dev-server.py", "repo-tools.py"):
+    names.update(re.findall(r'\btool\(\s*"([a-z_]+)"', (repo / "shared" / "mcp" / server).read_text()))
+for server in ("github_tools.py", "draft_store.py", "code-search.py"):
+    names.update(re.findall(r'"name": "([a-z_]+)"', (repo / "shared" / "mcp" / server).read_text()))
+print("\n".join(sorted(names)))
+PYTHON
+}
+
+prompt_names_every_tool() {
+  local missing
+  missing="$(session_tool_names | grep -vxF -f <(sed 's/__/ /g' "$repo/ollama/CLAUDE.local.md" | grep -oE '[A-Za-z_]+' | sort -u))"
+  [ -z "$missing" ] || { echo "CLAUDE.local.md never names: $(echo "$missing" | tr '\n' ' ')" >&2; return 1; }
+}
+
+check_that "CLAUDE.local.md names every tool the session can call" prompt_names_every_tool
 
 allows_find_docs_skill() {
   jq -e '.permissions.allow | index("Skill(find-docs)") != null' "$1" >/dev/null

@@ -89,14 +89,19 @@ expect_eq "Read of a node_modules file is denied" yes \
   "$(tool_denied Read '{"file_path":"/p/web/node_modules/next/dist/docs/a.md"}')"
 expect_eq "Read of a project file passes" no "$(tool_denied Read '{"file_path":"/p/src/app.ts"}')"
 expect_eq "removing node_modules is not a lookup" "" "$(pre Bash 'rm -rf node_modules')"
+expect_eq "a package's own package.json is an install check, not docs" "" "$(pre Bash 'cat node_modules/zod/package.json')"
+expect_eq "a scoped package's package.json too" "" "$(pre Bash 'jq .version web/console/node_modules/@types/node/package.json')"
+expect_eq "Read of a package's package.json passes" no \
+  "$(tool_denied Read '{"file_path":"/p/web/node_modules/zod/package.json"}')"
+expect_eq "a package.json deeper inside a package is still docs" yes "$(denied 'cat node_modules/next/dist/package.json')"
 expect_eq "a search outside node_modules passes" "" "$(pre Bash 'grep -rn foo src')"
 expect_eq "another skill does not unlock node_modules" no "$(tool_denied Skill '{"skill":"tdd"}')"
-expect_eq "still locked after another skill" yes "$(denied 'cat node_modules/next/package.json')"
+expect_eq "still locked after another skill" yes "$(denied 'cat node_modules/next/dist/docs/index.md')"
 expect_eq "the find-docs skill passes" no "$(tool_denied Skill '{"skill":"find-docs"}')"
 expect_eq "find-docs unlocks node_modules for the turn" "" "$(pre Bash 'cat node_modules/next/package.json')"
 
 event UserPromptSubmit >/dev/null
-expect_eq "a new prompt locks node_modules again" yes "$(denied 'cat node_modules/next/package.json')"
+expect_eq "a new prompt locks node_modules again" yes "$(denied 'cat node_modules/next/dist/docs/index.md')"
 expect_eq "a ctx7 lookup passes" "" "$(pre Bash 'npx ctx7@0.8.2 library next "server actions" | head -80')"
 expect_eq "a wrapped ctx7 lookup passes" "" "$(pre Bash 'claude-custom ctx7 library next "server actions"')"
 expect_eq "a ctx7 lookup unlocks node_modules" "" "$(pre Bash 'ls node_modules/next/dist/docs')"

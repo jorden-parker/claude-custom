@@ -375,8 +375,10 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   can't lock the model out. As PreToolUse on Read, Skill and Bash it also denies
   reading, listing or searching inside `node_modules` until the `find-docs`
   skill or a `ctx7` command ran in the turn (Next's generated `AGENTS.md` sends
-  models to `node_modules/next/dist/docs` otherwise). The profiles allow
-  `Skill(find-docs)` without a prompt; `bin/check-config` checks it.
+  models to `node_modules/next/dist/docs` otherwise); a package's own
+  `node_modules/<name>/package.json` is an install check, not docs, and always
+  passes. The profiles allow `Skill(find-docs)` without a prompt;
+  `bin/check-config` checks it.
 - All settings files (`personal/settings.tokens.json`, `ollama/settings.*.json`)
   run hooks as
   `"$CLAUDE_CUSTOM_HOME"/shared/host-env "$CLAUDE_CUSTOM_HOME"/shared/hooks/<name>`,
@@ -504,14 +506,24 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   launches nothing while the lock's or the requested script's port is held, even
   by a server too busy to answer HTTP; a held framework default doesn't count,
   since the framework moves to the next port. It stops only the servers its
-  session started. The read-only tools are allowed by full name
-  (`mcp__dev__dev_status`, `dev_logs`, `dev_errors`, `page_check`,
+  session started. `dev_deps` reports whether a tracked package dir's
+  `node_modules` is installed and newer than its lockfile and the installed
+  version of each named package (default: every dependency in `package.json`),
+  read from `node_modules/<name>/package.json` in the dir and its parents, so
+  the model never lists `node_modules`. `dev_install` runs the lockfile's
+  package manager (`pnpm`, `yarn`, `bun`, else `npm`) in a tracked package dir:
+  `install` with no packages, else `add` (npm: `install`) of the named packages
+  (`dev: true` for devDependencies; names must match a package spec, never an
+  option), outside the Bash sandbox like `dev_start`, and returns the result
+  plus `dev_deps` for them. The read-only tools are allowed by full name
+  (`mcp__dev__dev_status`, `dev_logs`, `dev_errors`, `dev_deps`, `page_check`,
   `page_snapshot`, `page_act`; the page tools run `cmux browser` subcommands
-  themselves, never a bare `cmux` command); `dev_start` and `dev_stop` still
-  ask, and no bare `mcp__dev` may be allowed. `shared/hooks/dev-server-guard.py`
-  (Ollama-only, PreToolUse on Bash) denies `pnpm dev`-style starts and points
-  the model at `dev_start`, and denies `open` on a loopback URL and points it at
-  `page_check`.
+  themselves, never a bare `cmux` command); `dev_start`, `dev_stop` and
+  `dev_install` still ask, and no bare `mcp__dev` may be allowed.
+  `shared/hooks/dev-server-guard.py` (Ollama-only, PreToolUse on Bash) denies
+  `pnpm dev`-style starts and points the model at `dev_start`, denies
+  `pnpm install`/`add`-style package installs and points it at `dev_install` and
+  `dev_deps`, and denies `open` on a loopback URL and points it at `page_check`.
 - `shared/mcp/repo-tools.py` is the `repo` MCP server the Ollama profiles start
   beside code-search and allow without a prompt (`mcp__repo` in
   `permissions.allow`; `bin/check-config` checks it and that
@@ -591,16 +603,18 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `EnvironmentVariables` are lost.
 - `ollama/CLAUDE.local.md` is the appended system prompt for every size, for
   small local models, not memory files. Keep it terse: the 27b has a 64k
-  context, the other sizes 96k. `ollama/sizes.json` is the single source for
-  each size's `context`: `bin/ollama-profiles` writes it to `Modelfile.<size>`
-  (`num_ctx`), `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, and the `ollama create` names
-  that `model` and the `ANTHROPIC_DEFAULT_*_MODEL` vars refer to. A managed
-  `availableModels` that lacks the model makes Claude Code substitute a `[1m]`
-  ID, which assumes a 1M window; `claude-ollama doctor` warns when that happens.
-  Each profile's own `availableModels` lists only its main model;
-  `bin/check-config` checks it. `ollama/system-prompt.md` replaces Claude Code's
-  default system prompt for both sizes; keep it short and don't put
-  size-specific rules in it.
+  context, the other sizes 96k. It must name every tool the session can call
+  (the launcher's `--tools` list and each MCP server's tool names);
+  `bin/check-config` fails when one is missing. `ollama/sizes.json` is the
+  single source for each size's `context`: `bin/ollama-profiles` writes it to
+  `Modelfile.<size>` (`num_ctx`), `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, and the
+  `ollama create` names that `model` and the `ANTHROPIC_DEFAULT_*_MODEL` vars
+  refer to. A managed `availableModels` that lacks the model makes Claude Code
+  substitute a `[1m]` ID, which assumes a 1M window; `claude-ollama doctor`
+  warns when that happens. Each profile's own `availableModels` lists only its
+  main model; `bin/check-config` checks it. `ollama/system-prompt.md` replaces
+  Claude Code's default system prompt for both sizes; keep it short and don't
+  put size-specific rules in it.
 - The personal overlay is loaded with `--settings` by the `claude` shell
   function (`personal/claude.sh` for bash/zsh/ksh, `personal/claude.fish` for
   fish), wired into rc files by `bin/claude-custom install`, never merged into

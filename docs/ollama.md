@@ -323,23 +323,32 @@ so and Qwen Code runs as you. `claude-ollama qwen --print-config` and
 
 ### Dev servers and the browser
 
-The `dev` MCP server gives the session eight tools: `dev_status` (which dev
+The `dev` MCP server gives the session ten tools: `dev_status` (which dev
 servers answer, at which URL and pid), `dev_start` (runs a `dev` or `start`
 script in the background and returns its real URL), `dev_logs` (the server's
 output, optionally only errors with their stacks), `dev_errors` (Next.js 16+
-`get_errors`, or the log's errors otherwise), `dev_stop` and `page_check` (opens
-or reloads a page in the cmux browser and returns its browser errors, console
-warnings and Next.js errors), `page_snapshot` (the open page's elements with
-refs) and `page_act` (click, fill, type, press, select, check or scroll one ref,
-then the errors it caused). `dev_start` and `dev_stop` ask before they run; the
-others do not. Servers a session starts stop when it ends. The server reads
-`.next/dev/lock` for its port and `/_next/mcp` on Next.js 16+; other frameworks
-get log errors only. The tools keep the scheme the server prints, so a server
-started with `--experimental-https` (or whose `.next/dev/lock` `appUrl` is
-`https://`) is probed and opened over `https://localhost:PORT`; when a candidate
-does not answer over one scheme the other is tried, so an https server with no
-https hint is still found; the probe accepts the local self-signed certificate,
-and candidates are still `localhost` only. `page_check` also takes `url`, any
+`get_errors`, or the log's errors otherwise), `dev_stop`, `dev_deps` (whether a
+package dir's `node_modules` is installed and newer than its lockfile, and the
+installed version of each named package or of every dependency), `dev_install`
+(runs the lockfile's package manager: `install` with no packages, or `add` of
+the named packages, `dev: true` for devDependencies, then `dev_deps` for them),
+`page_check` (opens or reloads a page in the cmux browser and returns its
+browser errors, console warnings and Next.js errors), `page_snapshot` (the open
+page's elements with refs) and `page_act` (click, fill, type, press, select,
+check or scroll one ref, then the errors it caused). `dev_start`, `dev_stop` and
+`dev_install` ask before they run; the others do not. Bash `pnpm install` and
+`pnpm add` (npm, yarn and bun too) are denied by
+`shared/hooks/dev-server-guard.py`, which points the model at `dev_install`, and
+`dev_deps` replaces listing `node_modules`, which `tool-nudge.py` refuses until
+`/find-docs` ran (a package's own `node_modules/<name>/package.json` is exempt).
+Servers a session starts stop when it ends. The server reads `.next/dev/lock`
+for its port and `/_next/mcp` on Next.js 16+; other frameworks get log errors
+only. The tools keep the scheme the server prints, so a server started with
+`--experimental-https` (or whose `.next/dev/lock` `appUrl` is `https://`) is
+probed and opened over `https://localhost:PORT`; when a candidate does not
+answer over one scheme the other is tried, so an https server with no https hint
+is still found; the probe accepts the local self-signed certificate, and
+candidates are still `localhost` only. `page_check` also takes `url`, any
 `http://` or `https://` URL on `localhost`, `127.0.0.1` or `[::1]`, and opens it
 without probing, for servers `dev_status` cannot see. Bash `open` on a local URL
 is denied by `shared/hooks/dev-server-guard.py`, which points the model at
