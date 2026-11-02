@@ -122,10 +122,13 @@ def runs_arbitrary_pnpm_code(segment):
     words = shell_words(segment)
     if words is None:
         return True
-    before_script_arguments = words[: words.index("--")] if "--" in words else words
+    if "--" not in words:
+        return any(word in PNPM_ARBITRARY_CODE for word in words)
+    boundary = words.index("--")
+    before_script_arguments, first_script_argument = words[:boundary], words[boundary + 1 : boundary + 2]
     if not package_script_words(without_environment(before_script_arguments)):
         return True
-    return any(word in PNPM_ARBITRARY_CODE for word in before_script_arguments)
+    return any(word in PNPM_ARBITRARY_CODE for word in before_script_arguments + first_script_argument)
 
 
 def pnpm_shares_the_line(command):
