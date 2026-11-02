@@ -123,6 +123,8 @@ def runs_arbitrary_pnpm_code(segment):
     if words is None:
         return True
     before_script_arguments = words[: words.index("--")] if "--" in words else words
+    if not package_script_words(without_environment(before_script_arguments)):
+        return True
     return any(word in PNPM_ARBITRARY_CODE for word in before_script_arguments)
 
 
