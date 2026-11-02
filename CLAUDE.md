@@ -778,22 +778,29 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `context` and `thinking:true` (Ollama only; it drops the
   `CLAUDE_CODE_EXTRA_BODY` that turns thinking off, so Claude Code's own
   adaptive request reaches Ollama); `tools`, `env`, `mcp`, `parameters`,
-  `summary` and `check` serve `bin/claude-ollama`. It refuses a symlinked
-  profile, and `Agent` never reaches an Ollama profile. The overlay sets
-  `sandbox.enabled` and the ask rule `Bash(dangerouslyDisableSandbox:true)`, so
-  every personal session (subagents and `--agent pr-review` included) runs
-  Claude's shell commands inside Claude Code's sandbox and asks before one runs
-  outside it; `bin/check-config` checks both. It lets sandboxed commands write
-  only `~/.cache/claude-sandbox` beyond the project and the temp dir, reach the
-  same hosts as the Ollama profiles, and never read
-  `~/.local/share/claude-custom` (the console token); `personal/launch` runs
-  `claude` through `shared/sandbox-env` unless `profile-overlay sandbox-off`
-  says the `sandbox-off` file or the `claude-code` profile turned the sandbox
-  off. The Ollama profiles use the same sandbox with their own `sandbox` block;
-  `claude-ollama qwen` runs Qwen Code inside macOS Seatbelt
-  (`ollama/qwen-sandbox.sb`, the same cache folder), and the launcher unsets an
-  outer `SANDBOX`, which `advanced.excludedEnvVars` keeps a project `.env` from
-  setting.
+  `summary` and `check` serve `bin/claude-ollama`. `env` exports only its
+  `env_allowlist` (`CLAUDE_OLLAMA_TELEMETRY`, `CLAUDE_OLLAMA_NO_INDEX`,
+  `CLAUDE_OLLAMA_OPEN_DRAFTS`, `CLAUDE_OLLAMA_CMUX`, `CLAUDE_OLLAMA_RELAUNCH`,
+  `CLAUDE_OLLAMA_HANDOFF_PCT`, `CLAUDE_OLLAMA_INCIDENTS`), which must equal
+  `PROFILE_ENV_KEYS` in `web/console/src/lib/profile-rules.ts`
+  (`bin/check-config` checks it); the console's Profiles page shows each key by
+  the plain label and default in `PROFILE_ENV_FIELDS`, never the variable name,
+  and hides the handoff and incident fields from the `claude-code` profile. It
+  refuses a symlinked profile, and `Agent` never reaches an Ollama profile. The
+  overlay sets `sandbox.enabled` and the ask rule
+  `Bash(dangerouslyDisableSandbox:true)`, so every personal session (subagents
+  and `--agent pr-review` included) runs Claude's shell commands inside Claude
+  Code's sandbox and asks before one runs outside it; `bin/check-config` checks
+  both. It lets sandboxed commands write only `~/.cache/claude-sandbox` beyond
+  the project and the temp dir, reach the same hosts as the Ollama profiles, and
+  never read `~/.local/share/claude-custom` (the console token);
+  `personal/launch` runs `claude` through `shared/sandbox-env` unless
+  `profile-overlay sandbox-off` says the `sandbox-off` file or the `claude-code`
+  profile turned the sandbox off. The Ollama profiles use the same sandbox with
+  their own `sandbox` block; `claude-ollama qwen` runs Qwen Code inside macOS
+  Seatbelt (`ollama/qwen-sandbox.sb`, the same cache folder), and the launcher
+  unsets an outer `SANDBOX`, which `advanced.excludedEnvVars` keeps a project
+  `.env` from setting.
 - `go/internal/picker/` has two packages: `profiles` (`Load` reads the
   configured sizes from `ollama/`, `EmbeddingModel` the search model) and `ui`
   (the Bubble Tea model).

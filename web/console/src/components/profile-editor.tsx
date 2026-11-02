@@ -87,7 +87,7 @@ export function ProfileEditor({ id }: { id: string }) {
           <ProfileMcpHooksTab {...tabProps} />
         </TabsContent>
         <TabsContent value="env" className="pt-3">
-          <ProfileEnvTab draft={draft} update={tabProps.update} />
+          <ProfileEnvTab {...tabProps} />
         </TabsContent>
       </Tabs>
       <SaveBar
