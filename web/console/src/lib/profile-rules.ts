@@ -6,6 +6,7 @@ export type ProfileOverride = {
   tools?: Record<string, ToolState>;
   sandbox?: boolean;
   context?: number;
+  thinking?: boolean;
   parameters?: Record<string, number>;
   mcp?: Record<string, boolean>;
   env?: Record<string, string>;
@@ -40,8 +41,8 @@ export const PARAMETER_RANGES: Record<string, ParameterRange> = {
   min_p: { min: 0, max: 1 },
   repeat_penalty: { min: 0.5, max: 2 },
 };
-const TOP_LEVEL_KEYS = ["tools", "sandbox", "context", "parameters", "mcp", "env"];
-const OLLAMA_ONLY_KEYS = ["context", "parameters", "mcp"];
+const TOP_LEVEL_KEYS = ["tools", "sandbox", "context", "thinking", "parameters", "mcp", "env"];
+const OLLAMA_ONLY_KEYS = ["context", "thinking", "parameters", "mcp"];
 const ENV_VALUES = ["0", "1"];
 
 export function validateProfileOverride(body: unknown, rules: ProfileRules): Validation {
@@ -64,6 +65,7 @@ function normalizeOverride(override: ProfileOverride): ProfileOverride {
     ...(tools && { tools }),
     ...(override.sandbox !== undefined && { sandbox: override.sandbox }),
     ...(override.context !== undefined && { context: override.context }),
+    ...(override.thinking !== undefined && { thinking: override.thinking }),
     ...(parameters && { parameters }),
     ...(mcp && { mcp }),
     ...(env && { env }),
@@ -71,7 +73,7 @@ function normalizeOverride(override: ProfileOverride): ProfileOverride {
 }
 
 export function overrideCount(override: ProfileOverride): number {
-  const scalars = [override.sandbox, override.context].filter((value) => value !== undefined).length;
+  const scalars = [override.sandbox, override.context, override.thinking].filter((value) => value !== undefined).length;
   const maps = [override.tools, override.parameters, override.mcp, override.env];
   return maps.reduce((total, map) => total + Object.keys(map ?? {}).length, scalars);
 }
@@ -96,6 +98,7 @@ function sectionProblem(body: Record<string, unknown>, rules: ProfileRules): str
     toolsProblem(body.tools, rules) ??
     sandboxProblem(body.sandbox) ??
     contextProblem(body.context, rules.contextMaximum) ??
+    thinkingProblem(body.thinking) ??
     parametersProblem(body.parameters) ??
     mcpProblem(body.mcp) ??
     envProblem(body.env)
@@ -127,6 +130,10 @@ export function toolStatesFor(kind: ProfileKind, name: string): readonly ToolSta
 
 function sandboxProblem(sandbox: unknown): string | null {
   return sandbox === undefined || typeof sandbox === "boolean" ? null : "sandbox must be true or false";
+}
+
+function thinkingProblem(thinking: unknown): string | null {
+  return thinking === undefined || typeof thinking === "boolean" ? null : "thinking must be true or false";
 }
 
 function contextProblem(context: unknown, maximum: number): string | null {

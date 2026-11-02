@@ -18,6 +18,7 @@ import {
   withMcp,
   withParameter,
   withSandbox,
+  withThinking,
   withToolState,
 } from "@/lib/profile-draft";
 import type { ToolRow, ToolState } from "@/lib/tool-states";
@@ -66,8 +67,24 @@ export function ProfileModelTab({ detail, draft, update }: ProfileTabProps) {
     <div className="flex flex-col gap-4 text-sm">
       <p className="text-muted-foreground">Sandbox is always on for Ollama profiles.</p>
       <ContextField detail={detail} draft={draft} update={update} />
+      <ThinkingSwitch enabled={draft.thinking === true} update={update} />
       <ParameterFields detail={detail} draft={draft} update={update} />
     </div>
+  );
+}
+
+function ThinkingSwitch({ enabled, update }: Pick<FieldProps, "update"> & { enabled: boolean }) {
+  return (
+    <label className="flex items-center gap-2 text-sm">
+      <input
+        type="checkbox"
+        role="switch"
+        aria-label="Thinking enabled"
+        checked={enabled}
+        onChange={(event) => update((current) => withThinking(current, event.target.checked ? true : null))}
+      />
+      Model thinking on (off by default: Claude Code asks for high effort on every turn)
+    </label>
   );
 }
 

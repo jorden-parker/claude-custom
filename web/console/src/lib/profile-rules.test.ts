@@ -101,6 +101,12 @@ describe("validateProfileOverride", () => {
     expect(rejected({ mcp: { dev: "yes" } }, OLLAMA)).toBe("dev must be true or false");
   });
 
+  it("accepts a boolean thinking switch for Ollama profiles only", () => {
+    expect(accepted({ thinking: true }, OLLAMA)).toEqual({ thinking: true });
+    expect(rejected({ thinking: "yes" }, OLLAMA)).toBe("thinking must be true or false");
+    expect(rejected({ thinking: true }, CLAUDE_CODE)).toBe("thinking only applies to Ollama profiles");
+  });
+
   it("allows only the four launcher env keys with 0 or 1", () => {
     expect(accepted({ env: { CLAUDE_OLLAMA_TELEMETRY: "0" } }, OLLAMA)).toEqual({
       env: { CLAUDE_OLLAMA_TELEMETRY: "0" },
@@ -124,10 +130,11 @@ describe("overrideCount", () => {
         tools: { Bash: "ask", WebFetch: "off" },
         sandbox: false,
         context: 65536,
+        thinking: true,
         parameters: { temperature: 0.6 },
         mcp: { dev: false },
         env: { CLAUDE_OLLAMA_CMUX: "0" },
       }),
-    ).toBe(7);
+    ).toBe(8);
   });
 });
