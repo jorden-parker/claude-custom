@@ -50,7 +50,7 @@ PACKAGE_SPEC = re.compile(r"^(?:@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*(?:@
 DEPENDENCY_FIELDS = ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies")
 INSTALL_TIMEOUT_SECONDS = 600
 PACKAGE_RULE = "packages must be package names such as react, @types/node or zod@3, separated by spaces"
-NOT_A_PACKAGE_DIR = "{} has no tracked package.json; dev_status and dev_deps list the app dirs"
+NOT_A_PACKAGE_DIR = "{} has no package.json (or is inside node_modules); pass the folder that holds one"
 OUTSIDE_REPOSITORY = "paths must stay inside the repository"
 SCRIPT_RULE = "dev_start runs only dev, start or dev:* scripts"
 PATH_RULE = "path must start with a single /"
@@ -184,8 +184,8 @@ def project_dir(arguments):
 
 
 def require_app_dir(dir_text):
-    if dir_text not in app_dirs():
-        raise ToolError(f"{dir_text} is not an app dir; dev_status lists them")
+    if "node_modules" in PurePath(dir_text).parts or not has_start_script(dir_text):
+        raise ToolError(f"{dir_text} is not an app dir (no package.json with a dev or start script); dev_status lists them")
 
 
 def require_directory(dir_text):
@@ -193,18 +193,19 @@ def require_directory(dir_text):
         raise ToolError(f"no directory {dir_text}")
 
 
-def run_git(arguments):
-    try:
-        return subprocess.run(["git", *arguments], cwd=ROOT, capture_output=True, text=True)
-    except OSError:
-        return subprocess.CompletedProcess(arguments, 1, "", "")
+def is_skipped_folder(parent, name):
+    return name.startswith(".") or name == "node_modules" or (Path(parent) / name).is_symlink()
 
 
-def tracked_package_files():
-    completed = run_git(["ls-files", "-z", "--", "package.json", "*/package.json"])
-    if completed.returncode != 0:
-        return ["package.json"] if (ROOT / "package.json").is_file() else []
-    return [name for name in completed.stdout.split("\0") if name]
+def package_files():
+    found = []
+    for parent, folders, files in os.walk(ROOT):
+        folders[:] = sorted(folder for folder in folders if not is_skipped_folder(parent, folder))
+        if "package.json" in files:
+            found.append(str(Path(parent).relative_to(ROOT) / "package.json"))
+        if len(found) >= MAX_APP_DIRS:
+            break
+    return found
 
 
 def package_scripts(dir_text):
@@ -216,17 +217,13 @@ def package_scripts(dir_text):
     return scripts if isinstance(scripts, dict) else {}
 
 
+def has_start_script(dir_text):
+    scripts = package_scripts(dir_text)
+    return "dev" in scripts or "start" in scripts
+
+
 def app_dirs():
-    dirs = []
-    for name in tracked_package_files():
-        parts = PurePath(name).parts
-        if "node_modules" in parts:
-            continue
-        directory = str(PurePath(name).parent)
-        scripts = package_scripts(directory)
-        if "dev" in scripts or "start" in scripts:
-            dirs.append(directory)
-    return dirs[:MAX_APP_DIRS]
+    return [directory for directory in (str(PurePath(name).parent) for name in package_files()) if has_start_script(directory)]
 
 
 def dev_script_text(dir_text):
@@ -439,7 +436,7 @@ def dev_status(arguments):
         return status_line(project_dir(arguments))
     dirs = app_dirs()
     if not dirs:
-        return "no app dirs: no tracked package.json has a dev or start script; no dev server answers"
+        return "no app dirs: no package.json outside node_modules has a dev or start script; no dev server answers"
     return "\n".join(status_line(dir_text) for dir_text in dirs)
 
 
@@ -557,12 +554,8 @@ def dev_start(arguments):
     return wait_until_ready(dir_text, server)
 
 
-def package_dirs():
-    return [str(PurePath(name).parent) for name in tracked_package_files() if "node_modules" not in PurePath(name).parts]
-
-
 def require_package_dir(dir_text):
-    if dir_text not in package_dirs():
+    if "node_modules" in PurePath(dir_text).parts or not (ROOT / dir_text / "package.json").is_file():
         raise ToolError(NOT_A_PACKAGE_DIR.format(dir_text))
 
 

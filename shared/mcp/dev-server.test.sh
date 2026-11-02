@@ -299,7 +299,15 @@ deps_before="$(call dev_deps '{"dir":"app"}')"
 check "dev_deps says node_modules is missing before an install" contains "$deps_before" "node_modules: missing; run dev_install (npm)"
 check "and lists every declared dependency as missing" contains "$deps_before" "zod: missing (dependencies ^3); run dev_install"
 check "dev_deps refuses a package name that looks like an option" error_with "$(call dev_deps '{"dir":"app","packages":"-rf"}')" "package names"
-check "dev_deps refuses a dir without a tracked package.json" error_with "$(call dev_deps '{"dir":"nowhere"}')" "no tracked package.json"
+check "dev_deps refuses a dir without a package.json" error_with "$(call dev_deps '{"dir":"nowhere"}')" "no package.json"
+mkdir -p "$tmp/project/untracked" "$tmp/project/app/node_modules/dep"
+printf '{"name":"untracked","scripts":{"dev":"fake-server"},"dependencies":{"zod":"^3"}}\n' > "$tmp/project/untracked/package.json"
+check "dev_status lists an app dir git does not track yet" contains "$(call dev_status '{}')" "untracked:"
+check "dev_status never lists a package inside node_modules" lacks "$(call dev_status '{}')" "node_modules"
+printf '{"name":"dep","version":"1.0.0"}\n' > "$tmp/project/app/node_modules/dep/package.json"
+check "dev_deps accepts a package.json git does not track yet" contains "$(call dev_deps '{"dir":"untracked"}')" "zod: missing"
+check "dev_deps refuses a package inside node_modules" error_with "$(call dev_deps '{"dir":"app/node_modules/dep"}')" "no package.json"
+rm -rf "$tmp/project/app/node_modules"
 install_out="$(call dev_install '{"dir":"app"}')"
 check "dev_install runs the lockfile's package manager install" grep -qx "install" "$tmp/npm.log"
 check "dev_install reports success and the install state" contains "$install_out" "npm install: ok"
@@ -634,8 +642,8 @@ check "a held framework default port does not block a start, since the framework
   [ "$(PYTHONPATH="$(dirname "$server")" run_in_project python3 "$tmp/framework-port.py" "$server")" = "None" ]
 
 mkdir -p "$tmp/project/scratch"
-printf '{"name":"scratch","scripts":{"dev":"fake-server"}}\n' > "$tmp/project/scratch/package.json"
-check "dev_start refuses a package.json that is not an app dir in git" \
+printf '{"name":"scratch","scripts":{"build":"fake-server"}}\n' > "$tmp/project/scratch/package.json"
+check "dev_start refuses a package.json without a dev or start script" \
   contains "$(call dev_start '{"dir":"scratch"}')" "scratch is not an app dir"
 
 mkdir -p "$tmp/elsewhere"
