@@ -370,7 +370,14 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   completes, so the run page (`live-mock-sheet.tsx`, through `RunView` for the
   `mock-spike` command) and the Mockups page's "Streaming now" section compile
   the patches after each marker with `lib/mock-spike/live.ts` and render each
-  cell while the model is still writing.
+  cell while the model is still writing. The prompt also carries
+  `lib/mock-spike/design-rules.ts` (a dozen hierarchy, grouping and content
+  rules) and one style paragraph from the preset chosen with `--preset ID`
+  (`lib/mock-spike/presets.ts`: `calm-saas` default, `dense-admin`, `editorial`,
+  `playful`, `brutalist`); the spike prints `preset: ID` and stores it in the
+  report, and each preset's `--mock-*` palette lives in `globals.css` as
+  `.mock-frame[data-preset=ID]`, since no TS file may hold a raw colour. The
+  Mockups run card has a Preset select.
 - `shared/hooks/tool-nudge.py` is wired only in the Ollama profiles
   (UserPromptSubmit resets its per-session state under
   `${CLAUDE_CONFIG_DIR:-~/.claude}/cache/tool-nudge/`). As PreToolUse on Bash
