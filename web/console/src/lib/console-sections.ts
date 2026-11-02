@@ -48,6 +48,11 @@ export const CONSOLE_SECTIONS: readonly ConsoleSection[] = [
     summary: "Benches, bench-off report and tool telemetry",
   },
   {
+    href: "/mockups",
+    title: "Mockups",
+    summary: "Rendered json-render specs from the latest mock-spike",
+  },
+  {
     href: "/models",
     title: "Models",
     summary: "Sizes, installed models, prepare and prune",
@@ -60,7 +65,8 @@ export const CONSOLE_SECTIONS: readonly ConsoleSection[] = [
   {
     href: "/machine",
     title: "Machine policy",
-    summary: "gh repos, command rules, enabled tools and sandbox-off on this machine",
+    summary:
+      "gh repos, command rules, enabled tools and sandbox-off on this machine",
   },
   {
     href: "/workspaces",

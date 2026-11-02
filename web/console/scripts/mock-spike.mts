@@ -204,7 +204,7 @@ function seconds(value: number | null): string {
 }
 
 function describeScore(score: ReplyScore): string {
-  const problem = score.valid ? "" : ` (${score.issue})`;
+  const problem = score.valid ? "" : ` (${score.issue ?? score.propIssue})`;
   const unknown = score.unknownTypes.length
     ? ` unknown=${score.unknownTypes.join(",")}`
     : "";

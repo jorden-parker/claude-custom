@@ -18,7 +18,19 @@ describe("scoreReply", () => {
       unknownTypes: [],
       valid: true,
       issue: null,
+      propIssue: null,
     });
+  });
+
+  it("names the first prop outside a component's schema", () => {
+    const reply = [
+      patches[0],
+      '{"op":"add","path":"/elements/main","value":{"type":"Button","props":{"label":"Buy","variant":"loud"},"children":[]}}',
+    ].join("\n");
+    const score = scoreReply(reply);
+    expect(score.issue).toBeNull();
+    expect(score.propIssue).toMatch(/^main\/variant: /);
+    expect(score.valid).toBe(false);
   });
 
   it("treats fences and prose as non-patch lines but still compiles", () => {

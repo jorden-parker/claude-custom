@@ -9,9 +9,10 @@ export type ReplyScore = {
   unknownTypes: string[];
   valid: boolean;
   issue: string | null;
+  propIssue: string | null;
 };
 
-type SpecElement = { type?: unknown };
+type SpecElement = { type?: unknown; props?: unknown };
 type Spec = { root?: unknown; elements?: Record<string, SpecElement> };
 
 export function isPatchLine(line: string): boolean {
@@ -44,6 +45,28 @@ function firstIssue(spec: Spec): string | null {
   return `${issue.path.join("/")}: ${issue.message}`;
 }
 
+type PropIssue = { path: PropertyKey[]; message: string };
+type PropSchema = {
+  safeParse: (value: unknown) => {
+    success: boolean;
+    error?: { issues: PropIssue[] };
+  };
+};
+
+const propSchemas: Record<string, { props: PropSchema }> =
+  mockCatalog.data.components;
+
+function firstPropIssue(spec: Spec): string | null {
+  for (const [key, element] of Object.entries(spec.elements ?? {})) {
+    const schema = propSchemas[String(element.type)]?.props;
+    const result = schema?.safeParse(element.props ?? {});
+    const issue = result?.error?.issues[0];
+    if (!issue) continue;
+    return `${key}/${issue.path.map(String).join("/")}: ${issue.message}`;
+  }
+  return null;
+}
+
 export function scoreReply(reply: string): ReplyScore {
   const lines = reply
     .split("\n")
@@ -55,13 +78,15 @@ export function scoreReply(reply: string): ReplyScore {
   const spec = compiler.getResult() ?? {};
   const elements = Object.keys(spec.elements ?? {}).length;
   const issue = elements === 0 ? "no elements" : firstIssue(spec);
+  const propIssue = issue === null ? firstPropIssue(spec) : null;
   return {
     lines: lines.length,
     patches,
     prose: lines.length - patches,
     elements,
     unknownTypes: unknownTypesIn(spec),
-    valid: issue === null,
+    valid: issue === null && propIssue === null,
     issue,
+    propIssue,
   };
 }
