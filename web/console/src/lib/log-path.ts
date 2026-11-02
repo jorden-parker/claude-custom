@@ -11,11 +11,13 @@ const NO_LAUNCHER_LOG_MESSAGE =
   "No launcher log yet; it starts with the next claude-ollama launch";
 const NO_INCIDENTS_MESSAGE =
   "No incidents file yet; the next claude-ollama launch starts the watcher";
+const NO_PROXY_MESSAGE =
+  "No proxy log yet; the next claude-ollama launch starts the messages proxy";
 
 export type LogPath =
   { ok: true; path: string } | { ok: false; message: string };
 
-const LOG_SOURCES = ["server", "launcher", "incidents"] as const;
+const LOG_SOURCES = ["server", "launcher", "incidents", "proxy"] as const;
 
 export type LogSource = (typeof LOG_SOURCES)[number];
 
@@ -37,7 +39,17 @@ export async function readLogSource(
   if (source === "incidents") {
     return readIncidentsPath();
   }
+  if (source === "proxy") {
+    return readProxyLogPath();
+  }
   return readLogPath(repoDir);
+}
+
+function readProxyLogPath(): LogPath {
+  const proxyLog = path.join(consoleStateDir(), "proxy", "requests.jsonl");
+  return fs.existsSync(proxyLog)
+    ? { ok: true, path: proxyLog }
+    : { ok: false, message: NO_PROXY_MESSAGE };
 }
 
 function readLauncherLogPath(): LogPath {

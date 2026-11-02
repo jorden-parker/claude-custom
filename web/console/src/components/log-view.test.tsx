@@ -44,6 +44,9 @@ describe("LogView", () => {
       if (source === "incidents") {
         return Response.json({ path: "/state/incidents/s1.jsonl" });
       }
+      if (source === "proxy") {
+        return Response.json({ path: "/state/proxy/requests.jsonl" });
+      }
       return Response.json({ path: "/var/log/ollama.log" });
     });
   });
@@ -147,6 +150,56 @@ describe("LogView", () => {
     expect(counts.textContent).toBe(
       "aborted 2evicted 0truncated 0reprefilled 2compacted 0relaunched 0unknown 0",
     );
+  });
+
+  it("shows the proxy requests with the prefix hit rate and the ledger", async () => {
+    render(<LogView />);
+    await screen.findByText("following /var/log/ollama.log");
+    fireEvent.click(screen.getByRole("tab", { name: "Proxy" }));
+    expect(
+      await screen.findByText("following /state/proxy/requests.jsonl"),
+    ).toBeTruthy();
+    const source = FakeEventSource.opened.at(-1)!;
+    expect(source.url).toBe("/api/logs/events?source=proxy");
+    const frame = (text: string) => JSON.stringify({ text, level: null });
+    act(() => {
+      receive(
+        source,
+        frame(
+          '{"ts":"2026-11-02T14:02:00.000Z","request_id":"r0","sections":5,"stable_sections":0,"diverged_at":null,"offset":null,"diff":null,"prompt_bytes":3900,"ledger":{"system":900,"tools":{"read_file":300,"bash":1200},"messages":2600}}',
+        ),
+      );
+      receive(
+        source,
+        frame(
+          '{"ts":"2026-11-02T14:03:00.000Z","request_id":"r1","sections":5,"stable_sections":4,"diverged_at":"message:4","offset":0,"diff":"next","prompt_bytes":4000,"ledger":{"system":900,"tools":{"read_file":300,"bash":1300},"messages":2700}}',
+        ),
+      );
+      receive(
+        source,
+        frame(
+          '{"ts":"2026-11-02T14:04:00.000Z","request_id":"r2","sections":5,"stable_sections":0,"diverged_at":"system","offset":41,"diff":"Monday 2026-11-02.","prompt_bytes":4100,"ledger":{"system":900,"tools":{"read_file":300,"bash":1300},"messages":2800}}',
+        ),
+      );
+    });
+    expect(screen.getByLabelText("prefix hit rate").textContent).toBe(
+      "50% of 2 requests stable through tools",
+    );
+    expect(screen.getByLabelText("average prompt bytes").textContent).toBe(
+      "4000 bytes per prompt",
+    );
+    expect(screen.getByLabelText("diverging sections").textContent).toBe(
+      "system 1message:4 1",
+    );
+    expect(screen.getByText(/system · 41 · Monday 2026-11-02\.$/)).toBeTruthy();
+    const ledger = screen.getByLabelText("tool schema ledger");
+    const names = Array.from(ledger.querySelectorAll("[data-tool]")).map(
+      (row) =>
+        `${row.getAttribute("data-tool")}=${row.getAttribute("data-bytes")}`,
+    );
+    expect(names).toEqual(["bash=1300", "read_file=300"]);
+    expect(ledger.textContent).toContain("system 900");
+    expect(ledger.textContent).toContain("messages 2800");
   });
 
   it("shows why the launcher log is missing", async () => {

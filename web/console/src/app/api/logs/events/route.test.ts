@@ -130,6 +130,27 @@ describe("GET /api/logs/events", () => {
     expect(tail).toContain("starting llama-server");
   });
 
+  it("streams the proxy log when asked for it", async () => {
+    process.env.CLAUDE_CONSOLE_STATE_DIR = repo;
+    const proxyDir = path.join(repo, "proxy");
+    fs.mkdirSync(proxyDir);
+    fs.writeFileSync(
+      path.join(proxyDir, "requests.jsonl"),
+      '{"ts":"2026-11-02T14:04:00.000Z","request_id":"r2","sections":5,"stable_sections":0,"diverged_at":"system","offset":41,"diff":"Monday","prompt_bytes":4100}\n',
+    );
+    const controller = new AbortController();
+    const response = await GET(
+      new Request("http://127.0.0.1/api/logs/events?source=proxy", {
+        signal: controller.signal,
+      }),
+    );
+    const reader = response.body!.getReader();
+    const replayed = await readUntil(reader, (text) => text.includes("r2"));
+    controller.abort();
+    delete process.env.CLAUDE_CONSOLE_STATE_DIR;
+    expect(replayed).toContain('\\"diverged_at\\":\\"system\\"');
+  });
+
   it("answers 404 when no session has written incidents", async () => {
     process.env.CLAUDE_CONSOLE_STATE_DIR = repo;
     const response = await GET(

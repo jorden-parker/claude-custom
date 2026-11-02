@@ -122,6 +122,21 @@ body = {
 sys.stdout.write(json.dumps(body, indent=1))
 PY
 
+cat > "$tmp/section_bytes.py" <<'PY'
+import json
+import sys
+
+body_path, section = sys.argv[1:3]
+body = json.loads(open(body_path).read())
+canonical = lambda value: len(json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+if section == "tools":
+    print(canonical(body["tools"][0]))
+elif section == "messages":
+    print(sum(canonical(message) for message in body["messages"]))
+else:
+    print(canonical(body[section]))
+PY
+
 cat > "$tmp/system_offset.py" <<'PY'
 import json
 import sys
@@ -234,6 +249,11 @@ check "the diff stays short" [ "$(row_field "$(log_row 2)" '.diff | length')" -l
 check "a system change leaves no stable sections" [ "$(row_field "$(log_row 2)" .stable_sections)" = 0 ]
 check "every row has a timestamp" [ "$(row_field "$(log_row 2)" .ts)" != null ]
 check "the log never holds the whole prompt" lacks_text "terse assistant" "$run_dir/proxy/requests.jsonl"
+check "the ledger prices the system prompt" [ "$(row_field "$(log_row 1)" .ledger.system)" = "$(python3 "$tmp/section_bytes.py" "$run_dir/first.json" system)" ]
+check "the ledger prices each tool schema by name" [ "$(row_field "$(log_row 1)" .ledger.tools.read_file)" = "$(python3 "$tmp/section_bytes.py" "$run_dir/first.json" tools)" ]
+check "the ledger lists only the request's tools" [ "$(row_field "$(log_row 1)" '.ledger.tools | keys | join(",")')" = read_file ]
+check "the ledger prices the messages together" [ "$(row_field "$(log_row 1)" .ledger.messages)" = "$(python3 "$tmp/section_bytes.py" "$run_dir/first.json" messages)" ]
+check "the ledger never holds a schema" lacks_text "Read a file" "$run_dir/proxy/requests.jsonl"
 
 send "$run_dir/third.json" "$run_dir/third.out"
 check "a last-message change diverges at that message" [ "$(row_field "$(log_row 3)" .diverged_at)" = message:2 ]
