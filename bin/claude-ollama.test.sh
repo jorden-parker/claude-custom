@@ -48,11 +48,11 @@ check_not() {
   fi
 }
 
-record_installed_num_ctx() {
-  local model context
-  mkdir -p "$sandbox/num-ctx"
-  jq -r 'to_entries[] | "\(.value.model) \(.value.context)"' "$repo/ollama/sizes.json" \
-    | while read -r model context; do printf '%s\n' "$context" > "$sandbox/num-ctx/$model"; done
+record_installed_parameters() {
+  local size model
+  mkdir -p "$sandbox/parameters"
+  jq -r 'to_entries[] | "\(.key) \(.value.model)"' "$repo/ollama/sizes.json" \
+    | while read -r size model; do sed -n 's/^PARAMETER //p' "$repo/ollama/Modelfile.$size" > "$sandbox/parameters/$model"; done
 }
 
 pinned_tags() {
@@ -69,7 +69,7 @@ new_sandbox() {
   unset STUB_SHASUM_DIGEST STUB_INSPECT_EXIT STUB_CLAUDE_STDERR CLAUDE_CONSOLE_STATE_DIR
   unset CLAUDE_TOOL_TELEMETRY CLAUDE_OLLAMA_TELEMETRY
   export SHELL=/bin/zsh
-  record_installed_num_ctx
+  record_installed_parameters
   export CLAUDE_OLLAMA_MANAGED_SETTINGS="$sandbox/managed-settings.json"
   cat > "$sandbox/stubbin/claude" <<EOF
 #!/bin/sh
@@ -98,7 +98,11 @@ EOF
 #!/bin/sh
 echo "\$*" >> "$sandbox/ollama.log"
 if [ "\$1" = show ]; then
-  [ "\$3" = --parameters ] && echo "num_ctx                        \${STUB_OLLAMA_NUM_CTX:-\$(cat "$sandbox/num-ctx/\$2" 2>/dev/null || echo 98304)}"
+  if [ "\$3" = --parameters ]; then
+    { cat "$sandbox/parameters/\$2" 2>/dev/null || echo "num_ctx 98304"; } \\
+      | awk -v ctx="\$STUB_OLLAMA_NUM_CTX" -v temperature="\$STUB_OLLAMA_TEMPERATURE" \\
+        '\$1 == "num_ctx" && ctx { \$2 = ctx } \$1 == "temperature" && temperature { \$2 = temperature } { print }'
+  fi
   exit "\${STUB_OLLAMA_SHOW_EXIT:-0}"
 fi
 if [ "\$1" = create ]; then sed 's/^/modelfile: /' "\$4" >> "$sandbox/ollama.log"; fi
@@ -400,8 +404,16 @@ check_that "claude-ollama recreates a model with a stale num_ctx" grep -qE '^cre
 check_that "the recreated model builds on the installed one" grep -qxF "modelfile: FROM qwen3.8-27b-cc" "$sandbox/ollama.log"
 check_that "the recreated model gets the profile num_ctx" grep -qxF "modelfile: PARAMETER num_ctx 65536" "$sandbox/ollama.log"
 check_not "a stale num_ctx does not pull the base model" grep -q '^pull ' "$sandbox/ollama.log"
-check_that "claude-ollama says it recreates the model" grep -qF "recreating qwen3.8-27b-cc with num_ctx 65536" "$sandbox/err"
+check_that "claude-ollama says it recreates the model" grep -qF "recreating qwen3.8-27b-cc with num_ctx 65536 temperature 0.7 top_k 20 top_p 0.8" "$sandbox/err"
 check_that "claude-ollama launches after recreating" grep -qF -- "--model qwen3.8-27b-cc --tools" "$sandbox/out"
+new_sandbox
+STUB_OLLAMA_TEMPERATURE=1 run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_that "claude-ollama recreates a model with a stale sampling parameter" grep -qE '^create qwen3.8-27b-cc -f ' "$sandbox/ollama.log"
+check_that "the recreated model gets every profile parameter" grep -qxF "modelfile: PARAMETER temperature 0.7" "$sandbox/ollama.log"
+check_that "the recreated model keeps the profile num_ctx" grep -qxF "modelfile: PARAMETER num_ctx 65536" "$sandbox/ollama.log"
+new_sandbox
+run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_not "claude-ollama leaves a model whose parameters match alone" grep -q '^create ' "$sandbox/ollama.log"
 
 new_sandbox
 jq '.models[0].digest = "0000"' "$sandbox/tags.json" > "$sandbox/tags.new" && mv "$sandbox/tags.new" "$sandbox/tags.json"

@@ -81,16 +81,26 @@ modelfile_num_ctx() {
   sed -n 's/^PARAMETER num_ctx //p' "$profile_dir/Modelfile.$size"
 }
 
-installed_num_ctx() {
-  ollama show "$1" --parameters 2>/dev/null | awk '$1 == "num_ctx" { print $2 }'
+modelfile_parameters() {
+  sed -n 's/^PARAMETER //p' "$profile_dir/Modelfile.$size"
 }
 
-refresh_num_ctx() {
-  local name="$1" wanted="$2" modelfile
-  [ "$(installed_num_ctx "$name")" = "$wanted" ] && return 0
-  echo "claude-ollama: recreating $name with num_ctx $wanted" >&2
+installed_parameters_match() {
+  local installed key value
+  installed="$(ollama show "$1" --parameters 2>/dev/null)"
+  while read -r key value; do
+    [ "$(printf '%s\n' "$installed" | awk -v key="$key" '$1 == key { print $2 }')" = "$value" ] || return 1
+  done <<EOF
+$(modelfile_parameters)
+EOF
+}
+
+refresh_parameters() {
+  local name="$1" modelfile
+  installed_parameters_match "$name" && return 0
+  echo "claude-ollama: recreating $name with $(modelfile_parameters | tr '\n' ' ' | sed 's/ $//')" >&2
   modelfile="$(mktemp -t claude-ollama-modelfile.XXXXXX)"
-  printf 'FROM %s\nPARAMETER num_ctx %s\n' "$name" "$wanted" > "$modelfile"
+  { printf 'FROM %s\n' "$name"; modelfile_parameters | sed 's/^/PARAMETER /'; } > "$modelfile"
   ollama create "$name" -f "$modelfile"
   rm -f "$modelfile"
 }
@@ -182,7 +192,7 @@ import_gguf() {
 
 ensure_model() {
   if ollama show "$model" >/dev/null 2>&1; then
-    refresh_num_ctx "$model" "$(modelfile_num_ctx)"
+    refresh_parameters "$model"
     return
   fi
   if is_gguf_base; then

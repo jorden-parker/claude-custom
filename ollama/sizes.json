@@ -2,7 +2,12 @@
   "27b": {
     "base": "qwen3.8:27b-mlx",
     "model": "qwen3.8-27b-cc",
-    "context": 65536
+    "context": 65536,
+    "parameters": {
+      "temperature": 0.7,
+      "top_k": 20,
+      "top_p": 0.8
+    }
   },
   "35b": {
     "base": "qwen3.6:35b-mlx",

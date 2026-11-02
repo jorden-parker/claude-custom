@@ -387,10 +387,11 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   settings file), and restricts tools with `--tools` (built-in tools only; MCP
   tools still load). Before launching, it pulls the base model and creates the
   `-cc` model when `ollama show` can't find the `-cc` model. When the installed
-  model's `num_ctx` differs from its Modelfile, it recreates that model `FROM`
-  itself with the new `num_ctx` (no pull). `doctor` and `--print-config` are
-  dispatched before any pull or launch; `doctor` reads hook names from the
-  profile's settings file, not from `~/.claude/hooks`.
+  model's `num_ctx` or a sampling parameter differs from its Modelfile, it
+  recreates that model `FROM` itself with every Modelfile `PARAMETER` (no pull).
+  `doctor` and `--print-config` are dispatched before any pull or launch;
+  `doctor` reads hook names from the profile's settings file, not from
+  `~/.claude/hooks`.
 - The session config dir `~/.claude-ollama` is `CLAUDE_CONFIG_DIR`:
   `prepare_session_config` seeds `.claude.json` with `hasCompletedOnboarding`
   (an existing file is kept), copies `~/.claude/CLAUDE.md` and
