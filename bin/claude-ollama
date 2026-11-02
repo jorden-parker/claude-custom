@@ -491,6 +491,15 @@ start_incident_watcher() {
     --transcripts "$session_config_dir/projects" >/dev/null 2>&1 &
 }
 
+launch_beacon_file() {
+  echo "$console_state_dir/beacon/$(hostname -s).json"
+}
+
+start_beacon_writer() {
+  [ "${CLAUDE_OLLAMA_BEACON:-}" = 0 ] && return 0
+  nohup "$repo_dir/bin/sync-fingerprint" --out "$(launch_beacon_file)" >/dev/null 2>&1 &
+}
+
 fetch_domains() {
   local line domain seen=" "
   [ -r "$fetch_domains_file" ] || return 0
@@ -1174,6 +1183,22 @@ check_gh_login() {
   fi
 }
 
+check_beacon() {
+  local beacon commit head
+  beacon="$(launch_beacon_file)"
+  if [ ! -f "$beacon" ]; then
+    report warn "beacon: none yet (written at the next launch)"
+    return 0
+  fi
+  commit="$(jq -r '.commit // "none"' "$beacon")"
+  head="$(git -C "$repo_dir" rev-parse HEAD 2>/dev/null || echo none)"
+  if [ "$commit" = "$head" ]; then
+    report ok "beacon: $("$repo_dir/bin/sync-fingerprint" --age "$beacon") ago, commit matches"
+  else
+    report warn "beacon: stale, commit ${commit:0:7} vs HEAD ${head:0:7}: run claude-custom update"
+  fi
+}
+
 check_browser() {
   if [ "${CLAUDE_OLLAMA_CMUX:-}" = 0 ]; then
     report ok "browser tools off (CLAUDE_OLLAMA_CMUX=0)"
@@ -1234,6 +1259,7 @@ doctor() {
   check_reachable || status=1
   check_server_env || status=1
   check_classifier || status=1
+  check_beacon
   check_fetch_domains
   report ok "profile $profile_file: $(profile_summary)"
   check_gh_login
@@ -1402,7 +1428,7 @@ case "${1:-}" in
     echo "sizes: $(configured_sizes | tr '\n' ' ' | sed 's/ $//')"
     echo "no size: pick one in a menu (or $default_size without a terminal)"
     echo "sandbox: Bash runs in Claude Code's sandbox (cmux, gh, short and git push run outside it, each after a prompt)"
-    echo "doctor [size]: check models, context sizes, hooks, Ollama and the server env"
+    echo "doctor [size]: check models, context sizes, hooks, Ollama, the server env and the launch beacon"
     echo "--print-config [size]: print the resolved settings and the claude command"
     echo "logs [-n LINES|--path]: follow the Ollama server log (LaunchAgent, Homebrew service or app), or print its path"
     echo "review [size] PR [--post]: review a pull request with the size's model, one file per request"
@@ -1534,6 +1560,7 @@ prepare_session_config
 prepare_drafts_dir
 start_draft_opener
 start_incident_watcher
+start_beacon_writer
 export CLAUDE_CONFIG_DIR="$session_config_dir"
 export CLAUDE_CODE_TMPDIR="$session_config_dir/tmp"
 if [ "$harness" = qwen ]; then

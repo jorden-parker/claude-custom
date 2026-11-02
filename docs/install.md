@@ -70,3 +70,16 @@ install. Most changes are live after a plain `git pull`, because every link and
 rc block points into the repo. `update` also picks up new links and rebuilds
 changed Ollama models. The session browser is a plain cmux browser surface in
 the `claude-ollama` browser profile; `page_check` opens only localhost URLs.
+
+## Is the other machine running the same thing?
+
+Every `claude-ollama` launch and every `claude-custom update` writes a beacon
+(`bin/sync-fingerprint`: commit, dirty tree, installed model digests, server
+env, hook and sandbox hashes, Claude Code version) to
+`~/.local/share/claude-custom/console/beacon/<host>.json`, and
+`claude-ollama doctor` says how old it is and whether its commit is HEAD. To
+compare two machines, run `claude-custom sync-check --write` on one, copy
+`~/.config/claude-custom/beacon.json` to the other, and run
+`claude-custom sync-check` there (or `sync-check --against FILE`): it lists each
+section that differs, exits 1 when they do, 0 when they match and 2 without a
+beacon. Nothing is sent anywhere by itself.
