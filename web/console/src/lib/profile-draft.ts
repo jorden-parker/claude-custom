@@ -21,6 +21,10 @@ export function withContext(override: ProfileOverride, context: number | null): 
   return { ...override, context: context ?? undefined };
 }
 
+export function withOutputTokens(override: ProfileOverride, outputTokens: number | null): ProfileOverride {
+  return { ...override, output_tokens: outputTokens ?? undefined };
+}
+
 export function withThinking(override: ProfileOverride, thinking: boolean | null): ProfileOverride {
   return { ...override, thinking: thinking ?? undefined };
 }

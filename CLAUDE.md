@@ -355,11 +355,14 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   that launch. The five deny hooks add one `"kind": "deny"` line per denial
   through `shared/hooks/hook_telemetry.py` (hook name and reason, never the
   command; a path that cannot be written never changes the decision), and
-  `.claude/verify` maps that module to their tests.
-  `bin/tool-telemetry-report LOG` summarises calls and denials and refuses a
-  symlink; its test is `bin/tool-telemetry-report.test.sh`. Its
-  `TRIM_LINE_LIMIT` must equal `MAX_LINES` in `bash-output-trim.py`
-  (`bin/check-config` checks it).
+  `.claude/verify` maps that module to their tests. An Edit, Write or MultiEdit
+  line also carries `input_bytes` (the bytes of `old_string` plus `new_string`,
+  or `content`; never the text). `bin/tool-telemetry-report LOG` summarises
+  calls and denials, and its `output` section lists per tool the median and p90
+  `input_bytes` plus the `"kind": "nudge"` lines counted per rule, so a model
+  upgrade can be judged on decode waste too; it refuses a symlink; its test is
+  `bin/tool-telemetry-report.test.sh`. Its `TRIM_LINE_LIMIT` must equal
+  `MAX_LINES` in `bash-output-trim.py` (`bin/check-config` checks it).
 - `shared/preferences/PREFERENCES.md` holds the prose rules no tool can check,
   including token discipline. `bin/claude-custom install` `@`-imports it into
   `~/.claude/CLAUDE.md`, so both backends load it. Keep it short: Ollama has
@@ -604,6 +607,17 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `misc.py`), it returns one `additionalContext` line asking for a name that
   says what the thing holds or does. Only code files count (by suffix, or a
   shebang for an extensionless one). Tests: `shared/hooks/name-nudge.test.sh`.
+- `shared/hooks/edit-nudge.py` is wired beside it (Ollama profiles only,
+  PreToolUse on Edit, Write and MultiEdit) and never denies: decode on a laptop
+  is memory-bandwidth bound, so it returns one `additionalContext` line when an
+  Edit's `old_string` is over 40 lines or 1500 characters while `new_string`
+  changes fewer than a quarter of those lines (`edit/echoed-old-string`), a
+  Write targets an existing file over 60 lines (`write/rewrites-file`), or a
+  MultiEdit carries more than 8 edits (`multiedit/too-many-edits`). Each nudge
+  is one `"kind": "nudge"` telemetry line with its `rule` id, never the text.
+  `CLAUDE_OLLAMA_EDIT_NUDGE=0` (the console's "Nudge wasteful edits" switch)
+  turns it off; `bin/check-config` fails when an Ollama profile lacks it. Tests:
+  `shared/hooks/edit-nudge.test.sh`.
 - `shared/hooks/context-budget.py` and `shared/hooks/handoff-relaunch.py`
   (Ollama-only, in `ollama/hooks.extra.json`) chain short sessions through
   `/handoff` instead of letting the small model compact. The first is a
@@ -1153,13 +1167,16 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   context, the other sizes 96k. It must name every tool the session can call
   (the launcher's `--tools` list and each MCP server's tool names);
   `bin/check-config` fails when one is missing. `ollama/sizes.json` is the
-  single source for each size's `context`: `bin/ollama-profiles` writes it to
-  `Modelfile.<size>` (`num_ctx`) and, minus `output_tokens` and
-  `summary_reserve` from `ollama/headroom.json`, to
+  single source for each size's `context` and `output_tokens`:
+  `bin/ollama-profiles` writes them to `Modelfile.<size>` (`num_ctx`,
+  `num_predict`) and to `CLAUDE_CODE_MAX_OUTPUT_TOKENS`, and the context minus
+  `output_tokens` and the `summary_reserve` from `ollama/headroom.json` to
   `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, so the prompt at the 88% compaction trigger
-  plus the output and the compaction summary still fit in `num_ctx`
-  (`bin/check-config` asserts the sum, `doctor` reports the headroom, and a
-  profile's `context` override keeps the same margin through
+  plus the output and the compaction summary still fit in `num_ctx` (a size
+  without `output_tokens` takes `headroom.json`'s; `bin/check-config` asserts
+  the sum and that `num_predict`, `CLAUDE_CODE_MAX_OUTPUT_TOKENS` and
+  `sizes.json` agree per size, `doctor` reports the headroom, and a profile's
+  `context` or `output_tokens` override keeps the same margin through
   `shared/profile-overlay`); the `ollama create` names are the ones that `model`
   and the `ANTHROPIC_DEFAULT_*_MODEL` vars refer to. A managed `availableModels`
   that lacks the model makes Claude Code substitute a `[1m]` ID, which assumes a
@@ -1181,29 +1198,30 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   the repo). `~/.config/claude-custom/profiles/<id>.json` (`claude-code`, or
   `ollama-<size>`) layers on top through `shared/profile-overlay` (POSIX sh +
   jq): `settings` applies tool states, `sandbox:false` (claude-code only),
-  `context` and `thinking:true` (Ollama only; it drops the
-  `CLAUDE_CODE_EXTRA_BODY` that turns thinking off, so Claude Code's own
-  adaptive request reaches Ollama); `tools`, `env`, `mcp`, `parameters`,
-  `summary` and `check` serve `bin/claude-ollama`. `env` exports only its
-  `env_allowlist`: the 0/1 switches `CLAUDE_OLLAMA_TELEMETRY`,
-  `CLAUDE_OLLAMA_NO_INDEX`, `CLAUDE_OLLAMA_OPEN_DRAFTS`, `CLAUDE_OLLAMA_CMUX`,
-  `CLAUDE_OLLAMA_RELAUNCH`, `CLAUDE_OLLAMA_INCIDENTS`, `CLAUDE_OLLAMA_PROXY`
-  (default on), `CLAUDE_OLLAMA_PROXY_RECORD` (default off),
-  `CLAUDE_CUSTOM_FRICTION` (on), `CLAUDE_OLLAMA_LEASE` (on),
-  `CLAUDE_OLLAMA_LADDER` (on), `CLAUDE_OLLAMA_FIT` (on), `CLAUDE_OLLAMA_BEACON`
-  (on) and `CLAUDE_OLLAMA_RULE_CARDS` (on), plus `CLAUDE_OLLAMA_HANDOFF_PCT` (a
-  whole percent from 30 to 85, default 70), `CLAUDE_OLLAMA_LEASE_HEARTBEAT`
-  (whole seconds from 30 to 600, default 120) and
-  `CLAUDE_OLLAMA_TEST_AFTER_EDIT` (`0`, `suggest` or `run`, default `suggest`).
-  That list must equal `PROFILE_ENV_KEYS` in
-  `web/console/src/lib/profile-rules.ts`, and this file and `docs/ollama.md`
-  must name every key (`bin/check-config` checks both); the console's Profiles
-  page shows each key by the plain label, default and help sentence in
-  `PROFILE_ENV_FIELDS`, never the variable name, grouped under the field's
-  `group`, and hides every Ollama-only field from the `claude-code` profile,
-  which of the harness switches sees only `CLAUDE_CUSTOM_FRICTION`. It refuses a
-  symlinked profile, and `Agent` never reaches an Ollama profile. The overlay
-  sets `sandbox.enabled` and the ask rule
+  `context`, `output_tokens` (1024 to 16384: `CLAUDE_CODE_MAX_OUTPUT_TOKENS` and
+  the `num_predict` parameter, the freed tokens going back to the context) and
+  `thinking:true` (Ollama only; it drops the `CLAUDE_CODE_EXTRA_BODY` that turns
+  thinking off, so Claude Code's own adaptive request reaches Ollama); `tools`,
+  `env`, `mcp`, `parameters`, `summary` and `check` serve `bin/claude-ollama`.
+  `env` exports only its `env_allowlist`: the 0/1 switches
+  `CLAUDE_OLLAMA_TELEMETRY`, `CLAUDE_OLLAMA_NO_INDEX`,
+  `CLAUDE_OLLAMA_OPEN_DRAFTS`, `CLAUDE_OLLAMA_CMUX`, `CLAUDE_OLLAMA_RELAUNCH`,
+  `CLAUDE_OLLAMA_INCIDENTS`, `CLAUDE_OLLAMA_PROXY` (default on),
+  `CLAUDE_OLLAMA_PROXY_RECORD` (default off), `CLAUDE_CUSTOM_FRICTION` (on),
+  `CLAUDE_OLLAMA_LEASE` (on), `CLAUDE_OLLAMA_LADDER` (on), `CLAUDE_OLLAMA_FIT`
+  (on), `CLAUDE_OLLAMA_BEACON` (on), `CLAUDE_OLLAMA_RULE_CARDS` (on) and
+  `CLAUDE_OLLAMA_EDIT_NUDGE` (on), plus `CLAUDE_OLLAMA_HANDOFF_PCT` (a whole
+  percent from 30 to 85, default 70), `CLAUDE_OLLAMA_LEASE_HEARTBEAT` (whole
+  seconds from 30 to 600, default 120) and `CLAUDE_OLLAMA_TEST_AFTER_EDIT` (`0`,
+  `suggest` or `run`, default `suggest`). That list must equal
+  `PROFILE_ENV_KEYS` in `web/console/src/lib/profile-rules.ts`, and this file
+  and `docs/ollama.md` must name every key (`bin/check-config` checks both); the
+  console's Profiles page shows each key by the plain label, default and help
+  sentence in `PROFILE_ENV_FIELDS`, never the variable name, grouped under the
+  field's `group`, and hides every Ollama-only field from the `claude-code`
+  profile, which of the harness switches sees only `CLAUDE_CUSTOM_FRICTION`. It
+  refuses a symlinked profile, and `Agent` never reaches an Ollama profile. The
+  overlay sets `sandbox.enabled` and the ask rule
   `Bash(dangerouslyDisableSandbox:true)`, so every personal session (subagents
   and `--agent pr-review` included) runs Claude's shell commands inside Claude
   Code's sandbox and asks before one runs outside it; `bin/check-config` checks

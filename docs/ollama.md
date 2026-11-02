@@ -41,9 +41,12 @@ Sizes are declared in `ollama/sizes.json`. `bin/ollama-profiles` renders
 `settings.<size>.json` and `Modelfile.<size>` from
 `ollama/profile-template.json` and `ollama/profile-template.Modelfile`; the
 rendered files are committed, and `bin/ollama-profiles --check` fails when they
-are stale. To add a size, add an entry to `sizes.json`, run
-`bin/ollama-profiles`, and commit. The picker and `--help` pick up a new size
-without any script change.
+are stale. Each size's `output_tokens` caps one reply: it becomes the
+Modelfile's `num_predict` and the profile's `CLAUDE_CODE_MAX_OUTPUT_TOKENS`
+(decode is the slow path on a laptop, every output token sweeping the active
+weights), and `bin/check-config` fails when the two disagree with `sizes.json`.
+To add a size, add an entry to `sizes.json`, run `bin/ollama-profiles`, and
+commit. The picker and `--help` pick up a new size without any script change.
 
 Two GGUF sizes, `27b-gguf` (Qwen3.8 27B) and `35b-gguf` (Qwen3.6 35B-A3B), use
 Unsloth's Q4_K_XL files from Hugging Face for comparison with the MLX sizes.
@@ -433,6 +436,15 @@ cards and names a malformed one. `CLAUDE_OLLAMA_RULE_CARDS=0` (the console's
 "Deliver rule cards just in time" switch) turns the hook off, and
 `CLAUDE_OLLAMA_RULE_CARDS_DIR` points it at another folder of cards.
 
+`shared/hooks/edit-nudge.py` watches decode waste the same way: it never denies,
+but adds one line of context when an Edit echoes a long `old_string` to change a
+few lines, a Write rewrites an existing file over 60 lines, or a MultiEdit
+carries more than 8 edits. Each nudge is a `"kind": "nudge"` telemetry line with
+its rule id, which `bin/tool-telemetry-report` counts in its `output` section
+beside the median and p90 input bytes of Edit and Write calls.
+`CLAUDE_OLLAMA_EDIT_NUDGE=0` (the console's "Nudge wasteful edits" switch) turns
+it off.
+
 In a cmux terminal the launcher also appends `ollama/CLAUDE.cmux.md` to the
 session prompt, which tells the model to open every markdown file it writes with
 the vendored `/cmux-markdown` skill (`ollama/skills/cmux-markdown`, pinned to
@@ -561,7 +573,8 @@ launch (every key optional):
 
 `tools` takes `default|allow|ask|deny|off` per tool: `allow` and `ask` add the
 tool to `--tools` and the settings, `off` and `deny` remove it, `default` leaves
-it. `Agent` cannot be enabled for Ollama (there is no side model). A `context`
+it. `Agent` cannot be enabled for Ollama (there is no side model). A `context`,
+`output_tokens` (1024 to 16384, the console's "Output tokens per reply" field)
 or `parameters` override recreates the `-cc` model at launch, as the Modelfile
 drift fix does, and `doctor` checks the same values. `thinking: true` turns the
 model's thinking on for that size (off by default, see above). `env` takes only
@@ -577,6 +590,7 @@ the harness switches, each `0` or `1` unless noted:
 | `CLAUDE_CUSTOM_FRICTION`        | 1       | Reset a looping guard after three identical denials                            |
 | `CLAUDE_OLLAMA_LADDER`          | 1       | Degrade rung by rung on incident evidence                                      |
 | `CLAUDE_OLLAMA_TEST_AFTER_EDIT` | suggest | After each edit: suggest the test (`suggest`), run it (`run`) or neither (`0`) |
+| `CLAUDE_OLLAMA_EDIT_NUDGE`      | 1       | Nudge wasteful edits                                                           |
 | `CLAUDE_OLLAMA_LEASE`           | 1       | Hold an Ollama residency lease and heartbeat                                   |
 | `CLAUDE_OLLAMA_LEASE_HEARTBEAT` | 120     | Whole seconds between keep-alive heartbeats, 30-600                            |
 | `CLAUDE_OLLAMA_FIT`             | 1       | Check memory fit before launch                                                 |

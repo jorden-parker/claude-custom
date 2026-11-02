@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { baseModelForSize, modelForSize } from "./size-models";
+import { baseModelForSize, modelForSize, sizeSettings } from "./size-models";
 
 const REPO_DIR = fileURLToPath(new URL("../../../../", import.meta.url));
 
@@ -17,6 +17,23 @@ describe("modelForSize", () => {
   it("gives null for a size that would leave the ollama folder", () => {
     expect(modelForSize(REPO_DIR, "../ollama/settings.35b")).toBeNull();
     expect(modelForSize(REPO_DIR, "")).toBeNull();
+  });
+});
+
+describe("sizeSettings", () => {
+  it("reads a configured size's context and output tokens", () => {
+    expect(sizeSettings(REPO_DIR, "27b")).toMatchObject({
+      context: 65536,
+      outputTokens: 8192,
+    });
+  });
+
+  it("gives null sizes for a size that is not configured", () => {
+    expect(sizeSettings(REPO_DIR, "999b")).toEqual({
+      context: null,
+      outputTokens: null,
+      parameters: {},
+    });
   });
 });
 

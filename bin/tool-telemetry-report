@@ -126,6 +126,37 @@ def lint_lines(rows):
     return lines or ["lint: none flagged"]
 
 
+def percentile_90(sizes):
+    ranked = sorted(sizes)
+    return ranked[max(0, -(-9 * len(ranked) // 10) - 1)]
+
+
+def input_rows(calls):
+    by_tool = defaultdict(list)
+    for call in calls:
+        if "input_bytes" in call:
+            by_tool[call["tool"]].append(call["input_bytes"])
+    return [(tool, len(sizes), statistics.median(sizes), percentile_90(sizes)) for tool, sizes in sorted(by_tool.items())]
+
+
+def nudge_counts(nudges):
+    return Counter(nudge.get("rule") or nudge.get("reason", "") for nudge in nudges)
+
+
+def print_output(calls, nudges):
+    print()
+    rows = input_rows(calls)
+    if not rows and not nudges:
+        print("output: none")
+        return
+    print("output")
+    print(f"{'tool':<12}{'calls':>7}{'median':>10}{'p90':>10}")
+    for tool, count, median, p90 in rows:
+        print(f"{tool:<12}{count:>7}{median:>10.0f}{p90:>10}")
+    counted = ", ".join(f"{rule} {count}" for rule, count in nudge_counts(nudges).most_common())
+    print(f"nudges: {counted or 'none'}")
+
+
 def print_guards(denials, trips):
     print()
     rows = guard_rows(denials, trips)
@@ -176,6 +207,7 @@ def main():
     print_friction(frictions)
     print_guards(denials, [line for line in frictions if "saved_bytes" not in line])
     print_tests([record for record in records if record.get("kind") == "test-after-edit"])
+    print_output(calls, [record for record in records if record.get("kind") == "nudge"])
 
 
 main()

@@ -474,7 +474,7 @@ check_that "claude-ollama recreates a model with a stale num_ctx" grep -qE '^cre
 check_that "the recreated model builds on the installed one" grep -qxF "modelfile: FROM qwen3.8-27b-cc" "$sandbox/ollama.log"
 check_that "the recreated model gets the profile num_ctx" grep -qxF "modelfile: PARAMETER num_ctx 65536" "$sandbox/ollama.log"
 check_not "a stale num_ctx does not pull the base model" grep -q '^pull ' "$sandbox/ollama.log"
-check_that "claude-ollama says it recreates the model" grep -qF "recreating qwen3.8-27b-cc with num_ctx 65536 temperature 0.7 top_k 20 top_p 0.8" "$sandbox/err"
+check_that "claude-ollama says it recreates the model" grep -qF "recreating qwen3.8-27b-cc with num_ctx 65536 num_predict 8192 temperature 0.7 top_k 20 top_p 0.8" "$sandbox/err"
 check_that "claude-ollama launches after recreating" grep -qF -- "--model qwen3.8-27b-cc --tools" "$sandbox/out"
 new_sandbox
 STUB_OLLAMA_TEMPERATURE=1 run_capture "$repo/bin/claude-ollama" 27b -p hi
@@ -1372,7 +1372,7 @@ printf '%s' '{"context":32768}' > "$profiles/ollama-27b.json"
 run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "a context override recreates the model with its num_ctx" grep -qxF "modelfile: PARAMETER num_ctx 32768" "$sandbox/ollama.log"
 check_that "the recreated model builds on the installed one" grep -qxF "modelfile: FROM qwen3.8-27b-cc" "$sandbox/ollama.log"
-check_that "claude-ollama says it recreates with the merged parameters" grep -qF "recreating qwen3.8-27b-cc with num_ctx 32768 temperature 0.7 top_k 20 top_p 0.8" "$sandbox/err"
+check_that "claude-ollama says it recreates with the merged parameters" grep -qF "recreating qwen3.8-27b-cc with num_ctx 32768 num_predict 8192 temperature 0.7 top_k 20 top_p 0.8" "$sandbox/err"
 check_eq "the derived settings carry the override context" 20480 "$(jq -r '.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS' "$profile_settings")"
 check_that "the launch uses the derived settings" grep -qF -- "--settings $profile_settings" "$sandbox/out"
 STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2 OLLAMA_NUM_PARALLEL=1" run_capture "$repo/bin/claude-ollama" doctor 27b

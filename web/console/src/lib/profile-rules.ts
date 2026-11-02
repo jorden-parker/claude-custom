@@ -6,6 +6,7 @@ export type ProfileOverride = {
   tools?: Record<string, ToolState>;
   sandbox?: boolean;
   context?: number;
+  output_tokens?: number;
   thinking?: boolean;
   parameters?: Record<string, number>;
   mcp?: Record<string, boolean>;
@@ -25,6 +26,11 @@ type ParameterRange = { min: number; max: number; integer?: boolean };
 
 export const CONTEXT_MINIMUM = 4096;
 export const CONTEXT_CAP = 262144;
+export const OUTPUT_TOKENS_RANGE: NumberRange = {
+  min: 1024,
+  max: 16384,
+  step: 1024,
+};
 export const OLLAMA_MCP_SERVERS = ["code-search", "repo", "dev"] as const;
 export const PROFILE_ENV_KEYS = [
   "CLAUDE_OLLAMA_PROXY",
@@ -35,6 +41,7 @@ export const PROFILE_ENV_KEYS = [
   "CLAUDE_CUSTOM_FRICTION",
   "CLAUDE_OLLAMA_LADDER",
   "CLAUDE_OLLAMA_TEST_AFTER_EDIT",
+  "CLAUDE_OLLAMA_EDIT_NUDGE",
   "CLAUDE_OLLAMA_LEASE",
   "CLAUDE_OLLAMA_LEASE_HEARTBEAT",
   "CLAUDE_OLLAMA_FIT",
@@ -169,6 +176,15 @@ export const PROFILE_ENV_FIELDS: readonly ProfileEnvField[] = [
     ollamaOnly: true,
   },
   {
+    key: "CLAUDE_OLLAMA_EDIT_NUDGE",
+    label: "Nudge wasteful edits",
+    help: "One line of context when an Edit echoes a long old_string to change a few lines, a Write rewrites a long file, or a MultiEdit carries over 8 edits; decode is the slow path on a laptop.",
+    group: "Guards",
+    kind: "switch",
+    defaultValue: "1",
+    ollamaOnly: true,
+  },
+  {
     key: "CLAUDE_OLLAMA_LEASE",
     label: "Hold an Ollama residency lease and heartbeat",
     help: "A second session or bench waits instead of evicting this one's model, and a keep-alive request keeps it loaded.",
@@ -272,12 +288,19 @@ const TOP_LEVEL_KEYS = [
   "tools",
   "sandbox",
   "context",
+  "output_tokens",
   "thinking",
   "parameters",
   "mcp",
   "env",
 ];
-const OLLAMA_ONLY_KEYS = ["context", "thinking", "parameters", "mcp"];
+const OLLAMA_ONLY_KEYS = [
+  "context",
+  "output_tokens",
+  "thinking",
+  "parameters",
+  "mcp",
+];
 const SWITCH_VALUES = ["0", "1"];
 
 export function validateProfileOverride(
@@ -303,6 +326,9 @@ function normalizeOverride(override: ProfileOverride): ProfileOverride {
     ...(tools && { tools }),
     ...(override.sandbox !== undefined && { sandbox: override.sandbox }),
     ...(override.context !== undefined && { context: override.context }),
+    ...(override.output_tokens !== undefined && {
+      output_tokens: override.output_tokens,
+    }),
     ...(override.thinking !== undefined && { thinking: override.thinking }),
     ...(parameters && { parameters }),
     ...(mcp && { mcp }),
@@ -314,6 +340,7 @@ export function overrideCount(override: ProfileOverride): number {
   const scalars = [
     override.sandbox,
     override.context,
+    override.output_tokens,
     override.thinking,
   ].filter((value) => value !== undefined).length;
   const maps = [
@@ -358,6 +385,7 @@ function sectionProblem(
     toolsProblem(body.tools, rules) ??
     sandboxProblem(body.sandbox) ??
     contextProblem(body.context, rules.contextMaximum) ??
+    outputTokensProblem(body.output_tokens) ??
     thinkingProblem(body.thinking) ??
     parametersProblem(body.parameters) ??
     mcpProblem(body.mcp) ??
@@ -416,6 +444,33 @@ function contextProblem(context: unknown, maximum: number): string | null {
     return null;
   }
   return `context must be from ${CONTEXT_MINIMUM} to ${maximum}`;
+}
+
+function outputTokensProblem(outputTokens: unknown): string | null {
+  if (
+    outputTokens === undefined ||
+    isWholeNumberBetween(
+      outputTokens,
+      OUTPUT_TOKENS_RANGE.min,
+      OUTPUT_TOKENS_RANGE.max,
+    )
+  ) {
+    return null;
+  }
+  return `output_tokens must be a whole number from ${OUTPUT_TOKENS_RANGE.min} to ${OUTPUT_TOKENS_RANGE.max}`;
+}
+
+function isWholeNumberBetween(
+  value: unknown,
+  min: number,
+  max: number,
+): boolean {
+  return (
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= min &&
+    value <= max
+  );
 }
 
 function isContextInRange(value: unknown, maximum: number): boolean {

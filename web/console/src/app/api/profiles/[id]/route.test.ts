@@ -67,6 +67,7 @@ describe("/api/profiles/[id]", () => {
 
     expect(body.model).toBe("qwen3.8-27b-cc");
     expect(body.base.context).toBe(65536);
+    expect(body.base.outputTokens).toBe(8192);
     expect(body.base.parameters).toEqual({ temperature: 0.7 });
     expect(body.base.hooks).toEqual([{ event: "Stop", matcher: "*", command: "stop-verify.py" }]);
     expect(body.base.mcpServers).toEqual(["code-search", "repo", "dev"]);

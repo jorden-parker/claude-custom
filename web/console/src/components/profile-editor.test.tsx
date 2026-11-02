@@ -49,6 +49,7 @@ const OLLAMA_DETAIL = {
     ...CLAUDE_CODE_DETAIL.base,
     settingsPath: "/repo/ollama/settings.27b.json",
     context: 65536,
+    outputTokens: 8192,
     parameters: { temperature: 0.7 },
     mcpServers: ["code-search", "repo", "dev"],
   },
@@ -169,6 +170,16 @@ describe("ProfileEditor", () => {
 
     expect(
       await screen.findByRole("spinbutton", { name: "Context tokens" }),
+    ).toBeTruthy();
+    const outputTokens = screen.getByRole("spinbutton", {
+      name: "Output tokens per reply",
+    });
+    expect(outputTokens.getAttribute("placeholder")).toBe("8192");
+    expect(outputTokens.getAttribute("min")).toBe("1024");
+    expect(outputTokens.getAttribute("max")).toBe("16384");
+    expect(outputTokens.getAttribute("step")).toBe("1024");
+    expect(
+      screen.getByText(/decode is the slow path on a laptop/),
     ).toBeTruthy();
     expect(
       screen

@@ -20,6 +20,14 @@ printf '%s\n' \
   '{"time":1781870400,"session":"a","tool":"Bash","bytes":1000,"lines":10,"over_trim_limit":false}' \
   '{"time":1781870460,"session":"a","tool":"Bash","bytes":3000,"lines":200,"over_trim_limit":true}' \
   '{"time":1781870520,"session":"b","tool":"Read","bytes":500,"lines":5,"over_trim_limit":false}' \
+  '{"time":1781870530,"session":"b","tool":"Edit","bytes":40,"lines":1,"over_trim_limit":false,"input_bytes":100}' \
+  '{"time":1781870531,"session":"b","tool":"Edit","bytes":40,"lines":1,"over_trim_limit":false,"input_bytes":300}' \
+  '{"time":1781870532,"session":"b","tool":"Edit","bytes":40,"lines":1,"over_trim_limit":false,"input_bytes":200}' \
+  '{"time":1781870533,"session":"b","tool":"Edit","bytes":40,"lines":1,"over_trim_limit":false,"input_bytes":5000}' \
+  '{"time":1781870534,"session":"b","tool":"Write","bytes":40,"lines":1,"over_trim_limit":false,"input_bytes":2400}' \
+  '{"time":1781870535,"session":"b","kind":"nudge","hook":"edit-nudge","tool":"Edit","reason":"edit/echoed-old-string","rule":"edit/echoed-old-string"}' \
+  '{"time":1781870536,"session":"b","kind":"nudge","hook":"edit-nudge","tool":"Edit","reason":"edit/echoed-old-string","rule":"edit/echoed-old-string"}' \
+  '{"time":1781870537,"session":"b","kind":"nudge","hook":"edit-nudge","tool":"Write","reason":"write/rewrites-file","rule":"write/rewrites-file"}' \
   '{"time":1781870580,"session":"a","kind":"deny","hook":"bash-output-guard","tool":"Bash","reason":"git log is unbounded"}' \
   'not json, written by a session' \
   '{"time":1781870640,"session":"b","kind":"deny","hook":"bash-output-guard","tool":"Bash","reason":"ls -R is unbounded"}' \
@@ -43,6 +51,13 @@ check "largest call is listed with its session" \
   grep -Eq '^ +3000 +Bash +a ' <<<"$output"
 check "log path can come from CLAUDE_TOOL_TELEMETRY" \
   grep -Eq '^Read +1 +500 ' <<<"$(CLAUDE_TOOL_TELEMETRY="$log" "$report")"
+check "the output section lists Edit input bytes with median and p90" \
+  grep -Eq '^Edit +4 +250 +5000$' <<<"$output"
+check "the output section lists Write input bytes" \
+  grep -Eq '^Write +1 +2400 +2400$' <<<"$output"
+check "nudges are counted per rule" \
+  grep -qxF 'nudges: edit/echoed-old-string 2, write/rewrites-file 1' <<<"$output"
+check "nudges are not counted as denials" test "$(grep -c '^edit-nudge' <<<"$output")" -eq 0
 check "denials are counted per hook" \
   grep -Eq '^bash-output-guard +2 ' <<<"$output"
 check "the denials table names the most recent reason" \
@@ -61,7 +76,7 @@ check "a hook with trips and no denials shows no rate" \
   grep -Eq '^tool-nudge +0 +1 +-$' <<<"$output"
 check "the tests line counts calls, passes, failures and timeouts with the median seconds" \
   grep -qxF 'tests: 5 calls, 2 pass, 1 fail, 1 timeout, median 2.6s' <<<"$output"
-check "test-after-edit lines are not tool calls" test "$(grep -c '^Edit ' <<<"$output")" -eq 0
+check "test-after-edit lines are not tool calls" test "$(grep -Ec '^Edit +[0-9]+ +[0-9]+ +[0-9]+ +[0-9]+ +[0-9]+$' <<<"$output")" -eq 0
 check "cache hits are not guard trips" test "$(grep -c '^repeat-call-cache' <<<"$output")" -eq 0
 check "a hook under 30 denials is never flagged" \
   grep -qxF 'lint: none flagged' <<<"$output"
@@ -88,6 +103,8 @@ check "a log with no test runs says so" \
   grep -qxF 'tests: none' <<<"$("$report" "$calls_only")"
 check "a log with no guard events says so" \
   grep -qxF 'guards: none' <<<"$("$report" "$calls_only")"
+check "a log with no edits or nudges says so" \
+  grep -qxF 'output: none' <<<"$("$report" "$calls_only")"
 linked_log="$sandbox/linked.log"
 ln -s "$log" "$linked_log"
 linked_output="$("$report" "$linked_log" 2>"$sandbox/linked.err")"

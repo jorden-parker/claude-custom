@@ -37,7 +37,7 @@ function writeRepoFiles(repoDir: string): void {
   fs.writeFileSync(path.join(repoDir, "ollama", "Modelfile.27b"), "FROM qwen3.8:27b-mlx\n");
   fs.writeFileSync(
     path.join(repoDir, "ollama", "sizes.json"),
-    JSON.stringify({ "27b": { base: "qwen3.8:27b-mlx", model: "qwen3.8-27b-cc", context: 65536, parameters: { temperature: 0.7 } } }),
+    JSON.stringify({ "27b": { base: "qwen3.8:27b-mlx", model: "qwen3.8-27b-cc", context: 65536, output_tokens: 8192, parameters: { temperature: 0.7 } } }),
   );
   writeClaudeToolsStub(path.join(repoDir, "bin", "claude-tools"));
 }

@@ -1,5 +1,6 @@
 FROM ./weights/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf
 PARAMETER num_ctx 98304
+PARAMETER num_predict 8192
 RENDERER qwen3.5
 PARSER qwen3.5
 PARAMETER min_p 0

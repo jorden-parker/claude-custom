@@ -13,6 +13,7 @@ export type ProfileBase = {
   settingsPath: string;
   tools: ToolRow[];
   context: number | null;
+  outputTokens: number | null;
   parameters: Record<string, number>;
   hooks: HookLine[];
   mcpServers: readonly string[];
@@ -56,6 +57,7 @@ export async function loadProfileBase(id: string): Promise<BaseLoad> {
       settingsPath,
       tools: report.tools,
       context: sizing?.context ?? null,
+      outputTokens: sizing?.outputTokens ?? null,
       parameters: sizing?.parameters ?? {},
       hooks: hookLines(readJsonFile(settingsPath)),
       mcpServers: size === null ? [] : OLLAMA_MCP_SERVERS,
