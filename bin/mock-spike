@@ -1,0 +1,29 @@
+#!/bin/bash
+set -eu
+
+script="$0"
+while [ -L "$script" ]; do
+  script="$(readlink "$script")"
+done
+repo_dir="$(cd "$(dirname "$script")/.." && pwd -P)"
+web_dir="${CLAUDE_OLLAMA_WEB_DIR:-$repo_dir/web/console}"
+runner="${MOCK_SPIKE_NODE:-node}"
+
+for tool in "$runner" pnpm; do
+  if ! command -v "$tool" >/dev/null 2>&1; then
+    echo "mock-spike: $tool is required (brew install $tool)" >&2
+    exit 1
+  fi
+done
+
+install_needed() {
+  local marker="$web_dir/node_modules/.modules.yaml"
+  [ -f "$marker" ] || return 0
+  [ "$web_dir/pnpm-lock.yaml" -nt "$marker" ]
+}
+
+if install_needed; then
+  pnpm --dir "$web_dir" install --frozen-lockfile >&2
+fi
+
+exec "$runner" --no-warnings=MODULE_TYPELESS_PACKAGE_JSON "$web_dir/scripts/mock-spike.mts" "$@"

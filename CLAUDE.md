@@ -334,6 +334,16 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `--scenario NAME` picks some) with `pr-review-local --range`, checks each
   verdict, and prints a scorecard ending in a `total:` line; tests:
   `bin/pr-review-eval.test.sh` (stub reviewer)
+- Mockup spike: `claude-ollama mock-spike [size] [--runs N] [--brief NAME]...`
+  (`bin/mock-spike --model M [--base-url URL] [--out FILE]`) streams three
+  mockup briefs through Ollama `/api/chat` with the json-render catalog prompt
+  from `web/console/src/lib/mock-spike/catalog.ts`, scores each reply (patch
+  lines, elements, catalog validation, first-patch time) with
+  `web/console/src/lib/mock-spike/score.ts`, prints a `verdict:` line (`sound`,
+  `repairable`, `poor`) and saves `~/bench-results/mock-spike-*.json`. The CLI
+  is `web/console/scripts/mock-spike.mts` (plain `node`, no build); the wrapper
+  installs the console's packages when they are missing. Tests:
+  `bin/mock-spike.test.sh` (stub node and pnpm) and the console's vitest suite.
 - `shared/hooks/tool-nudge.py` is wired only in the Ollama profiles
   (UserPromptSubmit resets its per-session state under
   `${CLAUDE_CONFIG_DIR:-~/.claude}/cache/tool-nudge/`). As PreToolUse on Bash

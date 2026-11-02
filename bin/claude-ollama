@@ -1019,6 +1019,7 @@ case "${1:-}" in
     echo "--print-config [size]: print the resolved settings and the claude command"
     echo "logs [-n LINES|--path]: follow the Ollama server log (LaunchAgent, Homebrew service or app), or print its path"
     echo "review [size] PR [--post]: review a pull request with the size's model, one file per request"
+    echo "mock-spike [size] [--runs N] [--brief NAME]...: measure how well the size's model streams json-render mockup patches"
     echo "ui [--port N]: serve the console (runs, health, logs, models, reviews) at http://127.0.0.1:8765/"
     echo "reviews [--port N]: serve live and past reviews at http://127.0.0.1:8765/"
     echo "fetch domains: list hostnames in ~/.config/claude-custom/fetch-domains to give sessions WebFetch for them"
@@ -1037,6 +1038,7 @@ case "${1:-}" in
   logs) mode=logs; shift ;;
   prepare-embedding) mode=prepare-embedding; shift ;;
   review) mode=review; shift ;;
+  mock-spike) mode=mock-spike; shift ;;
   ui) mode=ui; shift ;;
   reviews) mode=reviews; shift ;;
   prepare) mode=prepare; shift ;;
@@ -1079,6 +1081,12 @@ run_review() {
   exec "${CLAUDE_OLLAMA_REVIEWER:-$repo_dir/bin/pr-review-local}" --model "$model" --base-url "$ollama_url" "$@" "$target"
 }
 
+run_mock_spike() {
+  ensure_model
+  warm_model
+  exec "${CLAUDE_OLLAMA_MOCK_SPIKE:-$repo_dir/bin/mock-spike}" --model "$model" --base-url "$ollama_url" "$@"
+}
+
 if [ $# -gt 0 ] && is_configured_size "$1"; then
   size="$1"
   shift
@@ -1107,6 +1115,7 @@ case "$mode" in
     exit 0 ;;
   doctor) if [ "$harness" = qwen ]; then qwen_doctor; else doctor; fi ;;
   review) run_review "$review_target" "$@" ;;
+  mock-spike) run_mock_spike "$@" ;;
   prepare) ensure_model; exit 0 ;;
 esac
 

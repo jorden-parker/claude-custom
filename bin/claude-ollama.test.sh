@@ -633,6 +633,17 @@ check_that "review passes its own flags before the target" \
   grep -qxF "REVIEW: --model qwen3.8-27b-cc --base-url http://127.0.0.1:11434 --post 45" "$sandbox/out"
 run_capture "$repo/bin/claude-ollama" review 9 </dev/null
 check_that "review without a size uses the default" grep -q 'REVIEW: --model qwen3.8-27b-cc ' "$sandbox/out"
+cat > "$sandbox/stubbin/mock-spike" <<EOF
+#!/bin/sh
+echo "SPIKE: \$*"
+EOF
+chmod +x "$sandbox/stubbin/mock-spike"
+export CLAUDE_OLLAMA_MOCK_SPIKE="$sandbox/stubbin/mock-spike"
+run_capture "$repo/bin/claude-ollama" mock-spike 27b --runs 2 </dev/null
+check_eq "mock-spike exit status" 0 "$?"
+check_that "mock-spike runs the spike with the size's model and server" \
+  grep -qxF "SPIKE: --model qwen3.8-27b-cc --base-url http://127.0.0.1:11434 --runs 2" "$sandbox/out"
+unset CLAUDE_OLLAMA_MOCK_SPIKE
 unset CLAUDE_OLLAMA_REVIEWER
 run_capture "$repo/bin/claude-ollama" --help
 check_that "claude-ollama help lists logs" grep -q '^logs \[-n LINES|--path\]: ' "$sandbox/out"
