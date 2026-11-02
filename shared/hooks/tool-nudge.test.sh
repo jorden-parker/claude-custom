@@ -142,6 +142,20 @@ printf '{"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"Bash","to
   | env -u CLAUDE_TOOL_TELEMETRY python3 "$hook" >/dev/null
 expect_eq "nothing is recorded when CLAUDE_TOOL_TELEMETRY is unset" no "$([ -e "$telemetry_log" ] && echo yes || echo no)"
 
+printf '{"session_id":"s1","hook_event_name":"UserPromptSubmit"}' | python3 "$(dirname "$0")/friction_budget.py"
+event UserPromptSubmit >/dev/null
+rm -f "$telemetry_log"
+for _ in 1 2 3; do telemetry_for 'grep -n foo src/a.py'; done
+fourth_strike="$(printf '{"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"grep -n foo src/b.py"}}' | CLAUDE_TOOL_TELEMETRY="$telemetry_log" python3 "$hook")"
+if ! grep -qF '"permissionDecision": "deny"' <<<"$fourth_strike" || ! grep -qF 'call semantic_search once, then grep' <<<"$fourth_strike"; then
+  echo "FAIL: the fourth near-identical denial is a plan reset naming the alternative"
+  failures=$((failures + 1))
+fi
+if ! grep -qF '"kind": "friction", "hook": "tool-nudge"' "$telemetry_log"; then
+  echo "FAIL: the plan reset is recorded as friction"
+  failures=$((failures + 1))
+fi
+
 mkdir -p "$sandbox/as-directory"
 blocked_output="$(printf '%s' '{"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"grep -rn foo src"}}' | CLAUDE_TOOL_TELEMETRY="$sandbox/as-directory" python3 "$hook")"
 blocked_status=$?

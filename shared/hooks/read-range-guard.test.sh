@@ -83,6 +83,20 @@ if [ -e "$telemetry_log" ]; then
   failures=$((failures + 1))
 fi
 
+export CLAUDE_CONFIG_DIR="$tmp/config"
+printf '{"session_id":"s1","hook_event_name":"UserPromptSubmit"}' | python3 "$(dirname "$0")/friction_budget.py"
+rm -f "$telemetry_log"
+for _ in 1 2 3; do telemetry_for "$tmp/big.py"; done
+fourth_strike="$(printf '{"session_id":"s1","tool_name":"Read","tool_input":{"file_path":"%s","offset":40}}' "$tmp/big.py" | CLAUDE_TOOL_TELEMETRY="$telemetry_log" python3 "$guard")"
+if ! grep -qF '"permissionDecision": "deny"' <<<"$fourth_strike" || ! grep -qF 'pass limit 300 or less, or search first' <<<"$fourth_strike"; then
+  echo "FAIL: the fourth near-identical denial is a plan reset naming the alternative"
+  failures=$((failures + 1))
+fi
+if ! grep -qF '"kind": "friction", "hook": "read-range-guard"' "$telemetry_log"; then
+  echo "FAIL: the plan reset is recorded as friction"
+  failures=$((failures + 1))
+fi
+
 mkdir -p "$tmp/as-directory"
 blocked_output="$(printf '{"tool_name":"Read","tool_input":{"file_path":"%s"}}' "$tmp/big.py" | CLAUDE_TOOL_TELEMETRY="$tmp/as-directory" python3 "$guard")"
 blocked_status=$?

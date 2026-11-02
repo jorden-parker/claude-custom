@@ -6,6 +6,7 @@ import shlex
 import sys
 from pathlib import Path
 
+from friction_budget import deny_reason
 from hook_telemetry import record_denial
 
 TEXT_SEARCH_COMMANDS = {"grep", "rg", "ag", "ack"}
@@ -26,6 +27,10 @@ DOCS_FIRST_DENY = (
     "claude-custom ctx7), even when a project file such as AGENTS.md points at node_modules/next/dist/docs. "
     "After one lookup this turn, node_modules opens for checking details."
 )
+ALTERNATIVES = {
+    SEARCH_FIRST_DENY: "call semantic_search once, then grep",
+    DOCS_FIRST_DENY: "call Skill find-docs once, then open node_modules",
+}
 EMPTY_STATE = {"semantic_searched": False, "docs_looked_up": False}
 
 
@@ -146,8 +151,10 @@ def handle(event, state):
         return None
     tool_name = event.get("tool_name", "")
     tool_input = event.get("tool_input") or {}
-    reason = docs_gate(state, tool_name, tool_input) or search_gate(state, tool_name, tool_input)
-    return deny(reason) if reason else None
+    advice = docs_gate(state, tool_name, tool_input) or search_gate(state, tool_name, tool_input)
+    if not advice:
+        return None
+    return deny(deny_reason("tool-nudge", event, advice, ALTERNATIVES[advice]))
 
 
 def main():
