@@ -358,10 +358,12 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   packages when they are missing. Tests: `bin/mock-spike.test.sh` (stub node and
   pnpm) and the console's vitest suite. The console's `/mockups` page renders
   the newest report's specs with json-render
-  (`web/console/src/lib/mock-spike/registry.tsx` maps the catalog to the
-  vendored shadcn components) and shows each run's structural and prop issues;
-  `reports.ts` rescores every reply, so stored scores are never trusted. The
-  page also starts the spike through `console-run` (the `mock-spike` entry in
+  (`web/console/src/lib/mock-spike/registry.tsx` maps the catalog to plain
+  primitives inside `MockFrame`, whose `.mock-frame` block in `globals.css`
+  carries its own neutral palette and font, so a mockup never takes the
+  console's theme) and shows each run's structural and prop issues; `reports.ts`
+  rescores every reply, so stored scores are never trusted. The page also starts
+  the spike through `console-run` (the `mock-spike` entry in
   `console-commands.ts`, size param), lists its runs, and names the folder it
   reads with every `mock-spike-*.json` found and why any was skipped. The spike
   prints a `=== run N/M brief` marker before each run and every reply line as it

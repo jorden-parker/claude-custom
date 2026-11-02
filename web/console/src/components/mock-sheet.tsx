@@ -1,7 +1,6 @@
 "use client";
 
-import { JSONUIProvider, Renderer } from "@json-render/react";
-import { mockRegistry } from "@/lib/mock-spike/registry.tsx";
+import { MockFrame } from "@/lib/mock-spike/registry.tsx";
 import { specOutline } from "@/lib/mock-spike/outline.ts";
 import type { MockRun, MockSpikeReport } from "@/lib/mock-spike/reports.ts";
 
@@ -38,11 +37,7 @@ function MockCell({ run }: { run: MockRun }) {
         </p>
       ) : null}
       {run.score.issue === null ? (
-        <div className="rounded-md bg-background p-4">
-          <JSONUIProvider registry={mockRegistry}>
-            <Renderer spec={run.spec} registry={mockRegistry} />
-          </JSONUIProvider>
-        </div>
+        <MockFrame spec={run.spec} />
       ) : (
         <p className="text-sm text-destructive">
           Not rendered: {run.score.issue}

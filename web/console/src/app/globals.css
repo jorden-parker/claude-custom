@@ -89,7 +89,8 @@
     opacity: 1;
   }
   100% {
-    transform: translate(var(--petal-x), var(--petal-y)) rotate(var(--petal-spin));
+    transform: translate(var(--petal-x), var(--petal-y))
+      rotate(var(--petal-spin));
     opacity: 0;
   }
 }
@@ -232,8 +233,16 @@
   body {
     @apply bg-background text-foreground;
     background-image:
-      radial-gradient(circle at 18% 27%, var(--grain-speck) 0 0.6px, transparent 1px),
-      radial-gradient(circle at 73% 61%, var(--grain-speck) 0 0.6px, transparent 1px),
+      radial-gradient(
+        circle at 18% 27%,
+        var(--grain-speck) 0 0.6px,
+        transparent 1px
+      ),
+      radial-gradient(
+        circle at 73% 61%,
+        var(--grain-speck) 0 0.6px,
+        transparent 1px
+      ),
       radial-gradient(var(--meadow-dot) 1.2px, transparent 1.7px);
     background-size:
       9px 9px,
@@ -255,7 +264,9 @@
   h2,
   h3 {
     @apply font-heading tracking-heading;
-    font-variation-settings: "SOFT" 100, "WONK" 1;
+    font-variation-settings:
+      "SOFT" 100,
+      "WONK" 1;
   }
   strong,
   b {
@@ -267,4 +278,31 @@
   border-width: 2px;
   border-color: var(--border-ink);
   box-shadow: var(--sticker-shadow);
+}
+
+.mock-frame {
+  --mock-bg: #f4f4f5;
+  --mock-surface: #ffffff;
+  --mock-surface-2: #f4f4f5;
+  --mock-line: #e4e4e7;
+  --mock-ink: #18181b;
+  --mock-ink-soft: #52525b;
+  --mock-ink-faint: #a1a1aa;
+  --mock-accent: #2563eb;
+  --mock-on-accent: #ffffff;
+  --mock-success: #166534;
+  --mock-success-bg: #dcfce7;
+  --mock-warning: #92400e;
+  --mock-warning-bg: #fef3c7;
+  color-scheme: light;
+  background: var(--mock-bg);
+  color: var(--mock-ink);
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
+  line-height: 1.5;
 }
