@@ -163,6 +163,23 @@ const qwenDoctor: ConsoleCommand = {
     isConfiguredSizeOnly(params, repoDir) ? [`${repoDir}/bin/claude-ollama`, "qwen", "doctor", params.size] : null,
 };
 
+const modelUpgrade: ConsoleCommand = {
+  name: "model-upgrade",
+  label: (params) => `Model upgrade (${params.size})`,
+  argv: (params, repoDir) => (isConfiguredSizeOnly(params, repoDir) ? [`${repoDir}/bin/model-upgrade`, params.size] : null),
+};
+
+const LIBRARY_MODEL_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}(:[A-Za-z0-9._-]{1,63})?$/;
+
+const modelPin: ConsoleCommand = {
+  name: "model-pin",
+  label: (params) => `Pin ${params.name}`,
+  argv: (params, repoDir) =>
+    hasExactKeys(params, ["name"]) && LIBRARY_MODEL_PATTERN.test(params.name)
+      ? [`${repoDir}/bin/ollama-models`, "pin", params.name]
+      : null,
+};
+
 export const CONSOLE_QUERIES = {
   printConfig: {
     argv: (params, repoDir) => {
@@ -291,6 +308,8 @@ export const CONSOLE_COMMANDS: readonly ConsoleCommand[] = [
   configCheck,
   modelsOutdated,
   qwenDoctor,
+  modelUpgrade,
+  modelPin,
 ];
 
 export function toolsReportArgv(repoDir: string): string[] {

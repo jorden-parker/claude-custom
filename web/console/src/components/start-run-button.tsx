@@ -14,6 +14,7 @@ type StartRunButtonProps = {
   stay?: boolean;
   onStarted?: (id: string) => void;
   disabled?: boolean;
+  size?: "default" | "sm";
 };
 
 export function StartRunButton({
@@ -23,6 +24,7 @@ export function StartRunButton({
   stay = false,
   onStarted,
   disabled = false,
+  size = "default",
 }: StartRunButtonProps) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
@@ -47,7 +49,7 @@ export function StartRunButton({
 
   return (
     <div className="flex flex-col items-start gap-2">
-      <Button onClick={start} disabled={pending || disabled}>
+      <Button onClick={start} disabled={pending || disabled} size={size}>
         {pending ? <Loader2 className="animate-spin" /> : null}
         {children}
       </Button>

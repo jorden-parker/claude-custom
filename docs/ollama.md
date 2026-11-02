@@ -251,7 +251,11 @@ What this gives up, compared with the older session sandbox:
 - `outdated [NAME...]` compares each pin with the manifest the registry serves
   now and prints `current`, `behind`, `unknown` (no manifest), `skipped` (a GGUF
   file pin, checked by hand) or `unpinned` (a name with no pin). It exits 1 when
-  a pin is behind or a name is unpinned.
+  a pin is behind or a name is unpinned. Each `behind` or `unpinned` line is
+  followed by an indented `fix:` line with the command to run:
+  `bin/model-upgrade SIZE` when the pin is a size's base in `sizes.json`, else
+  `bin/ollama-models pin NAME`. A count line (`2 behind, 0 unpinned: ...`) ends
+  the listing when anything needs a fix.
 - `pin NAME[:TAG]` fetches the manifest from `registry.ollama.ai`, writes its
   sha256 to `ollama/model-digests.json` and prints it.
 
@@ -477,6 +481,14 @@ button, its latest result and a link to that run. Thinking check runs
 slow). Config check runs `bin/check-config`. Outdated models runs
 `bin/ollama-models outdated`. Qwen doctor runs `claude-ollama qwen doctor` for
 the size you pick.
+
+The run page shows doctor, Qwen doctor and outdated-model runs as the same
+checklist instead of raw output. A `fix:` line under a failed check appears as
+the command plus, when the console can run it, a button: "Upgrade SIZE" starts
+`bin/model-upgrade SIZE` (the `model-upgrade` command), "Pin NAME" runs
+`bin/ollama-models pin NAME` (`model-pin`; it changes
+`ollama/model-digests.json`, so review and commit the diff) and "Apply server
+env" runs `ollama-agent -apply` (`server-apply`). Each button opens the new run.
 
 `/logs` follows the Ollama server log live. The path comes from
 `claude-ollama logs --path` (LaunchAgent plist, else the Homebrew log, else

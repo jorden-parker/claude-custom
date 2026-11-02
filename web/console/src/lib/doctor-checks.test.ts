@@ -28,6 +28,26 @@ describe("parseDoctorLine", () => {
     expect(parseDoctorLine("ok")).toBeNull();
     expect(parseDoctorLine("")).toBeNull();
   });
+
+  it("reads the outdated-models words at their level, keeping the word", () => {
+    expect(parseDoctorLine("current  qwen3.8:27b-mlx")).toEqual({ level: "ok", text: "current qwen3.8:27b-mlx" });
+    expect(parseDoctorLine("skipped  ./weights/Q.gguf (GGUF, pinned by file sha256)")).toEqual({
+      level: "ok",
+      text: "skipped ./weights/Q.gguf (GGUF, pinned by file sha256)",
+    });
+    expect(parseDoctorLine("unknown  qwen3:nope (no manifest at https://registry.ollama.ai)")).toEqual({
+      level: "warn",
+      text: "unknown qwen3:nope (no manifest at https://registry.ollama.ai)",
+    });
+    expect(parseDoctorLine("behind   qwen3.6:35b-mlx (registry 4a5e, pin e92a)")).toEqual({
+      level: "fail",
+      text: "behind qwen3.6:35b-mlx (registry 4a5e, pin e92a)",
+    });
+    expect(parseDoctorLine("unpinned qwen3:none (not in ollama/model-digests.json)")).toEqual({
+      level: "fail",
+      text: "unpinned qwen3:none (not in ollama/model-digests.json)",
+    });
+  });
 });
 
 describe("doctorSummary", () => {
@@ -59,5 +79,32 @@ describe("checksFromLines", () => {
 
   it("gives empty lists for no lines", () => {
     expect(checksFromLines([])).toEqual({ checks: [], other: [] });
+  });
+
+  it("attaches indented fix lines to the check above them", () => {
+    expect(
+      checksFromLines([
+        "fail server env OLLAMA_KEEP_ALIVE=30m not set",
+        "fail server env OLLAMA_MAX_LOADED_MODELS=2 not set",
+        "     fix: claude-custom agent -apply",
+        "behind   qwen3.6:35b-mlx (registry 4a5e, pin e92a)",
+        "     fix: bin/model-upgrade 35b",
+        "2 behind, 0 unpinned: run the fix lines above",
+      ]),
+    ).toEqual({
+      checks: [
+        { level: "fail", text: "server env OLLAMA_KEEP_ALIVE=30m not set" },
+        { level: "fail", text: "server env OLLAMA_MAX_LOADED_MODELS=2 not set", fixes: ["claude-custom agent -apply"] },
+        { level: "fail", text: "behind qwen3.6:35b-mlx (registry 4a5e, pin e92a)", fixes: ["bin/model-upgrade 35b"] },
+      ],
+      other: ["2 behind, 0 unpinned: run the fix lines above"],
+    });
+  });
+
+  it("keeps a fix line with no check above it among the other lines", () => {
+    expect(checksFromLines(["     fix: bin/model-upgrade 35b"])).toEqual({
+      checks: [],
+      other: ["     fix: bin/model-upgrade 35b"],
+    });
   });
 });

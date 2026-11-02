@@ -123,7 +123,7 @@ def upgrade_from_argv(argv):
 
 def outdated_check(base):
     result = command_output([tool_path("MODEL_UPGRADE_MODELS", "ollama-models"), "outdated", base])
-    line = result.stdout.strip()
+    line = result.stdout.strip().partition("\n")[0]
     refuse(line != "", f"ollama-models outdated {base} printed nothing; see the error above")
     match = re.search(r"registry ([0-9a-f]+)", line)
     return Outdated(line=line, word=line.split()[0], registry_digest=match.group(1) if match else None)

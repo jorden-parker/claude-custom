@@ -2,21 +2,24 @@
 
 import Link from "next/link";
 import { Loader2 } from "lucide-react";
-import { useEffect, useReducer, useState } from "react";
+import { useEffect, useState } from "react";
+import { DoctorChecklist } from "@/components/doctor-checklist";
 import { useFollowScroll } from "@/components/use-follow-scroll";
+import { useRunStream } from "@/components/use-run-stream";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { parseRunEvent } from "@/lib/run-event";
+import { checksFromLines } from "@/lib/doctor-checks";
 import { percentFrom, phaseFrom } from "@/lib/pull-progress";
-import { elapsedSeconds, formatElapsed, reduceRunMessage, statusOf } from "@/lib/run-display";
+import { elapsedSeconds, formatElapsed, statusOf } from "@/lib/run-display";
 import type { RunStatus, RunSummary } from "@/lib/run-log";
-import { initialRunState, type RunState } from "@/lib/run-state";
+import type { RunState } from "@/lib/run-state";
 import { runStatusLabel, runStatusTextClass } from "@/lib/run-status-style";
 import { ProgressBar } from "@/components/progress-bar";
 
 const TICK_MS = 1000;
 const STATUS_POLL_MS = 2000;
+const CHECKLIST_COMMANDS = new Set(["doctor", "qwen-doctor", "models-outdated"]);
 
 type RunViewProps = { id: string };
 
@@ -38,25 +41,25 @@ export function RunView({ id }: RunViewProps) {
       />
       {state.stage === null ? null : <StageBar stage={state.stage} />}
       <ProgressLines progress={state.progress} />
-      <OutputBox lines={state.lines} />
+      {isChecklistRun(state) ? <ChecklistOutput state={state} /> : <OutputBox lines={state.lines} />}
       {state.ended === null ? null : <EndBanner status={status} code={state.ended.code} />}
     </div>
   );
 }
 
-export function useRunStream(id: string): RunState {
-  const [state, dispatch] = useReducer(reduceRunMessage, initialRunState);
-  useEffect(() => {
-    const source = new EventSource(`/api/runs/${encodeURIComponent(id)}/events`);
-    source.onmessage = (message) => {
-      dispatch({ data: message.data, lastEventId: message.lastEventId });
-      if (parseRunEvent(message.data)?.kind === "end") {
-        source.close();
-      }
-    };
-    return () => source.close();
-  }, [id]);
-  return state;
+function isChecklistRun(state: RunState): boolean {
+  return state.header !== null && CHECKLIST_COMMANDS.has(state.header.command);
+}
+
+function ChecklistOutput({ state }: { state: RunState }) {
+  const output = checksFromLines(state.lines.map((line) => line.text));
+  return (
+    <Card>
+      <CardContent>
+        <DoctorChecklist checks={output.checks} other={output.other} running={state.ended === null} />
+      </CardContent>
+    </Card>
+  );
 }
 
 function labelOf(state: RunState): string {

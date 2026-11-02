@@ -49,6 +49,8 @@ describe("console commands", () => {
       "config-check",
       "models-outdated",
       "qwen-doctor",
+      "model-upgrade",
+      "model-pin",
     ]);
   });
 
@@ -198,6 +200,36 @@ describe("console commands", () => {
     expect(findCommand("models-outdated")?.argv({}, repo)).toEqual([`${repo}/bin/ollama-models`, "outdated"]);
     expect(findCommand("models-outdated")?.label({})).toBe("Outdated models");
     expect(findCommand("models-outdated")?.argv({ size: "27b" }, repo)).toBeNull();
+  });
+
+  it("builds the model-upgrade argv for a configured size", () => {
+    expect(findCommand("model-upgrade")?.argv({ size: "27b" }, repo)).toEqual([`${repo}/bin/model-upgrade`, "27b"]);
+    expect(findCommand("model-upgrade")?.label({ size: "27b" })).toBe("Model upgrade (27b)");
+    expect(findCommand("model-upgrade")?.argv({ size: "99b" }, repo)).toBeNull();
+    expect(findCommand("model-upgrade")?.argv({ size: "27b", force: "1" }, repo)).toBeNull();
+  });
+
+  it("builds the model-pin argv for an Ollama library model name", () => {
+    expect(findCommand("model-pin")?.argv({ name: "qwen3.6:35b-mlx" }, repo)).toEqual([
+      `${repo}/bin/ollama-models`,
+      "pin",
+      "qwen3.6:35b-mlx",
+    ]);
+    expect(findCommand("model-pin")?.label({ name: "qwen3.6:35b-mlx" })).toBe("Pin qwen3.6:35b-mlx");
+    expect(findCommand("model-pin")?.argv({ name: "qwen3-embedding" }, repo)).toEqual([
+      `${repo}/bin/ollama-models`,
+      "pin",
+      "qwen3-embedding",
+    ]);
+  });
+
+  it("refuses a model-pin name that is not a plain library model", () => {
+    expect(findCommand("model-pin")?.argv({ name: "hf.co/a/b:c" }, repo)).toBeNull();
+    expect(findCommand("model-pin")?.argv({ name: "--help" }, repo)).toBeNull();
+    expect(findCommand("model-pin")?.argv({ name: "a b" }, repo)).toBeNull();
+    expect(findCommand("model-pin")?.argv({ name: "" }, repo)).toBeNull();
+    expect(findCommand("model-pin")?.argv({}, repo)).toBeNull();
+    expect(findCommand("model-pin")?.argv({ name: "qwen3", size: "27b" }, repo)).toBeNull();
   });
 
   it("builds the qwen-doctor argv for a configured size", () => {

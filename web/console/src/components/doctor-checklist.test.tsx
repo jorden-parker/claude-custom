@@ -1,7 +1,11 @@
 import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DoctorCheck } from "@/lib/doctor-checks";
 import { DoctorChecklist } from "./doctor-checklist";
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn() }),
+}));
 
 const checks: DoctorCheck[] = [
   { level: "ok", text: "jq on PATH" },
@@ -41,5 +45,25 @@ describe("DoctorChecklist", () => {
     render(<DoctorChecklist checks={[]} other={["Usage: claude-ollama doctor [size]"]} running={false} />);
 
     expect(screen.getByText("Usage: claude-ollama doctor [size]")).toBeTruthy();
+  });
+
+  it("shows a fix the console can run as a button beside its command", () => {
+    const withFix: DoctorCheck[] = [
+      { level: "fail", text: "behind qwen3.6:35b-mlx (registry 4a5e, pin e92a)", fixes: ["bin/model-upgrade 35b"] },
+    ];
+    render(<DoctorChecklist checks={withFix} other={[]} running={false} />);
+
+    expect(screen.getByText("bin/model-upgrade 35b")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Upgrade 35b" })).toBeTruthy();
+  });
+
+  it("shows a fix the console cannot run as text only", () => {
+    const withFix: DoctorCheck[] = [
+      { level: "warn", text: "no GitHub token", fixes: ["claude-ollama github-token push"] },
+    ];
+    render(<DoctorChecklist checks={withFix} other={[]} running={false} />);
+
+    expect(screen.getByText("claude-ollama github-token push")).toBeTruthy();
+    expect(screen.queryByRole("button")).toBeNull();
   });
 });

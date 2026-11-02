@@ -2,8 +2,10 @@
 
 import { AlertTriangle, CheckCircle2, Loader2, XCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { useRunStream } from "@/components/run-view";
+import { StartRunButton } from "@/components/start-run-button";
+import { useRunStream } from "@/components/use-run-stream";
 import { checksFromLines, doctorSummary, type DoctorCheck, type DoctorLevel } from "@/lib/doctor-checks";
+import { fixActionFor } from "@/lib/fix-actions";
 import { levelTextClass } from "@/lib/level-style";
 
 const ROW_DELAY_MS = 40;
@@ -28,11 +30,16 @@ export function DoctorChecklist({ checks, other, running }: DoctorChecklistProps
           <li
             key={`${index}-${check.text}`}
             data-level={check.level}
-            className="flex items-start gap-2 text-sm animate-in fade-in slide-in-from-left-2"
+            className="flex flex-col gap-1.5 text-sm animate-in fade-in slide-in-from-left-2"
             style={{ animationDelay: `${index * ROW_DELAY_MS}ms` }}
           >
-            <LevelIcon level={check.level} />
-            <span className="min-w-0 break-words">{check.text}</span>
+            <div className="flex items-start gap-2">
+              <LevelIcon level={check.level} />
+              <span className="min-w-0 break-words">{check.text}</span>
+            </div>
+            {(check.fixes ?? []).map((fix) => (
+              <FixRow key={fix} fix={fix} />
+            ))}
           </li>
         ))}
         {running ? (
@@ -47,6 +54,20 @@ export function DoctorChecklist({ checks, other, running }: DoctorChecklistProps
           {line}
         </p>
       ))}
+    </div>
+  );
+}
+
+function FixRow({ fix }: { fix: string }) {
+  const action = fixActionFor(fix);
+  return (
+    <div className="ml-6 flex flex-wrap items-center gap-3">
+      <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{fix}</code>
+      {action === null ? null : (
+        <StartRunButton command={action.command} params={action.params} size="sm">
+          {action.label}
+        </StartRunButton>
+      )}
     </div>
   );
 }

@@ -15,6 +15,7 @@ usage: ollama-models list | prune [--yes] | prune --yes --only NAME... | outdate
   prune     remove third-party models and -cc models no profile uses (asks unless --yes)
   prune --yes --only NAME...  remove just the named models that are still prunable
   outdated [NAME...]  compare each pin (or the named ones) to the registry: current, behind, unknown, skipped, unpinned
+                      (a behind or unpinned line is followed by its fix command)
   pin       record NAME's registry manifest sha256 in ollama/model-digests.json
 EOF
   exit 2
@@ -139,6 +140,24 @@ pinned_names() {
   jq -r 'keys[]' "$digests_file"
 }
 
+size_of_base() {
+  [ -f "$profile_dir/sizes.json" ] || return 0
+  jq -r --arg base "$1" 'to_entries[] | select(.value.base == $base) | .key' "$profile_dir/sizes.json" | head -n 1
+}
+
+behind_fix() {
+  local size
+  size="$(size_of_base "$1")"
+  if [ -n "$size" ]; then
+    printf '     fix: bin/model-upgrade %s\n' "$size"
+  else
+    printf '     fix: bin/ollama-models pin %s\n' "$1"
+  fi
+}
+
+behind_count=0
+unpinned_count=0
+
 outdated_line() {
   local name="$1" pin registry_digest
   pin="$(jq -r --arg name "$name" '.[$name]' "$digests_file")"
@@ -147,6 +166,8 @@ outdated_line() {
   esac
   if [ "$pin" = null ]; then
     printf 'unpinned %s (not in ollama/model-digests.json)\n' "$name"
+    printf '     fix: bin/ollama-models pin %s\n' "$name"
+    unpinned_count=$((unpinned_count + 1))
     return 1
   fi
   registry_digest="$(manifest_digest "$name")" || { printf 'unknown  %s (no manifest at %s)\n' "$name" "$registry"; return 0; }
@@ -154,6 +175,8 @@ outdated_line() {
     printf 'current  %s\n' "$name"
   else
     printf 'behind   %s (registry %s, pin %s)\n' "$name" "${registry_digest:0:12}" "${pin:0:12}"
+    behind_fix "$name"
+    behind_count=$((behind_count + 1))
     return 1
   fi
 }
@@ -164,6 +187,9 @@ outdated_command() {
     for name in "$@"; do outdated_line "$name" || status=1; done
   else
     while IFS= read -r name; do outdated_line "$name" || status=1; done < <(pinned_names)
+  fi
+  if [ "$status" -ne 0 ]; then
+    printf '%s behind, %s unpinned: run the fix lines above, then commit ollama/model-digests.json\n' "$behind_count" "$unpinned_count"
   fi
   return "$status"
 }

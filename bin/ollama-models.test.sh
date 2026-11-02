@@ -31,6 +31,7 @@ case "\$*" in
   *api/tags*) cat "$sandbox/tags.json" ;;
   *registry.test/v2/library/qwen3/manifests/8b*) printf 'manifest-body' ;;
   *registry.test/v2/library/qwen3/manifests/4b*) printf 'a-newer-manifest' ;;
+  *registry.test/v2/library/qwen3/manifests/1b*) printf 'another-manifest' ;;
   *) exit 22 ;;
 esac
 EOF
@@ -119,13 +120,25 @@ cat >"$outdated_profile/model-digests.json" <<EOF
 {
   "qwen3:8b": "$(printf 'manifest-body' | shasum -a 256 | cut -c1-64)",
   "qwen3:4b": "0000",
+  "qwen3:1b": "3333",
   "qwen3:nope": "1111",
   "./weights/Qwen3.8-27B.gguf": "2222"
 }
 EOF
+cat >"$outdated_profile/sizes.json" <<EOF
+{ "4b": { "base": "qwen3:4b", "model": "qwen3-4b-cc", "context": 32768 } }
+EOF
 
 outdated_listing="$(OLLAMA_PROFILE_DIR="$outdated_profile" "$script" outdated 2>&1)"
 outdated_status=$?
+line_after() {
+  grep -A1 -E "$1" <<<"$outdated_listing" | tail -n 1
+}
+check "a behind base of a size is followed by the model-upgrade fix" test "$(line_after '^behind +qwen3:4b ')" = '     fix: bin/model-upgrade 4b'
+check "a behind pin no size uses is followed by the pin fix" test "$(line_after '^behind +qwen3:1b ')" = '     fix: bin/ollama-models pin qwen3:1b'
+check "a current pin has no fix line" test "$(line_after '^current +qwen3:8b$')" != '     fix: bin/ollama-models pin qwen3:8b'
+check "outdated ends with a count of the pins that need a fix" grep -Fxq '2 behind, 0 unpinned: run the fix lines above, then commit ollama/model-digests.json' <<<"$outdated_listing"
+check "outdated prints no count when every pin is current" test "$(OLLAMA_PROFILE_DIR="$outdated_profile" "$script" outdated qwen3:8b 2>&1)" = 'current  qwen3:8b'
 check "outdated marks a pin the registry still matches as current" grep -Eq '^current +qwen3:8b$' <<<"$outdated_listing"
 check "outdated marks a pin the registry moved past as behind" grep -Eq '^behind +qwen3:4b \(registry [0-9a-f]{12}, pin 0000\)$' <<<"$outdated_listing"
 check "outdated marks a name with no registry manifest as unknown" grep -Eq '^unknown +qwen3:nope \(no manifest at ' <<<"$outdated_listing"
@@ -140,6 +153,8 @@ unpinned_listing="$(OLLAMA_PROFILE_DIR="$outdated_profile" "$script" outdated qw
 unpinned_status=$?
 check "outdated marks a name with no pin as unpinned" grep -Fxq 'unpinned qwen3:none (not in ollama/model-digests.json)' <<<"$unpinned_listing"
 check "outdated exits 1 for a name with no pin" test "$unpinned_status" = 1
+check "an unpinned name is followed by the pin fix" grep -Fxq '     fix: bin/ollama-models pin qwen3:none' <<<"$unpinned_listing"
+check "the count names the unpinned name" grep -Fxq '0 behind, 1 unpinned: run the fix lines above, then commit ollama/model-digests.json' <<<"$unpinned_listing"
 
 if [ "$failures" -eq 0 ]; then
   echo "all passed"
