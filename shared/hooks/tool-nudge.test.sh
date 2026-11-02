@@ -70,6 +70,36 @@ expect_eq "reads never nudge toward Agent" "" "$(post Read)"
 
 expect_eq "prompt submit prints nothing" "" "$(event UserPromptSubmit)"
 
+tool_event() {
+  local tool_name="$1" tool_input="$2"
+  jq -cn --arg tool "$tool_name" --argjson input "$tool_input" \
+    '{session_id: "s1", hook_event_name: "PreToolUse", tool_name: $tool, tool_input: $input}' | python3 "$hook"
+}
+tool_denied() { mentions "$(tool_event "$1" "$2")" '"permissionDecision": "deny"'; }
+
+event UserPromptSubmit >/dev/null
+pre mcp__code-search__semantic_search >/dev/null
+node_modules_deny="$(pre Bash 'grep -rn useActionState node_modules/next/dist')"
+expect_eq "a search inside node_modules is denied before find-docs" yes "$(mentions "$node_modules_deny" '^deny: ')"
+expect_eq "the node_modules deny names find-docs" yes "$(mentions "$node_modules_deny" 'find-docs')"
+expect_eq "reading node_modules docs with cat is denied" yes "$(denied 'cat node_modules/next/dist/docs/index.md')"
+expect_eq "listing node_modules is denied" yes "$(denied 'ls node_modules/next/dist/docs')"
+expect_eq "find in node_modules is denied" yes "$(denied 'find node_modules/next -type f')"
+expect_eq "Read of a node_modules file is denied" yes \
+  "$(tool_denied Read '{"file_path":"/p/web/node_modules/next/dist/docs/a.md"}')"
+expect_eq "Read of a project file passes" no "$(tool_denied Read '{"file_path":"/p/src/app.ts"}')"
+expect_eq "removing node_modules is not a lookup" "" "$(pre Bash 'rm -rf node_modules')"
+expect_eq "a search outside node_modules passes" "" "$(pre Bash 'grep -rn foo src')"
+expect_eq "another skill does not unlock node_modules" no "$(tool_denied Skill '{"skill":"tdd"}')"
+expect_eq "still locked after another skill" yes "$(denied 'cat node_modules/next/package.json')"
+expect_eq "the find-docs skill passes" no "$(tool_denied Skill '{"skill":"find-docs"}')"
+expect_eq "find-docs unlocks node_modules for the turn" "" "$(pre Bash 'cat node_modules/next/package.json')"
+
+event UserPromptSubmit >/dev/null
+expect_eq "a new prompt locks node_modules again" yes "$(denied 'cat node_modules/next/package.json')"
+expect_eq "a ctx7 lookup passes" "" "$(pre Bash 'npx ctx7@0.8.2 library next "server actions" | head -80')"
+expect_eq "a ctx7 lookup unlocks node_modules" "" "$(pre Bash 'ls node_modules/next/dist/docs')"
+
 export CLAUDE_CONFIG_DIR="$sandbox/session-config"
 pre Bash 'grep a' >/dev/null
 expect_eq "state follows CLAUDE_CONFIG_DIR" yes \

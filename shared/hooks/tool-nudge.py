@@ -17,7 +17,14 @@ SEARCH_FIRST_DENY = (
     "query, Read only the ranges it returns, then use git grep -n for exact names if still needed. "
     "If it errors, text search is allowed for the rest of the turn."
 )
-EMPTY_STATE = {"semantic_searched": False}
+DOCS_SKILL = "find-docs"
+FILE_LOOKUP_COMMANDS = {"cat", "head", "tail", "less", "more", "sed", "awk", "ls", "tree", "find", "jq"}
+DOCS_FIRST_DENY = (
+    "node_modules refused: look up library and framework docs with the find-docs skill first "
+    "(Skill find-docs, which runs npx ctx7), even when a project file such as AGENTS.md points at "
+    "node_modules/next/dist/docs. After one lookup this turn, node_modules opens for checking details."
+)
+EMPTY_STATE = {"semantic_searched": False, "docs_looked_up": False}
 
 
 def claude_config_dir():
@@ -65,7 +72,44 @@ def runs_text_search(command):
     return any(is_search_words(words) for words in pipeline_heads(command))
 
 
-def gate(state, tool_name, tool_input):
+def runs_docs_lookup(command):
+    return any(word.startswith("ctx7") for word in words_of(command))
+
+
+def is_file_lookup(words):
+    return bool(words) and (words[0] in FILE_LOOKUP_COMMANDS or is_search_words(words))
+
+
+def reads_node_modules(command):
+    return any(
+        is_file_lookup(words) and any("node_modules" in word for word in words[1:])
+        for words in pipeline_heads(command)
+    )
+
+
+def opens_node_modules(tool_name, tool_input):
+    if tool_name == "Read":
+        return "node_modules" in Path(tool_input.get("file_path", "")).parts
+    if tool_name == "Bash":
+        return reads_node_modules(tool_input.get("command", ""))
+    return False
+
+
+def looks_up_docs(tool_name, tool_input):
+    if tool_name == "Skill":
+        return tool_input.get("skill") == DOCS_SKILL
+    return tool_name == "Bash" and runs_docs_lookup(tool_input.get("command", ""))
+
+
+def docs_gate(state, tool_name, tool_input):
+    if looks_up_docs(tool_name, tool_input):
+        state["docs_looked_up"] = True
+    if not state["docs_looked_up"] and opens_node_modules(tool_name, tool_input):
+        return DOCS_FIRST_DENY
+    return None
+
+
+def search_gate(state, tool_name, tool_input):
     if tool_name == SEMANTIC_SEARCH_TOOL:
         state["semantic_searched"] = True
         return None
@@ -89,7 +133,9 @@ def deny(reason):
 def handle(event, state):
     if event.get("hook_event_name") != "PreToolUse":
         return None
-    reason = gate(state, event.get("tool_name", ""), event.get("tool_input") or {})
+    tool_name = event.get("tool_name", "")
+    tool_input = event.get("tool_input") or {}
+    reason = docs_gate(state, tool_name, tool_input) or search_gate(state, tool_name, tool_input)
     return deny(reason) if reason else None
 
 

@@ -321,7 +321,10 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   path filter) at the head of any command in it, until the MCP tool has been
   called in the turn. A search after a pipe is a filter and passes. Calling the
   tool unlocks text search for the turn even when it errors, so a dead server
-  can't lock the model out.
+  can't lock the model out. As PreToolUse on Read, Skill and Bash it also denies
+  reading, listing or searching inside `node_modules` until the `find-docs`
+  skill or an `npx ctx7` command ran in the turn (Next's generated `AGENTS.md`
+  sends models to `node_modules/next/dist/docs` otherwise).
 - All settings files (`personal/settings.tokens.json`, `ollama/settings.*.json`)
   run hooks as
   `"$CLAUDE_CUSTOM_HOME"/shared/host-env "$CLAUDE_CUSTOM_HOME"/shared/hooks/<name>`,
