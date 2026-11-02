@@ -112,6 +112,18 @@ profile_context_tokens() {
   jq -r .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS "$(launch_settings_file)"
 }
 
+profile_output_tokens() {
+  jq -r .env.CLAUDE_CODE_MAX_OUTPUT_TOKENS "$(launch_settings_file)"
+}
+
+summary_reserve() {
+  jq -r .summary_reserve "$profile_dir/headroom.json"
+}
+
+context_headroom() {
+  echo $(( $(modelfile_num_ctx) - $(profile_context_tokens) - $(profile_output_tokens) ))
+}
+
 profile_summary() {
   "$profile_overlay" summary "$profile_file"
 }
@@ -499,6 +511,8 @@ print_config() {
   echo "embedding model: $embedding_model"
   echo "num_ctx: $(modelfile_num_ctx)"
   echo "max context tokens: $(profile_context_tokens)"
+  echo "max output tokens: $(profile_output_tokens)"
+  echo "context headroom: $(context_headroom) (reserve $(summary_reserve))"
   echo "settings: $(launch_settings_file)"
   echo "fetch domains: $(fetch_domains_label)"
   echo "profile: $profile_file"
@@ -710,13 +724,16 @@ check_digests() {
 }
 
 check_context_sizes() {
-  local ctx tokens
+  local ctx tokens output reserve headroom
   ctx="$(modelfile_num_ctx)"
   tokens="$(profile_context_tokens)"
-  if [ "$ctx" = "$tokens" ]; then
-    report ok "num_ctx $ctx matches CLAUDE_CODE_MAX_CONTEXT_TOKENS"
+  output="$(profile_output_tokens)"
+  reserve="$(summary_reserve)"
+  headroom="$(context_headroom)"
+  if [ "$headroom" -ge "$reserve" ]; then
+    report ok "num_ctx $ctx leaves $headroom tokens over CLAUDE_CODE_MAX_CONTEXT_TOKENS $tokens plus output $output (reserve $reserve)"
   else
-    report fail "num_ctx $ctx differs from CLAUDE_CODE_MAX_CONTEXT_TOKENS $tokens"
+    report fail "num_ctx $ctx leaves $headroom tokens over CLAUDE_CODE_MAX_CONTEXT_TOKENS $tokens plus output $output, below the reserve $reserve (run bin/ollama-profiles)"
   fi
 }
 

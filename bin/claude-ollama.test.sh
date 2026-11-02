@@ -264,7 +264,7 @@ rm -f "$sandbox/python.log"
 run_capture env CLAUDE_OLLAMA_NO_INDEX=1 "$repo/bin/claude-ollama" 35b -p hi
 check_not "CLAUDE_OLLAMA_NO_INDEX skips the indexer" test -e "$sandbox/python.log"
 new_sandbox
-STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2" run_capture "$repo/bin/claude-ollama" 27b -p hi
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2 OLLAMA_NUM_PARALLEL=1" run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "claude-ollama warms the embedding model when the server keeps two models" grep -q '127.0.0.1:11434/api/embed' "$sandbox/curl.log"
 check_that "the embedding warm-up names the model and keeps it alive" grep -q '"model":"qwen3-embedding:0.6b","input":"warm up","keep_alive":"30m"' "$sandbox/curl.log"
 check_eq "claude-ollama allows the search server to load embeddings when the server keeps two models" 1 "$(cat "$sandbox/embed-env")"
@@ -546,7 +546,9 @@ check_that "print-config shows the base model" grep -qxF "base: qwen3.6:35b-mlx"
 check_not "print-config has no side model" grep -q "^side model:" "$sandbox/out"
 check_that "print-config shows the embedding model" grep -qxF "embedding model: qwen3-embedding:0.6b" "$sandbox/out"
 check_that "print-config shows num_ctx" grep -qxF "num_ctx: 98304" "$sandbox/out"
-check_that "print-config shows context tokens" grep -qxF "max context tokens: 98304" "$sandbox/out"
+check_that "print-config shows context tokens" grep -qxF "max context tokens: 86016" "$sandbox/out"
+check_that "print-config shows output tokens" grep -qxF "max output tokens: 8192" "$sandbox/out"
+check_that "print-config shows the context headroom" grep -qxF "context headroom: 4096 (reserve 4096)" "$sandbox/out"
 check_that "print-config shows the settings path" grep -qxF "settings: $repo/ollama/settings.35b.json" "$sandbox/out"
 check_that "print-config shows the tools, Skill included so your skills load" grep -qxF "tools: Bash,Read,Edit,Write,Skill,TaskStop" "$sandbox/out"
 check_not "print-config has no sandbox line" grep -q '^sandbox:' "$sandbox/out"
@@ -649,13 +651,13 @@ run_capture "$repo/bin/claude-ollama" --help
 check_that "claude-ollama help lists logs" grep -q '^logs \[-n LINES|--path\]: ' "$sandbox/out"
 
 new_sandbox
-STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2" run_capture "$repo/bin/claude-ollama" doctor 27b
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2 OLLAMA_NUM_PARALLEL=1" run_capture "$repo/bin/claude-ollama" doctor 27b
 check_eq "doctor healthy exit status" 0 "$?"
 check_that "doctor reports jq" grep -qxF "ok   jq on PATH" "$sandbox/out"
 check_that "doctor reports the main model" grep -qxF "ok   model qwen3.8-27b-cc" "$sandbox/out"
 check_not "doctor no longer checks a side model" grep -q "side model" "$sandbox/out"
 check_that "doctor reports the embedding model" grep -qxF "ok   embedding model qwen3-embedding:0.6b" "$sandbox/out"
-check_that "doctor reports context sizes agree" grep -qxF "ok   num_ctx 65536 matches CLAUDE_CODE_MAX_CONTEXT_TOKENS" "$sandbox/out"
+check_that "doctor reports context sizes agree" grep -qxF "ok   num_ctx 65536 leaves 4096 tokens over CLAUDE_CODE_MAX_CONTEXT_TOKENS 53248 plus output 8192 (reserve 4096)" "$sandbox/out"
 check_that "doctor reports hooks" grep -qxF "ok   hook stop-verify.py present" "$sandbox/out"
 check_that "doctor reports reachability" grep -qxF "ok   ollama reachable at http://127.0.0.1:11434" "$sandbox/out"
 check_that "doctor reports server env" grep -qxF "ok   server env OLLAMA_KV_CACHE_TYPE=q8_0" "$sandbox/out"
@@ -663,7 +665,7 @@ check_that "doctor reports no managed model allowlist" grep -qxF "ok   no manage
 check_not "doctor does not launch claude" grep -q '^ARGS:' "$sandbox/out"
 check_that "doctor reports a base that matches its pin" grep -qxF "ok   digest qwen3.8:27b-mlx matches its pin" "$sandbox/out"
 jq '.models[0].digest = "0000"' "$sandbox/tags.json" > "$sandbox/tags.new" && mv "$sandbox/tags.new" "$sandbox/tags.json"
-STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2" run_capture "$repo/bin/claude-ollama" doctor 27b
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2 OLLAMA_NUM_PARALLEL=1" run_capture "$repo/bin/claude-ollama" doctor 27b
 check_eq "doctor with a base that misses its pin exit status" 1 "$?"
 check_that "doctor fails a base that misses its pin" grep -qF "fail digest qwen3.8:27b-mlx is 0000, not the pinned" "$sandbox/out"
 pinned_tags > "$sandbox/tags.json"
@@ -680,26 +682,26 @@ new_sandbox
 copy_repo "$sandbox/repo"
 sed 's/num_ctx 65536/num_ctx 32768/' "$sandbox/repo/ollama/Modelfile.27b" > "$sandbox/Modelfile.27b"
 mv "$sandbox/Modelfile.27b" "$sandbox/repo/ollama/Modelfile.27b"
-STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2" run_capture "$sandbox/repo/bin/claude-ollama" doctor 27b
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2 OLLAMA_NUM_PARALLEL=1" run_capture "$sandbox/repo/bin/claude-ollama" doctor 27b
 check_eq "doctor with mismatched context sizes exit status" 1 "$?"
-check_that "doctor fails mismatched context sizes" grep -qxF "fail num_ctx 32768 differs from CLAUDE_CODE_MAX_CONTEXT_TOKENS 65536" "$sandbox/out"
+check_that "doctor fails mismatched context sizes" grep -qxF "fail num_ctx 32768 leaves -28672 tokens over CLAUDE_CODE_MAX_CONTEXT_TOKENS 53248 plus output 8192, below the reserve 4096 (run bin/ollama-profiles)" "$sandbox/out"
 
 new_sandbox
 copy_repo "$sandbox/repo"
 rm "$sandbox/repo/shared/hooks/edit-check.py"
-STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2" run_capture "$sandbox/repo/bin/claude-ollama" doctor 27b
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2 OLLAMA_NUM_PARALLEL=1" run_capture "$sandbox/repo/bin/claude-ollama" doctor 27b
 check_eq "doctor with a missing hook exit status" 1 "$?"
 check_that "doctor fails a missing hook" grep -qxF "fail hook edit-check.py missing or not executable in shared/hooks" "$sandbox/out"
 
 new_sandbox
 echo '{"availableModels":["qwen3.8-27b-cc","opus"]}' > "$CLAUDE_OLLAMA_MANAGED_SETTINGS"
-STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2" run_capture "$repo/bin/claude-ollama" doctor 27b
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2 OLLAMA_NUM_PARALLEL=1" run_capture "$repo/bin/claude-ollama" doctor 27b
 check_eq "doctor with the model in the managed allowlist exit status" 0 "$?"
 check_that "doctor reports the managed allowlist allows the model" grep -qxF "ok   managed availableModels allows qwen3.8-27b-cc" "$sandbox/out"
 
 new_sandbox
 echo '{"availableModels":["opus"]}' > "$CLAUDE_OLLAMA_MANAGED_SETTINGS"
-STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2" run_capture "$repo/bin/claude-ollama" doctor 27b
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2 OLLAMA_NUM_PARALLEL=1" run_capture "$repo/bin/claude-ollama" doctor 27b
 check_eq "doctor with the model missing from the managed allowlist exits 0" 0 "$?"
 check_that "doctor warns the managed allowlist lacks the model" grep -qxF "warn managed availableModels lacks qwen3.8-27b-cc (ask your admin to add it; Claude Code substitutes a [1m] variant)" "$sandbox/out"
 
@@ -720,7 +722,7 @@ check_eq "doctor without jq exit status" 1 "$?"
 check_that "doctor without jq says jq is required" grep -qxF "claude-ollama: jq is required (brew install jq)" "$sandbox/err"
 check_not "doctor without jq does not launch claude" grep -q '^ARGS:' "$sandbox/out"
 
-full_server_env="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2"
+full_server_env="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2 OLLAMA_NUM_PARALLEL=1"
 new_sandbox
 STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$full_server_env" run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_not "a server with every server.env value is left alone" test -e "$sandbox/agent.log"
@@ -1135,7 +1137,7 @@ check_that "qwen print-config shows the model" grep -qxF "model: qwen3.6-35b-cc"
 check_that "qwen print-config shows the context window" grep -qxF "context window: 98304" "$sandbox/out"
 check_that "print-config names the Qwen sandbox" grep -q '^sandbox: ' "$sandbox/out"
 
-QWEN_DOCTOR_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2"
+QWEN_DOCTOR_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2 OLLAMA_NUM_PARALLEL=1"
 STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$QWEN_DOCTOR_ENV" run_capture "$repo/bin/claude-ollama" qwen doctor 27b
 check_eq "claude-ollama qwen doctor exit status" 0 "$?"
 check_that "qwen doctor reports qwen on PATH" grep -q '^ok   qwen on PATH' "$sandbox/out"
@@ -1189,11 +1191,11 @@ run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "a context override recreates the model with its num_ctx" grep -qxF "modelfile: PARAMETER num_ctx 32768" "$sandbox/ollama.log"
 check_that "the recreated model builds on the installed one" grep -qxF "modelfile: FROM qwen3.8-27b-cc" "$sandbox/ollama.log"
 check_that "claude-ollama says it recreates with the merged parameters" grep -qF "recreating qwen3.8-27b-cc with num_ctx 32768 temperature 0.7 top_k 20 top_p 0.8" "$sandbox/err"
-check_eq "the derived settings carry the override context" 32768 "$(jq -r '.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS' "$profile_settings")"
+check_eq "the derived settings carry the override context" 20480 "$(jq -r '.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS' "$profile_settings")"
 check_that "the launch uses the derived settings" grep -qF -- "--settings $profile_settings" "$sandbox/out"
-STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2" run_capture "$repo/bin/claude-ollama" doctor 27b
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2 OLLAMA_NUM_PARALLEL=1" run_capture "$repo/bin/claude-ollama" doctor 27b
 check_eq "doctor with a context override exits 0" 0 "$?"
-check_that "doctor agrees with the override context" grep -qxF "ok   num_ctx 32768 matches CLAUDE_CODE_MAX_CONTEXT_TOKENS" "$sandbox/out"
+check_that "doctor agrees with the override context" grep -qxF "ok   num_ctx 32768 leaves 4096 tokens over CLAUDE_CODE_MAX_CONTEXT_TOKENS 20480 plus output 8192 (reserve 4096)" "$sandbox/out"
 
 new_sandbox
 export XDG_CONFIG_HOME="$sandbox/xdg"

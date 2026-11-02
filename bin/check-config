@@ -263,6 +263,27 @@ for settings in "$repo"/ollama/settings.*.json; do
   check_that "${settings##*/} asks before dev_start and dev_stop" asks_before_dev_start "$settings"
 done
 
+modelfile_num_ctx_for() {
+  sed -n 's/^PARAMETER num_ctx //p' "$repo/ollama/Modelfile.$1"
+}
+
+leaves_headroom() {
+  local size="${1##*/settings.}" tokens output reserve
+  size="${size%.json}"
+  tokens="$(jq -r .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS "$1")"
+  output="$(jq -r .env.CLAUDE_CODE_MAX_OUTPUT_TOKENS "$1")"
+  reserve="$(jq -r .summary_reserve "$repo/ollama/headroom.json")"
+  [ $((tokens + output + reserve)) -le "$(modelfile_num_ctx_for "$size")" ]
+}
+
+check_eq "headroom.json keeps the output tokens every Ollama profile sends" "$(jq -r .output_tokens "$repo/ollama/headroom.json")" \
+  "$(jq -r .env.CLAUDE_CODE_MAX_OUTPUT_TOKENS "$repo"/ollama/settings.*.json | sort -u)"
+check_that "headroom.json reserves at least 2048 tokens for the compaction summary" \
+  test "$(jq -r .summary_reserve "$repo/ollama/headroom.json")" -ge 2048
+for settings in "$repo"/ollama/settings.*.json; do
+  check_that "${settings##*/} leaves room under num_ctx for the output and the compaction summary" leaves_headroom "$settings"
+done
+
 gates_text_search() {
   jq -e '[.hooks.PreToolUse[] | select(.matcher | test("Bash") and test("semantic_search")) | .hooks[].command] | any(test("tool-nudge"))' "$1" >/dev/null
 }

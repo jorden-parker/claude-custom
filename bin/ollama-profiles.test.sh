@@ -47,8 +47,12 @@ exit_status_of() {
 }
 
 check_eq "check passes on current files" 0 "$(exit_status_of --check)"
+check_eq "the 27b Modelfile keeps the full context as num_ctx" "PARAMETER num_ctx 65536" "$(grep '^PARAMETER num_ctx' "$profiles/Modelfile.27b")"
+check_eq "the 27b context tokens leave room for the output and the compaction summary" 53248 "$(jq -r .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS "$profiles/settings.27b.json")"
+check_eq "the output tokens come from headroom.json" 8192 "$(jq -r .env.CLAUDE_CODE_MAX_OUTPUT_TOKENS "$profiles/settings.27b.json")"
+check_eq "the 35b context tokens leave the same room" 86016 "$(jq -r .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS "$profiles/settings.35b.json")"
 
-sed 's/65536/32768/' "$profiles/settings.27b.json" > "$sandbox/stale.json" && mv "$sandbox/stale.json" "$profiles/settings.27b.json"
+sed 's/53248/32768/' "$profiles/settings.27b.json" > "$sandbox/stale.json" && mv "$sandbox/stale.json" "$profiles/settings.27b.json"
 check_eq "check fails on a stale file" 1 "$(exit_status_of --check)"
 check_that "check names the stale file" sh -c "CLAUDE_CUSTOM_REPO='$sandbox' '$gen' --check 2>&1 | grep -q 'settings.27b.json'"
 
@@ -72,23 +76,23 @@ sed 's/"timeout": 600/"timeout": 5/' "$sandbox/personal/settings.tokens.json" > 
 check_eq "check fails on a stale personal overlay" 1 "$(exit_status_of --check)"
 generate >/dev/null
 
-printf '{"27b":{"base":"qwen3.8:27b-mlx","model":"qwen3.8-27b-cc","context":65536},"9b":{"base":"qwen3.5:9b-mlx","model":"qwen3.5-9b-cc","context":2048},"9b-jinja":{"base":"hf.co/example/Qwen3.5-9B-GGUF:Q4_K_M","model":"qwen3.5-9b-jinja-cc","context":2048,"renderer":"qwen3.5"},"9b-parser":{"base":"./weights/qwen3.5-9b.gguf","model":"qwen3.5-9b-parser-cc","context":2048,"renderer":"qwen3.8","parser":"qwen3.5"},"9b-tuned":{"base":"qwen3.5:9b-mlx","model":"qwen3.5-9b-tuned-cc","context":2048,"renderer":"qwen3.5","parameters":{"top_k":20,"temperature":1}}}\n' > "$profiles/sizes.json"
+printf '{"27b":{"base":"qwen3.8:27b-mlx","model":"qwen3.8-27b-cc","context":65536},"9b":{"base":"qwen3.5:9b-mlx","model":"qwen3.5-9b-cc","context":16384},"9b-jinja":{"base":"hf.co/example/Qwen3.5-9B-GGUF:Q4_K_M","model":"qwen3.5-9b-jinja-cc","context":16384,"renderer":"qwen3.5"},"9b-parser":{"base":"./weights/qwen3.5-9b.gguf","model":"qwen3.5-9b-parser-cc","context":16384,"renderer":"qwen3.8","parser":"qwen3.5"},"9b-tuned":{"base":"qwen3.5:9b-mlx","model":"qwen3.5-9b-tuned-cc","context":16384,"renderer":"qwen3.5","parameters":{"top_k":20,"temperature":1}}}\n' > "$profiles/sizes.json"
 generate >/dev/null
 check_that "render creates a new size" test -f "$profiles/settings.9b.json"
 check_eq "new size has its model" "qwen3.5-9b-cc" "$(jq -r .model "$profiles/settings.9b.json")"
-check_eq "new size has its context" "2048" "$(jq -r .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS "$profiles/settings.9b.json")"
+check_eq "new size has its context" "4096" "$(jq -r .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS "$profiles/settings.9b.json")"
 check_eq "new size Modelfile" "FROM qwen3.5:9b-mlx
-PARAMETER num_ctx 2048" "$(cat "$profiles/Modelfile.9b")"
+PARAMETER num_ctx 16384" "$(cat "$profiles/Modelfile.9b")"
 check_eq "size with a renderer uses Ollama's renderer and parser" "FROM hf.co/example/Qwen3.5-9B-GGUF:Q4_K_M
-PARAMETER num_ctx 2048
+PARAMETER num_ctx 16384
 RENDERER qwen3.5
 PARSER qwen3.5" "$(cat "$profiles/Modelfile.9b-jinja")"
 check_eq "a size with its own parser renders that parser" "FROM ./weights/qwen3.5-9b.gguf
-PARAMETER num_ctx 2048
+PARAMETER num_ctx 16384
 RENDERER qwen3.8
 PARSER qwen3.5" "$(cat "$profiles/Modelfile.9b-parser")"
 check_eq "a size's parameters render sorted by key" "FROM qwen3.5:9b-mlx
-PARAMETER num_ctx 2048
+PARAMETER num_ctx 16384
 RENDERER qwen3.5
 PARSER qwen3.5
 PARAMETER temperature 1
@@ -107,7 +111,7 @@ bare_generate >/dev/null 2>&1
 check_eq "check passes without prettier installed" 0 "$(bare_generate --check >/dev/null 2>&1; echo $?)"
 check_that "check ignores JSON formatting" sh -c "jq -c . '$profiles/settings.9b.json' > '$sandbox/compact.json' && mv '$sandbox/compact.json' '$profiles/settings.9b.json' && CLAUDE_CUSTOM_REPO='$sandbox' '$bare_repo/bin/ollama-profiles' --check"
 
-sed 's/2048/1024/' "$profiles/Modelfile.9b" > "$sandbox/stale.Modelfile" && mv "$sandbox/stale.Modelfile" "$profiles/Modelfile.9b"
+sed 's/16384/8192/' "$profiles/Modelfile.9b" > "$sandbox/stale.Modelfile" && mv "$sandbox/stale.Modelfile" "$profiles/Modelfile.9b"
 check_eq "check without prettier still fails on a stale Modelfile" 1 "$(bare_generate --check >/dev/null 2>&1; echo $?)"
 
 rm -f "$profiles/Modelfile.9b"
@@ -116,6 +120,9 @@ check_that "render without prettier says how to fix it" sh -c "CLAUDE_CUSTOM_REP
 check_not "render without prettier leaves files unwritten" test -f "$profiles/Modelfile.9b"
 generate >/dev/null
 
+printf '{"27b":{"base":"qwen3.8:27b-mlx","model":"qwen3.8-27b-cc","context":65536},"tiny":{"base":"qwen3.5:9b-mlx","model":"qwen3.5-tiny-cc","context":8192}}\n' > "$profiles/sizes.json"
+check_eq "a context that leaves no room after the headroom is refused" 1 "$(exit_status_of)"
+check_that "the refusal names the size" sh -c "CLAUDE_CUSTOM_REPO='$sandbox' '$gen' 2>&1 | grep -q 'size tiny has context 8192'"
 if [ "$failures" -eq 0 ]; then
   echo "all passed"
 else

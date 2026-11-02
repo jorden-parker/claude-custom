@@ -36,6 +36,8 @@ check_eq "sandbox false turns the sandbox off for claude-code" false "$(settings
 check_eq "sandbox false is ignored for an ollama profile" true "$(settings_for ollama-27b '{"sandbox":false}' | jq -r .sandbox.enabled)"
 check_eq "context sets the max context tokens" 50000 "$(settings_for claude-code '{"context":50000}' | jq -r '.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS')"
 check_eq "context keeps the other env values" 1 "$(settings_for claude-code '{"context":50000}' | jq -r '.env.KEEP')"
+check_eq "an ollama context keeps the output and summary headroom out of the max context tokens" 20480 "$(settings_for ollama-27b '{"context":32768}' | jq -r '.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS')"
+check_eq "an ollama context below the headroom is refused" 1 "$(printf '%s' '{"context":8192}' > "$tmp/profiles/ollama-27b.json"; status_of "$script" settings "$base" "$tmp/profiles/ollama-27b.json" "$tmp/out.json")"
 check_eq "an ollama profile cannot allow Agent" true "$(settings_for ollama-27b '{"tools":{"Agent":"allow"}}' | jq -r '.permissions.deny | index("Agent") != null')"
 check_eq "an ollama profile can allow Glob" '["Glob"]' "$(settings_for ollama-27b '{"tools":{"Glob":"allow"}}' | jq -c '.permissions.allow | map(select(. == "Glob"))')"
 check_eq "a missing profile passes the base through" "$(jq -c -S . "$base")" "$("$script" settings "$base" "$tmp/profiles/absent.json" "$tmp/out-absent.json" && jq -c -S . "$tmp/out-absent.json")"

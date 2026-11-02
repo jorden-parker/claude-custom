@@ -34,6 +34,10 @@ is_set() {
   eval "[ \"\${$1+set}\" = set ]"
 }
 
+ollama_headroom() {
+  jq -r '.output_tokens + .summary_reserve' "$(dirname "$0")/../ollama/headroom.json"
+}
+
 write_settings() {
   settings_base="$1"
   settings_profile_path="$2"
@@ -42,7 +46,9 @@ write_settings() {
   claude=false
   [ "$(profile_id "$settings_profile_path")" = claude-code ] && claude=true
   settings_tmp="$settings_out.$$.tmp"
-  if (umask 077 && jq --argjson profile "$profile" --argjson claude "$claude" '
+  headroom=0
+  [ "$claude" = true ] || headroom="$(ollama_headroom)"
+  if (umask 077 && jq --argjson profile "$profile" --argjson claude "$claude" --argjson headroom "$headroom" '
     def clear_rule($name):
       .permissions.allow = ((.permissions.allow // []) - [$name])
       | .permissions.ask = ((.permissions.ask // []) - [$name])
@@ -56,7 +62,7 @@ write_settings() {
       | map(select(.value != "default" and (.key != "Agent" or $claude)))) as $tools
     | reduce $tools[] as $tool (.; clear_rule($tool.key) | add_rule($tool.key; $tool.value))
     | if ($claude and ($profile.sandbox == false)) then .sandbox.enabled = false else . end
-    | if ($profile | has("context")) then .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS = ($profile.context | tostring) else . end
+    | if ($profile | has("context")) then .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS = (($profile.context - $headroom) | if . > 0 then tostring else error("context must exceed the headroom") end) else . end
   ' "$settings_base" > "$settings_tmp"); then
     mv -f "$settings_tmp" "$settings_out"
   else

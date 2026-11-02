@@ -10,6 +10,7 @@ sizes_file="$profile_dir/sizes.json"
 settings_template="$profile_dir/profile-template.json"
 modelfile_template="$profile_dir/profile-template.Modelfile"
 extra_hooks_file="$profile_dir/hooks.extra.json"
+headroom_file="$profile_dir/headroom.json"
 personal_template="$personal_dir/settings.tokens.template.json"
 personal_settings="$personal_dir/settings.tokens.json"
 
@@ -43,9 +44,25 @@ splice_fragments() {
   '
 }
 
+headroom() {
+  jq -r --arg name "$1" '.[$name]' "$headroom_file"
+}
+
+context_tokens() {
+  local tokens
+  tokens=$(( $(field "$1" context) - $(headroom output_tokens) - $(headroom summary_reserve) ))
+  if [ "$tokens" -le 0 ]; then
+    echo "ollama-profiles: size $1 has context $(field "$1" context), which leaves no room after the output_tokens and summary_reserve in headroom.json" >&2
+    return 1
+  fi
+  echo "$tokens"
+}
+
 render_settings() {
-  jq --arg model "$(field "$1" model)" --arg context "$(field "$1" context)" \
-    'walk(if type == "string" then gsub("\\{\\{MODEL\\}\\}"; $model) | gsub("\\{\\{CONTEXT\\}\\}"; $context) else . end)' \
+  local context_tokens
+  context_tokens="$(context_tokens "$1")" || return 1
+  jq --arg model "$(field "$1" model)" --arg context_tokens "$context_tokens" --arg output_tokens "$(headroom output_tokens)" \
+    'walk(if type == "string" then gsub("\\{\\{MODEL\\}\\}"; $model) | gsub("\\{\\{CONTEXT_TOKENS\\}\\}"; $context_tokens) | gsub("\\{\\{OUTPUT_TOKENS\\}\\}"; $output_tokens) else . end)' \
     "$settings_template" | splice_fragments "$(cat "$extra_hooks_file")"
 }
 
@@ -70,7 +87,7 @@ render_modelfile() {
 render_all() {
   local size
   for size in $(sizes); do
-    render_settings "$size" > "$1/settings.$size.json"
+    render_settings "$size" > "$1/settings.$size.json" || return 1
     render_modelfile "$size" > "$1/Modelfile.$size"
   done
   render_personal > "$1/settings.tokens.json"

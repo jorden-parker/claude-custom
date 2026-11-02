@@ -615,14 +615,19 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   (the launcher's `--tools` list and each MCP server's tool names);
   `bin/check-config` fails when one is missing. `ollama/sizes.json` is the
   single source for each size's `context`: `bin/ollama-profiles` writes it to
-  `Modelfile.<size>` (`num_ctx`), `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, and the
-  `ollama create` names that `model` and the `ANTHROPIC_DEFAULT_*_MODEL` vars
-  refer to. A managed `availableModels` that lacks the model makes Claude Code
-  substitute a `[1m]` ID, which assumes a 1M window; `claude-ollama doctor`
-  warns when that happens. Each profile's own `availableModels` lists only its
-  main model; `bin/check-config` checks it. `ollama/system-prompt.md` replaces
-  Claude Code's default system prompt for both sizes; keep it short and don't
-  put size-specific rules in it.
+  `Modelfile.<size>` (`num_ctx`) and, minus `output_tokens` and
+  `summary_reserve` from `ollama/headroom.json`, to
+  `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, so the prompt at the 88% compaction trigger
+  plus the output and the compaction summary still fit in `num_ctx`
+  (`bin/check-config` asserts the sum, `doctor` reports the headroom, and a
+  profile's `context` override keeps the same margin through
+  `shared/profile-overlay`); the `ollama create` names are the ones that `model`
+  and the `ANTHROPIC_DEFAULT_*_MODEL` vars refer to. A managed `availableModels`
+  that lacks the model makes Claude Code substitute a `[1m]` ID, which assumes a
+  1M window; `claude-ollama doctor` warns when that happens. Each profile's own
+  `availableModels` lists only its main model; `bin/check-config` checks it.
+  `ollama/system-prompt.md` replaces Claude Code's default system prompt for
+  both sizes; keep it short and don't put size-specific rules in it.
 - The personal overlay is loaded with `--settings` by the `claude` shell
   function (`personal/claude.sh` for bash/zsh/ksh, `personal/claude.fish` for
   fish), wired into rc files by `bin/claude-custom install`, never merged into

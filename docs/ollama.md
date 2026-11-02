@@ -108,9 +108,11 @@ the first prompt doesn't wait for the model to load.
 models loaded: the launcher exports `CODE_SEARCH_EMBED=1` so `semantic_search`
 loads and uses `qwen3-embedding:0.6b` (about 2.2 GB), and warms it before
 starting the indexer. At 1 the embedding model would evict the main model, so
-searches rank by words only. The Homebrew service (`brew services start ollama`)
-uses these paths; add any `server.env` value it lacks with
-`claude-custom agent`:
+searches rank by words only. `OLLAMA_NUM_PARALLEL=1` gives the main model one
+request slot: Ollama allocates one KV cache per slot, so the default of up to
+four would hold four times the context in memory and crowd out the second model.
+The Homebrew service (`brew services start ollama`) uses these paths; add any
+`server.env` value it lacks with `claude-custom agent`:
 
 | What        | Homebrew value                                |
 | ----------- | --------------------------------------------- |
@@ -137,12 +139,14 @@ service itself.
 `claude-ollama doctor [size]` checks the environment without pulling or
 launching anything. It needs `jq` on PATH (`brew install jq`); without it the
 launcher exits with an error. It reports each model (main, embedding), whether
-`num_ctx` in the Modelfile matches `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, whether
-each hook named in `ollama/settings.<size>.json` exists and is executable under
-`shared/hooks/`, whether Ollama answers at `OLLAMA_HOST`, and whether the
-running server has every variable from `ollama/server.env`. Anything missing
-exits 1. The server-env check is how to confirm `server.env` is applied. The
-server's environment is read with `pgrep`/`ps` (or `/proc` on Linux).
+`num_ctx` in the Modelfile leaves `CLAUDE_CODE_MAX_CONTEXT_TOKENS` plus
+`CLAUDE_CODE_MAX_OUTPUT_TOKENS` at least the `summary_reserve` from
+`ollama/headroom.json` (so a compaction at 88% still fits with its summary),
+whether each hook named in `ollama/settings.<size>.json` exists and is
+executable under `shared/hooks/`, whether Ollama answers at `OLLAMA_HOST`, and
+whether the running server has every variable from `ollama/server.env`. Anything
+missing exits 1. The server-env check is how to confirm `server.env` is applied.
+The server's environment is read with `pgrep`/`ps` (or `/proc` on Linux).
 
 `claude-ollama --print-config [size]` prints the resolved values (model, base
 model, embedding model, context sizes, settings path, tools) and the exact
@@ -162,7 +166,7 @@ ok   jq on PATH
 ok   model qwen3.8-27b-cc
 ok   embedding model qwen3-embedding:0.6b
 ok   digest qwen3.8:27b-mlx matches its pin
-ok   num_ctx 65536 matches CLAUDE_CODE_MAX_CONTEXT_TOKENS
+ok   num_ctx 65536 leaves 4096 tokens over CLAUDE_CODE_MAX_CONTEXT_TOKENS 53248 plus output 8192 (reserve 4096)
 ok   hook bash-output-guard.py present
 ok   ollama reachable at http://localhost:11434
 ok   server env OLLAMA_FLASH_ATTENTION=1
