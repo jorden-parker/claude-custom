@@ -327,7 +327,8 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   can't lock the model out. As PreToolUse on Read, Skill and Bash it also denies
   reading, listing or searching inside `node_modules` until the `find-docs`
   skill or an `npx ctx7` command ran in the turn (Next's generated `AGENTS.md`
-  sends models to `node_modules/next/dist/docs` otherwise).
+  sends models to `node_modules/next/dist/docs` otherwise). The profiles allow
+  `Skill(find-docs)` without a prompt; `bin/check-config` checks it.
 - All settings files (`personal/settings.tokens.json`, `ollama/settings.*.json`)
   run hooks as
   `"$CLAUDE_CUSTOM_HOME"/shared/host-env "$CLAUDE_CUSTOM_HOME"/shared/hooks/<name>`,
@@ -361,10 +362,12 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `shared/sandbox-env`, which points Go, npm, pnpm, pip, uv, yarn and bun at
   caches under that one folder, so no cache an unsandboxed process executes from
   (`~/.npm/_npx`, `~/Library/pnpm`, `~/go/pkg/mod`, `~/.cache/claude-custom`) is
-  writable. `bin/check-config` asserts the block's exact values, and a
-  misspelled key is silently ignored, so the check must change with the block.
-  The profiles set `sandbox.enabled` and `autoAllowBashIfSandboxed: true`, so
-  sandboxed commands run without a prompt (a skill's `!` commands included);
+  writable. It also sets `NODE_USE_ENV_PROXY=1`, since Node's `fetch` (used by
+  `npx ctx7`) otherwise ignores the sandbox's `HTTPS_PROXY` and every request
+  fails. `bin/check-config` asserts the block's exact values, and a misspelled
+  key is silently ignored, so the check must change with the block. The profiles
+  set `sandbox.enabled` and `autoAllowBashIfSandboxed: true`, so sandboxed
+  commands run without a prompt (a skill's `!` commands included);
   `excludedCommands` (`cmux`, `gh`, `short`, `git push`) run outside the
   sandbox, each after the `Bash` prompt, and `permissions.ask` holds only
   `Bash(git commit *)`, `Bash(git push *)` and

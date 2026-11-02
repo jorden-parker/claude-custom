@@ -27,6 +27,7 @@ check_eq "the folder is created, since the sandbox cannot create it" directory "
 check_eq "the command sees the folder in CLAUDE_SANDBOX_CACHE_DIR" "$root" "$("$script" printenv CLAUDE_SANDBOX_CACHE_DIR)"
 check_eq "CLAUDE_SANDBOX_CACHE_DIR moves every cache" "$tmp/other/go/build" \
   "$(CLAUDE_SANDBOX_CACHE_DIR="$tmp/other" "$script" printenv GOCACHE)"
+check_eq "Node fetch goes through the sandbox's HTTPS_PROXY" 1 "$("$script" printenv NODE_USE_ENV_PROXY)"
 check_eq "arguments reach the command unchanged" "a|b c|" "$("$script" printf '%s|' a 'b c')"
 check_eq "the command's exit code comes back" 7 "$("$script" sh -c 'exit 7'; echo $?)"
 check_eq "no command is a usage error" 2 "$("$script" 2>/dev/null; echo $?)"

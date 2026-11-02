@@ -69,7 +69,8 @@
       "mcp__dev__dev_errors",
       "mcp__dev__page_check",
       "mcp__dev__page_snapshot",
-      "mcp__dev__page_act"
+      "mcp__dev__page_act",
+      "Skill(find-docs)"
     ]
   },
   "sandbox": {

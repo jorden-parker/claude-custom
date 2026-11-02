@@ -42,6 +42,9 @@ Lookups work anonymously. `CONTEXT7_API_KEY` in the environment raises the
 quota; the sandbox cannot run `ctx7 login`. On a quota error ("Monthly quota
 reached", "quota exceeded") tell the user, suggest a key from
 https://context7.com/dashboard, then answer from memory flagged as possibly
-outdated. Never fall back silently. Needs Node 22.13 or newer. The version is
-pinned; bump it in this file, `CLAUDE.local.md`, `QWEN.local.md` and `CLAUDE.md`
-together.
+outdated. Never fall back silently. Needs Node 22.21 or newer: inside the
+sandbox it reaches context7.com only through the sandbox proxy, which Node's
+fetch uses when `NODE_USE_ENV_PROXY=1` (set by `shared/sandbox-env`). If it
+still reports the network unreachable, tell the user rather than retrying. The
+version is pinned; bump it in this file, `CLAUDE.local.md`, `QWEN.local.md` and
+`CLAUDE.md` together.

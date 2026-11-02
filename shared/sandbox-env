@@ -1,7 +1,7 @@
 #!/bin/sh
 set -u
 if [ "$#" -eq 0 ]; then
-  echo "usage: sandbox-env COMMAND [ARG...]: run COMMAND with every package cache under the sandbox cache folder" >&2
+  echo "usage: sandbox-env COMMAND [ARG...]: run COMMAND with every package cache under the sandbox cache folder and Node fetch on the sandbox proxy" >&2
   exit 2
 fi
 cache_root="${CLAUDE_SANDBOX_CACHE_DIR:-$HOME/.cache/claude-sandbox}"
@@ -17,4 +17,5 @@ export PIP_CACHE_DIR="$cache_root/pip"
 export UV_CACHE_DIR="$cache_root/uv"
 export YARN_CACHE_FOLDER="$cache_root/yarn"
 export BUN_INSTALL_CACHE_DIR="$cache_root/bun"
+export NODE_USE_ENV_PROXY=1
 exec "$@"
