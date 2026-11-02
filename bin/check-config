@@ -99,8 +99,14 @@ deny_read_paths_missing_from() {
 }
 check_eq "the Qwen Seatbelt profile denies every path the Claude profiles deny reading" "" \
   "$(deny_read_paths_missing_from "$qwen_profile")"
-check_eq "the Qwen Seatbelt profile leaves outbound TCP open, since Seatbelt cannot prompt per host as the Claude profiles do" 0 \
-  "$(grep -c 'network-outbound' "$qwen_profile")"
+closes_outbound_tcp_except_loopback_and_web() {
+  grep -qF '(deny network-outbound (remote tcp "*:*"))' "$1" &&
+    grep -qF '(remote tcp "localhost:*")' "$1" &&
+    grep -qF '(remote tcp "*:443")' "$1" &&
+    grep -qF '(remote tcp "*:80")' "$1"
+}
+check_that "the Qwen Seatbelt profile closes outbound TCP except loopback, 443 and 80, since Seatbelt cannot prompt per host" \
+  closes_outbound_tcp_except_loopback_and_web "$qwen_profile"
 check_eq "the Qwen Seatbelt profile writes under the home folder only in the package caches the Claude profiles allow" \
   "$(jq -r '.sandbox.filesystem.allowWrite[]' "$repo/ollama/settings.27b.json" | sed 's|^~||' | sort | tr '\n' ' ' | sed 's/ $//')" \
   "$(sed -n '/^(allow file-write\*/,/^)/p' "$qwen_profile" | sed -n 's/.*(param "HOME_DIR") "\([^"]*\)".*/\1/p' | sort -u | tr '\n' ' ' | sed 's/ $//')"

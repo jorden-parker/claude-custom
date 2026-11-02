@@ -237,7 +237,8 @@ What this gives up, compared with the older session sandbox:
   can execute from a cache the session wrote; `~/.cache/claude-custom` stays
   unwritable, so the Stop hook's log and the machine overlay cannot be changed
   from inside.
-- Qwen Code's Seatbelt profile cannot prompt per host, so outbound TCP is open.
+- Qwen Code's Seatbelt profile cannot prompt per host: outbound TCP is loopback
+  plus ports 443 and 80 anywhere.
 
 `bin/ollama-models` manages the installed models:
 
@@ -307,10 +308,11 @@ in `.git/info/exclude`. Inside: the project, the temp dir, `QWEN_HOME` and the
 same package caches as the Claude profiles (never `~/.cache/claude-custom`) are
 writable, `~/.ssh`, `~/.aws`, `~/.config/gh`, `~/.config/context7`, `~/.npmrc`,
 the keychain, `~/.claude`, `~/.qwen` and the console state are unreadable, and
-outbound TCP is open, since Seatbelt cannot prompt per host. `GH_TOKEN`,
-`GITHUB_TOKEN` and `SHORTCUT_API_TOKEN` are unset for the launch. `gh` and
-`git push` fail inside (no keychain, no SSH): run them from your own terminal.
-Without `sandbox-exec` (Linux), the launcher says so and Qwen Code runs as you.
+outbound TCP reaches loopback (Ollama, dev servers) plus ports 443 and 80
+anywhere, since Seatbelt cannot prompt per host. `GH_TOKEN`, `GITHUB_TOKEN` and
+`SHORTCUT_API_TOKEN` are unset for the launch. `gh` and `git push` fail inside
+(no keychain, no SSH): run them from your own terminal. Without `sandbox-exec`
+(Linux), the launcher says so and Qwen Code runs as you.
 `claude-ollama qwen --print-config` and `qwen doctor` report the sandbox.
 
 ### Dev servers and the browser

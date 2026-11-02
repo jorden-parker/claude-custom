@@ -33,3 +33,7 @@
     (literal "/dev/ptmx")
     (regex #"^/dev/ttys[0-9]*$")
 )
+(deny network-outbound (remote tcp "*:*"))
+(allow network-outbound (remote tcp "localhost:*"))
+(allow network-outbound (remote tcp "*:443"))
+(allow network-outbound (remote tcp "*:80"))
