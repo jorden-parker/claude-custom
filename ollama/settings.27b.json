@@ -173,6 +173,15 @@
         ]
       },
       {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/host-env \"$CLAUDE_CUSTOM_HOME\"/shared/hooks/tdd-guard.py"
+          }
+        ]
+      },
+      {
         "matcher": "Bash",
         "hooks": [
           {
@@ -221,6 +230,10 @@
             "type": "command",
             "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/host-env \"$CLAUDE_CUSTOM_HOME\"/shared/hooks/fallow-after-edit.sh",
             "timeout": 120
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/host-env \"$CLAUDE_CUSTOM_HOME\"/shared/hooks/tdd-guard.py"
           }
         ]
       },
@@ -235,6 +248,10 @@
             "type": "command",
             "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/host-env \"$CLAUDE_CUSTOM_HOME\"/shared/hooks/fallow-mark-preview.sh",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/host-env \"$CLAUDE_CUSTOM_HOME\"/shared/hooks/tdd-guard.py"
           }
         ]
       },

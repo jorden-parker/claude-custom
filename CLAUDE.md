@@ -397,6 +397,20 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `node_modules/<name>/package.json` is an install check, not docs, and always
   passes. The profiles allow `Skill(find-docs)` without a prompt;
   `bin/check-config` checks it.
+- `shared/hooks/tdd-guard.py` enforces the TDD rule in both overlays. As
+  PreToolUse on Edit, Write and MultiEdit it denies an edit to a code file (by
+  suffix, or a shebang) that is not itself a test until, in this session, a test
+  file in the same scope (the directory, or the nearest `package.json` root for
+  JS/TS) was edited and a test command ran after that edit (`go test`,
+  `make test*`/`check*`, `pnpm|npm|yarn|bun test`, `vitest`, `pytest`,
+  `X.test.sh`, `.claude/verify`, as any segment of the command). As PostToolUse
+  on the same tools and on Bash it records those events under
+  `${CLAUDE_CONFIG_DIR:-~/.claude}/cache/tdd-guard/`. Editing the test again
+  relocks the scope until the next run. The third denial of the same file in a
+  row passes and is logged as `allow-after-strikes`; any test edit or run resets
+  that count. Test files, files under `test`, `tests`, `__tests__`, `testdata`,
+  `fixtures`, `eval` or `.claude`, and non-code files always pass.
+  `CLAUDE_CUSTOM_TDD=0` turns it off. Tests: `shared/hooks/tdd-guard.test.sh`.
 - `shared/hooks/name-nudge.py` is wired only in the Ollama profiles, as
   PreToolUse on Edit, Write and MultiEdit. It never denies: when the written
   text declares a placeholder name (`tmp`, `data2`, `obj`, `handleStuff`, a

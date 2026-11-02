@@ -26,6 +26,8 @@ These rules apply to every project and every language, with no exceptions.
 - Library, framework, SDK or API question: `/find-docs` (Context7) before
   answering from memory.
 - TDD: write a failing test, make it pass with the smallest change, refactor.
+  (enforced by tdd-guard hook: a code file can be edited only after a test in
+  its package was edited and a test command ran)
 - Tests must pass before you finish. (enforced at Stop by `.claude/verify`, or
   the repo's make/go/pnpm test command)
 - TS/JS: Fallow runs before you finish. Fix its findings; use

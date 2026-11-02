@@ -54,6 +54,8 @@
   `claude-ollama`.
 - Bound shell output: `| head -50`, tests quiet or failures only.
 - Smallest edit that works; never rewrite a whole file.
+- TDD, enforced: before editing a code file, edit its test (X.test.sh,
+  X_test.go, X.test.ts) and run it; the edit is refused until both happened.
 - Reply in 10 lines or fewer unless asked for code.
 - When a "Context budget" note arrives, finish the edit, call Skill handoff with
   `save`, then stop and say a relaunch is coming.
