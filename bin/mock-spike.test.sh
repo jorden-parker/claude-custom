@@ -25,13 +25,17 @@ cp "$repo/web/console/scripts/mock-spike.mts" "$sandbox/web/scripts/"
 touch "$sandbox/web/pnpm-lock.yaml"
 cat > "$sandbox/stubbin/node" <<EOF
 #!/bin/sh
-echo "NODE: \$*"
 EOF
 cat > "$sandbox/stubbin/pnpm" <<EOF
 #!/bin/sh
 echo "PNPM: \$*"
-mkdir -p "$sandbox/web/node_modules"
+mkdir -p "$sandbox/web/node_modules/.bin"
 touch "$sandbox/web/node_modules/.modules.yaml"
+cat > "$sandbox/web/node_modules/.bin/tsx" <<'TSX'
+#!/bin/sh
+echo "TSX: \$*"
+TSX
+chmod +x "$sandbox/web/node_modules/.bin/tsx"
 EOF
 chmod +x "$sandbox/stubbin/node" "$sandbox/stubbin/pnpm"
 export PATH="$sandbox/stubbin:$PATH"
@@ -39,7 +43,7 @@ export CLAUDE_OLLAMA_WEB_DIR="$sandbox/web"
 
 out="$("$repo/bin/mock-spike" --model m --runs 2 2>"$sandbox/err")"
 check_that "installs the console when node_modules is missing" grep -qxF "PNPM: --dir $sandbox/web install --frozen-lockfile" "$sandbox/err"
-check_eq "runs the script with the arguments" "NODE: --no-warnings=MODULE_TYPELESS_PACKAGE_JSON $sandbox/web/scripts/mock-spike.mts --model m --runs 2" "$out"
+check_eq "runs the script through the console's tsx with the arguments" "TSX: $sandbox/web/scripts/mock-spike.mts --model m --runs 2" "$out"
 
 "$repo/bin/mock-spike" --model m >/dev/null 2>"$sandbox/err"
 check_that "skips the install when node_modules is current" test ! -s "$sandbox/err"

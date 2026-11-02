@@ -7,9 +7,8 @@ while [ -L "$script" ]; do
 done
 repo_dir="$(cd "$(dirname "$script")/.." && pwd -P)"
 web_dir="${CLAUDE_OLLAMA_WEB_DIR:-$repo_dir/web/console}"
-runner="${MOCK_SPIKE_NODE:-node}"
 
-for tool in "$runner" pnpm; do
+for tool in node pnpm; do
   if ! command -v "$tool" >/dev/null 2>&1; then
     echo "mock-spike: $tool is required (brew install $tool)" >&2
     exit 1
@@ -26,4 +25,4 @@ if install_needed; then
   pnpm --dir "$web_dir" install --frozen-lockfile >&2
 fi
 
-exec "$runner" --no-warnings=MODULE_TYPELESS_PACKAGE_JSON "$web_dir/scripts/mock-spike.mts" "$@"
+exec "$web_dir/node_modules/.bin/tsx" "$web_dir/scripts/mock-spike.mts" "$@"

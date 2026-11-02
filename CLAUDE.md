@@ -346,13 +346,14 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   lines, elements, catalog validation, first-patch time) with
   `web/console/src/lib/mock-spike/score.ts`, prints a `verdict:` line (`sound`,
   `repairable`, `poor`) and saves `~/bench-results/mock-spike-*.json`. The CLI
-  is `web/console/scripts/mock-spike.mts` (plain `node`, no build); the wrapper
-  installs the console's packages when they are missing. Tests:
-  `bin/mock-spike.test.sh` (stub node and pnpm) and the console's vitest suite.
-  The console's `/mockups` page renders the newest report's specs with
-  json-render (`web/console/src/lib/mock-spike/registry.tsx` maps the catalog to
-  the vendored shadcn components) and shows each run's structural and prop
-  issues; `reports.ts` rescores every reply, so stored scores are never trusted.
+  is `web/console/scripts/mock-spike.mts`, run through the console's `tsx` so
+  any Node the console supports works; the wrapper installs the console's
+  packages when they are missing. Tests: `bin/mock-spike.test.sh` (stub node and
+  pnpm) and the console's vitest suite. The console's `/mockups` page renders
+  the newest report's specs with json-render
+  (`web/console/src/lib/mock-spike/registry.tsx` maps the catalog to the
+  vendored shadcn components) and shows each run's structural and prop issues;
+  `reports.ts` rescores every reply, so stored scores are never trusted.
 - `shared/hooks/tool-nudge.py` is wired only in the Ollama profiles
   (UserPromptSubmit resets its per-session state under
   `${CLAUDE_CONFIG_DIR:-~/.claude}/cache/tool-nudge/`). As PreToolUse on Bash
