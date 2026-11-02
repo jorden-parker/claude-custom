@@ -122,6 +122,7 @@ def record_call(state, event, snapshots):
     }
     if event.get("tool_name") == "Read" and size <= SNAPSHOT_BYTE_LIMIT:
         state["calls"][key]["snapshot"] = snapshot_name(key)
+        state["calls"][key]["realpath"] = os.path.realpath((event.get("tool_input") or {}).get("file_path", ""))
         save_snapshot(snapshots, snapshot_name(key), text)
     prune_snapshots(snapshots, state)
 
@@ -140,7 +141,7 @@ def narrowed(reason, tool_input, offset, limit):
     return {
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
-            "permissionDecision": "allow",
+            "permissionDecision": "ask",
             "updatedInput": {"file_path": tool_input.get("file_path", ""), "offset": offset, "limit": limit},
             "additionalContext": reason,
         }
@@ -180,8 +181,11 @@ def narrowing_reason(number, changed, shown):
 def narrowed_read(earlier, event, snapshots):
     tool_input = event.get("tool_input") or {}
     snapshot = snapshots / earlier.get("snapshot", "")
-    current = read_lines(tool_input.get("file_path", ""))
-    if not earlier.get("snapshot") or not snapshot.is_file() or current is None:
+    file_path = tool_input.get("file_path", "")
+    if not earlier.get("snapshot") or not snapshot.is_file() or os.path.realpath(file_path) != earlier.get("realpath"):
+        return None
+    current = read_lines(file_path)
+    if current is None:
         return None
     old_lines = snapshot.read_text(encoding="utf-8").splitlines()
     span = changed_span(old_lines, served_slice(current, tool_input))
