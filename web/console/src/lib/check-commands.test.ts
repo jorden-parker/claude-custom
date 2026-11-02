@@ -15,7 +15,9 @@ describe("check commands", () => {
   });
 
   it("marks only the size-bound checks as needing a size", () => {
-    const sized = CHECK_COMMANDS.filter((check) => check.needsSize).map((check) => check.command);
+    const sized = CHECK_COMMANDS.filter((check) => check.needsSize).map(
+      (check) => check.command,
+    );
     expect(sized).toEqual(["doctor", "qwen-doctor"]);
   });
 });

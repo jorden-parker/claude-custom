@@ -1,7 +1,7 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { connection } from "next/server";
 import { Suspense } from "react";
+import { PageHeading } from "@/components/page-heading";
 import { RunView } from "@/components/run-view";
 import { resolveRunFile } from "@/lib/run-log";
 
@@ -9,14 +9,12 @@ type RunPageProps = { params: Promise<{ id: string }> };
 
 export default function RunPage({ params }: RunPageProps) {
   return (
-    <main className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8">
-      <Link href="/runs" className="text-sm underline">
-        All runs
-      </Link>
+    <>
+      <PageHeading title="Run" backHref="/runs" backLabel="Runs" />
       <Suspense fallback={<p className="text-sm text-muted-foreground">Loading run...</p>}>
         <LiveRun params={params} />
       </Suspense>
-    </main>
+    </>
   );
 }
 

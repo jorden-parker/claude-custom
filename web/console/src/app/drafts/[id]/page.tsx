@@ -1,17 +1,14 @@
-import Link from "next/link";
 import { connection } from "next/server";
 import { Suspense } from "react";
 import { DraftEditor } from "@/components/draft-editor";
+import { PageHeading } from "@/components/page-heading";
 
 type DraftPageProps = { params: Promise<{ id: string }> };
 
 export default function DraftPage({ params }: DraftPageProps) {
   return (
-    <main className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 py-8">
-      <Link href="/drafts" className="text-sm underline">
-        All drafts
-      </Link>
-      <h1 className="text-2xl font-semibold">Draft</h1>
+    <>
+      <PageHeading title="Draft" backHref="/drafts" backLabel="Drafts" />
       <Suspense
         fallback={
           <p className="text-sm text-muted-foreground">Loading draft...</p>
@@ -19,7 +16,7 @@ export default function DraftPage({ params }: DraftPageProps) {
       >
         <LiveDraft params={params} />
       </Suspense>
-    </main>
+    </>
   );
 }
 

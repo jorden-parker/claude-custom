@@ -1,9 +1,9 @@
-import Link from "next/link";
 import { connection } from "next/server";
 import { Suspense } from "react";
 import { BenchForms } from "@/components/bench-forms";
 import { BenchHistory } from "@/components/bench-history";
 import { BenchOffFrame } from "@/components/bench-off-frame";
+import { PageHeading } from "@/components/page-heading";
 import { TelemetryCard } from "@/components/telemetry-card";
 import { benchRuns } from "@/lib/bench-runs";
 import { hasBenchOffReport } from "@/lib/bench-off-report";
@@ -13,15 +13,12 @@ import { telemetryReport } from "@/lib/telemetry";
 
 export default function BenchmarksPage() {
   return (
-    <main className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-4 py-8">
-      <Link href="/" className="text-sm underline">
-        Console home
-      </Link>
-      <h1 className="text-2xl font-semibold">Benchmarks</h1>
+    <>
+      <PageHeading title="Benchmarks" />
       <Suspense fallback={<p className="text-sm text-muted-foreground">Loading benchmarks...</p>}>
         <BenchmarkSections />
       </Suspense>
-    </main>
+    </>
   );
 }
 

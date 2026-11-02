@@ -18,8 +18,8 @@ export const CONSOLE_SECTIONS: readonly ConsoleSection[] = [
   },
   {
     href: "/health",
-    title: "Health",
-    summary: "Doctor checks and resolved settings per size",
+    title: "Checks",
+    summary: "Doctor, thinking, config, outdated-model and Qwen checks",
   },
   { href: "/logs", title: "Logs", summary: "Ollama server log, live" },
   {
