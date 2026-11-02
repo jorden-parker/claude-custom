@@ -160,6 +160,37 @@ canonical = json.dumps(body["system"], sort_keys=True, separators=(",", ":"))
 print(len(canonical[: canonical.index(sys.argv[2])].encode("utf-8")))
 PY
 
+cat > "$tmp/hard_rule_timing.py" <<'PY'
+import importlib.machinery
+import importlib.util
+import sys
+import time
+
+loader = importlib.machinery.SourceFileLoader("messages_proxy", sys.argv[1])
+spec = importlib.util.spec_from_loader(loader.name, loader)
+proxy = importlib.util.module_from_spec(spec)
+loader.exec_module(proxy)
+flood = ", " * 5120
+started = time.perf_counter()
+flooded = proxy.hard_volatile(flood)
+elapsed = time.perf_counter() - started
+long_date = "Today's date: 2026-11-02 " + "x" * 200
+checks = {
+    "flood is not volatile": flooded is False,
+    "flood returns within a few milliseconds": elapsed < 0.02,
+    "a line over 200 chars is skipped": proxy.hard_volatile(long_date) is False,
+    "a date-only line still matches": proxy.hard_volatile("Monday, 2 November 2026") is True,
+    "a slash date still matches": proxy.hard_volatile("11/02/2026 2:05 pm") is True,
+    "a time-only line still matches": proxy.hard_volatile("14:05") is True,
+    "a bare number is not a date": proxy.hard_volatile("42") is False,
+    "a sentence with a date is not date-only": proxy.hard_volatile("Due on 2026-11-02 at noon") is False,
+}
+failed = [label for label, passed in checks.items() if not passed]
+for label in failed:
+    print(f"FAIL: {label} (elapsed {elapsed:.4f}s)")
+sys.exit(1 if failed else 0)
+PY
+
 cat > "$tmp/section_bytes.py" <<'PY'
 import json
 import sys
@@ -405,6 +436,8 @@ Today's date: 2026-11-02
 The session began on Monday 2026-11-02." ]
 send "$run_dir/s3.json" "$run_dir/s3.out"
 check "a line that is only a time is volatile" [ "$(row_field "$(log_row 3)" '.stabilized | join(",")')" = "##:##,The session began on <weekday> ####-##-##." ]
+
+check "the hard rules match in linear time and skip long lines" python3 "$tmp/hard_rule_timing.py" "$proxy"
 
 stop_proxy
 stop_upstream

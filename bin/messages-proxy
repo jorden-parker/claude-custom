@@ -29,11 +29,14 @@ MONTH = re.compile(
     r"\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b",
     re.IGNORECASE,
 )
-DATE_OR_TIME_ONLY = re.compile(
-    r"^\W*(?:<weekday>,?\s*)?(?:####-##-##|#{1,2}/#{1,2}/#{2,4}|(?:#{1,2}\s+)?<month>(?:\s+#{1,2}(?:st|nd|rd|th)?)?,?(?:\s+####)?)?[,\s]*(?:#{1,2}:##(?::##)?\s*(?:[ap]\.?m\.?)?)?\W*$",
-    re.IGNORECASE,
-)
 VOLATILE_LINE_STARTS = ("today's date", "current date", "the current time")
+HARD_RULE_MAX_CHARS = 200
+WEEKDAY_TOKEN = "<weekday>"
+MONTH_TOKEN = "<month>"
+ISO_DATE_TOKEN = "####-##-##"
+AM_PM_TOKENS = {"am", "pm", "a.m", "p.m"}
+DAY_SUFFIXES = ("st", "nd", "rd", "th")
+TOKEN_EDGE_PUNCTUATION = "()[].!-"
 
 
 def parse_args(argv):
@@ -56,11 +59,56 @@ def volatile_key(line):
     return DIGIT.sub("#", MONTH.sub("<month>", WEEKDAY.sub("<weekday>", line)))
 
 
-def hard_volatile(line):
-    stripped = line.strip().lower()
-    if stripped.startswith(VOLATILE_LINE_STARTS):
+def hash_run(text, shortest, longest):
+    return shortest <= len(text) <= longest and set(text) == {"#"}
+
+
+def is_full_date(token):
+    if token == ISO_DATE_TOKEN:
         return True
-    return DIGIT.search(line) is not None and DATE_OR_TIME_ONLY.match(volatile_key(line)) is not None
+    parts = token.split("/")
+    return len(parts) == 3 and hash_run(parts[0], 1, 2) and hash_run(parts[1], 1, 2) and hash_run(parts[2], 2, 4)
+
+
+def is_time(token):
+    parts = token.split(":")
+    return 2 <= len(parts) <= 3 and hash_run(parts[0], 1, 2) and all(hash_run(part, 2, 2) for part in parts[1:])
+
+
+def is_day_or_year(token):
+    for suffix in DAY_SUFFIXES:
+        if token.endswith(suffix):
+            token = token[: -len(suffix)]
+            break
+    return hash_run(token, 1, 2) or hash_run(token, 4, 4)
+
+
+def is_date_word(token):
+    return token in (WEEKDAY_TOKEN, MONTH_TOKEN) or token in AM_PM_TOKENS
+
+
+def date_tokens(masked_line):
+    tokens = (token.strip(TOKEN_EDGE_PUNCTUATION) for token in masked_line.replace(",", " ").lower().split())
+    return [token for token in tokens if token]
+
+
+def date_or_time_only(masked_line):
+    tokens = date_tokens(masked_line)
+    if not tokens:
+        return False
+    if not all(is_date_word(token) or is_full_date(token) or is_time(token) or is_day_or_year(token) for token in tokens):
+        return False
+    if any(is_full_date(token) or is_time(token) for token in tokens):
+        return True
+    return MONTH_TOKEN in tokens and any(is_day_or_year(token) for token in tokens)
+
+
+def hard_volatile(line):
+    if len(line) > HARD_RULE_MAX_CHARS:
+        return False
+    if line.strip().lower().startswith(VOLATILE_LINE_STARTS):
+        return True
+    return DIGIT.search(line) is not None and date_or_time_only(volatile_key(line))
 
 
 def common_prefix_length(old, new):
@@ -169,16 +217,16 @@ class PrefixStabilizer:
         self.volatile_keys = set()
         self.previous_system_text = None
 
-    def is_volatile(self, line):
-        return hard_volatile(line) or volatile_key(line) in self.volatile_keys
-
-    def stabilize(self, body):
-        text = system_text(body.get("system"))
+    def learn(self, text):
         with self.lock:
             if self.previous_system_text is not None:
                 self.volatile_keys.update(learned_volatile_keys(self.previous_system_text, text))
             self.previous_system_text = text
-            system, moved = stabilized_system(body.get("system"), self.is_volatile)
+            return frozenset(self.volatile_keys)
+
+    def stabilize(self, body):
+        known_keys = self.learn(system_text(body.get("system")))
+        system, moved = stabilized_system(body.get("system"), lambda line: hard_volatile(line) or volatile_key(line) in known_keys)
         if not moved:
             return body, []
         return {**body, "system": system}, moved
