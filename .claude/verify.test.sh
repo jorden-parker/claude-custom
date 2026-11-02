@@ -52,6 +52,7 @@ check_ran 'a test file runs itself' "$checks|shared/hooks/edit-check.test.sh|" s
 check_ran 'script without extension' "$checks|bin/ollama-profiles.test.sh|" bin/ollama-profiles
 check_ran 'file without a test runs checks only' "$checks|" README.md
 check_ran 'tests run once' "$checks|shared/hooks/edit-check.test.sh|" shared/hooks/edit-check.py shared/hooks/edit-check.test.sh
+check_ran 'console files run the web tests' "$checks test-web|" web/console/src/lib/profile-rules.ts
 check_ran 'go files run go tests' "$checks test-go|" go/internal/picker/ui/model.go
 check_ran 'fallow lib runs every fallow test' "$checks|shared/hooks/fallow-a.test.sh|shared/hooks/fallow-b.test.sh|" shared/hooks/fallow-lib.sh
 check_ran 'installer runs install and launcher tests' "$checks|bin/claude-ollama.test.sh|personal/install.test.sh|" bin/claude-custom

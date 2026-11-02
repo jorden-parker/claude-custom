@@ -27,11 +27,13 @@ tests_for() {
 }
 
 go_changed=""
+web_changed=""
 tests=""
 for file in "$@"; do
   case "$file" in
     Makefile) exec make test ;;
     go/*) go_changed=1 ;;
+    web/console/*) web_changed=1 ;;
   esac
   tests="$tests
 $(tests_for "$file")"
@@ -39,6 +41,7 @@ done
 
 set -- check-json check-config check-profiles
 [ -n "$go_changed" ] && set -- "$@" test-go
+[ -n "$web_changed" ] && set -- "$@" test-web
 
 status=0
 make --no-print-directory "$@" || status=1

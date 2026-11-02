@@ -26,6 +26,7 @@ PYTHON_SHEBANGS = ("#!/usr/bin/env python", "#!/usr/bin/python")
 COMMENT_MARKERS = {"go": ("//", "/*"), "js": ("//", "/*"), "python": ("#",), "shell": ("#",)}
 ALLOWED_DIRECTIVES = ("#!", "//go:", "/// <reference")
 QUOTES = "'\"`"
+TYPESCRIPT_SUFFIXES = (".ts", ".tsx", ".mts", ".cts")
 ESLINT_CONFIGS = ("eslint.config.js", "eslint.config.mjs", "eslint.config.cjs", "eslint.config.ts",
                   ".eslintrc", ".eslintrc.js", ".eslintrc.cjs", ".eslintrc.json", ".eslintrc.yml")
 
@@ -77,7 +78,14 @@ def js_checks(path):
         checks.append(([str(bin_dir / "prettier"), "--check", str(path)], root, False))
     if (bin_dir / "eslint").exists() and any((root / name).exists() for name in ESLINT_CONFIGS):
         checks.append(([str(bin_dir / "eslint"), str(path)], root, False))
+    if path.suffix in TYPESCRIPT_SUFFIXES and (bin_dir / "tsc").exists() and (root / "tsconfig.json").exists():
+        checks.append(([str(bin_dir / "tsc"), "--noEmit", "--pretty", "false"], root, False, lines_about(path, root)))
     return checks
+
+
+def lines_about(path, root):
+    prefix = str(path.relative_to(root))
+    return lambda line: line.startswith(prefix)
 
 
 def python_checks(path):
@@ -128,10 +136,14 @@ def remember_pass(path):
     prune_cache()
 
 
-def run_check(command, cwd, output_means_failure):
+def run_check(command, cwd, output_means_failure, keep_line=None):
     result = subprocess.run(command, cwd=cwd, capture_output=True, text=True)
     output = (result.stdout + result.stderr).strip()
-    failed = result.returncode != 0 or (output_means_failure and output)
+    if keep_line:
+        output = "\n".join(line for line in output.splitlines() if keep_line(line))
+        failed = bool(output)
+    else:
+        failed = result.returncode != 0 or (output_means_failure and output)
     if not failed:
         return None
     tool = Path(command[0]).name

@@ -22,6 +22,13 @@ printf '{}' > "$js_project/package.json"
 printf 'export default [];\n' > "$js_project/eslint.config.js"
 printf '#!/bin/sh\ngrep -q PRETTIERFAIL "$2" && { echo "[warn] $2"; exit 1; }; exit 0\n' > "$js_project/node_modules/.bin/prettier"
 printf '#!/bin/sh\ngrep -q ESLINTFAIL "$1" && { echo "error no-unused-vars"; exit 1; }; exit 0\n' > "$js_project/node_modules/.bin/eslint"
+cat > "$js_project/node_modules/.bin/tsc" <<'STUB'
+#!/bin/sh
+echo "$*" >> tsc.log
+grep -q TSCFAIL src/a.ts && { echo "src/a.ts(1,14): error TS2304: Cannot find name 'TSCFAIL'."; echo "src/other.ts(2,1): error TS2322: unrelated"; exit 2; }
+grep -q OTHERFAIL src/a.ts && { echo "src/other.ts(2,1): error TS2322: unrelated"; exit 2; }
+exit 0
+STUB
 chmod +x "$js_project/node_modules/.bin/"*
 
 json_string() {
@@ -93,6 +100,14 @@ expect_stderr_has 'prettier names the tool' 'prettier: '
 expect deny  'eslint failure'      run_write "$js_project/src/a.ts" $'export const ESLINTFAIL = 1;\n'
 expect deny  'block comment in ts' run_write "$js_project/src/a.ts" $'/* why */\nexport const a = 1;\n'
 expect deny  'eslint-disable'      run_write "$js_project/src/a.ts" $'// eslint-disable-next-line\nexport const a = 1;\n'
+expect allow 'ts without tsconfig skips tsc' run_write "$js_project/src/a.ts" $'export const TSCFAIL = 1;\n'
+printf '{}' > "$js_project/tsconfig.json"
+expect deny  'tsc unknown name'    run_write "$js_project/src/a.ts" $'export const b = TSCFAIL;\n'
+expect_stderr_has 'tsc keeps only the edited file' "Cannot find name 'TSCFAIL'"
+if grep -q 'src/other.ts' "$sandbox/stderr"; then echo "FAIL: tsc output should drop other files"; failures=$((failures + 1)); fi
+if ! grep -q -- '--noEmit' "$js_project/tsc.log"; then echo "FAIL: tsc should run with --noEmit"; failures=$((failures + 1)); fi
+expect allow 'tsc errors elsewhere pass' run_write "$js_project/src/a.ts" $'export const b = OTHERFAIL;\n'
+expect allow 'js skips tsc'        run_write "$js_project/src/c.js" $'export const b = TSCFAIL;\n'
 expect allow 'ts outside project skips linters' run_write "$sandbox/loose/b.ts" $'export const PRETTIERFAIL = 1;\n'
 
 expect deny  'python ruff failure' run_write "$sandbox/py/a.py" $'RUFFFAIL = 1\n'
