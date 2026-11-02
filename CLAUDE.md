@@ -626,23 +626,43 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   previous `total time ... / N tokens`), `compacted` (with `preTokens`) or
   `unknown` (a line naming the model or a runner that fits no rule, never
   dropped); the rest of a load sequence (`loaded runners`, `template selection`)
-  is skipped. Each incident is one JSON line (`ts`, `cause`, `detail` of 200
-  chars, `tokens`) appended to
+  is skipped. Each rule has an id (`aborted/context-canceled`,
+  `truncated/input-prompt`, `evicted/unload`, `evicted/runner-start`,
+  `ignored/load-sequence`, `reprefilled/prompt-eval`, `compacted/transcript`).
+  Each incident is one JSON line (`ts`, `cause`, `detail` of 200 chars,
+  `tokens`, `rule`, null for `unknown`) appended to
   `$CLAUDE_CONSOLE_STATE_DIR/incidents/<utc-time>-<pid>.jsonl` (0700/0600), the
   newest also in `<file>.latest`, and `incidents/current` names the running
-  session's file. The launcher exports `CLAUDE_OLLAMA_INCIDENTS_FILE` to the
-  session, and `shared/hooks/incident-note.py` (UserPromptSubmit, in
+  session's file. A `reprefilled` row also carries `preceded_by`, the last
+  `{kind, ts}` event seen in the log before it (`embed`: an `/api/embed`
+  request; `load`: a runner start; `unload`; `expired`: a keep-alive expiry), or
+  null; no other cause has the key. The watcher counts hits per rule, the
+  `unmatched` lines (the `unknown` rows) and the log lines seen, and appends a
+  `{"kind": "health", "ts", "rules", "unmatched", "lines"}` row (never to
+  `.latest`) every 60 s in follow mode (`--health-interval`) and once at exit
+  and in `--once`; every reader skips rows with a `kind`.
+  `watcher.py --check-rules --log PATH [--model NAME] [--lines N]` (default 400)
+  replays the log's last lines, prints each rule id with its hits, then `blind`
+  (exit 1: 50 or more lines name the model or a runner and no rule matched) or
+  `ok`; `claude-ollama doctor` runs it as `check_classifier` on
+  `server_log_path` and fails when the classifier is blind (`rules: N` counts
+  the rules that hit). The launcher exports `CLAUDE_OLLAMA_INCIDENTS_FILE` to
+  the session, and `shared/hooks/incident-note.py` (UserPromptSubmit, in
   `ollama/hooks.extra.json` after `tool-nudge.py`; `bin/check-config` fails when
   an Ollama profile lacks it) adds one `additionalContext` line naming the last
   incident and the counts per cause when new ones appeared, remembering the
   reported count under `${CLAUDE_CONFIG_DIR:-~/.claude}/cache/incident-note/`.
   The console's Logs page has an Incidents tab (`source=incidents` on
   `/api/logs/path` and `/api/logs/events`, which read only the file
-  `incidents/current` names inside that folder) with a count per cause above the
-  lines (`web/console/src/lib/incidents.ts`). Tests:
-  `ollama/incidents/watcher.test.sh` (`fixtures/server-log.txt` covers every
-  cause), `shared/hooks/incident-note.test.sh`, `bin/claude-ollama.test.sh`
-  (stub watcher), the console's vitest suite.
+  `incidents/current` names inside that folder) with a count per cause and a
+  classifier-health pill from the latest health row (`saw N lines, M unmatched`
+  or `no health row yet`) above the lines; each line shows the preceding event
+  and rule as sub-labels (`reprefilled · after embed · reprefilled/prompt-eval`;
+  `web/console/src/lib/incidents.ts`: `parseIncident`, `parseHealth`,
+  `latestHealth`). Tests: `ollama/incidents/watcher.test.sh`
+  (`fixtures/server-log.txt` covers every cause and passes `--check-rules`),
+  `shared/hooks/incident-note.test.sh`, `bin/claude-ollama.test.sh` (stub
+  watcher; doctor runs the real one on a stub log), the console's vitest suite.
 - `shared/mcp/code-search.py` is the `semantic_search` MCP server (JSON-RPC over
   stdio, stdlib only). It ranks 40-line chunks by their words (BM25) on every
   search, adds a vector ranking through Ollama `/api/embed` only while

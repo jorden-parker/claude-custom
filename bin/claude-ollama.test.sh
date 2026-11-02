@@ -2,6 +2,7 @@
 set -u
 repo="$(cd "$(dirname "$0")/.." && pwd -P)"
 installer="$repo/bin/claude-custom"
+real_python3="$(command -v python3)"
 failures=0
 sandboxes=""
 system_tools=""
@@ -171,6 +172,7 @@ EOF
   unset CLAUDE_OLLAMA_OPEN_DRAFTS CLAUDE_OLLAMA_DRAFTS_DIR
   cat > "$sandbox/stubbin/incident-watcher" <<EOF
 #!/bin/sh
+if [ "\$1" = --check-rules ]; then echo ok; exit 0; fi
 printf '%s\n' "\$*" > "$sandbox/watcher-args"
 EOF
   chmod +x "$sandbox/stubbin/incident-watcher"
@@ -684,6 +686,23 @@ check_eq "doctor with a base that misses its pin exit status" 1 "$?"
 check_that "doctor fails a base that misses its pin" grep -qF "fail digest qwen3.8:27b-mlx is 0000, not the pinned" "$sandbox/out"
 pinned_tags > "$sandbox/tags.json"
 check_not "doctor does not pull or create" grep -sqE '^(pull|create) ' "$sandbox/ollama.log"
+healthy_server_env="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2 OLLAMA_NUM_PARALLEL=1"
+HOMEBREW_PREFIX="$sandbox/brew" STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_server_env" run_capture "$repo/bin/claude-ollama" doctor 27b
+check_that "doctor skips the classifier check without a server log" grep -qxF "ok   incident classifier not checked (no server log)" "$sandbox/out"
+mkdir -p "$sandbox/brew/var/log" "$sandbox/realbin"
+ln -s "$real_python3" "$sandbox/realbin/python3"
+cp "$repo/ollama/incidents/fixtures/server-log.txt" "$sandbox/brew/var/log/ollama.log"
+PATH="$sandbox/realbin:$PATH" CLAUDE_OLLAMA_INCIDENT_WATCHER="$repo/ollama/incidents/watcher.py" HOMEBREW_PREFIX="$sandbox/brew" \
+  STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_server_env" run_capture "$repo/bin/claude-ollama" doctor 27b
+check_eq "doctor with a server log the classifier reads exit status" 0 "$?"
+check_that "doctor reports the classifier matches the server log" grep -qxF "ok   incident classifier matches the server log (rules: 6)" "$sandbox/out"
+for i in $(seq 60); do
+  printf 'time=2026-11-02T15:00:%02d.000Z level=INFO source=sched.go:1 msg="runner did a new thing" model=qwen3.8-27b-cc\n' "$((i % 60))"
+done > "$sandbox/brew/var/log/ollama.log"
+PATH="$sandbox/realbin:$PATH" CLAUDE_OLLAMA_INCIDENT_WATCHER="$repo/ollama/incidents/watcher.py" HOMEBREW_PREFIX="$sandbox/brew" \
+  STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_server_env" run_capture "$repo/bin/claude-ollama" doctor 27b
+check_eq "doctor with a server log no rule matches exit status" 1 "$?"
+check_that "doctor fails when the classifier is blind to the server log" grep -qxF "fail incident classifier is blind to the server log format (update ollama/incidents/watcher.py rules)" "$sandbox/out"
 
 new_sandbox
 STUB_OLLAMA_SHOW_EXIT=1 STUB_OLLAMA_PID=42 run_capture "$repo/bin/claude-ollama" doctor 27b

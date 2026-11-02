@@ -119,6 +119,34 @@ describe("LogView", () => {
     expect(
       screen.getByText(/reprefilled prompt eval time .* \(61k tokens\)$/),
     ).toBeTruthy();
+    expect(screen.getByLabelText("classifier health").textContent).toBe(
+      "no health row yet",
+    );
+    act(() => {
+      receive(
+        source,
+        frame(
+          '{"ts": "2026-11-02T14:04:03.000Z", "cause": "reprefilled", "detail": "prompt eval time = 52000.00 ms / 65450 tokens", "tokens": 65450, "rule": "reprefilled/prompt-eval", "preceded_by": {"kind": "embed", "ts": "2026-11-02T14:04:02Z"}}',
+        ),
+      );
+      receive(
+        source,
+        frame(
+          '{"ts": "2026-11-02T14:05:00Z", "kind": "health", "rules": {"reprefilled/prompt-eval": 1}, "unmatched": 1, "lines": 36}',
+        ),
+      );
+    });
+    expect(
+      screen.getByText(
+        /reprefilled · after embed · reprefilled\/prompt-eval prompt eval time/,
+      ),
+    ).toBeTruthy();
+    expect(screen.getByLabelText("classifier health").textContent).toBe(
+      "saw 36 lines, 1 unmatched",
+    );
+    expect(counts.textContent).toBe(
+      "aborted 2evicted 0truncated 0reprefilled 2compacted 0unknown 0",
+    );
   });
 
   it("shows why the launcher log is missing", async () => {

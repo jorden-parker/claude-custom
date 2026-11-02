@@ -53,8 +53,14 @@ printf '%s\n' '{"ts": "2026-11-02T14:06:00.000Z", "cause": "unknown", "detail": 
 expect_eq "an unknown incident shows the line" \
   "last incident: unknown at 14:06 (msg=\"runner idle timer fired\" model=qwen3.6:35b-cc); since the session started: aborted 1, evicted 1, truncated 1, reprefilled 1, compacted 1, unknown 1" "$(prompt)"
 
+printf '%s\n' '{"ts": "2026-11-02T14:07:00.000Z", "kind": "health", "rules": {"aborted/context-canceled": 1}, "unmatched": 1, "lines": 36}' >> "$incidents"
+expect_eq "a health row is not an incident" "" "$(prompt)"
+printf '%s\n' '{"ts": "2026-11-02T14:08:00.000Z", "cause": "aborted", "detail": "error=\"context canceled\"", "tokens": null, "rule": "aborted/context-canceled"}' >> "$incidents"
+expect_eq "and is left out of the counts" \
+  "last incident: aborted at 14:08 (the request was cancelled mid-flight); since the session started: aborted 2, evicted 1, truncated 1, reprefilled 1, compacted 1, unknown 1" "$(prompt)"
+
 starts_with() { case "$1" in "$2"*) echo yes ;; *) echo no ;; esac; }
-expect_eq "another session has not seen the incidents yet" yes "$(starts_with "$(prompt s2)" "last incident: unknown")"
+expect_eq "another session has not seen the incidents yet" yes "$(starts_with "$(prompt s2)" "last incident: aborted")"
 expect_eq "the state lives under the Claude config dir" yes "$([ -f "$HOME/.claude/cache/incident-note/s1.json" ] && echo yes || echo no)"
 export CLAUDE_CONFIG_DIR="$sandbox/config"
 expect_eq "CLAUDE_CONFIG_DIR moves the state" yes "$(prompt >/dev/null; [ -f "$sandbox/config/cache/incident-note/s1.json" ] && echo yes || echo no)"

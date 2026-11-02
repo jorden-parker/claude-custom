@@ -62,7 +62,24 @@ mode_of() {
 }
 
 field() {
-  python3 -c 'import json, sys; print(*(json.loads(line)[sys.argv[1]] for line in sys.stdin if line.strip()))' "$1"
+  python3 -c 'import json, sys; rows = [json.loads(line) for line in sys.stdin if line.strip()]; print(*(row[sys.argv[1]] for row in rows if "kind" not in row))' "$1"
+}
+
+health_field() {
+  python3 -c 'import json, sys; rows = [json.loads(line) for line in sys.stdin if line.strip()]; health = [row for row in rows if row.get("kind") == "health"]; print(json.dumps(health[-1][sys.argv[1]]) if health else "")' "$1"
+}
+
+health_rows() {
+  grep -c '"kind": "health"' "$1" 2>/dev/null || echo 0
+}
+
+row_json() {
+  sed -n "${1}p" "$2" | python3 -c "import json, sys; print($3)"
+}
+
+check_rules() {
+  python3 "$watcher" --check-rules "$@" > "$tmp/check.out" 2>&1
+  echo "$?"
 }
 
 run_once() {
@@ -72,18 +89,30 @@ run_once() {
 out="$tmp/state/incidents/session.jsonl"
 run_once "$fixtures/server-log.txt" "$out" "$fixtures/projects"
 check "every cause is found in order, and a line naming the model without a rule is unknown" \
-  equals "evicted aborted evicted evicted reprefilled truncated reprefilled unknown compacted" "$(field cause < "$out")"
+  equals "evicted aborted evicted evicted reprefilled truncated reprefilled unknown reprefilled compacted" "$(field cause < "$out")"
 check "token counts come from the line, or are null" \
-  equals "None None None None 13100 66000 65400 None 61234" "$(field tokens < "$out")"
+  equals "None None None None 13100 66000 65400 None 65450 61234" "$(field tokens < "$out")"
+check "every row names the rule that matched it, none for unknown" \
+  equals "evicted/runner-start aborted/context-canceled evicted/unload evicted/runner-start reprefilled/prompt-eval truncated/input-prompt reprefilled/prompt-eval None reprefilled/prompt-eval compacted/transcript" "$(field rule < "$out")"
+check "a reprefill after an embed request says so" \
+  equals embed "$(row_json 9 "$out" 'json.load(sys.stdin)["preceded_by"]["kind"]')"
+check "a reprefill after a runner start says so, with the event time" \
+  equals "load 2026-11-02T14:02:05.000Z" "$(row_json 5 "$out" '" ".join(json.load(sys.stdin)["preceded_by"].values())')"
+check "other causes carry no preceded_by" equals False "$(row_json 2 "$out" '"preceded_by" in json.load(sys.stdin)')"
+check "a once run ends with one health row" equals 1 "$(health_rows "$out")"
+check "the health row counts the hits per rule" \
+  equals '{"aborted/context-canceled": 1, "truncated/input-prompt": 1, "evicted/unload": 1, "evicted/runner-start": 2, "ignored/load-sequence": 3, "reprefilled/prompt-eval": 3, "compacted/transcript": 1}' "$(health_field rules < "$out")"
+check "the health row counts the unmatched model lines" equals 1 "$(health_field unmatched < "$out")"
+check "the health row counts the log lines seen" equals 36 "$(health_field lines < "$out")"
 check "the timestamp comes from the log line" \
   equals "2026-11-02T14:01:30.100Z" "$(sed -n 2p "$out" | field ts)"
 check "the compaction timestamp comes from the transcript" \
-  equals "2026-11-02T14:05:00.000Z" "$(tail -n 1 "$out" | field ts)"
+  equals "2026-11-02T14:05:00.000Z" "$(sed -n 10p "$out" | field ts)"
 check "the detail keeps the line" contains "$(sed -n 2p "$out" | field detail)" 'error="context canceled"'
 check "the unknown line is the one naming the model" contains "$(sed -n 8p "$out" | field detail)" "runner idle timer fired"
 check "the incidents folder is private" equals 700 "$(mode_of "$tmp/state/incidents")"
 check "the incidents file is private" equals 600 "$(mode_of "$out")"
-check "the latest file holds the newest incident" equals "$(tail -n 1 "$out")" "$(cat "$out.latest")"
+check "the latest file holds the newest incident, never a health row" equals "$(tail -n 2 "$out" | head -n 1)" "$(cat "$out.latest")"
 check "the latest file is private" equals 600 "$(mode_of "$out.latest")"
 
 long_line="$(printf 'x%.0s' $(seq 400)) context canceled"
@@ -99,7 +128,30 @@ slot print_timing: id  0 | task 1 | prompt eval time = 100.00 ms / 460 tokens (0
 time=2026-11-02T14:04:01.000Z level=INFO source=sched.go:901 msg="embedding request" model=qwen3-embedding:0.6b
 EOF
 run_once "$tmp/quiet.log" "$tmp/quiet.jsonl" "$tmp/no-transcripts"
-check "small prompts and other models produce no incident" equals "" "$(cat "$tmp/quiet.jsonl" 2>/dev/null)"
+check "small prompts and other models produce no incident" equals "" "$(field cause < "$tmp/quiet.jsonl")"
+
+check "the rule check passes on the fixture" equals 0 "$(check_rules --log "$fixtures/server-log.txt" --model qwen3.6:35b-cc)"
+check "and prints each rule with its hits, then ok" \
+  equals "aborted/context-canceled 1
+truncated/input-prompt 1
+evicted/unload 1
+evicted/runner-start 2
+ignored/load-sequence 3
+reprefilled/prompt-eval 3
+compacted/transcript 0
+ok" "$(cat "$tmp/check.out")"
+for i in $(seq 60); do
+  printf 'time=2026-11-02T15:00:%02d.000Z level=INFO source=sched.go:1 msg="runner did a new thing" model=qwen3.6:35b-cc\n' "$((i % 60))"
+done > "$tmp/blind.log"
+check "the rule check is blind to 50 or more model lines no rule matches" equals 1 "$(check_rules --log "$tmp/blind.log" --model qwen3.6:35b-cc)"
+check "and says so" equals blind "$(tail -n 1 "$tmp/check.out")"
+check "a runner mention counts without a model name" equals 1 "$(check_rules --log "$tmp/blind.log")"
+head -n 49 "$tmp/blind.log" > "$tmp/short.log"
+check "fewer than 50 unmatched lines is not blind" equals 0 "$(check_rules --log "$tmp/short.log" --model qwen3.6:35b-cc)"
+cat "$fixtures/server-log.txt" "$tmp/blind.log" > "$tmp/mixed.log"
+check "the rule check replays only the last lines asked for" equals 1 "$(check_rules --log "$tmp/mixed.log" --model qwen3.6:35b-cc --lines 60)"
+check "and 400 lines by default" equals 0 "$(check_rules --log "$tmp/mixed.log" --model qwen3.6:35b-cc)"
+check "the rule check writes no incidents file" equals no "$([ -e "$tmp/check.jsonl" ] && echo yes || echo no)"
 
 follow_log="$tmp/follow.log"
 follow_out="$tmp/follow/incidents.jsonl"
@@ -109,13 +161,13 @@ printf '{"type":"system","subtype":"compact_boundary","timestamp":"2026-11-02T13
 sleep 600 &
 watched_pid=$!
 python3 "$watcher" --log "$follow_log" --model qwen3.6:35b-cc --out "$follow_out" \
-  --transcripts "$tmp/follow-projects" --watch-pid "$watched_pid" --interval 0.1 &
+  --transcripts "$tmp/follow-projects" --watch-pid "$watched_pid" --interval 0.1 --health-interval 0.3 &
 watcher_pid=$!
 sleep 0.5
-check "following starts at the end of the log and the transcripts" test ! -e "$follow_out"
+check "following starts at the end of the log and the transcripts" equals "" "$(field cause < "$follow_out" 2>/dev/null)"
+check "following writes a health row every interval" eventually sh -c "[ \"\$(grep -c '\"kind\": \"health\"' '$follow_out')\" -ge 2 ]"
 printf 'time=2026-11-02T14:00:00.000Z level=WARN msg="truncating input prompt" limit=4096 prompt=5000 keep=4 new=4096\n' >> "$follow_log"
-check "a new log line is an incident" eventually test -s "$follow_out"
-check "and it is classified" equals truncated "$(field cause < "$follow_out")"
+check "a new log line is an incident, classified" eventually causes_are truncated "$follow_out"
 printf '{"type":"system","subtype":"compact_boundary","timestamp":"2026-11-02T14:06:00.000Z","compactMetadata":{"preTokens":50000}}\n' > "$tmp/follow-projects/p/new.jsonl"
 check "a compaction in a new transcript is an incident" eventually causes_are "truncated compacted" "$follow_out"
 printf 'time=2026-11-02T14:07:00.000Z level=INFO msg="request failed" error="context canceled"\n' > "$follow_log"
@@ -126,6 +178,8 @@ watched_pid=""
 check "the watcher exits when the session does" eventually sh -c "! kill -0 $watcher_pid 2>/dev/null"
 wait "$watcher_pid" 2>/dev/null
 watcher_pid=""
+check "and writes a last health row" contains "$(tail -n 1 "$follow_out")" '"kind": "health"'
+check "that counts the lines it followed" equals 2 "$(health_field lines < "$follow_out")"
 
 stop_all
 

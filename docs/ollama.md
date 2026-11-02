@@ -598,10 +598,18 @@ llama.cpp `prompt eval time = ... / N tokens` line within 300 tokens of `n_ctx`
 or of the previous request's `total time ... / N tokens`: the prompt cache was
 lost and the whole prompt ran again), `compacted` (a `compact_boundary` entry in
 the transcript, with its `preTokens`) and `unknown` (a line naming the model or
-a runner that fits no rule). The tab shows a count per cause above the lines.
-Inside the session, `shared/hooks/incident-note.py` (UserPromptSubmit, Ollama
-profiles only) reads `CLAUDE_OLLAMA_INCIDENTS_FILE` and adds one line of context
-when new incidents appeared since your last prompt, such as
+a runner that fits no rule). Each line names the rule that matched it (such as
+`reprefilled/prompt-eval`) and a `reprefilled` line says what the log showed
+last before it (`after embed`, `after load`, `after unload`, `after expired`),
+so a reprefill that follows an embedding request stands out. The tab shows a
+count per cause above the lines and a classifier-health pill
+(`saw N lines, M unmatched`) from the health row the watcher writes every
+minute; a growing unmatched count means Ollama's log format changed.
+`claude-ollama doctor` runs `watcher.py --check-rules` on the server log and
+fails when no rule matches it any more. Inside the session,
+`shared/hooks/incident-note.py` (UserPromptSubmit, Ollama profiles only) reads
+`CLAUDE_OLLAMA_INCIDENTS_FILE` and adds one line of context when new incidents
+appeared since your last prompt, such as
 `last incident: evicted at 14:02 (the model was unloaded and reloaded); since the session started: aborted 1, evicted 1`.
 
 #### Server

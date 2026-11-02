@@ -7,8 +7,10 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useFollowScroll } from "@/components/use-follow-scroll";
 import {
   INCIDENT_CAUSES,
+  healthSummary,
   incidentCounts,
   incidentFrame,
+  latestHealth,
   parseIncident,
   type Incident,
 } from "@/lib/incidents";
@@ -63,7 +65,9 @@ function LogPanel({ source }: { source: LogSource }) {
   return (
     <div className="flex flex-col gap-3">
       <StatusPill path={stream.path} error={stream.error} />
-      {incidents === null ? null : <IncidentCounts incidents={incidents} />}
+      {incidents === null ? null : (
+        <IncidentHeader incidents={incidents} lines={stream.lines} />
+      )}
       <LogToolbar
         filter={filter}
         onFilter={setFilter}
@@ -83,6 +87,34 @@ function parseIncidents(lines: LogFrame[]): Incident[] {
     const incident = parseIncident(line.text);
     return incident === null ? [] : [incident];
   });
+}
+
+function IncidentHeader({
+  incidents,
+  lines,
+}: {
+  incidents: Incident[];
+  lines: LogFrame[];
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <IncidentCounts incidents={incidents} />
+      <ClassifierHealthPill lines={lines} />
+    </div>
+  );
+}
+
+function ClassifierHealthPill({ lines }: { lines: LogFrame[] }) {
+  const health = latestHealth(lines.map((line) => line.text));
+  return (
+    <Badge
+      variant="outline"
+      className={`text-xs ${health === null ? "text-muted-foreground" : ""}`}
+      aria-label="classifier health"
+    >
+      {healthSummary(health)}
+    </Badge>
+  );
 }
 
 function IncidentCounts({ incidents }: { incidents: Incident[] }) {
