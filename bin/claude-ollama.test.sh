@@ -744,7 +744,7 @@ healthy_server_env="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KE
 HOMEBREW_PREFIX="$sandbox/brew" STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_server_env" run_capture "$repo/bin/claude-ollama" doctor 27b
 check_that "doctor skips the classifier check without a server log" grep -qxF "ok   incident classifier not checked (no server log)" "$sandbox/out"
 mkdir -p "$sandbox/brew/var/log" "$sandbox/realbin"
-ln -s "$real_python3" "$sandbox/realbin/python3"
+ln -sf "$real_python3" "$sandbox/realbin/python3"
 cp "$repo/ollama/incidents/fixtures/server-log.txt" "$sandbox/brew/var/log/ollama.log"
 PATH="$sandbox/realbin:$PATH" CLAUDE_OLLAMA_INCIDENT_WATCHER="$repo/ollama/incidents/watcher.py" HOMEBREW_PREFIX="$sandbox/brew" \
   STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_server_env" run_capture "$repo/bin/claude-ollama" doctor 27b
@@ -779,6 +779,15 @@ mv "$sandbox/few.jsonl" "$HOME/.claude-ollama/telemetry/tool-calls.jsonl"
 PATH="$sandbox/realbin:$PATH" CLAUDE_OLLAMA_INCIDENT_WATCHER="$repo/ollama/incidents/watcher.py" HOMEBREW_PREFIX="$sandbox/brew" \
   STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_server_env" run_capture "$repo/bin/claude-ollama" doctor 27b
 check_that "doctor reports no flagged guard" grep -qxF "ok   guards: none flagged" "$sandbox/out"
+check_that "doctor reports nothing to drop without a proxy log" grep -qxF "ok   tool budget: nothing to drop" "$sandbox/out"
+mkdir -p "$HOME/.claude-ollama/proxy"
+budget_ts="$("$real_python3" -c 'from datetime import datetime, timezone; print(datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z"))')"
+for _ in $(seq 20); do
+  printf '{"ts":"%s","request_id":"r","sections":2,"stable_sections":2,"diverged_at":null,"offset":null,"diff":null,"prompt_bytes":10,"ledger":{"system":1,"tools":{"Bash":1500,"WebFetch":2048},"messages":1}}\n' "$budget_ts"
+done > "$HOME/.claude-ollama/proxy/requests.jsonl"
+PATH="$sandbox/realbin:$PATH" CLAUDE_OLLAMA_INCIDENT_WATCHER="$repo/ollama/incidents/watcher.py" HOMEBREW_PREFIX="$sandbox/brew" \
+  STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_server_env" run_capture "$repo/bin/claude-ollama" doctor 27b
+check_that "doctor warns about a tool schema nothing calls" grep -qxF "warn tool budget: drop WebFetch (saves 2.0 KiB per request): claude-ollama tool-budget" "$sandbox/out"
 
 new_sandbox
 STUB_OLLAMA_SHOW_EXIT=1 STUB_OLLAMA_PID=42 run_capture "$repo/bin/claude-ollama" doctor 27b
@@ -1703,8 +1712,31 @@ CLAUDE_CONSOLE_STATE_DIR="$sandbox/state" CLAUDE_OLLAMA_WHY_BIN="$sandbox/stubbi
 check_that "why reads the console state dir when it is set" grep -qxF -- "--proxy-log $sandbox/state/proxy/requests.jsonl --incidents-dir $sandbox/state/incidents" "$sandbox/why-args"
 run_capture "$repo/bin/claude-ollama" --help
 check_that "usage lists why" grep -q '^why \[--since MINUTES\] \[--json\]' "$sandbox/out"
+check_that "usage lists tool-budget" grep -q '^tool-budget \[--since DAYS\] \[--json\]' "$sandbox/out"
+
+cat > "$sandbox/stubbin/tool-budget" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" > "$sandbox/budget-args"
+echo "suggest: stub"
+EOF
+chmod +x "$sandbox/stubbin/tool-budget"
+CLAUDE_OLLAMA_TOOL_BUDGET_BIN="$sandbox/stubbin/tool-budget" run_capture "$repo/bin/claude-ollama" tool-budget --since 7 --json
+check_eq "tool-budget exit status" 0 "$?"
+check_that "tool-budget reads the session proxy log and the telemetry log and passes its flags" grep -qxF -- "--proxy-log $HOME/.claude-ollama/proxy/requests.jsonl --telemetry $HOME/.claude-ollama/telemetry/tool-calls.jsonl --since 7 --json" "$sandbox/budget-args"
+check_that "tool-budget prints the report" grep -qxF "suggest: stub" "$sandbox/out"
+check_not "tool-budget does not launch claude" grep -q '^ARGS:' "$sandbox/out"
+check_not "tool-budget does not start the proxy" test -e "$sandbox/proxy-args"
+rm -f "$sandbox/budget-args"
+mkdir -p "$sandbox/state"
+CLAUDE_CONSOLE_STATE_DIR="$sandbox/state" CLAUDE_TOOL_TELEMETRY="$sandbox/calls.jsonl" CLAUDE_OLLAMA_TOOL_BUDGET_BIN="$sandbox/stubbin/tool-budget" run_capture "$repo/bin/claude-ollama" tool-budget
+check_that "tool-budget reads the console state dir and CLAUDE_TOOL_TELEMETRY when they are set" grep -qxF -- "--proxy-log $sandbox/state/proxy/requests.jsonl --telemetry $sandbox/calls.jsonl" "$sandbox/budget-args"
 mkdir -p "$sandbox/realbin"
-ln -s "$real_python3" "$sandbox/realbin/python3"
+ln -sf "$real_python3" "$sandbox/realbin/python3"
+PATH="$sandbox/realbin:$PATH" run_capture "$repo/bin/claude-ollama" tool-budget
+check_eq "tool-budget with the real script exit status" 0 "$?"
+check_that "tool-budget runs the real script by default" grep -q '^suggest: nothing to drop' "$sandbox/out"
+mkdir -p "$sandbox/realbin"
+ln -sf "$real_python3" "$sandbox/realbin/python3"
 PATH="$sandbox/realbin:$PATH" run_capture "$repo/bin/claude-ollama" why
 check_eq "why with the real script exit status" 0 "$?"
 check_that "why runs the real script by default" grep -q '^verdict: nothing wrong' "$sandbox/out"

@@ -188,6 +188,7 @@ check_apis() {
 /api/tools
 /api/profiles
 /api/telemetry
+/api/tool-budget
 /api/speed-reports
 /api/server
 /api/server/ping

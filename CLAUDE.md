@@ -173,6 +173,17 @@ before changing how any file gets applied.
   times any `/v1/messages` server (cold/warm TTFT, prefill, decode, tool calls);
   runbook and results in `docs/backend-bench.md`; tests:
   `bin/messages-bench.test.sh` (stub server)
+- Tool budget:
+  `bin/tool-budget --proxy-log FILE --telemetry FILE [--since DAYS] [--json]`
+  (stdlib only) joins the proxy log's per-request `ledger` with the tool
+  telemetry over the window (default 14 days) and prints one row per tool
+  (latest schema bytes, requests carrying it, bytes per session as bytes ×
+  requests, calls, `N bytes per call` or `never called`), sorted by bytes per
+  session, then `protected (...)`,
+  `suggest: drop: A, B (saves N KiB per request)` (or `nothing to drop`) and
+  `keep:`. `claude-ollama tool-budget [--since DAYS] [--json]` runs it on the
+  session's logs before any pull or launch; tests: `bin/tool-budget.test.sh`
+  (inline fixture logs), `bin/claude-ollama.test.sh` (stub script, doctor lines)
 - Bench-off: `bin/backend-bench-off install|download|all` benches Ollama, oMLX
   and vllm-mlx, each with MTP off (stock MLX weights) and on (`oQ4e` MTP
   weights), model by model, and streams each run's JSONL into one side-by-side
@@ -921,6 +932,33 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `ledgerTools`, `proxyFrame`). Tests: `bin/messages-proxy.test.sh` (stub
   upstream), `bin/claude-ollama.test.sh` (stub proxy), the console's vitest
   suite.
+- Tool budget: every tool schema in a request is prefill the model pays on every
+  cache miss, so `bin/tool-budget` ranks each schema's bytes × requests (the
+  latest `ledger` bytes from the proxy log) against its calls (telemetry rows
+  without a `kind`), both inside `--since DAYS`. A tool is suggested for
+  dropping only with zero calls over at least 20 requests and 200 schema bytes,
+  and never when it is in `PROTECTED_TOOLS` (`Bash`, `Read`, `Edit`, `Write`,
+  `Skill`, `mcp__code-search__semantic_search`; the report says
+  `built-in list in bin/tool-budget`). `claude-ollama tool-budget` passes
+  `$(proxy_log_dir)/requests.jsonl` and
+  `${CLAUDE_TOOL_TELEMETRY:-telemetry log}` (`CLAUDE_OLLAMA_TOOL_BUDGET_BIN`
+  overrides the script for tests); `doctor` prints
+  `ok   tool budget: nothing to drop` or
+  `warn tool budget: drop X, Y (saves N KiB per request): claude-ollama tool-budget`
+  (`warn tool budget: not checked (...)` when the script fails). The console's
+  Settings page has a Tool budget card on `GET /api/tool-budget`
+  (`web/console/src/lib/tool-budget-report.ts` runs the script with `--json` on
+  `$CLAUDE_CONSOLE_STATE_DIR/proxy/requests.jsonl` and `CLAUDE_TOOL_TELEMETRY`,
+  else `<state dir>/telemetry/tool-calls.jsonl`): a bar per tool, the
+  suggestion, and per Ollama profile an "Apply suggestion to <profile>" button
+  that confirms the names, then `GET`s the profile and `PUT`s its override with
+  each suggested profile tool set to `off`
+  (`web/console/src/lib/tool-budget.ts`: `parseToolBudgetReport`, `budgetBars`,
+  `applySuggestion`, which skips names the profile does not list, such as MCP
+  tools); the claude-code profile gets no button. Tests:
+  `web/console/src/lib/tool-budget*.test.ts`,
+  `src/app/api/tool-budget/route.test.ts`,
+  `src/components/tool-budget-card.test.tsx`.
 - Why: `claude-ollama why [--since MINUTES] [--json]` execs
   `ollama/incidents/why.py --proxy-log FILE --incidents-dir DIR` (stdlib only;
   `CLAUDE_OLLAMA_WHY_BIN` overrides it for tests; `--now ISO` fixes the clock
