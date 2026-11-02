@@ -19,7 +19,7 @@ class MalformedCard(ValueError):
 
 
 def cards_dir():
-    override = os.environ.get("CLAUDE_OLLAMA_RULE_CARDS")
+    override = os.environ.get("CLAUDE_OLLAMA_RULE_CARDS_DIR")
     if override:
         return Path(override)
     home = os.environ.get("CLAUDE_CUSTOM_HOME")
@@ -192,8 +192,12 @@ def match_cards(tool_name, raw_input):
     return 0
 
 
+def switched_off():
+    return os.environ.get("CLAUDE_OLLAMA_RULE_CARDS") == "0"
+
+
 def handle_event(event):
-    if event.get("hook_event_name") != "PreToolUse":
+    if switched_off() or event.get("hook_event_name") != "PreToolUse":
         return 0
     cards, problems = load_cards(cards_dir())
     report_problems(problems)

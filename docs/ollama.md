@@ -414,7 +414,9 @@ needs; the situational rules live in `ollama/rule-cards/<id>.md`, and
 first time a tool call matches its triggers (a file suffix or folder, a command
 such as `git commit` or `pnpm`, or a tool such as Write), so a session that
 never touches Go never pays for the Go rules. `claude-ollama doctor` counts the
-cards and names a malformed one.
+cards and names a malformed one. `CLAUDE_OLLAMA_RULE_CARDS=0` (the console's
+"Deliver rule cards just in time" switch) turns the hook off, and
+`CLAUDE_OLLAMA_RULE_CARDS_DIR` points it at another folder of cards.
 
 In a cmux terminal the launcher also appends `ollama/CLAUDE.cmux.md` to the
 session prompt, which tells the model to open every markdown file it writes with
