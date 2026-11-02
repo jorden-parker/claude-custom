@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { liveCellsFrom } from "./live.ts";
+import { liveCellsFrom, livePresetFrom } from "./live.ts";
 
 const root = '{"op":"add","path":"/root","value":"main"}';
 const card =
@@ -23,6 +23,13 @@ describe("liveCellsFrom", () => {
     ]);
     expect(cells[0].spec.elements?.main.type).toBe("Card");
     expect(cells[1].spec.root).toBe("main");
+  });
+
+  it("reads the preset line and reports none when it is missing", () => {
+    expect(livePresetFrom(["mock-spike: m", "preset: editorial", root])).toBe(
+      "editorial",
+    );
+    expect(livePresetFrom([root])).toBeNull();
   });
 
   it("ignores patch lines before the first marker", () => {

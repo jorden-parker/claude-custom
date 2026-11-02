@@ -9,6 +9,7 @@ import { configuredSizes } from "./sizes";
 import { modelForSize } from "./size-models";
 import { PR_NUMBER_PATTERN } from "./pr-number";
 import { validServerValue } from "./server-vars";
+import { presetIds } from "./mock-spike/presets";
 
 export type CommandParams = Record<string, string>;
 
@@ -216,8 +217,23 @@ const modelUpgrade: ConsoleCommand = {
 
 const mockSpike: ConsoleCommand = {
   name: "mock-spike",
-  label: (params) => `Mock spike (${params.size})`,
-  argv: sizeArgv("mock-spike"),
+  label: (params) => `Mock spike (${params.size}, ${params.preset})`,
+  argv: (params, repoDir) => {
+    if (
+      !hasExactKeys(params, ["size", "preset"]) ||
+      !configuredSizes(repoDir).includes(params.size) ||
+      !presetIds().includes(params.preset)
+    ) {
+      return null;
+    }
+    return [
+      `${repoDir}/bin/claude-ollama`,
+      "mock-spike",
+      params.size,
+      "--preset",
+      params.preset,
+    ];
+  },
 };
 
 const LIBRARY_MODEL_PATTERN =

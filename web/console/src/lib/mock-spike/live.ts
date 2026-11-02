@@ -2,6 +2,7 @@ import { createSpecStreamCompiler, type Spec } from "@json-render/core";
 import { isPatchLine } from "./score.ts";
 
 export const RUN_MARKER = "=== run ";
+export const PRESET_MARKER = "preset: ";
 
 export type LiveCell = { label: string; patches: number; spec: Spec };
 
@@ -22,6 +23,11 @@ export function liveCellsFrom(lines: readonly string[]): LiveCell[] {
     patches: cell.patchLines.length,
     spec: compile(cell.patchLines),
   }));
+}
+
+export function livePresetFrom(lines: readonly string[]): string | null {
+  const line = lines.find((raw) => raw.trim().startsWith(PRESET_MARKER));
+  return line ? line.trim().slice(PRESET_MARKER.length) : null;
 }
 
 function compile(patchLines: string[]): Spec {

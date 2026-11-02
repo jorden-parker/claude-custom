@@ -1,11 +1,14 @@
 "use client";
 
-import { JSONUIProvider, Renderer } from "@json-render/react";
 import { useMemo } from "react";
 import { useRunStream } from "@/components/use-run-stream";
-import { liveCellsFrom, type LiveCell } from "@/lib/mock-spike/live.ts";
+import {
+  liveCellsFrom,
+  livePresetFrom,
+  type LiveCell,
+} from "@/lib/mock-spike/live.ts";
 import { specOutline } from "@/lib/mock-spike/outline.ts";
-import { mockRegistry } from "@/lib/mock-spike/registry.tsx";
+import { MockFrame } from "@/lib/mock-spike/registry.tsx";
 
 export function LiveMockSheet({
   lines,
@@ -15,6 +18,7 @@ export function LiveMockSheet({
   running: boolean;
 }) {
   const cells = useMemo(() => liveCellsFrom(lines), [lines]);
+  const preset = useMemo(() => livePresetFrom(lines), [lines]);
   if (cells.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">
@@ -31,6 +35,7 @@ export function LiveMockSheet({
           key={cell.label}
           cell={cell}
           growing={running && index === cells.length - 1}
+          preset={preset}
         />
       ))}
     </div>
@@ -47,7 +52,15 @@ export function LiveMockRun({ id }: { id: string }) {
   );
 }
 
-function LiveCellView({ cell, growing }: { cell: LiveCell; growing: boolean }) {
+function LiveCellView({
+  cell,
+  growing,
+  preset,
+}: {
+  cell: LiveCell;
+  growing: boolean;
+  preset: string | null;
+}) {
   const outline = specOutline(cell.spec);
   return (
     <article className="flex flex-col gap-3 rounded-lg border border-ink bg-card p-4">
@@ -57,13 +70,7 @@ function LiveCellView({ cell, growing }: { cell: LiveCell; growing: boolean }) {
           {cell.patches} patches{growing ? ", streaming" : ""}
         </span>
       </header>
-      <div className="rounded-md bg-background p-4">
-        {cell.spec.root ? (
-          <JSONUIProvider registry={mockRegistry}>
-            <Renderer spec={cell.spec} registry={mockRegistry} />
-          </JSONUIProvider>
-        ) : null}
-      </div>
+      {cell.spec.root ? <MockFrame spec={cell.spec} preset={preset} /> : null}
       <pre className="overflow-x-auto rounded-md bg-muted p-2 text-xs">
         {outline.join("\n") || "no elements yet"}
       </pre>

@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { mockSystemPrompt } from "../src/lib/mock-spike/catalog.ts";
+import { DEFAULT_PRESET_ID, presetIds } from "../src/lib/mock-spike/presets.ts";
 import {
   isPatchLine,
   scoreReply,
@@ -17,6 +18,7 @@ const SOUND_VALID_SHARE = 0.8;
 const REPAIRABLE_VALID_SHARE = 0.5;
 const NANOS_PER_SECOND = 1e9;
 const RUN_MARKER = "=== run ";
+const PRESET_MARKER = "preset: ";
 
 const BRIEFS: Record<string, string> = {
   pricing:
@@ -33,6 +35,7 @@ type Options = {
   runs: number;
   out: string;
   briefs: string[];
+  preset: string;
 };
 
 type RunResult = {
@@ -54,7 +57,7 @@ type ChatChunk = {
 
 function usage(): never {
   console.error(
-    "usage: mock-spike --model M [--base-url URL] [--runs N] [--out FILE] [--brief NAME]...",
+    "usage: mock-spike --model M [--base-url URL] [--runs N] [--out FILE] [--brief NAME]... [--preset ID]",
   );
   process.exit(2);
 }
@@ -69,6 +72,7 @@ function parseOptions(argv: string[]): Options {
       runs: { type: "string", default: String(DEFAULT_RUNS) },
       out: { type: "string" },
       brief: { type: "string", multiple: true, default: [] },
+      preset: { type: "string", default: DEFAULT_PRESET_ID },
     },
   });
   if (!values.model) usage();
@@ -78,7 +82,16 @@ function parseOptions(argv: string[]): Options {
     runs: parseRuns(values.runs),
     out: values.out ?? defaultOutPath(values.model),
     briefs: checkBriefs(values.brief),
+    preset: checkPreset(values.preset),
   };
+}
+
+function checkPreset(preset: string): string {
+  if (presetIds().includes(preset)) return preset;
+  console.error(
+    `mock-spike: unknown preset ${preset}; known: ${presetIds().join(", ")}`,
+  );
+  process.exit(2);
 }
 
 function parseRuns(value: string): number {
@@ -155,7 +168,7 @@ async function requestChat(
       think: false,
       options: { num_predict: MAX_REPLY_TOKENS },
       messages: [
-        { role: "system", content: mockSystemPrompt() },
+        { role: "system", content: mockSystemPrompt(options.preset) },
         { role: "user", content: BRIEFS[brief] },
       ],
     }),
@@ -285,8 +298,9 @@ async function main() {
   const total = options.briefs.length * options.runs;
   const results: RunResult[] = [];
   console.log(
-    `mock-spike: ${options.model} at ${options.baseUrl}, ${total} runs, prompt ${mockSystemPrompt().length} chars`,
+    `mock-spike: ${options.model} at ${options.baseUrl}, ${total} runs, prompt ${mockSystemPrompt(options.preset).length} chars`,
   );
+  console.log(`${PRESET_MARKER}${options.preset}`);
   for (const brief of options.briefs) {
     for (let run = 1; run <= options.runs; run += 1) {
       console.log(`${RUN_MARKER}${results.length + 1}/${total} ${brief}`);
@@ -306,7 +320,13 @@ async function main() {
   fs.writeFileSync(
     options.out,
     JSON.stringify(
-      { model: options.model, baseUrl: options.baseUrl, summary, results },
+      {
+        model: options.model,
+        baseUrl: options.baseUrl,
+        preset: options.preset,
+        summary,
+        results,
+      },
       null,
       2,
     ) + "\n",
