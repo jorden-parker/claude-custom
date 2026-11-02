@@ -9,19 +9,19 @@ const labels: Record<RunStatus, string> = {
 };
 
 const textClasses: Record<RunStatus, string> = {
-  running: "border-blue-600 text-blue-700 dark:text-blue-400",
-  ok: "border-green-600 text-green-700 dark:text-green-400",
-  failed: "border-red-600 text-red-700 dark:text-red-400",
+  running: "border-info-border text-info-foreground",
+  ok: "border-success-border text-success-foreground",
+  failed: "border-error-border text-error-foreground",
   cancelled: "text-muted-foreground",
-  lost: "border-amber-600 text-amber-700 dark:text-amber-400",
+  lost: "border-warning-border text-warning-foreground",
 };
 
 const dotClasses: Record<RunStatus, string> = {
-  running: "animate-pulse bg-blue-500",
-  ok: "bg-green-500",
-  failed: "bg-red-500",
+  running: "animate-pulse bg-info-foreground",
+  ok: "bg-success-foreground",
+  failed: "bg-error-foreground",
   cancelled: "bg-muted-foreground",
-  lost: "bg-amber-500",
+  lost: "bg-warning-foreground",
 };
 
 export function runStatusLabel(status: RunStatus): string {

@@ -8,16 +8,16 @@ const headerLabels: Record<ReviewStatus, string> = {
 };
 
 const textClasses: Record<ReviewStatus, string> = {
-  ok: "border-green-600 text-green-700 dark:text-green-400",
-  error: "border-red-600 text-red-700 dark:text-red-400",
-  running: "border-blue-600 text-blue-700 dark:text-blue-400",
+  ok: "border-success-border text-success-foreground",
+  error: "border-error-border text-error-foreground",
+  running: "border-info-border text-info-foreground",
   stopped: "text-muted-foreground",
 };
 
 const dotClasses: Record<ReviewStatus, string> = {
-  ok: "bg-green-500",
-  error: "bg-red-500",
-  running: "animate-pulse bg-blue-500",
+  ok: "bg-success-foreground",
+  error: "bg-error-foreground",
+  running: "animate-pulse bg-info-foreground",
   stopped: "bg-muted-foreground",
 };
 

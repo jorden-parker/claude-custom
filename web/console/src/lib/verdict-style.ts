@@ -1,7 +1,7 @@
 const verdictClasses: Record<string, string> = {
-  "REQUEST CHANGES": "text-destructive",
-  "APPROVE WITH COMMENTS": "text-amber-600 dark:text-amber-400",
-  APPROVE: "text-green-600 dark:text-green-400",
+  "REQUEST CHANGES": "text-error-foreground",
+  "APPROVE WITH COMMENTS": "text-warning-foreground",
+  APPROVE: "text-success-foreground",
 };
 
 export function verdictClass(verdict: string): string {

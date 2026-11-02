@@ -13,6 +13,6 @@ describe("run status style", () => {
   });
 
   it("colors a failed run red", () => {
-    expect(runStatusTextClass("failed")).toContain("text-red-700");
+    expect(runStatusTextClass("failed")).toContain("text-error-foreground");
   });
 });
