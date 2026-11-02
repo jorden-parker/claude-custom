@@ -2,6 +2,7 @@
 
 import { JSONUIProvider, Renderer } from "@json-render/react";
 import { mockRegistry } from "@/lib/mock-spike/registry.tsx";
+import { specOutline } from "@/lib/mock-spike/outline.ts";
 import type { MockRun, MockSpikeReport } from "@/lib/mock-spike/reports.ts";
 
 export function MockSheet({ report }: { report: MockSpikeReport }) {
@@ -47,6 +48,14 @@ function MockCell({ run }: { run: MockRun }) {
           Not rendered: {run.score.issue}
         </p>
       )}
+      <details className="text-xs">
+        <summary className="cursor-pointer text-muted-foreground">
+          Elements the model produced
+        </summary>
+        <pre className="mt-2 overflow-x-auto rounded-md bg-muted p-2">
+          {specOutline(run.spec).join("\n") || "none"}
+        </pre>
+      </details>
     </article>
   );
 }
