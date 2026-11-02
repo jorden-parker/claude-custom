@@ -47,6 +47,87 @@
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
   --radius-card: var(--geist-card-radius);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-success-border: var(--success-border);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-warning-border: var(--warning-border);
+  --color-error: var(--error);
+  --color-error-foreground: var(--error-foreground);
+  --color-error-border: var(--error-border);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-info-border: var(--info-border);
+  --color-neutral: var(--neutral);
+  --color-neutral-foreground: var(--neutral-foreground);
+  --color-neutral-border: var(--neutral-border);
+  --color-ds-background-100: var(--ds-background-100);
+  --color-ds-background-200: var(--ds-background-200);
+  --color-ds-gray-100: var(--ds-gray-100);
+  --color-ds-gray-200: var(--ds-gray-200);
+  --color-ds-gray-300: var(--ds-gray-300);
+  --color-ds-gray-400: var(--ds-gray-400);
+  --color-ds-gray-500: var(--ds-gray-500);
+  --color-ds-gray-600: var(--ds-gray-600);
+  --color-ds-gray-700: var(--ds-gray-700);
+  --color-ds-gray-800: var(--ds-gray-800);
+  --color-ds-gray-900: var(--ds-gray-900);
+  --color-ds-gray-1000: var(--ds-gray-1000);
+  --color-ds-blue-100: var(--ds-blue-100);
+  --color-ds-blue-200: var(--ds-blue-200);
+  --color-ds-blue-300: var(--ds-blue-300);
+  --color-ds-blue-400: var(--ds-blue-400);
+  --color-ds-blue-500: var(--ds-blue-500);
+  --color-ds-blue-600: var(--ds-blue-600);
+  --color-ds-blue-700: var(--ds-blue-700);
+  --color-ds-blue-800: var(--ds-blue-800);
+  --color-ds-blue-900: var(--ds-blue-900);
+  --color-ds-blue-1000: var(--ds-blue-1000);
+  --color-ds-red-100: var(--ds-red-100);
+  --color-ds-red-200: var(--ds-red-200);
+  --color-ds-red-300: var(--ds-red-300);
+  --color-ds-red-400: var(--ds-red-400);
+  --color-ds-red-500: var(--ds-red-500);
+  --color-ds-red-600: var(--ds-red-600);
+  --color-ds-red-700: var(--ds-red-700);
+  --color-ds-red-800: var(--ds-red-800);
+  --color-ds-red-900: var(--ds-red-900);
+  --color-ds-red-1000: var(--ds-red-1000);
+  --color-ds-amber-100: var(--ds-amber-100);
+  --color-ds-amber-200: var(--ds-amber-200);
+  --color-ds-amber-300: var(--ds-amber-300);
+  --color-ds-amber-400: var(--ds-amber-400);
+  --color-ds-amber-500: var(--ds-amber-500);
+  --color-ds-amber-600: var(--ds-amber-600);
+  --color-ds-amber-700: var(--ds-amber-700);
+  --color-ds-amber-800: var(--ds-amber-800);
+  --color-ds-amber-900: var(--ds-amber-900);
+  --color-ds-amber-1000: var(--ds-amber-1000);
+  --color-ds-green-100: var(--ds-green-100);
+  --color-ds-green-200: var(--ds-green-200);
+  --color-ds-green-300: var(--ds-green-300);
+  --color-ds-green-400: var(--ds-green-400);
+  --color-ds-green-500: var(--ds-green-500);
+  --color-ds-green-600: var(--ds-green-600);
+  --color-ds-green-700: var(--ds-green-700);
+  --color-ds-green-800: var(--ds-green-800);
+  --color-ds-green-900: var(--ds-green-900);
+  --color-ds-green-1000: var(--ds-green-1000);
+  --color-ds-teal-100: var(--ds-teal-100);
+  --color-ds-teal-200: var(--ds-teal-200);
+  --color-ds-teal-300: var(--ds-teal-300);
+  --color-ds-teal-400: var(--ds-teal-400);
+  --color-ds-teal-500: var(--ds-teal-500);
+  --color-ds-teal-600: var(--ds-teal-600);
+  --color-ds-teal-700: var(--ds-teal-700);
+  --color-ds-teal-800: var(--ds-teal-800);
+  --color-ds-teal-900: var(--ds-teal-900);
+  --color-ds-teal-1000: var(--ds-teal-1000);
+  --shadow-border: var(--ds-shadow-border);
+  --shadow-border-small: var(--ds-shadow-border-small);
+  --shadow-menu: var(--ds-shadow-menu);
+  --tracking-heading: -0.04em;
 }
 
 :root {
@@ -312,5 +393,18 @@
   }
   html {
     @apply font-sans;
+  }
+  :focus-visible:not(input, select, textarea, button) {
+    box-shadow: var(--ds-focus-ring);
+    outline: none;
+  }
+  h1,
+  h2,
+  h3 {
+    @apply font-heading tracking-heading;
+  }
+  strong,
+  b {
+    font-weight: 600;
   }
 }
