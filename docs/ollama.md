@@ -579,6 +579,26 @@ amber, debug muted), can be filtered by substring, and can be paused and resumed
 starts from the last 64 KiB of the file and restarts from the top when the file
 shrinks. The page only reads the log and never takes a path from the request.
 
+The Incidents tab explains a "context get canceled" in a long session. Each
+launch starts `ollama/incidents/watcher.py` beside the draft opener
+(`CLAUDE_OLLAMA_INCIDENTS=0` turns it off): it follows the Ollama server log
+from its end and the session's transcripts under `~/.claude-ollama/projects`,
+and appends one JSON line per incident to
+`$CLAUDE_CONSOLE_STATE_DIR/incidents/<launch>.jsonl`, with the newest line in
+`<launch>.jsonl.latest` and the file's path in `incidents/current`. Causes:
+`aborted` (`context canceled`: Claude Code dropped an in-flight request),
+`evicted` (a model unloaded or a new runner started), `truncated`
+(`truncating input prompt`: the prompt exceeded `num_ctx`), `reprefilled` (a
+llama.cpp `prompt eval time = ... / N tokens` line within 300 tokens of `n_ctx`
+or of the previous request's `total time ... / N tokens`: the prompt cache was
+lost and the whole prompt ran again), `compacted` (a `compact_boundary` entry in
+the transcript, with its `preTokens`) and `unknown` (a line naming the model or
+a runner that fits no rule). The tab shows a count per cause above the lines.
+Inside the session, `shared/hooks/incident-note.py` (UserPromptSubmit, Ollama
+profiles only) reads `CLAUDE_OLLAMA_INCIDENTS_FILE` and adds one line of context
+when new incidents appeared since your last prompt, such as
+`last incident: evicted at 14:02 (the model was unloaded and reloaded); since the session started: aborted 1, evicted 1`.
+
 #### Server
 
 `/server` shows the `local.ollama` LaunchAgent's `OLLAMA_*` values next to the

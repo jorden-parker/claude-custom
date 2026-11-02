@@ -1,4 +1,5 @@
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -37,11 +38,19 @@ describe("LogView", () => {
       const source = new URL(url, "http://127.0.0.1").searchParams.get(
         "source",
       );
-      return source === "launcher"
-        ? launcherLog()
-        : Response.json({ path: "/var/log/ollama.log" });
+      if (source === "launcher") {
+        return launcherLog();
+      }
+      if (source === "incidents") {
+        return Response.json({ path: "/state/incidents/s1.jsonl" });
+      }
+      return Response.json({ path: "/var/log/ollama.log" });
     });
   });
+
+  function receive(source: FakeEventSource, data: string) {
+    source.onmessage?.({ data } as MessageEvent);
+  }
 
   afterEach(() => {
     cleanup();
@@ -71,6 +80,45 @@ describe("LogView", () => {
     expect(FakeEventSource.opened.at(-1)?.url).toBe(
       "/api/logs/events?source=launcher",
     );
+  });
+
+  it("shows the incidents with a count per cause", async () => {
+    render(<LogView />);
+    await screen.findByText("following /var/log/ollama.log");
+    fireEvent.click(screen.getByRole("tab", { name: "Incidents" }));
+    expect(
+      await screen.findByText("following /state/incidents/s1.jsonl"),
+    ).toBeTruthy();
+    const source = FakeEventSource.opened.at(-1)!;
+    expect(source.url).toBe("/api/logs/events?source=incidents");
+    const frame = (text: string) => JSON.stringify({ text, level: null });
+    act(() => {
+      receive(
+        source,
+        frame(
+          '{"ts": "2026-11-02T14:01:30.100Z", "cause": "aborted", "detail": "error=\\"context canceled\\"", "tokens": null}',
+        ),
+      );
+      receive(
+        source,
+        frame(
+          '{"ts": "2026-11-02T14:02:40.000Z", "cause": "reprefilled", "detail": "prompt eval time = 9800.00 ms / 61234 tokens", "tokens": 61234}',
+        ),
+      );
+      receive(
+        source,
+        frame(
+          '{"ts": "2026-11-02T14:03:00.000Z", "cause": "aborted", "detail": "error=\\"context canceled\\"", "tokens": null}',
+        ),
+      );
+    });
+    const counts = screen.getByLabelText("incident counts");
+    expect(counts.textContent).toBe(
+      "aborted 2evicted 0truncated 0reprefilled 1compacted 0unknown 0",
+    );
+    expect(
+      screen.getByText(/reprefilled prompt eval time .* \(61k tokens\)$/),
+    ).toBeTruthy();
   });
 
   it("shows why the launcher log is missing", async () => {

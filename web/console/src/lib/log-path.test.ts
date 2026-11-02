@@ -54,9 +54,10 @@ describe("parseLogSource", () => {
     expect(parseLogSource(null)).toBe("server");
   });
 
-  it("accepts the server and launcher logs", () => {
+  it("accepts the server and launcher logs and the incidents", () => {
     expect(parseLogSource("server")).toBe("server");
     expect(parseLogSource("launcher")).toBe("launcher");
+    expect(parseLogSource("incidents")).toBe("incidents");
   });
 
   it("rejects any other source", () => {
@@ -94,5 +95,46 @@ describe("readLogSource", () => {
       message:
         "No launcher log yet; it starts with the next claude-ollama launch",
     });
+  });
+
+  function writeCurrentIncidents(named: string, body: string | null) {
+    const incidentsDir = path.join(stateDir, "incidents");
+    fs.mkdirSync(incidentsDir, { recursive: true });
+    fs.writeFileSync(path.join(incidentsDir, "current"), `${named}\n`);
+    if (body !== null) {
+      fs.writeFileSync(path.join(incidentsDir, path.basename(named)), body);
+    }
+  }
+
+  it("returns the incidents file named by incidents/current", async () => {
+    const incidents = path.join(stateDir, "incidents", "20261102-1.jsonl");
+    writeCurrentIncidents(incidents, '{"cause":"aborted"}\n');
+    expect(await readLogSource("incidents", "/no/repo")).toEqual({
+      ok: true,
+      path: incidents,
+    });
+  });
+
+  it("says the watcher starts with the next launch when there is no current file", async () => {
+    expect(await readLogSource("incidents", "/no/repo")).toEqual({
+      ok: false,
+      message:
+        "No incidents file yet; the next claude-ollama launch starts the watcher",
+    });
+  });
+
+  it("refuses a current file that names a file outside the incidents folder", async () => {
+    fs.writeFileSync(path.join(stateDir, "launcher.log"), "secret\n");
+    writeCurrentIncidents(path.join(stateDir, "launcher.log"), null);
+    expect(await readLogSource("incidents", "/no/repo")).toEqual({
+      ok: false,
+      message:
+        "No incidents file yet; the next claude-ollama launch starts the watcher",
+    });
+  });
+
+  it("refuses a current file whose incidents file is gone", async () => {
+    writeCurrentIncidents(path.join(stateDir, "incidents", "gone.jsonl"), null);
+    expect((await readLogSource("incidents", "/no/repo")).ok).toBe(false);
   });
 });

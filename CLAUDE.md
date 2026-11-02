@@ -600,6 +600,36 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   a draft changed after you loaded it is refused (409). Tests:
   `ollama/drafts/opener.test.sh` (stub `open`, `cmux`, console),
   `shared/mcp/repo-tools.test.sh`, the console's vitest suite.
+- Incidents: `ollama/incidents/watcher.py` (stdlib only) runs outside the
+  sandbox beside the draft opener (`--watch-pid $$`, `CLAUDE_OLLAMA_INCIDENTS=0`
+  turns it off, `CLAUDE_OLLAMA_INCIDENT_WATCHER` overrides the script for
+  tests). It follows the Ollama server log (`server_log_path`) from its end,
+  reopening when the file shrinks, and the session's transcripts under
+  `~/.claude-ollama/projects` for new `compact_boundary` lines, and classifies
+  each new line with an ordered regex table into `aborted` (`context canceled`),
+  `evicted` (an unload or a runner start), `truncated`
+  (`truncating input prompt`), `reprefilled` (a llama.cpp
+  `prompt eval time ... / N tokens` count within 300 tokens of `n_ctx` or of the
+  previous `total time ... / N tokens`), `compacted` (with `preTokens`) or
+  `unknown` (a line naming the model or a runner that fits no rule, never
+  dropped); the rest of a load sequence (`loaded runners`, `template selection`)
+  is skipped. Each incident is one JSON line (`ts`, `cause`, `detail` of 200
+  chars, `tokens`) appended to
+  `$CLAUDE_CONSOLE_STATE_DIR/incidents/<utc-time>-<pid>.jsonl` (0700/0600), the
+  newest also in `<file>.latest`, and `incidents/current` names the running
+  session's file. The launcher exports `CLAUDE_OLLAMA_INCIDENTS_FILE` to the
+  session, and `shared/hooks/incident-note.py` (UserPromptSubmit, in
+  `ollama/hooks.extra.json` after `tool-nudge.py`; `bin/check-config` fails when
+  an Ollama profile lacks it) adds one `additionalContext` line naming the last
+  incident and the counts per cause when new ones appeared, remembering the
+  reported count under `${CLAUDE_CONFIG_DIR:-~/.claude}/cache/incident-note/`.
+  The console's Logs page has an Incidents tab (`source=incidents` on
+  `/api/logs/path` and `/api/logs/events`, which read only the file
+  `incidents/current` names inside that folder) with a count per cause above the
+  lines (`web/console/src/lib/incidents.ts`). Tests:
+  `ollama/incidents/watcher.test.sh` (`fixtures/server.log` covers every cause),
+  `shared/hooks/incident-note.test.sh`, `bin/claude-ollama.test.sh` (stub
+  watcher), the console's vitest suite.
 - `shared/mcp/code-search.py` is the `semantic_search` MCP server (JSON-RPC over
   stdio, stdlib only). It ranks 40-line chunks by their words (BM25) on every
   search, adds a vector ranking through Ollama `/api/embed` only while
