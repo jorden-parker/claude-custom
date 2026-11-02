@@ -4,7 +4,6 @@ import {
   BreadcrumbItem,
   BreadcrumbLink,
   BreadcrumbList,
-  BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 
@@ -28,9 +27,9 @@ export function PageHeading({ title, backHref, backLabel }: PageHeadingProps) {
           </BreadcrumbItem>
           <BreadcrumbSeparator />
           <BreadcrumbItem>
-            <BreadcrumbPage>
-              <h1 className={HEADING_CLASS}>{title}</h1>
-            </BreadcrumbPage>
+            <h1 aria-current="page" className={HEADING_CLASS}>
+              {title}
+            </h1>
           </BreadcrumbItem>
         </BreadcrumbList>
       </Breadcrumb>
