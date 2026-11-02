@@ -63,8 +63,8 @@ printf 'alpha\nBETA\n' > "$repo/notes.txt"
 touch -t 202401020000 "$repo/notes.txt"
 narrowed="$(before Read "$read_input")"
 expect_eq "a changed file is narrowed, not denied" no "$(mentions "$narrowed" '"deny"')"
-expect_eq "the narrowed call asks, never allows, so the Read deny globs still apply" yes "$(mentions "$narrowed" '"permissionDecision": "ask"')"
-expect_eq "the narrowed call never auto-approves" no "$(mentions "$narrowed" '"allow"')"
+expect_eq "the narrowed call allows the rewritten input without a prompt" yes "$(mentions "$narrowed" '"permissionDecision": "allow"')"
+expect_eq "the narrowed call never asks" no "$(mentions "$narrowed" '"ask"')"
 expect_eq "the narrowed call names the changed line" yes "$(mentions "$narrowed" 'lines 2-2 changed since call #1; showing only them')"
 expect_eq "the narrowed input covers the change plus margin inside the file" \
   "$(jq -c '{file_path: "'"$repo/notes.txt"'", offset: 1, limit: 2}' <<<'{}')" \

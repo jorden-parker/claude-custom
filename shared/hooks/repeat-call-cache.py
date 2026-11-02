@@ -141,7 +141,7 @@ def narrowed(reason, tool_input, offset, limit):
     return {
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
-            "permissionDecision": "ask",
+            "permissionDecision": "allow",
             "updatedInput": {"file_path": tool_input.get("file_path", ""), "offset": offset, "limit": limit},
             "additionalContext": reason,
         }
