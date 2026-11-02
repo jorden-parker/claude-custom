@@ -403,24 +403,41 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   to finish its edit, call `Skill handoff save` and stop; the state file is
   `${CLAUDE_CONFIG_DIR:-~/.claude}/cache/context-budget/<session_id>.json`
   (`nudged_at`), and each nudge is one `"kind": "budget"` telemetry line
-  (`hook_telemetry.record_hook_event`). The second is a Stop hook: with
-  `CLAUDE_OLLAMA_RELAUNCH_DIR` set, that state nudged and not yet relaunched,
-  and a note in `<git common dir>/handoff/` (from the event's `cwd`) newer than
-  the nudge, it writes the note's path to
+  (`hook_telemetry.record_hook_event`). The second is a Stop hook with
+  `CLAUDE_OLLAMA_RELAUNCH_DIR` set and that state nudged but not relaunched.
+  Without a note in `<git common dir>/handoff/` (from the event's `cwd`) newer
+  than the nudge it blocks the stop once
+  (`{"decision":"block","reason": "Context budget at N%: call the handoff skill with save now, then stop."}`,
+  `blocked_once` in the state; never when `stop_hook_active` is true), then
+  stays silent. With a fresh note it writes
+  `{"note": path, "prompt": text, "percent": N}` to
   `$CLAUDE_OLLAMA_RELAUNCH_DIR/relaunch`, marks the state `relaunched` and sends
   SIGTERM to the pid in `claude.pid` there, only when `ps -o comm=` names a node
-  or claude process; it never exits 2. `bin/claude-ollama` (`launch_claude`)
-  exports that dir as `~/.claude-ollama/relaunch` (0700), runs `claude` in the
-  background with the tty's stdin, writes `claude.pid`, forwards SIGINT/SIGTERM
-  and waits; while the sentinel exists it removes it, prints
-  `context budget reached: handoff saved, relaunching claude` and runs `claude`
-  again with the same flags, a trailing prompt (a last argument that neither
-  starts with `-` nor follows a flag) replaced by `/handoff`. Without a sentinel
-  it exits with claude's status; `CLAUDE_OLLAMA_RELAUNCH=0` keeps the single
-  `exec`. `bin/check-config` fails when a profile lacks either hook. Tests:
+  or claude process; it never exits 2. The prompt is the newest `type: user`
+  transcript line whose `message.content` is a string or only `text` blocks,
+  skipping text starting with `/`, `<system-reminder>` or `<local-command` and
+  empty text, newlines collapsed and clipped to 200 characters (`""` when none);
+  `handoff-relaunch.py --inspect TRANSCRIPT` prints it. `bin/claude-ollama`
+  (`launch_claude`) exports that dir as
+  `~/.claude-ollama/relaunch/<launcher pid>` (0700, removed by its EXIT trap;
+  `prepare_relaunch_dir` removes sibling dirs whose pid no longer runs), runs
+  `claude` in the background with the tty's stdin, writes `claude.pid`, forwards
+  SIGINT/SIGTERM and waits; while the sentinel exists it reads it with jq,
+  removes it, prints
+  `context budget reached at N%: handoff saved, resuming "<prompt>"`
+  (`relaunching claude` without one), appends a `relaunched` incident (`detail`
+  the note, `tokens` the percent of the profile's
+  `CLAUDE_CODE_MAX_CONTEXT_TOKENS`) to `$CLAUDE_OLLAMA_INCIDENTS_FILE` when it
+  is set and its folder exists, and runs `claude` again with the same flags, a
+  trailing prompt (a last argument that neither starts with `-` nor follows a
+  flag) replaced by one word, `/handoff <prompt>`, or `/handoff` when the prompt
+  is empty or starts with `-`. Without a sentinel it exits with claude's status;
+  `CLAUDE_OLLAMA_RELAUNCH=0` keeps the single `exec`. `bin/check-config` fails
+  when a profile lacks either hook. Tests:
   `shared/hooks/context-budget.test.sh`, `shared/hooks/handoff-relaunch.test.sh`
-  (stub `ps`, a sleeping process), `bin/claude-ollama.test.sh`
-  (`STUB_CLAUDE_RELAUNCH_ONCE`).
+  (stub `ps`, a sleeping process, an inline transcript),
+  `bin/claude-ollama.test.sh` (`STUB_CLAUDE_RELAUNCH_ONCE`,
+  `STUB_CLAUDE_RELAUNCH_PROMPT`).
 - All settings files (`personal/settings.tokens.json`, `ollama/settings.*.json`)
   run hooks as
   `"$CLAUDE_CUSTOM_HOME"/shared/host-env "$CLAUDE_CUSTOM_HOME"/shared/hooks/<name>`,

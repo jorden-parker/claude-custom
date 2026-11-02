@@ -68,10 +68,12 @@ Pick the mode from the arguments:
 
 ## Resume
 
-1. List the notes: `ls -t "$notes" 2>/dev/null | head -5`. With a topic, take
-   the newest name that contains it; otherwise the newest. With no notes, say
-   so, show `git status --short | head -20` and `git log --oneline -5`, and ask
-   what to work on.
+1. List the notes: `ls -t "$notes" 2>/dev/null | head -5`. With an argument that
+   is a short word, take the newest name that contains it; with a longer
+   argument, take the newest note and treat the argument as the pending request
+   to finish first; otherwise the newest. With no notes, say so, show
+   `git status --short | head -20` and `git log --oneline -5`, and ask what to
+   work on.
 2. Read the note.
 3. Compare it with the repo now:
 
@@ -84,4 +86,5 @@ Pick the mode from the arguments:
 4. Report in a few lines: the goal, the next step, and anything that changed
    since the note (new commits, another branch, files no longer modified). If
    the note's next step no longer fits, say why and suggest one that does.
-5. Start on the next step unless the user asked only to see the note.
+5. Start on the pending request if there was one, else the next step, unless the
+   user asked only to see the note.

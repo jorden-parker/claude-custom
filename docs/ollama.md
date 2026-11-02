@@ -71,14 +71,19 @@ model summarize most of its context in one call, slow and lossy. Instead
 `context-budget.py` (PostToolUse) reads the last `usage` in the transcript and,
 at `CLAUDE_OLLAMA_HANDOFF_PCT` (default 70) of `CLAUDE_CODE_MAX_CONTEXT_TOKENS`,
 tells the model once per session to finish its edit, run the `handoff` skill
-with `save` and stop. `handoff-relaunch.py` (Stop) then sees a note in
-`<git common dir>/handoff/` newer than that nudge, writes the note's path to
-`$CLAUDE_OLLAMA_RELAUNCH_DIR/relaunch` and sends SIGTERM to the pid in
-`claude.pid` there (only when `ps` says it is a node or claude process).
-`claude-ollama` runs `claude` in a loop: while that sentinel exists it removes
-it, prints `context budget reached: handoff saved, relaunching claude` and
-starts `claude` again with the same flags and `/handoff` as the prompt, which
-resumes from the note. `CLAUDE_OLLAMA_RELAUNCH=0` execs `claude` once as before.
+with `save` and stop. `handoff-relaunch.py` (Stop) blocks the first stop after
+that nudge when no note in `<git common dir>/handoff/` is newer than it, asking
+for the save once more; with a fresh note it writes the note's path, the last
+real prompt from the transcript (200 characters at most) and the percent as JSON
+to `$CLAUDE_OLLAMA_RELAUNCH_DIR/relaunch` (a per-launcher dir under
+`~/.claude-ollama/relaunch/`) and sends SIGTERM to the pid in `claude.pid` there
+(only when `ps` says it is a node or claude process). `claude-ollama` runs
+`claude` in a loop: while that sentinel exists it removes it, prints
+`context budget reached at N%: handoff saved, resuming "<prompt>"`, writes a
+`relaunched` incident (the Logs page's Incidents tab and `incident-note.py` show
+it) and starts `claude` again with the same flags and `/handoff <prompt>` as the
+prompt, which resumes from the note and finishes that request first.
+`CLAUDE_OLLAMA_RELAUNCH=0` execs `claude` once as before.
 
 Claude Code asks for adaptive thinking at high effort. Ollama only understands
 enabled or disabled, so it would reason at high effort on every turn. The
