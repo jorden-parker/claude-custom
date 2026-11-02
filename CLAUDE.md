@@ -43,13 +43,38 @@ four parts:
   (`PROFILE_ENV_GROUPS`, `envFieldsByGroup`). The `/settings` page
   (`settings-overview.tsx`) reads the same `GET /api/profiles`, whose summaries
   carry each profile's `env`, and tables every switch by key, label and default
-  with one column per profile linking to its editor; it has no write route. The
-  `/workspaces` page drives `GET`/`PUT /api/workspaces`
-  (`web/console/src/lib/workspaces.ts`): it lists the `projects` of the
-  launcher's `~/.claude-ollama/.claude.json` with `hasTrustDialogAccepted` and
-  each folder's `.claude/skills`, and a PUT of `{path, trusted}` sets that flag
-  (a new folder must exist and is keyed by its real path), recorded in history.
-  `POST /api/workspaces/check` (`web/console/src/lib/skill-check.ts`) runs
+  with one column per profile linking to its editor; it has no write route. Its
+  "Actions" row links to `/diagnose` (nav entry after Logs), which gathers the
+  one-click diagnostics: a "Why did the last run go wrong?" card starts the
+  `why` console command (`claude-ollama why --json`, no params) through
+  `console-run`, shows the run's lines while it runs and, when it ends, parses
+  the JSON object from its `line` events (`web/console/src/lib/diagnose.ts`:
+  `parseWhyReport`) into verdict, evidence, a copyable fix and the prefix hit
+  rate, with a Raw output toggle; a "Rescue report" card starts the `rescue`
+  command (`claude-ollama rescue SIZE`, size param) and, when it ends, shows the
+  five summary lines and the report path (`parseRescueSummary`), with Copy
+  report and Open buttons that read `GET /api/rescue/latest`
+  (`web/console/src/lib/rescue-report.ts`: only the newest `*.md` under
+  `~/.claude-ollama/rescue/`; 404 when none) and copy it to the clipboard or
+  render it as markdown; a read-only "Rule cards" card lists
+  `GET /api/rule-cards` (`web/console/src/lib/rule-cards.ts` runs
+  `$CLAUDE_CUSTOM_HOME/shared/hooks/rule-cards.py --list`, 502 on a failure, and
+  reads each card's body from `ollama/rule-cards/<id>.md`; `parseRuleCard`
+  splits the front matter) with a link to the `CLAUDE_OLLAMA_RULE_CARDS` row on
+  `/settings` (each switch row carries its key as its `id`); and a read-only
+  "Recovery recipes" card lists `GET /api/recipes`
+  (`web/console/src/lib/recipes.ts` reads `ollama/recipes/*.json`;
+  `parseRecipeEntries`). Both run cards reopen the newest run of their command
+  on load, and the page renders with no runs, no cards and no recipes. The Logs
+  page's Proxy tab links "Record requests for replay" to the
+  `CLAUDE_OLLAMA_PROXY_RECORD` row on `/settings`. Tests: `diagnose.test.ts`,
+  the three route tests and the four card tests. The `/workspaces` page drives
+  `GET`/`PUT /api/workspaces` (`web/console/src/lib/workspaces.ts`): it lists
+  the `projects` of the launcher's `~/.claude-ollama/.claude.json` with
+  `hasTrustDialogAccepted` and each folder's `.claude/skills`, and a PUT of
+  `{path, trusted}` sets that flag (a new folder must exist and is keyed by its
+  real path), recorded in history. `POST /api/workspaces/check`
+  (`web/console/src/lib/skill-check.ts`) runs
   `bin/skill-check --size SIZE FOLDER` for a recorded, trusted folder (a print
   mode session runs the folder's hooks without the dialog), which starts
   `claude-ollama` there in print mode, reads the `init` event's `skills`, stops

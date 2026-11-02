@@ -591,8 +591,15 @@ help sentence, grouped under Prompt and context, Guards, Ollama residency,
 Diagnostics and Browser; the `claude-code` profile sees only the fields that
 apply to plain `claude` (telemetry, the index, drafts, cmux and the friction
 guard). The `/settings` page tables every switch with its default and each
-profile's value, linking to the editors; it changes nothing. A variable already
-set in your shell wins. A symlinked profile stops the launch.
+profile's value, linking to the editors; it changes nothing. Its Actions row
+leads to `/diagnose`, where one click runs `claude-ollama why` and shows the
+verdict, evidence, fix and prefix hit rate, one click writes a rescue report for
+a size and offers Copy report and Open for the newest file in
+`~/.claude-ollama/rescue/`, and two read-only cards list the rule cards (with a
+link to the `CLAUDE_OLLAMA_RULE_CARDS` switch that turns their delivery off) and
+the recovery recipes. The Logs page's Proxy tab links to the
+`CLAUDE_OLLAMA_PROXY_RECORD` switch for recording request bodies to replay. A
+variable already set in your shell wins. A symlinked profile stops the launch.
 `claude-ollama --print-config SIZE` and `doctor` show the profile path and the
 overrides in effect. `/history` lists every settings and LaunchAgent change,
 with a diff and a Restore button; recording is on by default and

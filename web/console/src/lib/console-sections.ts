@@ -23,6 +23,11 @@ export const CONSOLE_SECTIONS: readonly ConsoleSection[] = [
   },
   { href: "/logs", title: "Logs", summary: "Ollama server log, live" },
   {
+    href: "/diagnose",
+    title: "Diagnose",
+    summary: "Why the last run went wrong, rescue report, rule cards, recipes",
+  },
+  {
     href: "/server",
     title: "Server",
     summary: "Ollama server settings and reload",

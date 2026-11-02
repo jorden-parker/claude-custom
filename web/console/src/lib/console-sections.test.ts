@@ -29,4 +29,12 @@ describe("CONSOLE_SECTIONS", () => {
       CONSOLE_SECTIONS.find((section) => section.href === "/settings")?.title,
     ).toBe("Settings");
   });
+
+  it("places Diagnose right after Logs", () => {
+    const hrefs = CONSOLE_SECTIONS.map((section) => section.href);
+    expect(hrefs.indexOf("/diagnose")).toBe(hrefs.indexOf("/logs") + 1);
+    expect(
+      CONSOLE_SECTIONS.find((section) => section.href === "/diagnose")?.title,
+    ).toBe("Diagnose");
+  });
 });

@@ -108,6 +108,14 @@ describe("SettingsOverview", () => {
     ).toBe("/profiles/claude-code");
     expect(screen.getAllByRole("rowgroup")).toHaveLength(6);
     expect(
+      screen.getByRole("link", { name: "Diagnose" }).getAttribute("href"),
+    ).toBe("/diagnose");
+    expect(
+      screen
+        .getByRole("row", { name: /^CLAUDE_OLLAMA_PROXY_RECORD\b/ })
+        .getAttribute("id"),
+    ).toBe("CLAUDE_OLLAMA_PROXY_RECORD");
+    expect(
       screen.getAllByRole("row", {
         name: /^(Prompt and context|Guards|Ollama residency|Diagnostics|Browser)$/,
       }),

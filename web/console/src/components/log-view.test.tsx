@@ -161,6 +161,11 @@ describe("LogView", () => {
     ).toBeTruthy();
     const source = FakeEventSource.opened.at(-1)!;
     expect(source.url).toBe("/api/logs/events?source=proxy");
+    expect(
+      screen
+        .getByRole("link", { name: "Record requests for replay" })
+        .getAttribute("href"),
+    ).toBe("/settings#CLAUDE_OLLAMA_PROXY_RECORD");
     const frame = (text: string) => JSON.stringify({ text, level: null });
     act(() => {
       receive(

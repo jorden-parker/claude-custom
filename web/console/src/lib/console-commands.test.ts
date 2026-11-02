@@ -57,7 +57,34 @@ describe("console commands", () => {
       "model-upgrade",
       "model-pin",
       "mock-spike",
+      "why",
+      "rescue",
     ]);
+  });
+
+  it("builds the why argv with --json and no params", () => {
+    expect(findCommand("why")?.argv({}, repo)).toEqual([
+      `${repo}/bin/claude-ollama`,
+      "why",
+      "--json",
+    ]);
+    expect(findCommand("why")?.argv({ size: "27b" }, repo)).toBeNull();
+    expect(findCommand("why")?.label({})).toBe(
+      "Why did the last run go wrong?",
+    );
+  });
+
+  it("builds the rescue argv for a configured size and refuses others", () => {
+    expect(findCommand("rescue")?.argv({ size: "27b" }, repo)).toEqual([
+      `${repo}/bin/claude-ollama`,
+      "rescue",
+      "27b",
+    ]);
+    expect(findCommand("rescue")?.argv({ size: "9b" }, repo)).toBeNull();
+    expect(findCommand("rescue")?.argv({}, repo)).toBeNull();
+    expect(findCommand("rescue")?.label({ size: "27b" })).toBe(
+      "Rescue report (27b)",
+    );
   });
 
   it("builds the mock-spike argv for a configured size and refuses others", () => {

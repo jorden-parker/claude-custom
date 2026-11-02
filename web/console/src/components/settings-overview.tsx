@@ -20,10 +20,26 @@ export function SettingsOverview() {
     return <p className="text-sm text-muted-foreground">Loading profiles...</p>;
   }
   return (
-    <SwitchTable
-      profiles={profiles}
-      groups={envFieldsByGroup(PROFILE_ENV_FIELDS)}
-    />
+    <div className="flex flex-col gap-4">
+      <ActionsRow />
+      <SwitchTable
+        profiles={profiles}
+        groups={envFieldsByGroup(PROFILE_ENV_FIELDS)}
+      />
+    </div>
+  );
+}
+
+function ActionsRow() {
+  return (
+    <p className="text-sm text-muted-foreground">
+      Actions:{" "}
+      <Link href="/diagnose" className="underline underline-offset-2">
+        Diagnose
+      </Link>{" "}
+      explains the last run, writes a rescue report and lists the rule cards
+      and recovery recipes these switches control.
+    </p>
   );
 }
 
@@ -81,7 +97,7 @@ function SwitchRow({
   profiles: ProfileSummary[];
 }) {
   return (
-    <tr className="border-b">
+    <tr id={field.key} className="scroll-mt-4 border-b">
       <td className="py-2 pr-3 font-mono text-xs">{field.key}</td>
       <td className="py-2 pr-3">{field.label}</td>
       <td className="py-2 pr-3">{shownValue(field, field.defaultValue)}</td>

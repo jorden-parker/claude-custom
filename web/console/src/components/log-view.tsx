@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -82,6 +83,7 @@ function LogPanel({ source }: { source: LogSource }) {
         <IncidentHeader incidents={incidents} lines={stream.lines} />
       )}
       {requests === null ? null : <ProxyHeader requests={requests} />}
+      {requests === null ? null : <ProxyRecordHint />}
       <LogToolbar
         filter={filter}
         onFilter={setFilter}
@@ -140,6 +142,21 @@ function ProxyHeader({ requests }: { requests: ProxyRow[] }) {
         ))}
       </div>
     </div>
+  );
+}
+
+function ProxyRecordHint() {
+  return (
+    <p className="text-xs text-muted-foreground">
+      <Link
+        href="/settings#CLAUDE_OLLAMA_PROXY_RECORD"
+        className="underline underline-offset-2"
+      >
+        Record requests for replay
+      </Link>{" "}
+      on the Settings page to save each body for messages-bench and the cache
+      probe.
+    </p>
   );
 }
 

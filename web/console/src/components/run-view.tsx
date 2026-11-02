@@ -57,7 +57,7 @@ export function RunView({ id }: RunViewProps) {
       {isChecklistRun(state) ? (
         <ChecklistOutput state={state} />
       ) : (
-        <OutputBox lines={state.lines} />
+        <RunOutputBox lines={state.lines} />
       )}
       {state.ended === null ? null : (
         <EndBanner status={status} code={state.ended.code} />
@@ -130,7 +130,7 @@ function RunHeader({
   );
 }
 
-function OutputBox({ lines }: { lines: RunState["lines"] }) {
+export function RunOutputBox({ lines }: { lines: RunState["lines"] }) {
   const { outputRef, onScroll } = useFollowScroll<HTMLDivElement>(lines.length);
 
   return (

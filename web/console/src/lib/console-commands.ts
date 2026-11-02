@@ -236,6 +236,21 @@ const mockSpike: ConsoleCommand = {
   },
 };
 
+const why: ConsoleCommand = {
+  name: "why",
+  label: () => "Why did the last run go wrong?",
+  argv: (params, repoDir) =>
+    hasExactKeys(params, [])
+      ? [`${repoDir}/bin/claude-ollama`, "why", "--json"]
+      : null,
+};
+
+const rescue: ConsoleCommand = {
+  name: "rescue",
+  label: (params) => `Rescue report (${params.size})`,
+  argv: sizeArgv("rescue"),
+};
+
 const LIBRARY_MODEL_PATTERN =
   /^[a-z0-9][a-z0-9._-]{0,63}(:[A-Za-z0-9._-]{1,63})?$/;
 
@@ -393,6 +408,8 @@ export const CONSOLE_COMMANDS: readonly ConsoleCommand[] = [
   modelUpgrade,
   modelPin,
   mockSpike,
+  why,
+  rescue,
 ];
 
 export function toolsReportArgv(repoDir: string): string[] {
