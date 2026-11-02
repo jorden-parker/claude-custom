@@ -113,10 +113,16 @@ function toolProblem([name, state]: [string, unknown], rules: ProfileRules): str
   if (!isToolState(state)) {
     return `${name} must be one of ${TOOL_STATES.join(", ")}`;
   }
-  if (rules.kind === "ollama" && name === "Agent" && state !== "off") {
+  if (!toolStatesFor(rules.kind, name).includes(state)) {
     return "Agent stays off for Ollama profiles";
   }
   return null;
+}
+
+const AGENT_STATES_FOR_OLLAMA: readonly ToolState[] = ["default", "off"];
+
+export function toolStatesFor(kind: ProfileKind, name: string): readonly ToolState[] {
+  return kind === "ollama" && name === "Agent" ? AGENT_STATES_FOR_OLLAMA : TOOL_STATES;
 }
 
 function sandboxProblem(sandbox: unknown): string | null {

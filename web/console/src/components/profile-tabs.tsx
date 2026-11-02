@@ -9,6 +9,7 @@ import {
   OLLAMA_MCP_SERVERS,
   PARAMETER_RANGES,
   PROFILE_ENV_KEYS,
+  toolStatesFor,
   type ProfileOverride,
 } from "@/lib/profile-rules";
 import {
@@ -19,7 +20,7 @@ import {
   withSandbox,
   withToolState,
 } from "@/lib/profile-draft";
-import { TOOL_STATES, type ToolRow, type ToolState } from "@/lib/tool-states";
+import type { ToolRow, ToolState } from "@/lib/tool-states";
 
 export type ProfileUpdate = (change: (current: ProfileOverride) => ProfileOverride) => void;
 
@@ -38,7 +39,7 @@ export function ProfileToolsTab({ detail, draft, saved, update }: ProfileTabProp
     <ToolStateTable
       rows={rows}
       states={stateByName(rows, draft)}
-      options={TOOL_STATES}
+      options={(name) => toolStatesFor(detail.kind, name)}
       isChanged={(name) => (draft.tools?.[name] ?? "default") !== (saved.tools?.[name] ?? "default")}
       onChange={(name, state) => update((current) => withToolState(current, name, state))}
     />

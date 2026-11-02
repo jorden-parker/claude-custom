@@ -6,7 +6,7 @@ export type ToolLine = { name: string; description: string; baseline?: string };
 type ToolStateTableProps<State extends ToolState> = {
   rows: readonly ToolLine[];
   states: Record<string, State>;
-  options: readonly State[];
+  options: readonly State[] | ((name: string) => readonly State[]);
   isChanged: (name: string) => boolean;
   onChange: (name: string, state: State) => void;
   aside?: (name: string) => ReactNode;
@@ -44,7 +44,7 @@ export function ToolStateTable<State extends ToolState>({
                 <StateButtons
                   name={row.name}
                   current={states[row.name]}
-                  options={options}
+                  options={typeof options === "function" ? options(row.name) : options}
                   onSelect={(state) => onChange(row.name, state)}
                 />
                 {aside?.(row.name)}

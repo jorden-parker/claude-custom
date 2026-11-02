@@ -41,7 +41,7 @@ export function sizeOfProfile(id: string): string | null {
   return id.startsWith(OLLAMA_PREFIX) ? id.slice(OLLAMA_PREFIX.length) : null;
 }
 
-function profileTitle(id: string): string {
+export function profileTitle(id: string): string {
   const size = sizeOfProfile(id);
   return size === null ? "Claude Code" : `Ollama ${size}`;
 }

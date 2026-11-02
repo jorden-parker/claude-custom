@@ -9,6 +9,7 @@ import {
   profileIds,
   profileKind,
   profileProblem,
+  profileTitle,
   readOverride,
   saveOverride,
   sizeOfProfile,
@@ -64,6 +65,8 @@ describe("profiles", () => {
     expect(profileKind("ollama-27b")).toBe("ollama");
     expect(sizeOfProfile("ollama-27b")).toBe("27b");
     expect(sizeOfProfile("claude-code")).toBeNull();
+    expect(profileTitle("claude-code")).toBe("Claude Code");
+    expect(profileTitle("ollama-27b")).toBe("Ollama 27b");
   });
 
   it("summarises each profile with its model, context and override count", () => {

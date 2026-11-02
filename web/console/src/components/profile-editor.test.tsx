@@ -150,6 +150,21 @@ describe("ProfileEditor", () => {
     expect(screen.getByText("Unsaved changes")).toBeTruthy();
   });
 
+  it("offers only default and off for Agent on an Ollama profile", async () => {
+    mockProfileApi({
+      ...OLLAMA_DETAIL,
+      base: { ...OLLAMA_DETAIL.base, tools: [...OLLAMA_DETAIL.base.tools, TOOL("Agent", "deny", "Spawn a subagent")] },
+    });
+    render(<ProfileEditor id="ollama-27b" />);
+    await screen.findByText("Spawn a subagent");
+
+    const agentStates = rowFor("Agent")
+      .getAllByRole("button")
+      .map((button) => button.textContent);
+    expect(agentStates).toEqual(["default", "off"]);
+    expect(rowFor("Bash").getByRole("button", { name: "allow" })).toBeTruthy();
+  });
+
   it("shows the load error when the profile cannot be read", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse({ message: "no tool catalog" }, 502));
     render(<ProfileEditor id="claude-code" />);
