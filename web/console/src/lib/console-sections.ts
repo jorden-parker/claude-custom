@@ -63,6 +63,11 @@ export const CONSOLE_SECTIONS: readonly ConsoleSection[] = [
     summary: "gh repos, command rules, enabled tools and sandbox-off on this machine",
   },
   {
+    href: "/workspaces",
+    title: "Workspaces",
+    summary: "Folders claude-ollama trusts, and the project skills each one offers",
+  },
+  {
     href: "/history",
     title: "History",
     summary: "Every settings change, with diffs and restore",

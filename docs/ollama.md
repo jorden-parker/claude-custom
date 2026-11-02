@@ -448,9 +448,17 @@ it calls no model. The first run installs and builds `web/console` with pnpm
 missing). `/fetch-domains` edits the web fetch hosts file
 (`~/.config/claude-custom/fetch-domains`): it toggles suggested docs sites and
 adds hosts, checked with the launcher's hostname pattern, and each save takes
-effect at the next launch; its saves also appear in `/history`. A per-size
-profile, `~/.config/claude-custom/profiles/ollama-<size>.json`, overrides that
-size's launch (every key optional):
+effect at the next launch; its saves also appear in `/history`. `/workspaces`
+lists the folders recorded in the launcher's own `~/.claude-ollama/.claude.json`
+(plain `claude` keeps a separate list in `~/.claude.json`), whether each is
+trusted, and the skills under its `.claude/skills` with their frontmatter name
+and whether the model may invoke them. Claude Code loads a project's skills,
+settings and hooks only in a trusted folder, so an untrusted one shows no
+project skills in the `/` menu. A switch sets `hasTrustDialogAccepted` for that
+folder, and the form trusts a new folder by its real path (it must exist on this
+machine); each save lands in `/history`. A per-size profile,
+`~/.config/claude-custom/profiles/ollama-<size>.json`, overrides that size's
+launch (every key optional):
 
 ```json
 {

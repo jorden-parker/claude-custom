@@ -1,6 +1,7 @@
 import {
   Boxes,
   ChartColumn,
+  FolderCheck,
   Gauge,
   GitPullRequest,
   Globe,
@@ -35,6 +36,7 @@ const ICON_BY_HREF: Record<string, LucideIcon | undefined> = {
   "/models": Boxes,
   "/fetch-domains": Globe,
   "/machine": ShieldCheck,
+  "/workspaces": FolderCheck,
   "/history": History,
 };
 

@@ -37,7 +37,12 @@ four parts:
   The `/profiles` pages drive `GET /api/profiles` and
   `GET`/`PUT /api/profiles/<id>`, which edit
   `$XDG_CONFIG_HOME/claude-custom/profiles/<id>.json` (validated by
-  `web/console/src/lib/profile-rules.ts`; an empty PUT deletes the file).
+  `web/console/src/lib/profile-rules.ts`; an empty PUT deletes the file). The
+  `/workspaces` page drives `GET`/`PUT /api/workspaces`
+  (`web/console/src/lib/workspaces.ts`): it lists the `projects` of the
+  launcher's `~/.claude-ollama/.claude.json` with `hasTrustDialogAccepted` and
+  each folder's `.claude/skills`, and a PUT of `{path, trusted}` sets that flag
+  (a new folder must exist and is keyed by its real path), recorded in history.
 - **Agent TUI** (`go/cmd/ollama-agent/`): a Go/Bubble Tea app that edits the
   `OLLAMA_*` variables in a `local.ollama` LaunchAgent and reloads it, since
   launchd never reads `~/.zshenv`. `-json` prints the variables and conflicts
