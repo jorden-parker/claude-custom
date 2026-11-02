@@ -12,6 +12,7 @@ PACKAGE_MANAGERS = {"npm", "pnpm", "yarn", "bun"}
 PACKAGE_OPTIONS_WITH_VALUE = {"-C", "--dir", "--filter", "-F", "--prefix", "--cwd"}
 START_SCRIPTS = {"dev", "start"}
 VITE_SUBCOMMANDS = {"dev", "serve"}
+PNPM_ARBITRARY_CODE = {"exec", "dlx", "x", "create"}
 BROWSER_OPENERS = {"open", "xdg-open", "start"}
 LOOPBACK_URL = re.compile(r"^https?://(?:localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)(?::\d+)?(?:/|$)")
 REASON = (
@@ -22,6 +23,10 @@ REASON = (
 PNPM_REASON = (
     "pnpm runs outside the sandbox only as one plain command: write `pnpm -C DIR SCRIPT ...` "
     "with no `cd &&`, pipe, `;` or `&`, so its store is never corrupted by a sandbox EPERM."
+)
+PNPM_EXEC_REASON = (
+    "pnpm runs outside the sandbox, so `pnpm exec`, `dlx`, `x` and `create` are refused: "
+    "run the project's own scripts with `pnpm -C DIR SCRIPT`, or run the binary with npx inside the sandbox."
 )
 OPEN_REASON = (
     "Open local pages with mcp__dev__page_check (pass url for a full URL such as "
@@ -103,6 +108,11 @@ def runs_pnpm(segment):
     return words[:1] == ["pnpm"]
 
 
+def runs_arbitrary_pnpm_code(segment):
+    words = without_environment(segment.split())
+    return runs_pnpm(segment) and package_script_words(words)[:1] != [] and package_script_words(words)[0] in PNPM_ARBITRARY_CODE
+
+
 def pnpm_shares_the_line(command):
     parts = [segment for segment in segments(command) if segment.strip()]
     return len(parts) > 1 and any(runs_pnpm(segment) for segment in parts)
@@ -131,6 +141,9 @@ def main():
     if any(starts_dev_server(segment) for segment in segments(command)):
         record_denial("dev-server-guard", payload, REASON)
         print(json.dumps(deny(REASON)))
+    elif any(runs_arbitrary_pnpm_code(segment) for segment in segments(command)):
+        record_denial("dev-server-guard", payload, PNPM_EXEC_REASON)
+        print(json.dumps(deny(PNPM_EXEC_REASON)))
     elif pnpm_shares_the_line(command):
         record_denial("dev-server-guard", payload, PNPM_REASON)
         print(json.dumps(deny(PNPM_REASON)))

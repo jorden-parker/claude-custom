@@ -240,8 +240,10 @@ then uses your own network, proxy and certificates, and resolves the pinned
 prompt. An exclusion applies only when every segment of the command line
 matches, so a piped `claude-custom ctx7 ... | head` runs inside the sandbox;
 `shared/hooks/dev-server-guard.py` therefore denies a `pnpm` that shares its
-line with `cd &&`, a pipe or `;` and asks for `pnpm -C DIR SCRIPT`. MCP servers
-and hooks run outside the sandbox too, as they do in the personal overlay.
+line with `cd &&`, a pipe or `;` and asks for `pnpm -C DIR SCRIPT`, and denies
+`pnpm exec`, `dlx`, `x` and `create`, which would run any package unsandboxed
+(`npx` inside the sandbox covers those). MCP servers and hooks run outside the
+sandbox too, as they do in the personal overlay.
 
 What this gives up, compared with the older session sandbox:
 

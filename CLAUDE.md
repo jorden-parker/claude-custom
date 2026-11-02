@@ -571,7 +571,8 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `excludedCommands` entry and only a one-segment line leaves the sandbox.
   Inside the sandbox pnpm's hardlinks hit EPERM and corrupt the virtual store,
   so Bash `pnpm -C DIR install|add|test` runs outside it after the Bash prompt;
-  `dev_install` stays as the tool form.
+  `dev_install` stays as the tool form, and `pnpm exec`, `dlx`, `x` and `create`
+  are denied so no arbitrary package runs unsandboxed.
 - `shared/mcp/repo-tools.py` is the `repo` MCP server the Ollama profiles start
   beside code-search and allow without a prompt (`mcp__repo` in
   `permissions.allow`; `bin/check-config` checks it and that
