@@ -1,0 +1,227 @@
+#!/usr/bin/env python3
+import argparse
+import http.client
+import importlib.machinery
+import importlib.util
+import json
+import os
+import sys
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+REPO_DIR = Path(os.path.realpath(__file__)).parents[1]
+PROXY_SCRIPT = REPO_DIR / "bin" / "messages-proxy"
+DEFAULT_BASE_URL = "http://localhost:11434"
+ANTHROPIC_VERSION = "2023-06-01"
+REPLAY_MAX_TOKENS = 1
+WORTH_IT_POINTS = 1.0
+BASIS_TOKEN_COUNT = "cached token count"
+BASIS_PREFILL_TIME = "prefill time per token vs the first request"
+PASS_VERBATIM = "verbatim"
+PASS_STABILIZED = "stabilized"
+
+
+class PrefixAbError(Exception):
+    pass
+
+
+def positive_int(text):
+    value = int(text)
+    if value < 1:
+        raise argparse.ArgumentTypeError("must be at least 1")
+    return value
+
+
+def parse_args(argv):
+    parser = argparse.ArgumentParser(description="Replay recorded /v1/messages bodies verbatim and through the prefix stabiliser, and compare cache hit rates.")
+    parser.add_argument("--record", required=True, help="folder of recorded bodies (messages-proxy --record)")
+    parser.add_argument("--model", required=True)
+    parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
+    parser.add_argument("--limit", type=positive_int, help="replay only the first N bodies in ts order")
+    parser.add_argument("--json", action="store_true")
+    return parser.parse_args(argv)
+
+
+def load_proxy_module():
+    loader = importlib.machinery.SourceFileLoader("messages_proxy", str(PROXY_SCRIPT))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
+def recorded_paths(folder, limit):
+    paths = sorted(Path(folder).glob("*.json"), key=lambda path: (path.stat().st_mtime, path.name))
+    if not paths:
+        raise PrefixAbError(f"no .json bodies in {folder}")
+    return paths[:limit] if limit else paths
+
+
+def recorded_body(path):
+    try:
+        body = json.loads(path.read_text())
+    except (OSError, ValueError) as error:
+        raise PrefixAbError(f"{path}: {error}") from error
+    if not isinstance(body, dict):
+        raise PrefixAbError(f"{path} does not hold a JSON object")
+    return body
+
+
+def post_json(base_url, path, payload, headers=None):
+    request = urllib.request.Request(
+        base_url + path,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json", **(headers or {})},
+    )
+    with urllib.request.urlopen(request, timeout=900) as response:
+        return json.loads(response.read())
+
+
+def unload_model(base_url, model):
+    post_json(base_url, "/api/chat", {"model": model, "messages": [], "keep_alive": 0})
+
+
+def replay_request(body, model):
+    return {**body, "model": model, "stream": False, "max_tokens": REPLAY_MAX_TOKENS, "temperature": 0}
+
+
+def send_replay(base_url, body):
+    started = time.monotonic()
+    response = post_json(base_url, "/v1/messages", body, {"anthropic-version": ANTHROPIC_VERSION, "x-api-key": "local"})
+    usage = response.get("usage") or {}
+    return {
+        "prompt_tokens": usage.get("input_tokens", 0),
+        "cached_tokens": usage.get("cache_read_input_tokens"),
+        "prefill_seconds": time.monotonic() - started,
+    }
+
+
+def count_hit_percent(measured):
+    total = measured["prompt_tokens"]
+    if total <= 0:
+        return 0.0
+    return 100.0 * measured["cached_tokens"] / total
+
+
+def time_hit_percent(measured, cold_rate):
+    total = measured["prompt_tokens"]
+    if cold_rate <= 0 or total <= 0:
+        return 0.0
+    return 100.0 * (1 - (measured["prefill_seconds"] / total) / cold_rate)
+
+
+def hit_percent(measured, cold_rate):
+    if measured["cached_tokens"] is not None:
+        return count_hit_percent(measured)
+    return time_hit_percent(measured, cold_rate)
+
+
+def cold_rate_of(measured):
+    return measured["prefill_seconds"] / measured["prompt_tokens"] if measured["prompt_tokens"] else 0.0
+
+
+def replay_pass(base_url, model, name, bodies, paths):
+    unload_model(base_url, model)
+    rows = []
+    cold_rate = 0.0
+    for index, (path, body) in enumerate(zip(paths, bodies), 1):
+        print(f"[{name} {index}/{len(paths)}] {path.stem}: sending...", file=sys.stderr, flush=True)
+        measured = send_replay(base_url, replay_request(body, model))
+        if index == 1:
+            cold_rate = cold_rate_of(measured)
+        measured["hit_percent"] = None if index == 1 else hit_percent(measured, cold_rate)
+        rows.append(measured)
+    return rows
+
+
+def basis_of(rows):
+    return BASIS_TOKEN_COUNT if all(row["cached_tokens"] is not None for row in rows) else BASIS_PREFILL_TIME
+
+
+def mean_hit(rows):
+    hits = [row["hit_percent"] for row in rows if row["hit_percent"] is not None]
+    return sum(hits) / len(hits) if hits else 0.0
+
+
+def verdict_line(gain_points):
+    if gain_points >= WORTH_IT_POINTS:
+        return f"stabilize: worth it (+{round(gain_points)} points mean hit rate)"
+    return "stabilize: no gain"
+
+
+def rounded(value):
+    return None if value is None else round(value, 1)
+
+
+def request_rows(paths, verbatim, stabilized):
+    return [
+        {"request_id": path.stem, PASS_VERBATIM: {**before, "hit_percent": rounded(before["hit_percent"])}, PASS_STABILIZED: {**after, "hit_percent": rounded(after["hit_percent"])}}
+        for path, before, after in zip(paths, verbatim, stabilized)
+    ]
+
+
+def compare(args, proxy):
+    paths = recorded_paths(args.record, args.limit)
+    bodies = [recorded_body(path) for path in paths]
+    verbatim = replay_pass(args.base_url, args.model, PASS_VERBATIM, bodies, paths)
+    stabilized = replay_pass(args.base_url, args.model, PASS_STABILIZED, proxy.stabilize_bodies(bodies), paths)
+    verbatim_mean, stabilized_mean = mean_hit(verbatim), mean_hit(stabilized)
+    gain = stabilized_mean - verbatim_mean
+    return {
+        "model": args.model,
+        "record_dir": args.record,
+        "basis": basis_of(verbatim + stabilized),
+        "requests": request_rows(paths, verbatim, stabilized),
+        "mean": {PASS_VERBATIM: rounded(verbatim_mean), PASS_STABILIZED: rounded(stabilized_mean)},
+        "gain_points": round(gain),
+        "verdict": verdict_line(gain),
+    }
+
+
+def cell(value):
+    return "-" if value is None else f"{value:.1f}"
+
+
+def table_line(label, verbatim, stabilized):
+    return f"{label:<38}{verbatim:>10}{stabilized:>12}"
+
+
+def print_table(args, report):
+    print(f"server: {args.base_url}")
+    print(f"model: {report['model']}  replay: {len(report['requests'])} bodies from {report['record_dir']}")
+    print(f"hit % basis: {report['basis']}")
+    print(table_line("request", PASS_VERBATIM, PASS_STABILIZED))
+    for row in report["requests"]:
+        print(table_line(row["request_id"], cell(row[PASS_VERBATIM]["hit_percent"]), cell(row[PASS_STABILIZED]["hit_percent"])))
+    print(table_line("mean", cell(report["mean"][PASS_VERBATIM]), cell(report["mean"][PASS_STABILIZED])))
+    print()
+    print(report["verdict"])
+
+
+def main(argv=None):
+    args = parse_args(argv)
+    try:
+        report = compare(args, load_proxy_module())
+    except PrefixAbError as error:
+        print(f"prefix-ab: {error}", file=sys.stderr)
+        return 1
+    except urllib.error.HTTPError as error:
+        print(f"prefix-ab: Ollama answered HTTP {error.code} at {error.url} (is the model pulled?)", file=sys.stderr)
+        return 1
+    except urllib.error.URLError as error:
+        print(f"prefix-ab: cannot reach Ollama at {args.base_url} ({error.reason})", file=sys.stderr)
+        return 1
+    except (OSError, http.client.HTTPException) as error:
+        print(f"prefix-ab: request to Ollama at {args.base_url} failed ({error})", file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps(report, indent=2))
+    else:
+        print_table(args, report)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

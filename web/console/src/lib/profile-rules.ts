@@ -34,6 +34,7 @@ export const OUTPUT_TOKENS_RANGE: NumberRange = {
 export const OLLAMA_MCP_SERVERS = ["code-search", "repo", "dev"] as const;
 export const PROFILE_ENV_KEYS = [
   "CLAUDE_OLLAMA_PROXY",
+  "CLAUDE_OLLAMA_PROXY_STABILIZE",
   "CLAUDE_OLLAMA_RULE_CARDS",
   "CLAUDE_OLLAMA_RELAUNCH",
   "CLAUDE_OLLAMA_HANDOFF_PCT",
@@ -108,6 +109,15 @@ export const PROFILE_ENV_FIELDS: readonly ProfileEnvField[] = [
     group: "Prompt and context",
     kind: "switch",
     defaultValue: "1",
+    ollamaOnly: true,
+  },
+  {
+    key: "CLAUDE_OLLAMA_PROXY_STABILIZE",
+    label: "Move volatile prompt lines after the stable prefix",
+    help: "The proxy learns which system lines change between requests (a date, a reminder) and moves them to the end of the system text, so the prompt cache keeps the prefix before them; off forwards every body untouched.",
+    group: "Prompt and context",
+    kind: "switch",
+    defaultValue: "0",
     ollamaOnly: true,
   },
   {

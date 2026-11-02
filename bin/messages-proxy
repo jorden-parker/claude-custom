@@ -4,6 +4,7 @@ import hashlib
 import http.client
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -21,6 +22,18 @@ UPSTREAM_TIMEOUT_SECONDS = 1800
 HOP_BY_HOP_HEADERS = {"connection", "keep-alive", "proxy-connection", "transfer-encoding", "upgrade", "host", "content-length"}
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
 FORWARDED_ROUTES = {("POST", MESSAGES_PATH), ("GET", "/v1/models"), ("GET", "/api/version"), ("GET", "/api/tags")}
+VOLATILE_SPAN_BYTES = 400
+DIGIT = re.compile(r"\d")
+WEEKDAY = re.compile(r"\b(?:mon|tues|wednes|thurs|fri|satur|sun)day\b", re.IGNORECASE)
+MONTH = re.compile(
+    r"\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|july?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\b",
+    re.IGNORECASE,
+)
+DATE_OR_TIME_ONLY = re.compile(
+    r"^\W*(?:<weekday>,?\s*)?(?:####-##-##|#{1,2}/#{1,2}/#{2,4}|(?:#{1,2}\s+)?<month>(?:\s+#{1,2}(?:st|nd|rd|th)?)?,?(?:\s+####)?)?[,\s]*(?:#{1,2}:##(?::##)?\s*(?:[ap]\.?m\.?)?)?\W*$",
+    re.IGNORECASE,
+)
+VOLATILE_LINE_STARTS = ("today's date", "current date", "the current time")
 
 
 def parse_args(argv):
@@ -30,12 +43,154 @@ def parse_args(argv):
     parser.add_argument("--port-file")
     parser.add_argument("--log", required=True)
     parser.add_argument("--record", help="folder that gets each /v1/messages body as <request_id>.json")
+    parser.add_argument("--stabilize", action="store_true", help="move learned volatile system lines after the stable prefix")
     parser.add_argument("--watch-pid", type=int)
     return parser.parse_args(argv)
 
 
 def canonical(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":"))
+
+
+def volatile_key(line):
+    return DIGIT.sub("#", MONTH.sub("<month>", WEEKDAY.sub("<weekday>", line)))
+
+
+def hard_volatile(line):
+    stripped = line.strip().lower()
+    if stripped.startswith(VOLATILE_LINE_STARTS):
+        return True
+    return DIGIT.search(line) is not None and DATE_OR_TIME_ONLY.match(volatile_key(line)) is not None
+
+
+def common_prefix_length(old, new):
+    index = 0
+    limit = min(len(old), len(new))
+    while index < limit and old[index] == new[index]:
+        index += 1
+    return index
+
+
+def common_suffix_length(old, new, prefix):
+    index = 0
+    limit = min(len(old), len(new)) - prefix
+    while index < limit and old[-1 - index] == new[-1 - index]:
+        index += 1
+    return index
+
+
+def line_end(text, index):
+    found = text.find("\n", index)
+    return len(text) if found < 0 else found
+
+
+def changed_lines(old_text, new_text):
+    prefix = common_prefix_length(old_text, new_text)
+    suffix = common_suffix_length(old_text, new_text, prefix)
+    start = old_text.rfind("\n", 0, prefix) + 1
+    old_lines = old_text[start : line_end(old_text, len(old_text) - suffix)].split("\n")
+    new_lines = new_text[start : line_end(new_text, len(new_text) - suffix)].split("\n")
+    while old_lines and new_lines and old_lines[0] == new_lines[0]:
+        old_lines.pop(0)
+        new_lines.pop(0)
+    while old_lines and new_lines and old_lines[-1] == new_lines[-1]:
+        old_lines.pop()
+        new_lines.pop()
+    return old_lines, new_lines
+
+
+def span_bytes(lines):
+    return len("\n".join(lines).encode("utf-8"))
+
+
+def learned_volatile_keys(old_text, new_text):
+    if old_text == new_text:
+        return []
+    old_lines, new_lines = changed_lines(old_text, new_text)
+    if max(span_bytes(old_lines), span_bytes(new_lines)) > VOLATILE_SPAN_BYTES:
+        return []
+    return [volatile_key(line) for line in old_lines + new_lines if line.strip()]
+
+
+def is_text_block(block):
+    return isinstance(block, dict) and isinstance(block.get("text"), str)
+
+
+def system_text(system):
+    if isinstance(system, str):
+        return system
+    if isinstance(system, list):
+        return "\n".join(block["text"] for block in system if is_text_block(block))
+    return ""
+
+
+def split_volatile_lines(text, is_volatile):
+    kept, moved = [], []
+    for line in text.split("\n"):
+        (moved if is_volatile(line) else kept).append(line)
+    return "\n".join(kept), moved
+
+
+def stabilized_blocks(system, is_volatile):
+    blocks, moved = [], []
+    for block in system:
+        if not is_text_block(block):
+            blocks.append(block)
+            continue
+        kept, block_moved = split_volatile_lines(block["text"], is_volatile)
+        moved.extend(block_moved)
+        if block_moved and not kept.strip():
+            continue
+        blocks.append({**block, "text": kept} if block_moved else block)
+    if not moved:
+        return system, []
+    tail = "\n".join(moved)
+    text_indexes = [index for index, block in enumerate(blocks) if is_text_block(block)]
+    if text_indexes:
+        last = blocks[text_indexes[-1]]
+        blocks[text_indexes[-1]] = {**last, "text": last["text"] + "\n" + tail}
+    else:
+        blocks.append({"type": "text", "text": tail})
+    return blocks, moved
+
+
+def stabilized_system(system, is_volatile):
+    if isinstance(system, str):
+        kept, moved = split_volatile_lines(system, is_volatile)
+        return ("\n".join([kept] + moved), moved) if moved else (system, [])
+    if isinstance(system, list):
+        return stabilized_blocks(system, is_volatile)
+    return system, []
+
+
+class PrefixStabilizer:
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.volatile_keys = set()
+        self.previous_system_text = None
+
+    def is_volatile(self, line):
+        return hard_volatile(line) or volatile_key(line) in self.volatile_keys
+
+    def stabilize(self, body):
+        text = system_text(body.get("system"))
+        with self.lock:
+            if self.previous_system_text is not None:
+                self.volatile_keys.update(learned_volatile_keys(self.previous_system_text, text))
+            self.previous_system_text = text
+            system, moved = stabilized_system(body.get("system"), self.is_volatile)
+        if not moved:
+            return body, []
+        return {**body, "system": system}, moved
+
+
+def stabilize_bodies(bodies):
+    stabilizer = PrefixStabilizer()
+    return [stabilizer.stabilize(body)[0] for body in bodies]
+
+
+def stabilized_keys(moved):
+    return list(dict.fromkeys(volatile_key(line) for line in moved))
 
 
 def prompt_sections(body):
@@ -203,22 +358,40 @@ def returned_headers(headers):
     return [(name, value) for name, value in headers.items() if name.lower() not in HOP_BY_HOP_HEADERS]
 
 
-def observe_request(body, tracker, log, recorder):
+def parse_body(body):
     try:
         parsed = json.loads(body)
     except ValueError:
         return None
-    if not isinstance(parsed, dict):
-        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def forwarded_body(parsed, body, stabilizer):
+    if stabilizer is None:
+        return parsed, body, []
+    stabilized, moved = stabilizer.stabilize(parsed)
+    if not moved:
+        return parsed, body, []
+    return stabilized, json.dumps(stabilized, ensure_ascii=False).encode("utf-8"), moved
+
+
+def observe_request(body, tracker, log, recorder, stabilizer=None):
+    parsed = parse_body(body)
+    if parsed is None:
+        return None, body
     request_id = str(uuid.uuid4())
+    forwarded, forwarded_bytes, moved = forwarded_body(parsed, body, stabilizer)
     row = {"ts": now_iso(), "request_id": request_id}
-    row.update(tracker.compare(prompt_sections(parsed)))
-    row["prompt_bytes"] = len(body)
-    row["ledger"] = prompt_ledger(parsed)
+    row.update(tracker.compare(prompt_sections(forwarded)))
+    row["prompt_bytes"] = len(forwarded_bytes)
+    row["ledger"] = prompt_ledger(forwarded)
+    if stabilizer is not None:
+        row["stabilized"] = stabilized_keys(moved)
+        row["moved_bytes"] = span_bytes(moved)
     log.append(row)
     if recorder is not None:
         recorder.save(request_id, body)
-    return request_id
+    return request_id, forwarded_bytes
 
 
 class ProxyHandler(BaseHTTPRequestHandler):
@@ -227,6 +400,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
     tracker = None
     log = None
     recorder = None
+    stabilizer = None
 
     def log_message(self, format, *args):
         return
@@ -268,7 +442,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
     def forward(self, body):
         request_id = None
         if self.command == "POST" and self.path == MESSAGES_PATH:
-            request_id = observe_request(body, self.tracker, self.log, self.recorder)
+            request_id, body = observe_request(body, self.tracker, self.log, self.recorder, self.stabilizer)
         connection = http.client.HTTPConnection(self.upstream.hostname, self.upstream.port, timeout=UPSTREAM_TIMEOUT_SECONDS)
         try:
             connection.putrequest(self.command, self.path, skip_host=True, skip_accept_encoding=True)
@@ -332,6 +506,7 @@ def serve(options):
         "tracker": SectionTracker(),
         "log": RequestLog(options.log),
         "recorder": BodyRecorder(options.record) if options.record else None,
+        "stabilizer": PrefixStabilizer() if options.stabilize else None,
     })
     server = ThreadingHTTPServer(("127.0.0.1", options.port), handler)
     server.daemon_threads = True

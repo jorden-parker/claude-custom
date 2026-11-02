@@ -261,6 +261,7 @@ describe("validateProfileOverride", () => {
     ["CLAUDE_OLLAMA_EDIT_NUDGE", "1", "Guards", true],
     ["CLAUDE_OLLAMA_LEASE", "1", "Ollama residency", true],
     ["CLAUDE_OLLAMA_FIT", "1", "Ollama residency", true],
+    ["CLAUDE_OLLAMA_PROXY_STABILIZE", "0", "Prompt and context", true],
     ["CLAUDE_OLLAMA_PROXY_RECORD", "0", "Diagnostics", true],
     ["CLAUDE_OLLAMA_BEACON", "1", "Diagnostics", true],
   ])(
@@ -291,6 +292,9 @@ describe("validateProfileOverride", () => {
     );
     expect(labelOf("CLAUDE_OLLAMA_PROXY_RECORD")).toBe(
       "Record every request body for replay benches",
+    );
+    expect(labelOf("CLAUDE_OLLAMA_PROXY_STABILIZE")).toBe(
+      "Move volatile prompt lines after the stable prefix",
     );
     expect(labelOf("CLAUDE_CUSTOM_FRICTION")).toBe(
       "Reset a looping guard after three identical denials",

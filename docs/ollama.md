@@ -206,9 +206,9 @@ memory, and prints a five-line summary. Tokens become `<redacted>` and your home
 folder becomes `~`, so the file is safe to paste; anything it cannot read shows
 as `unavailable: <why>` rather than stopping the report. `--since 30` narrows
 the proxy window, `--out FILE` picks the file. To capture the real prompts for a
-later `messages-bench --replay` or `ollama-cache-probe --replay`, launch with
-`CLAUDE_OLLAMA_PROXY_RECORD=1` once; the report then names the record folder and
-how many requests it holds.
+later `messages-bench --replay`, `ollama-cache-probe --replay` or
+`claude-ollama prefix-ab`, launch with `CLAUDE_OLLAMA_PROXY_RECORD=1` once; the
+report then names the record folder and how many requests it holds.
 
 Sample `doctor` output (all healthy):
 
@@ -597,6 +597,7 @@ the harness switches, each `0` or `1` unless noted:
 | `CLAUDE_OLLAMA_TELEMETRY`       | 1       | Session telemetry                                                              |
 | `CLAUDE_OLLAMA_INCIDENTS`       | 1       | Record Ollama incidents                                                        |
 | `CLAUDE_OLLAMA_PROXY_RECORD`    | 0       | Record every request body for replay benches                                   |
+| `CLAUDE_OLLAMA_PROXY_STABILIZE` | 0       | Move volatile prompt lines after the stable prefix                             |
 | `CLAUDE_OLLAMA_BEACON`          | 1       | Write a machine beacon at launch                                               |
 | `CLAUDE_OLLAMA_OPEN_DRAFTS`     | 1       | Open drafts in the browser                                                     |
 | `CLAUDE_OLLAMA_CMUX`            | 1       | cmux browser tools                                                             |
@@ -728,6 +729,21 @@ appends one line per `/v1/messages` request to
 (`system`, `tools` or `message:N`) that differs from the previous request, the
 byte offset inside it and up to 200 characters from there, so a prompt-cache
 miss can be traced to what changed. It never logs the rest of the body.
+
+With `CLAUDE_OLLAMA_PROXY_STABILIZE=1` the proxy also stabilises the prefix:
+when two requests in a row differ inside the system prompt by one short span (at
+most 400 bytes once widened to whole lines) it learns those lines as volatile,
+and a date-only or time-only line, or one starting with `Today's date`,
+`Current date` or `The current time`, counts from the start. Every volatile line
+is then moved to the end of the system text on each request, so the bytes before
+it stay identical and Ollama's cache keeps them; nothing is dropped, tools are
+never rewritten and messages are never touched. Each log row then lists the
+moved lines (digits masked) as `stabilized` and their `moved_bytes`. To check
+the gain before switching it on, record a session with
+`CLAUDE_OLLAMA_PROXY_RECORD=1`, then run `claude-ollama prefix-ab [size]`: it
+replays the recorded prompts verbatim and stabilised, one pass after the other
+with the model unloaded in between, and prints a two-column hit-rate table with
+`stabilize: worth it (+N points mean hit rate)` or `stabilize: no gain`.
 
 #### Server
 

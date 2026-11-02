@@ -210,7 +210,7 @@ def drift_verdict(incidents, requests):
     if incidents:
         evidence += f"; {count_phrase(len(incidents), 'incidents')}, {join_note(last_of(incidents), requests)}"
     return Verdict(f"prompt drift at {section}", "a volatile line early in the prompt breaks the cached prefix on every turn", evidence,
-                   f"move the volatile line after the stable prefix: \"{diff}\"")
+                   f"move the volatile line after the stable prefix: \"{diff}\"; launch with CLAUDE_OLLAMA_PROXY_STABILIZE=1 so the proxy moves it, and run claude-ollama prefix-ab to measure the gain")
 
 
 def compacted_verdict(incidents, requests):
