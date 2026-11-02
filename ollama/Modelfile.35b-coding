@@ -1,2 +1,5 @@
 FROM qwen3.6:35b-a3b-coding-nvfp4
 PARAMETER num_ctx 98304
+PARAMETER temperature 0.7
+PARAMETER top_k 20
+PARAMETER top_p 0.8
