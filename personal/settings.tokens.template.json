@@ -4,6 +4,7 @@
   "skillListingMaxDescChars": 300,
   "sandbox": {
     "enabled": true,
+    "excludedCommands": ["gh *", "git push *", "git fetch *", "git pull *"],
     "network": {
       "allowedDomains": [
         "127.0.0.1",
@@ -15,7 +16,22 @@
     },
     "filesystem": {
       "allowWrite": ["~/.cache/claude-sandbox"],
-      "denyRead": ["~/.local/share/claude-custom"]
+      "denyRead": [
+        "~/.ssh",
+        "~/.aws",
+        "~/.config/gh",
+        "~/.config/context7",
+        "~/.npmrc",
+        "~/Library/Keychains",
+        "~/.local/share/claude-custom"
+      ]
+    },
+    "credentials": {
+      "envVars": [
+        { "name": "GH_TOKEN", "mode": "deny" },
+        { "name": "GITHUB_TOKEN", "mode": "deny" },
+        { "name": "SHORTCUT_API_TOKEN", "mode": "deny" }
+      ]
     }
   },
   "env": {

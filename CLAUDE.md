@@ -281,16 +281,16 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `<git common dir>/handoff/` and `/handoff` resumes from the newest one.
   `bin/check-config` checks each `shared/skills/*` name matches its folder.
 - `shared/skills/find-docs/SKILL.md` is the `/find-docs` skill: current library
-  docs from Context7 through its CLI (`npx ctx7@latest library`, then
-  `npx ctx7@latest docs`), adapted from the upstream skill pinned in
+  docs from Context7 through its CLI (`npx ctx7@0.8.2 library`, then
+  `npx ctx7@0.8.2 docs`), adapted from the upstream skill pinned in
   `shared/skills/find-docs/UPSTREAM`. `bin/claude-custom install` links it into
   `~/.claude/skills/` and `claude-ollama` copies it into its session. Both
   sandboxes allow `context7.com` (the personal one also `registry.npmjs.org`,
-  for `npx`); the Ollama profiles and the Qwen Seatbelt profile hide
-  `~/.config/context7`, so lookups run anonymously unless `CONTEXT7_API_KEY` is
-  in the launcher's environment. `bin/check-config` checks the link, the CLI
-  command and that `PREFERENCES.md`, `CLAUDE.local.md` and `QWEN.local.md` name
-  the skill.
+  for `npx`); every sandbox hides `~/.config/context7`, so lookups run
+  anonymously unless `CONTEXT7_API_KEY` is in the launcher's environment. The
+  CLI version is pinned in the skill and the prompt files; `bin/check-config`
+  checks they agree, checks the link, and that `PREFERENCES.md`,
+  `CLAUDE.local.md` and `QWEN.local.md` name the skill.
 - `bin/pr-review-local --model M [--base-url URL] [--post] [--json] [--color auto|always|never] [--log-dir DIR] [--no-log] [--range BASE..HEAD | PR]`
   reviews a GitHub PR with a local model, or local commits with `--range` (no
   `gh`, no comments or CI, no `--post`): `gh`/`git` gather the PR (no checkout

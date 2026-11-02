@@ -13,8 +13,8 @@ Context7 serves current, version-specific docs through the `ctx7` CLI. Two
 steps, always in this order, each piped through `| head -80`:
 
 ```
-npx ctx7@latest library "<name>" "<query>" | head -80
-npx ctx7@latest docs <id> "<query>" [--language L] | head -80
+npx ctx7@0.8.2 library "<name>" "<query>" | head -80
+npx ctx7@0.8.2 docs <id> "<query>" [--language L] | head -80
 ```
 
 ## 1. Resolve the library
@@ -42,4 +42,6 @@ Lookups work anonymously. `CONTEXT7_API_KEY` in the environment raises the
 quota; the sandbox cannot run `ctx7 login`. On a quota error ("Monthly quota
 reached", "quota exceeded") tell the user, suggest a key from
 https://context7.com/dashboard, then answer from memory flagged as possibly
-outdated. Never fall back silently. Needs Node 22.13 or newer.
+outdated. Never fall back silently. Needs Node 22.13 or newer. The version is
+pinned; bump it in this file, `CLAUDE.local.md`, `QWEN.local.md` and `CLAUDE.md`
+together.

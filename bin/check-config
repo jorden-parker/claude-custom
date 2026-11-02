@@ -154,11 +154,13 @@ check_eq "settings.tokens.json turns Claude Code's own sandbox on for every pers
   "$(jq -r .sandbox.enabled "$repo/personal/settings.tokens.json")"
 check_eq "settings.tokens.json asks before a command leaves that sandbox, whatever the permission mode" true \
   "$(jq '.permissions.ask | index("Bash(dangerouslyDisableSandbox:true)") != null' "$repo/personal/settings.tokens.json")"
-check_eq "settings.tokens.json reaches loopback addresses, lets commands write the same cache folder as the Ollama profiles and hides the console state" true \
+check_eq "settings.tokens.json reaches loopback, npm and Context7, lets commands write the same cache folder as the Ollama profiles, hides every credential and the console state, and unsets the same tokens" true \
   "$(jq --slurpfile ollama "$repo/ollama/settings.27b.json" '
     .sandbox.network == {"allowedDomains": ["127.0.0.1", "[::1]", "registry.npmjs.org", "context7.com"], "allowLocalBinding": true}
     and .sandbox.filesystem.allowWrite == $ollama[0].sandbox.filesystem.allowWrite
-    and .sandbox.filesystem.denyRead == ["~/.local/share/claude-custom"]
+    and .sandbox.filesystem.denyRead == ["~/.ssh", "~/.aws", "~/.config/gh", "~/.config/context7", "~/.npmrc", "~/Library/Keychains", "~/.local/share/claude-custom"]
+    and .sandbox.credentials == $ollama[0].sandbox.credentials
+    and .sandbox.excludedCommands == ["gh *", "git push *", "git fetch *", "git pull *"]
   ' "$repo/personal/settings.tokens.json")"
 check_eq "shared/sandbox-env keeps every package cache under the folder both sandboxes may write" \
   "$(jq -r '.sandbox.filesystem.allowWrite[0]' "$repo/ollama/settings.27b.json")" \
@@ -270,7 +272,11 @@ for draft_skill in pr-draft pr-review-draft; do
   check_that "claude-custom install links the $draft_skill skill" grep -qF "shared/skills/$draft_skill" "$repo/bin/claude-custom"
 done
 check_that "claude-custom install links the find-docs skill" grep -qF "shared/skills/find-docs" "$repo/bin/claude-custom"
-check_that "the find-docs skill runs the Context7 CLI" grep -qF "npx ctx7@latest" "$repo/shared/skills/find-docs/SKILL.md"
+ctx7_pin="$(grep -o "npx ctx7@[0-9][0-9.]*" "$repo/shared/skills/find-docs/SKILL.md" | sort -u)"
+check_that "the find-docs skill runs one pinned Context7 CLI version" test "$(wc -l <<<"$ctx7_pin")" -eq 1 -a -n "$ctx7_pin"
+for prompt_file in ollama/CLAUDE.local.md ollama/QWEN.local.md CLAUDE.md; do
+  check_eq "$prompt_file runs the same Context7 CLI version as the skill" "$ctx7_pin" "$(grep -o "npx ctx7@[^ \`]*" "$repo/$prompt_file" | sort -u)"
+done
 check_that "CLAUDE.local.md points the model at the find-docs skill" grep -qF "/find-docs" "$repo/ollama/CLAUDE.local.md"
 check_that "QWEN.local.md points the model at the find-docs skill" grep -qF "/find-docs" "$repo/ollama/QWEN.local.md"
 check_that "PREFERENCES.md points the model at the find-docs skill" grep -qF "/find-docs" "$repo/shared/preferences/PREFERENCES.md"

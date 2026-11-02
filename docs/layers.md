@@ -41,8 +41,11 @@ also `registry.npmjs.org` and `context7.com`, for the `/find-docs` skill), and
 both the `claude` function (`personal/launch`) and `claude-ollama` run Claude
 through `shared/sandbox-env`, which points Go, npm, pnpm, pip, uv, yarn and bun
 at caches under that folder; `claude-ollama` adds its own `excludedCommands`,
-`denyRead`, credential and registry lists, and the personal overlay hides the
-console state folder.
+registry list; both hide the same credentials (`~/.ssh`, `~/.aws`,
+`~/.config/gh`, `~/.config/context7`, `~/.npmrc`, the keychain) and the console
+state folder, unset `GH_TOKEN`, `GITHUB_TOKEN` and `SHORTCUT_API_TOKEN`, and run
+`gh`, `git push`, `git fetch` and `git pull` outside the sandbox, since the gh
+credential helper needs `~/.config/gh`.
 
 To get a tool back on one machine only, list its name (one per line) in
 `~/.config/claude-custom/enabled-tools`. `personal/settings-path` then writes a
