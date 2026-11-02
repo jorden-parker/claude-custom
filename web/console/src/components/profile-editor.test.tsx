@@ -349,7 +349,7 @@ describe("ProfileEditor", () => {
     expect(afterEdit.options[afterEdit.selectedIndex].text).toBe(
       "default (suggest)",
     );
-    expect(screen.getByText(/outside the Bash sandbox/)).toBeTruthy();
+    expect(screen.getByText(/under macOS Seatbelt/)).toBeTruthy();
 
     fireEvent.change(afterEdit, { target: { value: "run" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));

@@ -80,6 +80,8 @@ expect_eq 'a file under .claude is not a test and never the program to run' \
 expect_eq 'a file under fixtures still resolves to itself' \
   "$project/shared/hooks/fixtures/sample.test.sh	./shared/hooks/fixtures/sample.test.sh" \
   "$(mkdir -p "$project/shared/hooks/fixtures" && touch "$project/shared/hooks/fixtures/sample.test.sh" && resolve "$project/shared/hooks/fixtures/sample.test.sh")"
+expect_eq 'test names match in any case' 'yes yes yes no' \
+  "$(python3 "$scope" --is-test "$project/web/src/lib/Widget.Spec.TS") $(python3 "$scope" --is-test "$project/go/internal/parse/Parse_TEST.go") $(python3 "$scope" --is-test "$project/py/TEST_serve.py") $(python3 "$scope" --is-test "$project/py/serve.py")"
 expect_eq 'the expected test path for a missing test' \
   "$sandbox/lonely/thing.test.sh" \
   "$(python3 "$scope" --expected "$sandbox/lonely/thing.sh")"

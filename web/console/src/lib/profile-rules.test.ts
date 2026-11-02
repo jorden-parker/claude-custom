@@ -339,7 +339,19 @@ describe("validateProfileOverride", () => {
       PROFILE_ENV_FIELDS.find(
         (field) => field.key === "CLAUDE_OLLAMA_TEST_AFTER_EDIT",
       )?.help,
-    ).toMatch(/outside the Bash sandbox/);
+    ).toMatch(
+      /under macOS Seatbelt with the same profile as claude-ollama qwen/,
+    );
+    expect(
+      PROFILE_ENV_FIELDS.find(
+        (field) => field.key === "CLAUDE_OLLAMA_TEST_AFTER_EDIT",
+      )?.help,
+    ).toMatch(/only suggests on other platforms/);
+    expect(
+      PROFILE_ENV_FIELDS.find(
+        (field) => field.key === "CLAUDE_OLLAMA_TEST_AFTER_EDIT",
+      )?.help,
+    ).toMatch(/profile file the sandboxed session cannot write/);
     for (const value of ["0", "suggest", "run"]) {
       expect(
         accepted({ env: { CLAUDE_OLLAMA_TEST_AFTER_EDIT: value } }, OLLAMA),

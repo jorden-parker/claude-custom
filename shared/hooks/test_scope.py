@@ -4,7 +4,7 @@ from pathlib import Path
 
 CODE_SUFFIXES = {".go", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py", ".sh", ".bash", ".zsh"}
 PACKAGE_SUFFIXES = {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"}
-TEST_NAME = re.compile(r"(^|[._-])(test|tests|spec)([._-]|$)")
+TEST_NAME = re.compile(r"(^|[._-])(test|tests|spec)([._-]|$)", re.IGNORECASE)
 TEST_DIRS = {"test", "tests", "__tests__", "testdata", "fixtures", "eval", ".claude"}
 RUNNABLE_TEST_DIRS = TEST_DIRS - {".claude"}
 VITEST_SUFFIXES = (".ts", ".tsx", ".js", ".jsx", ".mts", ".mjs")
@@ -33,7 +33,8 @@ def stem_of(path):
 
 
 def has_test_name(path):
-    return bool(TEST_NAME.search(stem_of(path))) or ".test." in path.name or ".spec." in path.name
+    lowered = path.name.lower()
+    return bool(TEST_NAME.search(stem_of(path))) or ".test." in lowered or ".spec." in lowered
 
 
 def is_test(path):
@@ -196,6 +197,9 @@ def resolve_test(path, cwd):
 def main(arguments):
     if arguments[:1] == ["--expected"]:
         print(expected_test_path(Path(arguments[1])))
+        return
+    if arguments[:1] == ["--is-test"]:
+        print("yes" if is_test(Path(arguments[1])) else "no")
         return
     path = Path(arguments[0])
     cwd = Path(arguments[1]) if len(arguments) > 1 else Path.cwd()
