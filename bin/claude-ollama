@@ -15,6 +15,9 @@ ollama_agent="${CLAUDE_OLLAMA_AGENT:-$repo_dir/bin/ollama-agent}"
 gguf_inspect="${CLAUDE_OLLAMA_GGUF_INSPECT:-$repo_dir/bin/gguf-inspect}"
 session_config_dir="$HOME/.claude-ollama"
 drafts_dir="$session_config_dir/drafts"
+relaunch_dir="$session_config_dir/relaunch"
+claude_pid=""
+relaunch_args=()
 qwen_home="$session_config_dir/qwen"
 append_prompt="$session_config_dir/append-prompt.md"
 fetch_domains_file="${XDG_CONFIG_HOME:-$HOME/.config}/claude-custom/fetch-domains"
@@ -498,6 +501,72 @@ write_append_prompt() {
   cat "$profile_dir/CLAUDE.local.md" > "$append_prompt"
   cmux_tools_on && cat "$profile_dir/CLAUDE.cmux.md" >> "$append_prompt"
   return 0
+}
+
+prepare_relaunch_dir() {
+  (umask 077; mkdir -p "$relaunch_dir")
+  chmod 700 "$relaunch_dir"
+  rm -f "$relaunch_dir/relaunch"
+  export CLAUDE_OLLAMA_RELAUNCH_DIR="$relaunch_dir"
+}
+
+terminate_claude() {
+  [ -z "$claude_pid" ] || kill -TERM "$claude_pid" 2>/dev/null || true
+}
+
+wait_for_claude() {
+  local status=0
+  while :; do
+    wait "$claude_pid" && return 0 || status=$?
+    kill -0 "$claude_pid" 2>/dev/null || return "$status"
+  done
+}
+
+run_claude() {
+  "$repo_dir/shared/sandbox-env" claude "$@" <&0 &
+  claude_pid=$!
+  echo "$claude_pid" > "$relaunch_dir/claude.pid"
+  trap terminate_claude INT TERM
+  wait_for_claude
+}
+
+ends_with_prompt() {
+  local count=$#
+  [ "$count" -gt 0 ] || return 1
+  case "${!count}" in
+    -*) return 1 ;;
+  esac
+  [ "$count" -eq 1 ] && return 0
+  local before=$((count - 1))
+  case "${!before}" in
+    -*) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+set_relaunch_args() {
+  relaunch_args=("$@")
+  if ends_with_prompt "$@"; then
+    unset "relaunch_args[${#relaunch_args[@]}-1]"
+  fi
+  relaunch_args+=(/handoff)
+}
+
+launch_claude() {
+  if [ "${CLAUDE_OLLAMA_RELAUNCH:-}" = 0 ]; then
+    exec "$repo_dir/shared/sandbox-env" claude "${claude_args[@]}" "$@"
+  fi
+  prepare_relaunch_dir
+  local status=0
+  run_claude "${claude_args[@]}" "$@" || status=$?
+  while [ -e "$relaunch_dir/relaunch" ]; do
+    rm -f "$relaunch_dir/relaunch"
+    echo "claude-ollama: context budget reached: handoff saved, relaunching claude" >&2
+    set_relaunch_args "$@"
+    status=0
+    run_claude "${claude_args[@]}" "${relaunch_args[@]}" || status=$?
+  done
+  exit "$status"
 }
 
 cmux_tools_on() {
@@ -1178,4 +1247,4 @@ claude_args=(
   --tools "$(launch_tools)"
 )
 stop_launcher_log claude
-exec "$repo_dir/shared/sandbox-env" claude "${claude_args[@]}" "$@"
+launch_claude "$@"

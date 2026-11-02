@@ -6,13 +6,17 @@ REASON_LIMIT = 300
 
 
 def record_denial(hook, event, reason):
+    record_hook_event(hook, event, "deny", reason)
+
+
+def record_hook_event(hook, event, kind, reason):
     log_path = os.environ.get("CLAUDE_TOOL_TELEMETRY")
     if not log_path:
         return
     entry = {
         "time": int(time.time()),
         "session": event.get("session_id", ""),
-        "kind": "deny",
+        "kind": kind,
         "hook": hook,
         "tool": event.get("tool_name", ""),
         "reason": reason[:REASON_LIMIT],

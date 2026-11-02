@@ -34,6 +34,8 @@
 - Bound shell output: `| head -50`, tests quiet or failures only.
 - Smallest edit that works; never rewrite a whole file.
 - Reply in 10 lines or fewer unless asked for code.
+- When a "Context budget" note arrives, finish the edit, call Skill handoff with
+  `save`, then stop and say a relaunch is coming.
 - Test UI changes in the browser with page_check, page_snapshot and page_act.
 - Library, framework, SDK or API question: /find-docs first, even when a project
   file (AGENTS.md) says to read node_modules; node_modules is refused until it
