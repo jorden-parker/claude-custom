@@ -456,7 +456,17 @@ and whether the model may invoke them. Claude Code loads a project's skills,
 settings and hooks only in a trusted folder, so an untrusted one shows no
 project skills in the `/` menu. A switch sets `hasTrustDialogAccepted` for that
 folder, and the form trusts a new folder by its real path (it must exist on this
-machine); each save lands in `/history`. A per-size profile,
+machine); each save lands in `/history`. Each folder's "Check skills" button
+runs `bin/skill-check --size SIZE FOLDER`, which starts `claude-ollama` there in
+print mode (`-p hi --max-turns 1 --output-format stream-json --verbose`, with
+the indexer, draft opener and telemetry off), reads the `init` event's `skills`
+array, stops the launch, and prints JSON with the Claude Code version, that
+array and any error (the stderr tail when no session started within `--timeout`
+seconds, 120 by default); `CLAUDE_OLLAMA_LAUNCHER` and `CLAUDE_BIN` override the
+commands in tests. The page compares the array with the skills it found in the
+folder and names the ones Claude Code skipped, which points at a `SKILL.md`
+frontmatter Claude Code rejects (an unquoted colon in the description, a name
+with spaces or capitals). A per-size profile,
 `~/.config/claude-custom/profiles/ollama-<size>.json`, overrides that size's
 launch (every key optional):
 

@@ -1,0 +1,146 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import os
+import select
+import signal
+import subprocess
+import sys
+import tempfile
+import time
+
+DEFAULT_SIZE = "27b"
+DEFAULT_TIMEOUT_SECONDS = 120
+STDERR_TAIL_LINES = 5
+LAUNCH_ENV = {
+    "CLAUDE_OLLAMA_NO_INDEX": "1",
+    "CLAUDE_OLLAMA_OPEN_DRAFTS": "0",
+    "CLAUDE_OLLAMA_TELEMETRY": "0",
+}
+
+
+def main():
+    options = parse_args()
+    result = {
+        "folder": options.folder,
+        "claude_version": claude_version(),
+        "skills": None,
+        "error": None,
+    }
+    if not os.path.isdir(options.folder):
+        result["error"] = f"{options.folder} is not a folder"
+    else:
+        skills, error = discover_skills(options)
+        result["skills"] = skills
+        result["error"] = error
+    json.dump(result, sys.stdout)
+    sys.stdout.write("\n")
+    return 0 if result["skills"] is not None else 1
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Run claude-ollama in a folder and report the skills Claude Code discovered there"
+    )
+    parser.add_argument("folder")
+    parser.add_argument("--size", default=DEFAULT_SIZE)
+    parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT_SECONDS)
+    return parser.parse_args()
+
+
+def claude_version():
+    try:
+        output = subprocess.run(
+            [os.environ.get("CLAUDE_BIN", "claude"), "--version"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        ).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    first_line = output.strip().splitlines()[:1]
+    return first_line[0] if first_line else None
+
+
+def launch_argv(size):
+    launcher = os.environ.get("CLAUDE_OLLAMA_LAUNCHER", "claude-ollama")
+    return [launcher, size, "-p", "hi", "--max-turns", "1", "--output-format", "stream-json", "--verbose"]
+
+
+def discover_skills(options):
+    with tempfile.TemporaryFile() as stderr_file:
+        try:
+            process = subprocess.Popen(
+                launch_argv(options.size),
+                cwd=options.folder,
+                env={**os.environ, **LAUNCH_ENV},
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=stderr_file,
+                start_new_session=True,
+            )
+        except OSError as error:
+            return None, f"could not start {launch_argv(options.size)[0]}: {error}"
+        try:
+            return wait_for_init(process, options.timeout, stderr_file)
+        finally:
+            stop(process)
+
+
+def wait_for_init(process, timeout, stderr_file):
+    deadline = time.monotonic() + timeout
+    pending = b""
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return None, f"no session started within {timeout:g}s{stderr_tail(stderr_file)}"
+        ready, _, _ = select.select([process.stdout], [], [], min(remaining, 1.0))
+        if not ready:
+            continue
+        chunk = os.read(process.stdout.fileno(), 65536)
+        if chunk == b"":
+            return None, f"claude exited before its session started{stderr_tail(stderr_file)}"
+        pending += chunk
+        lines = pending.split(b"\n")
+        pending = lines.pop()
+        for line in lines:
+            skills = init_skills(line)
+            if skills is not None:
+                return skills, None
+
+
+def init_skills(line):
+    try:
+        event = json.loads(line)
+    except ValueError:
+        return None
+    if not isinstance(event, dict) or event.get("subtype") != "init":
+        return None
+    skills = event.get("skills")
+    return [skill for skill in skills if isinstance(skill, str)] if isinstance(skills, list) else []
+
+
+def stderr_tail(stderr_file):
+    stderr_file.seek(0)
+    lines = stderr_file.read().decode("utf-8", "replace").strip().splitlines()
+    tail = [line for line in lines if line.strip()][-STDERR_TAIL_LINES:]
+    return ": " + " | ".join(tail) if tail else ""
+
+
+def stop(process):
+    if process.poll() is not None:
+        return
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        os.killpg(process.pid, signal.SIGKILL)
+        process.wait()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

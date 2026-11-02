@@ -43,6 +43,12 @@ four parts:
   launcher's `~/.claude-ollama/.claude.json` with `hasTrustDialogAccepted` and
   each folder's `.claude/skills`, and a PUT of `{path, trusted}` sets that flag
   (a new folder must exist and is keyed by its real path), recorded in history.
+  `POST /api/workspaces/check` (`web/console/src/lib/skill-check.ts`) runs
+  `bin/skill-check --size SIZE FOLDER` for a recorded folder, which starts
+  `claude-ollama` there in print mode, reads the `init` event's `skills`, stops
+  the launch and prints JSON (`claude_version`, `skills`, `error`); the page
+  names the folder's skills missing from that array. Tests:
+  `bin/skill-check.test.sh` (stub launcher and `claude`).
 - **Agent TUI** (`go/cmd/ollama-agent/`): a Go/Bubble Tea app that edits the
   `OLLAMA_*` variables in a `local.ollama` LaunchAgent and reloads it, since
   launchd never reads `~/.zshenv`. `-json` prints the variables and conflicts

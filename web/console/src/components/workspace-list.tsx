@@ -22,9 +22,18 @@ type WorkspaceState = {
   workspaces: Workspace[];
 };
 
+type SkillCheck = {
+  version: string | null;
+  discovered: string[];
+  missing: string[];
+  error: string | null;
+};
+
 const SAVED_MESSAGE =
   "saved; applies to the next claude-ollama launch in that folder";
 const NOT_ABSOLUTE_MESSAGE = "expected an absolute path (starting with /)";
+const CHECK_HINT =
+  "Claude Code skipped these; check each SKILL.md frontmatter (quote a description with a colon, use a plain lowercase name).";
 
 export function WorkspaceList() {
   const [state, setState] = useState<WorkspaceState | null>(null);
@@ -202,7 +211,86 @@ function WorkspaceRow({
         <TrustBadge workspace={workspace} />
       </label>
       <SkillList workspace={workspace} />
+      {workspace.exists ? <SkillCheckPanel workspace={workspace} /> : null}
     </li>
+  );
+}
+
+function SkillCheckPanel({ workspace }: { workspace: Workspace }) {
+  const [check, setCheck] = useState<SkillCheck | null>(null);
+  const [failure, setFailure] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
+
+  async function runCheck() {
+    setChecking(true);
+    setCheck(null);
+    setFailure(null);
+    const response = await fetch("/api/workspaces/check", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path: workspace.path }),
+    });
+    setChecking(false);
+    if (!response.ok) {
+      setFailure(await responseMessage(response));
+      return;
+    }
+    setCheck((await response.json()) as SkillCheck);
+  }
+
+  return (
+    <div className="flex flex-col gap-2 pl-7">
+      <div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={checking}
+          onClick={() => void runCheck()}
+          aria-label={`Check skills in ${workspace.path}`}
+        >
+          {checking ? "Checking…" : "Check skills"}
+        </Button>
+      </div>
+      {checking ? (
+        <p className="text-xs text-muted-foreground">
+          Starting claude-ollama in this folder to read the skills it discovers.
+          Up to two minutes.
+        </p>
+      ) : null}
+      {failure ? (
+        <p className="text-sm text-error-foreground">{failure}</p>
+      ) : null}
+      {check ? <SkillCheckReport check={check} /> : null}
+    </div>
+  );
+}
+
+function SkillCheckReport({ check }: { check: SkillCheck }) {
+  const version = check.version ?? "unknown version";
+  if (check.error !== null) {
+    return (
+      <p className={levelBoxClass("error")}>
+        Claude Code {version}: {check.error}
+      </p>
+    );
+  }
+  if (check.missing.length > 0) {
+    return (
+      <div className={levelBoxClass("warn")}>
+        <p>
+          Claude Code {version} found {check.discovered.length} skills but not{" "}
+          {check.missing.map((name) => `/${name}`).join(", ")}.
+        </p>
+        <p className="mt-1 text-xs">{CHECK_HINT}</p>
+      </div>
+    );
+  }
+  return (
+    <p className={levelBoxClass("ok")}>
+      Claude Code {version} found every project skill here. Skills available:{" "}
+      {check.discovered.map((name) => `/${name}`).join(", ") || "none"}.
+    </p>
   );
 }
 
