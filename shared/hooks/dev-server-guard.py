@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import json
 import re
+import shlex
 import sys
 
 from hook_telemetry import record_denial
@@ -108,9 +109,21 @@ def runs_pnpm(segment):
     return words[:1] == ["pnpm"]
 
 
+def shell_words(segment):
+    try:
+        return shlex.split(segment)
+    except ValueError:
+        return None
+
+
 def runs_arbitrary_pnpm_code(segment):
-    words = without_environment(segment.split())
-    return runs_pnpm(segment) and package_script_words(words)[:1] != [] and package_script_words(words)[0] in PNPM_ARBITRARY_CODE
+    if not runs_pnpm(segment):
+        return False
+    words = shell_words(segment)
+    if words is None:
+        return True
+    subcommand = package_script_words(without_environment(words))[:1]
+    return subcommand != [] and subcommand[0] in PNPM_ARBITRARY_CODE
 
 
 def pnpm_shares_the_line(command):
