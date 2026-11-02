@@ -182,7 +182,7 @@ wait_for_file() {
 
 wait_for_url() {
   for _ in $(seq 100); do
-    curl -sf -o /dev/null "$1" && return 0
+    curl -s -o /dev/null "$1" && return 0
     sleep 0.05
   done
   return 1
@@ -254,6 +254,19 @@ check "other paths forward to the upstream" grep -q '"version": "stub"' "$run_di
 check "other paths write no log row" [ "$(row_count)" = 5 ]
 check "the upstream saw the other path" [ "$(row_field "$(upstream_row 6)" .path)" = /api/version ]
 
+status_of() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
+check "a loopback Host with a port is accepted" [ "$(status_of -H 'Host: localhost:4321' "$proxy_url/api/version")" = 200 ]
+check "a bracketed IPv6 loopback Host is accepted" [ "$(status_of -H 'Host: [::1]:4321' "$proxy_url/api/version")" = 200 ]
+check "a foreign Host is rejected" [ "$(status_of -H 'Host: evil.example:80' "$proxy_url/api/version")" = 403 ]
+check "a foreign Origin is rejected" [ "$(status_of -H 'Origin: http://evil.example' "$proxy_url/api/version")" = 403 ]
+check "a loopback Origin is accepted" [ "$(status_of -H 'Origin: http://localhost:3000' "$proxy_url/api/version")" = 200 ]
+check "the Origin reaches the upstream untouched" [ "$(row_field "$(upstream_row 9)" '.headers.origin')" = http://localhost:3000 ]
+check "a rejected request never reaches the upstream" [ "$(wc -l < "$run_dir/upstream.log" | tr -d ' ')" = 9 ]
+check "an unknown path is refused" [ "$(status_of "$proxy_url/api/generate")" = 404 ]
+check "an unknown method on a known path is refused" [ "$(status_of -X DELETE "$proxy_url/v1/messages")" = 404 ]
+check "the model list is forwarded" [ "$(status_of "$proxy_url/v1/models")" = 200 ]
+check "the tag list is forwarded" [ "$(status_of "$proxy_url/api/tags")" = 200 ]
+check "refused requests write no log row" [ "$(row_count)" = 5 ]
 check "the log file is private" [ "$(mode_of "$run_dir/proxy/requests.jsonl")" = 600 ]
 check "the log folder is private" [ "$(mode_of "$run_dir/proxy")" = 700 ]
 

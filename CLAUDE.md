@@ -708,10 +708,14 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
 - Messages proxy:
   `bin/messages-proxy --upstream URL --port N --log FILE [--port-file PATH] [--watch-pid PID]`
   (stdlib only) listens on `127.0.0.1:N` (`0` picks a free port and
-  `--port-file` publishes it, 0600) and forwards every request to Ollama
-  unchanged, SSE streamed back as it arrives; it exits when the watched pid
-  dies. For each `POST /v1/messages` it hashes the body's sections in order
-  (`system`, `tools`, each `messages` entry, each as
+  `--port-file` publishes it, 0600) and forwards `POST /v1/messages`,
+  `GET /v1/models`, `/api/version` and `/api/tags` to Ollama unchanged (404 for
+  any other route), SSE streamed back as it arrives; it exits when the watched
+  pid dies. It answers 403 when the `Host` is not `127.0.0.1`, `localhost` or
+  `[::1]` (any port) or an `Origin` is not a loopback origin, and forwards the
+  original `Origin` so Ollama's own check still runs, since the proxy rewrites
+  `Host` to the upstream. For each `POST /v1/messages` it hashes the body's
+  sections in order (`system`, `tools`, each `messages` entry, each as
   `json.dumps(sort_keys=True, separators=(",", ":"))`) as cumulative sha256
   prefixes, compares them with the previous request's and appends one JSON line
   to `--log` (0700 dir, 0600 file): `ts`, `request_id` (uuid4, also sent
