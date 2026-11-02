@@ -788,7 +788,11 @@ install, download and run commands for the terminal when no report exists yet.
 The console never runs `backend-bench-off install`, `download` or `all`. History
 lists the last 20 bench runs. The telemetry card shows `tool-telemetry-report`;
 it stays off until `CLAUDE_TOOL_TELEMETRY` is set, for sessions and for
-`claude-ollama ui`.
+`claude-ollama ui`. The Settings page's Tool budget card
+(`claude-ollama tool-budget` in the terminal) joins the proxy log's per-request
+schema bytes with the telemetry's calls, suggests the tools nothing called over
+the last 14 days, and applies that suggestion to an Ollama profile after a
+confirm, so an unused schema stops costing prefill on every cache miss.
 
 #### Testing the console
 

@@ -1378,6 +1378,19 @@ check_classifier() {
   fi
 }
 
+check_tool_budget() {
+  local suggest
+  if ! suggest="$(run_tool_budget 2>/dev/null | sed -n 's/^suggest: //p')" || [ -z "$suggest" ]; then
+    report warn "tool budget: not checked (bin/tool-budget failed)"
+    return 0
+  fi
+  if [ "$suggest" = "nothing to drop" ]; then
+    report ok "tool budget: nothing to drop"
+    return 0
+  fi
+  report warn "tool budget: ${suggest/drop: /drop }: claude-ollama tool-budget"
+}
+
 check_guards() {
   local log lint
   log="$(telemetry_log_path)"
@@ -1460,6 +1473,7 @@ doctor() {
   check_server_env || status=1
   check_classifier || status=1
   check_guards
+  check_tool_budget
   check_rule_cards
   check_beacon
   check_fetch_domains
@@ -1505,6 +1519,16 @@ server_log_path() {
     fi
   done
   return 1
+}
+
+run_tool_budget() {
+  "${CLAUDE_OLLAMA_TOOL_BUDGET_BIN:-$repo_dir/bin/tool-budget}" \
+    --proxy-log "$(proxy_log_dir)/requests.jsonl" --telemetry "${CLAUDE_TOOL_TELEMETRY:-$telemetry_log}" "$@"
+}
+
+report_tool_budget() {
+  run_tool_budget "$@"
+  exit "$?"
 }
 
 explain_last_bad_run() {
@@ -1639,6 +1663,7 @@ case "${1:-}" in
     echo "--print-config [size]: print the resolved settings and the claude command"
     echo "logs [-n LINES|--path]: follow the Ollama server log (LaunchAgent, Homebrew service or app), or print its path"
     echo "why [--since MINUTES] [--json]: name the most likely cause of the last bad run from the proxy log and the incidents, with one fix"
+    echo "tool-budget [--since DAYS] [--json]: rank each tool schema's bytes per request against its calls from the proxy and telemetry logs, and suggest which to drop"
     echo "rescue [size] [--out FILE] [--since MINUTES]: write one redacted markdown report (doctor, config, logs, incidents, proxy stats) to paste into a bug report"
     echo "review [size] PR [--post]: review a pull request with the size's model, one file per request"
     echo "mock-spike [size] [--runs N] [--brief NAME]...: measure how well the size's model streams json-render mockup patches"
@@ -1662,6 +1687,7 @@ case "${1:-}" in
   --print-config) mode=print-config; shift ;;
   logs) mode=logs; shift ;;
   why) mode=why; shift ;;
+  tool-budget) mode=tool-budget; shift ;;
   prepare-embedding) mode=prepare-embedding; shift ;;
   review) mode=review; shift ;;
   mock-spike) mode=mock-spike; shift ;;
@@ -1683,6 +1709,7 @@ esac
 
 [ "$mode" != logs ] || follow_logs "$@"
 [ "$mode" != why ] || explain_last_bad_run "$@"
+[ "$mode" != tool-budget ] || report_tool_budget "$@"
 [ "$mode" != prepare-embedding ] || prepare_embedding
 [ "$mode" != ui ] || serve_console ui console / "$@"
 [ "$mode" != reviews ] || serve_console reviews reviews /reviews "$@"

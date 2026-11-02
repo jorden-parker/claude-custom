@@ -1,0 +1,171 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import sys
+from collections import Counter
+from datetime import datetime, timedelta, timezone
+
+DEFAULT_SINCE_DAYS = 14
+DROP_MIN_REQUESTS = 20
+DROP_MIN_SCHEMA_BYTES = 200
+PROTECTED_TOOLS = ["Bash", "Read", "Edit", "Write", "Skill", "mcp__code-search__semantic_search"]
+PROTECTED_SOURCE = "built-in list in bin/tool-budget"
+KIB = 1024
+
+
+def parse_arguments(argv):
+    parser = argparse.ArgumentParser(description="rank tool schemas by what they cost per request against how often each tool is called")
+    parser.add_argument("--proxy-log", required=True)
+    parser.add_argument("--telemetry", required=True)
+    parser.add_argument("--since", type=positive_days, default=DEFAULT_SINCE_DAYS, metavar="DAYS")
+    parser.add_argument("--json", action="store_true")
+    return parser.parse_args(argv)
+
+
+def positive_days(text):
+    days = float(text)
+    if days <= 0:
+        raise argparse.ArgumentTypeError("since must be more than 0 days")
+    return days
+
+
+def read_rows(path):
+    try:
+        with open(path, encoding="utf-8") as log:
+            lines = log.readlines()
+    except OSError:
+        return []
+    rows = []
+    for line in lines:
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(row, dict):
+            rows.append(row)
+    return rows
+
+
+def parse_iso(text):
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        return None
+
+
+def ledger_tools(row):
+    ledger = row.get("ledger")
+    if not isinstance(ledger, dict) or not isinstance(ledger.get("tools"), dict):
+        return {}
+    return {name: bytes_ for name, bytes_ in ledger["tools"].items() if isinstance(bytes_, int)}
+
+
+def requests_in_window(proxy_rows, window_start):
+    dated = []
+    for row in proxy_rows:
+        stamp = parse_iso(row.get("ts"))
+        if stamp is not None and stamp >= window_start:
+            dated.append((stamp, ledger_tools(row)))
+    return [tools for _, tools in sorted(dated, key=lambda entry: entry[0])]
+
+
+def calls_in_window(telemetry_rows, window_start):
+    calls = Counter()
+    for row in telemetry_rows:
+        if "kind" in row or not isinstance(row.get("time"), (int, float)):
+            continue
+        if datetime.fromtimestamp(row["time"], timezone.utc) >= window_start:
+            calls[row.get("tool", "")] += 1
+    calls.pop("", None)
+    return calls
+
+
+def tool_rows(requests, calls):
+    latest_bytes = {}
+    request_counts = Counter()
+    for tools in requests:
+        for name, bytes_ in tools.items():
+            latest_bytes[name] = bytes_
+            request_counts[name] += 1
+    rows = []
+    for name in set(latest_bytes) | set(calls):
+        schema_bytes = latest_bytes.get(name, 0)
+        session_bytes = schema_bytes * request_counts[name]
+        rows.append({
+            "tool": name,
+            "schema_bytes": schema_bytes,
+            "requests": request_counts[name],
+            "session_bytes": session_bytes,
+            "calls": calls[name],
+            "bytes_per_call": session_bytes // calls[name] if calls[name] else None,
+        })
+    return sorted(rows, key=lambda row: (-row["session_bytes"], row["tool"]))
+
+
+def droppable(row):
+    return (
+        row["calls"] == 0
+        and row["requests"] >= DROP_MIN_REQUESTS
+        and row["schema_bytes"] >= DROP_MIN_SCHEMA_BYTES
+        and row["tool"] not in PROTECTED_TOOLS
+    )
+
+
+def suggestion(rows):
+    drop = [row["tool"] for row in rows if droppable(row)]
+    keep = [row["tool"] for row in rows if row["tool"] not in drop]
+    saves = sum(row["schema_bytes"] for row in rows if row["tool"] in drop)
+    return {"drop": drop, "keep": keep, "saves_bytes": saves}
+
+
+def drop_line(suggest):
+    if not suggest["drop"]:
+        return "nothing to drop"
+    return f"drop: {', '.join(suggest['drop'])} (saves {suggest['saves_bytes'] / KIB:.1f} KiB per request)"
+
+
+def cost_text(row):
+    if row["bytes_per_call"] is None:
+        return "never called"
+    return f"{row['bytes_per_call']} bytes per call"
+
+
+def print_report(report):
+    print(f"window: last {format_days(report['since_days'])} days, {report['requests']} requests")
+    print(f"{'tool':<40}{'schema':>8}{'requests':>10}{'per-session':>13}{'calls':>7}  cost")
+    for row in report["rows"]:
+        print(f"{row['tool']:<40}{row['schema_bytes']:>8}{row['requests']:>10}{row['session_bytes']:>13}{row['calls']:>7}  {cost_text(row)}")
+    print(f"protected ({report['protected_source']}): {', '.join(report['protected'])}")
+    print(f"suggest: {drop_line(report['suggest'])}")
+    print(f"keep: {', '.join(report['suggest']['keep'])}")
+
+
+def format_days(days):
+    return str(int(days)) if days == int(days) else str(days)
+
+
+def build_report(arguments):
+    window_start = datetime.now(timezone.utc) - timedelta(days=arguments.since)
+    requests = requests_in_window(read_rows(arguments.proxy_log), window_start)
+    calls = calls_in_window(read_rows(arguments.telemetry), window_start)
+    rows = tool_rows(requests, calls)
+    return {
+        "since_days": arguments.since if arguments.since != int(arguments.since) else int(arguments.since),
+        "requests": len(requests),
+        "rows": rows,
+        "protected": PROTECTED_TOOLS,
+        "protected_source": PROTECTED_SOURCE,
+        "suggest": suggestion(rows),
+    }
+
+
+def main():
+    arguments = parse_arguments(sys.argv[1:])
+    report = build_report(arguments)
+    if arguments.json:
+        print(json.dumps(report))
+    else:
+        print_report(report)
+
+
+main()
