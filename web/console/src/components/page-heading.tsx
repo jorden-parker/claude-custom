@@ -14,25 +14,27 @@ type PageHeadingProps = {
   backLabel?: string;
 };
 
+const HEADING_CLASS = "text-2xl font-semibold tracking-heading";
+
 export function PageHeading({ title, backHref, backLabel }: PageHeadingProps) {
-  return (
-    <div className="flex flex-col gap-2">
-      {backHref && backLabel ? (
-        <Breadcrumb>
-          <BreadcrumbList>
-            <BreadcrumbItem>
-              <BreadcrumbLink render={<Link href={backHref} />}>
-                {backLabel}
-              </BreadcrumbLink>
-            </BreadcrumbItem>
-            <BreadcrumbSeparator />
-            <BreadcrumbItem>
-              <BreadcrumbPage>{title}</BreadcrumbPage>
-            </BreadcrumbItem>
-          </BreadcrumbList>
-        </Breadcrumb>
-      ) : null}
-      <h1 className="text-2xl font-semibold tracking-heading">{title}</h1>
-    </div>
-  );
+  if (backHref && backLabel) {
+    return (
+      <Breadcrumb>
+        <BreadcrumbList>
+          <BreadcrumbItem>
+            <BreadcrumbLink render={<Link href={backHref} />}>
+              {backLabel}
+            </BreadcrumbLink>
+          </BreadcrumbItem>
+          <BreadcrumbSeparator />
+          <BreadcrumbItem>
+            <BreadcrumbPage>
+              <h1 className={HEADING_CLASS}>{title}</h1>
+            </BreadcrumbPage>
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>
+    );
+  }
+  return <h1 className={HEADING_CLASS}>{title}</h1>;
 }
