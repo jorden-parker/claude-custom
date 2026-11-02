@@ -61,15 +61,31 @@ describe("console commands", () => {
   });
 
   it("builds the mock-spike argv for a configured size and refuses others", () => {
-    expect(findCommand("mock-spike")?.argv({ size: "27b" }, repo)).toEqual([
+    expect(
+      findCommand("mock-spike")?.argv(
+        { size: "27b", preset: "editorial" },
+        repo,
+      ),
+    ).toEqual([
       `${repo}/bin/claude-ollama`,
       "mock-spike",
       "27b",
+      "--preset",
+      "editorial",
     ]);
-    expect(findCommand("mock-spike")?.argv({ size: "9b" }, repo)).toBeNull();
-    expect(findCommand("mock-spike")?.label({ size: "27b" })).toBe(
-      "Mock spike (27b)",
-    );
+    expect(
+      findCommand("mock-spike")?.argv(
+        { size: "9b", preset: "editorial" },
+        repo,
+      ),
+    ).toBeNull();
+    expect(
+      findCommand("mock-spike")?.argv({ size: "27b", preset: "neon" }, repo),
+    ).toBeNull();
+    expect(findCommand("mock-spike")?.argv({ size: "27b" }, repo)).toBeNull();
+    expect(
+      findCommand("mock-spike")?.label({ size: "27b", preset: "editorial" }),
+    ).toBe("Mock spike (27b, editorial)");
   });
 
   it("builds the doctor argv for a configured size", () => {

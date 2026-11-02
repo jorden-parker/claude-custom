@@ -8,18 +8,23 @@ export function MockSheet({ report }: { report: MockSpikeReport }) {
   return (
     <section className="flex flex-col gap-4">
       <p className="text-sm text-muted-foreground">
-        {report.model}, verdict {report.verdict}, from {report.file}
+        {report.model}, preset {report.preset ?? "unknown"}, verdict{" "}
+        {report.verdict}, from {report.file}
       </p>
       <div className="grid gap-4 lg:grid-cols-2">
         {report.runs.map((run) => (
-          <MockCell key={`${run.brief}-${run.run}`} run={run} />
+          <MockCell
+            key={`${run.brief}-${run.run}`}
+            run={run}
+            preset={report.preset}
+          />
         ))}
       </div>
     </section>
   );
 }
 
-function MockCell({ run }: { run: MockRun }) {
+function MockCell({ run, preset }: { run: MockRun; preset: string | null }) {
   return (
     <article className="flex flex-col gap-3 rounded-lg border border-ink bg-card p-4">
       <header className="flex items-baseline justify-between gap-2 text-sm">
@@ -37,7 +42,7 @@ function MockCell({ run }: { run: MockRun }) {
         </p>
       ) : null}
       {run.score.issue === null ? (
-        <MockFrame spec={run.spec} />
+        <MockFrame spec={run.spec} preset={preset} />
       ) : (
         <p className="text-sm text-destructive">
           Not rendered: {run.score.issue}

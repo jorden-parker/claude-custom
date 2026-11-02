@@ -281,6 +281,14 @@
 }
 
 .mock-frame {
+  color-scheme: light;
+  background: var(--mock-bg);
+  color: var(--mock-ink);
+  font-family: var(--mock-font);
+  line-height: 1.5;
+}
+
+.mock-frame[data-preset="calm-saas"] {
   --mock-bg: #f4f4f5;
   --mock-surface: #ffffff;
   --mock-surface-2: #f4f4f5;
@@ -294,15 +302,80 @@
   --mock-success-bg: #dcfce7;
   --mock-warning: #92400e;
   --mock-warning-bg: #fef3c7;
-  color-scheme: light;
-  background: var(--mock-bg);
-  color: var(--mock-ink);
-  font-family:
-    ui-sans-serif,
-    system-ui,
-    -apple-system,
-    "Segoe UI",
-    Roboto,
-    sans-serif;
-  line-height: 1.5;
+  --mock-radius: 8px;
+  --mock-font:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+.mock-frame[data-preset="dense-admin"] {
+  --mock-bg: #f1f5f9;
+  --mock-surface: #ffffff;
+  --mock-surface-2: #f8fafc;
+  --mock-line: #cbd5e1;
+  --mock-ink: #0f172a;
+  --mock-ink-soft: #475569;
+  --mock-ink-faint: #94a3b8;
+  --mock-accent: #4f46e5;
+  --mock-on-accent: #ffffff;
+  --mock-success: #15803d;
+  --mock-success-bg: #dcfce7;
+  --mock-warning: #b45309;
+  --mock-warning-bg: #fef3c7;
+  --mock-radius: 4px;
+  --mock-font:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+.mock-frame[data-preset="editorial"] {
+  --mock-bg: #f7f3ea;
+  --mock-surface: #fffdf8;
+  --mock-surface-2: #f1ece0;
+  --mock-line: #d9d0bd;
+  --mock-ink: #1f1a14;
+  --mock-ink-soft: #5c5347;
+  --mock-ink-faint: #9c927f;
+  --mock-accent: #b4532a;
+  --mock-on-accent: #fffdf8;
+  --mock-success: #3f6212;
+  --mock-success-bg: #ecfccb;
+  --mock-warning: #9a3412;
+  --mock-warning-bg: #ffedd5;
+  --mock-radius: 2px;
+  --mock-font: ui-serif, Georgia, "Iowan Old Style", "Times New Roman", serif;
+}
+
+.mock-frame[data-preset="playful"] {
+  --mock-bg: #f3effb;
+  --mock-surface: #ffffff;
+  --mock-surface-2: #f8f5fd;
+  --mock-line: #e2d9f3;
+  --mock-ink: #2a1f4a;
+  --mock-ink-soft: #6b5e8c;
+  --mock-ink-faint: #a89bc4;
+  --mock-accent: #7c3aed;
+  --mock-on-accent: #ffffff;
+  --mock-success: #047857;
+  --mock-success-bg: #d1fae5;
+  --mock-warning: #b45309;
+  --mock-warning-bg: #fef3c7;
+  --mock-radius: 16px;
+  --mock-font: ui-rounded, "SF Pro Rounded", "Nunito", system-ui, sans-serif;
+}
+
+.mock-frame[data-preset="brutalist"] {
+  --mock-bg: #ffffff;
+  --mock-surface: #ffffff;
+  --mock-surface-2: #f0f0f0;
+  --mock-line: #000000;
+  --mock-ink: #000000;
+  --mock-ink-soft: #333333;
+  --mock-ink-faint: #777777;
+  --mock-accent: #ffe600;
+  --mock-on-accent: #000000;
+  --mock-success: #000000;
+  --mock-success-bg: #b6f7b6;
+  --mock-warning: #000000;
+  --mock-warning-bg: #ffd27a;
+  --mock-radius: 0px;
+  --mock-font: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }

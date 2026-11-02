@@ -1,4 +1,6 @@
 import { defineCatalog } from "@json-render/core";
+import { DESIGN_RULES } from "./design-rules.ts";
+import { presetOrDefault } from "./presets.ts";
 import { schema } from "@json-render/react/schema";
 import { z } from "zod";
 
@@ -83,6 +85,13 @@ const mockPromptRules = [
   exampleRule(),
 ];
 
-export function mockSystemPrompt(): string {
-  return mockCatalog.prompt({ customRules: mockPromptRules });
+export function mockSystemPrompt(presetId?: string): string {
+  const preset = presetOrDefault(presetId);
+  return mockCatalog.prompt({
+    customRules: [
+      ...mockPromptRules,
+      ...DESIGN_RULES,
+      `Style, ${preset.name}: ${preset.prompt}`,
+    ],
+  });
 }

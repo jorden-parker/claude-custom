@@ -11,6 +11,7 @@ import {
   mockSpikeDiagnostics,
 } from "@/lib/mock-spike/reports.ts";
 import { listRuns } from "@/lib/run-log";
+import { presetIds } from "@/lib/mock-spike/presets";
 import { configuredSizes, consoleRepoDir } from "@/lib/sizes";
 
 const MOCK_SPIKE_COMMAND = "mock-spike";
@@ -52,6 +53,7 @@ async function MockupSections() {
               label: "Size",
               options: configuredSizes(consoleRepoDir()),
             },
+            { key: "preset", label: "Preset", options: presetIds() },
           ]}
         />
       </section>

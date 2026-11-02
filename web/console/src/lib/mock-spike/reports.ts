@@ -24,6 +24,7 @@ export type MockSpikeDiagnostics = { directory: string; files: ReportFile[] };
 export type MockSpikeReport = {
   file: string;
   model: string;
+  preset: string | null;
   verdict: string;
   runs: MockRun[];
 };
@@ -31,6 +32,7 @@ export type MockSpikeReport = {
 type StoredRun = { brief: string; run: number; reply: string };
 type StoredReport = {
   model: string;
+  preset?: unknown;
   summary: { verdict: string };
   results: StoredRun[];
 };
@@ -110,6 +112,7 @@ function readReport(file: string, name: string): MockSpikeReport | null {
     return {
       file: name,
       model: stored.model,
+      preset: typeof stored.preset === "string" ? stored.preset : null,
       verdict: stored.summary?.verdict ?? "unknown",
       runs: stored.results.map(runFromStored),
     };

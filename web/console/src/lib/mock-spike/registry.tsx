@@ -3,6 +3,7 @@
 import { defineRegistry, JSONUIProvider, Renderer } from "@json-render/react";
 import type { Spec } from "@json-render/core";
 import { mockCatalog } from "./catalog.ts";
+import { presetOrDefault } from "./presets.ts";
 
 const GAP_CLASSES = { sm: "gap-2", md: "gap-4", lg: "gap-6" } as const;
 const BUTTON_CLASSES = {
@@ -32,7 +33,7 @@ export const { registry: mockRegistry } = defineRegistry(mockCatalog, {
       </div>
     ),
     Card: ({ props, children }) => (
-      <section className="flex min-w-48 flex-1 flex-col gap-4 rounded-lg border border-(--mock-line) bg-(--mock-surface) p-5 shadow-sm">
+      <section className="flex min-w-48 flex-1 flex-col gap-4 rounded-(--mock-radius) border border-(--mock-line) bg-(--mock-surface) p-5 shadow-sm">
         <header className="flex flex-col gap-1">
           <p className="font-semibold">{props.title}</p>
           {props.description ? (
@@ -55,7 +56,7 @@ export const { registry: mockRegistry } = defineRegistry(mockCatalog, {
     Button: ({ props }) => (
       <button
         type="button"
-        className={`inline-flex h-9 items-center justify-center rounded-md px-4 text-sm font-medium ${BUTTON_CLASSES[props.variant]}`}
+        className={`inline-flex h-9 items-center justify-center rounded-(--mock-radius) px-4 text-sm font-medium ${BUTTON_CLASSES[props.variant]}`}
       >
         {props.label}
       </button>
@@ -64,7 +65,7 @@ export const { registry: mockRegistry } = defineRegistry(mockCatalog, {
       <label className="flex flex-col gap-1 text-sm font-medium">
         {props.label}
         <input
-          className="h-9 rounded-md border border-(--mock-line) bg-(--mock-surface) px-3 text-sm font-normal placeholder:text-(--mock-ink-faint)"
+          className="h-9 rounded-(--mock-radius) border border-(--mock-line) bg-(--mock-surface) px-3 text-sm font-normal placeholder:text-(--mock-ink-faint)"
           placeholder={props.placeholder ?? undefined}
           readOnly
         />
@@ -80,9 +81,18 @@ export const { registry: mockRegistry } = defineRegistry(mockCatalog, {
   },
 });
 
-export function MockFrame({ spec }: { spec: Spec }) {
+export function MockFrame({
+  spec,
+  preset,
+}: {
+  spec: Spec;
+  preset: string | null;
+}) {
   return (
-    <div className="mock-frame rounded-md p-5">
+    <div
+      className="mock-frame rounded-md p-5"
+      data-preset={presetOrDefault(preset).id}
+    >
       <JSONUIProvider registry={mockRegistry}>
         <Renderer spec={spec} registry={mockRegistry} />
       </JSONUIProvider>
