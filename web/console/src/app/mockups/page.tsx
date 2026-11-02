@@ -2,7 +2,7 @@ import { connection } from "next/server";
 import { Suspense } from "react";
 import { MockSheet } from "@/components/mock-sheet";
 import { PageHeading } from "@/components/page-heading";
-import { listMockSpikeReports } from "@/lib/mock-spike/reports.ts";
+import { listMockSpikeReports, reportsDir } from "@/lib/mock-spike/reports.ts";
 
 export default function MockupsPage() {
   return (
@@ -25,8 +25,9 @@ async function LatestSheet() {
   if (!report) {
     return (
       <p className="text-sm text-muted-foreground">
-        No spike yet. Run <code>claude-ollama mock-spike [size]</code> and
-        reload.
+        No <code>mock-spike-*.json</code> in <code>{reportsDir()}</code>. Run{" "}
+        <code>claude-ollama mock-spike [size]</code>, check it ends with a{" "}
+        <code>saved:</code> line naming a file there, then reload.
       </p>
     );
   }

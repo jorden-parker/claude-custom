@@ -28,7 +28,7 @@ describe("specFromReply", () => {
 });
 
 describe("listMockSpikeReports", () => {
-  it("reads reports newest first with compiled specs", () => {
+  it("reads reports newest by modification time first with compiled specs", () => {
     const stored = {
       model: "m",
       summary: { verdict: "sound" },
@@ -47,6 +47,12 @@ describe("listMockSpikeReports", () => {
       "{}",
     );
     fs.writeFileSync(path.join(directory, "mock-spike-broken.json"), "nope");
+    const older = new Date("2026-11-01T10:00:00Z");
+    fs.utimesSync(
+      path.join(directory, "mock-spike-m-20261101T100000.json"),
+      older,
+      older,
+    );
     const reports = listMockSpikeReports(directory);
     expect(reports.map((report) => report.file)).toEqual([
       "mock-spike-m-20261102T100000.json",

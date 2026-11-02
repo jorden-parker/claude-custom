@@ -29,8 +29,16 @@ type StoredReport = {
 
 const REPORT_PATTERN = /^mock-spike-.*\.json$/;
 
-function reportsDir(): string {
+export function reportsDir(): string {
   return path.join(os.homedir(), "bench-results");
+}
+
+function modifiedAt(file: string): number {
+  try {
+    return fs.statSync(file).mtimeMs;
+  } catch {
+    return 0;
+  }
 }
 
 export function listMockSpikeReports(
@@ -38,8 +46,11 @@ export function listMockSpikeReports(
 ): MockSpikeReport[] {
   return readNames(directory)
     .filter((name) => REPORT_PATTERN.test(name))
-    .sort()
-    .reverse()
+    .sort(
+      (left, right) =>
+        modifiedAt(path.join(directory, right)) -
+        modifiedAt(path.join(directory, left)),
+    )
     .flatMap((name) => {
       const report = readReport(path.join(directory, name), name);
       return report === null ? [] : [report];
