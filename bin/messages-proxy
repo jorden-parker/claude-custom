@@ -48,6 +48,25 @@ def prompt_sections(body):
     return sections
 
 
+def canonical_bytes(value):
+    return len(canonical(value).encode("utf-8"))
+
+
+def tool_name(tool, index):
+    name = tool.get("name") if isinstance(tool, dict) else None
+    return name if isinstance(name, str) and name else f"tool:{index}"
+
+
+def prompt_ledger(body):
+    tools = body.get("tools") if isinstance(body.get("tools"), list) else []
+    messages = body.get("messages") if isinstance(body.get("messages"), list) else []
+    return {
+        "system": canonical_bytes(body["system"]) if "system" in body else 0,
+        "tools": {tool_name(tool, index): canonical_bytes(tool) for index, tool in enumerate(tools)},
+        "messages": sum(canonical_bytes(message) for message in messages),
+    }
+
+
 def prefix_hashes(sections):
     running = hashlib.sha256()
     hashes = []
@@ -180,6 +199,7 @@ def observe_request(body, tracker, log):
     row = {"ts": now_iso(), "request_id": request_id}
     row.update(tracker.compare(prompt_sections(parsed)))
     row["prompt_bytes"] = len(body)
+    row["ledger"] = prompt_ledger(parsed)
     log.append(row)
     return request_id
 

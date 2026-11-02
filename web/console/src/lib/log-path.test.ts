@@ -58,6 +58,7 @@ describe("parseLogSource", () => {
     expect(parseLogSource("server")).toBe("server");
     expect(parseLogSource("launcher")).toBe("launcher");
     expect(parseLogSource("incidents")).toBe("incidents");
+    expect(parseLogSource("proxy")).toBe("proxy");
   });
 
   it("rejects any other source", () => {
@@ -86,6 +87,24 @@ describe("readLogSource", () => {
     expect(await readLogSource("launcher", "/no/repo")).toEqual({
       ok: true,
       path: path.join(stateDir, "launcher.log"),
+    });
+  });
+
+  it("returns the proxy log under the console state dir", async () => {
+    const proxyDir = path.join(stateDir, "proxy");
+    fs.mkdirSync(proxyDir);
+    fs.writeFileSync(path.join(proxyDir, "requests.jsonl"), "{}\n");
+    expect(await readLogSource("proxy", "/no/repo")).toEqual({
+      ok: true,
+      path: path.join(proxyDir, "requests.jsonl"),
+    });
+  });
+
+  it("says the proxy log starts with the next launch when it is missing", async () => {
+    expect(await readLogSource("proxy", "/no/repo")).toEqual({
+      ok: false,
+      message:
+        "No proxy log yet; the next claude-ollama launch starts the messages proxy",
     });
   });
 

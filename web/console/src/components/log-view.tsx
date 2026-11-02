@@ -15,6 +15,18 @@ import {
   type Incident,
 } from "@/lib/incidents";
 import { levelTextClass } from "@/lib/level-style";
+import {
+  averagePromptBytes,
+  latestLedger,
+  ledgerTools,
+  parseProxyRow,
+  prefixHitRate,
+  prefixSummary,
+  proxyFrame,
+  topDivergingSections,
+  type ProxyLedger,
+  type ProxyRow,
+} from "@/lib/proxy-log";
 import { type LogFrame, type LogLevel } from "@/lib/log-line";
 import type { LogSource } from "@/lib/log-path";
 
@@ -46,6 +58,7 @@ export function LogView() {
           <TabsTrigger value="server">Ollama server</TabsTrigger>
           <TabsTrigger value="launcher">Launcher</TabsTrigger>
           <TabsTrigger value="incidents">Incidents</TabsTrigger>
+          <TabsTrigger value="proxy">Proxy</TabsTrigger>
         </TabsList>
       </Tabs>
       <LogPanel key={source} source={source} />
@@ -59,8 +72,8 @@ function LogPanel({ source }: { source: LogSource }) {
   const [filter, setFilter] = useState("");
   const incidents =
     source === "incidents" ? parseIncidents(stream.lines) : null;
-  const lines =
-    incidents === null ? stream.lines : incidents.map(incidentFrame);
+  const requests = source === "proxy" ? parseRequests(stream.lines) : null;
+  const lines = framesOf(stream.lines, incidents, requests);
 
   return (
     <div className="flex flex-col gap-3">
@@ -68,6 +81,7 @@ function LogPanel({ source }: { source: LogSource }) {
       {incidents === null ? null : (
         <IncidentHeader incidents={incidents} lines={stream.lines} />
       )}
+      {requests === null ? null : <ProxyHeader requests={requests} />}
       <LogToolbar
         filter={filter}
         onFilter={setFilter}
@@ -78,7 +92,96 @@ function LogPanel({ source }: { source: LogSource }) {
         }
       />
       <LogOutput lines={visibleLines(lines, frozenAt, filter)} />
+      {requests === null ? null : <LedgerPanel requests={requests} />}
     </div>
+  );
+}
+
+function framesOf(
+  raw: LogFrame[],
+  incidents: Incident[] | null,
+  requests: ProxyRow[] | null,
+): LogFrame[] {
+  if (incidents !== null) {
+    return incidents.map(incidentFrame);
+  }
+  if (requests !== null) {
+    return requests.map(proxyFrame);
+  }
+  return raw;
+}
+
+function parseRequests(lines: LogFrame[]): ProxyRow[] {
+  return lines.flatMap((line) => {
+    const request = parseProxyRow(line.text);
+    return request === null ? [] : [request];
+  });
+}
+
+function ProxyHeader({ requests }: { requests: ProxyRow[] }) {
+  const sections = topDivergingSections(requests);
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Badge variant="outline" aria-label="prefix hit rate">
+        {prefixSummary(prefixHitRate(requests))}
+      </Badge>
+      <Badge
+        variant="outline"
+        className="text-muted-foreground"
+        aria-label="average prompt bytes"
+      >
+        {averagePromptBytes(requests)} bytes per prompt
+      </Badge>
+      <div className="flex flex-wrap gap-2" aria-label="diverging sections">
+        {sections.map((entry) => (
+          <Badge key={entry.section} variant="outline">
+            {entry.section} {entry.count}
+          </Badge>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function LedgerPanel({ requests }: { requests: ProxyRow[] }) {
+  const ledger = latestLedger(requests);
+  if (ledger === null) {
+    return null;
+  }
+  return (
+    <div
+      className="flex flex-col gap-1 rounded-lg border border-border p-3 text-xs"
+      aria-label="tool schema ledger"
+    >
+      <div className="text-muted-foreground">
+        latest request: system {ledger.system} · messages {ledger.messages}
+      </div>
+      <LedgerBars ledger={ledger} />
+    </div>
+  );
+}
+
+function LedgerBars({ ledger }: { ledger: ProxyLedger }) {
+  return (
+    <>
+      {ledgerTools(ledger).map((tool) => (
+        <div
+          key={tool.name}
+          data-tool={tool.name}
+          data-bytes={tool.bytes}
+          className="grid grid-cols-[minmax(8rem,1fr)_4rem_3fr] items-center gap-2 font-mono"
+        >
+          <span className="truncate">{tool.name}</span>
+          <span className="text-right">{tool.bytes}</span>
+          <span className="h-2 rounded bg-muted">
+            <span
+              className="block h-2 rounded bg-foreground/60"
+              style={{ width: `${Math.round(tool.share * 100)}%` }}
+            />
+          </span>
+        </div>
+      ))}
+    </>
   );
 }
 

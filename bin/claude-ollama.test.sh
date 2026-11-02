@@ -1542,6 +1542,32 @@ run_capture "$sandbox/repo/bin/claude-custom" sync-check --against
 check_eq "sync-check --against without a file exits 2" 2 "$?"
 check_that "usage lists sync-check" grep -qF "sync-check" "$sandbox/err"
 
+new_sandbox
+cat > "$sandbox/stubbin/why" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" > "$sandbox/why-args"
+echo "verdict: stub"
+EOF
+chmod +x "$sandbox/stubbin/why"
+CLAUDE_OLLAMA_WHY_BIN="$sandbox/stubbin/why" run_capture "$repo/bin/claude-ollama" why --since 10 --json
+check_eq "why exit status" 0 "$?"
+check_that "why reads the session proxy log and the incidents folder and passes its flags" grep -qxF -- "--proxy-log $HOME/.claude-ollama/proxy/requests.jsonl --incidents-dir $HOME/.local/share/claude-custom/console/incidents --since 10 --json" "$sandbox/why-args"
+check_that "why prints the verdict" grep -qxF "verdict: stub" "$sandbox/out"
+check_not "why does not launch claude" grep -q '^ARGS:' "$sandbox/out"
+check_not "why does not start the proxy" test -e "$sandbox/proxy-args"
+check_not "why does not start the watcher" test -e "$sandbox/watcher-args"
+mkdir -p "$sandbox/state"
+rm -f "$sandbox/why-args"
+CLAUDE_CONSOLE_STATE_DIR="$sandbox/state" CLAUDE_OLLAMA_WHY_BIN="$sandbox/stubbin/why" run_capture "$repo/bin/claude-ollama" why
+check_that "why reads the console state dir when it is set" grep -qxF -- "--proxy-log $sandbox/state/proxy/requests.jsonl --incidents-dir $sandbox/state/incidents" "$sandbox/why-args"
+run_capture "$repo/bin/claude-ollama" --help
+check_that "usage lists why" grep -q '^why \[--since MINUTES\] \[--json\]' "$sandbox/out"
+mkdir -p "$sandbox/realbin"
+ln -s "$real_python3" "$sandbox/realbin/python3"
+PATH="$sandbox/realbin:$PATH" run_capture "$repo/bin/claude-ollama" why
+check_eq "why with the real script exit status" 0 "$?"
+check_that "why runs the real script by default" grep -q '^verdict: nothing wrong' "$sandbox/out"
+
 if [ "$failures" -eq 0 ]; then
   echo "all passed"
 else

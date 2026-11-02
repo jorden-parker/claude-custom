@@ -177,8 +177,15 @@ before changing how any file gets applied.
   `claude-ollama logs --path` prints that path instead of following it. Each
   launch also copies its own stderr, up to the hand-off to `claude`, to
   `$CLAUDE_CONSOLE_STATE_DIR/launcher.log` (0600, moved to `launcher.log.1` past
-  1 MiB); the console's Logs page has Ollama server and Launcher tabs
-  (`/api/logs/path` and `/api/logs/events` take `?source=server|launcher`)
+  1 MiB); the console's Logs page has Ollama server, Launcher, Incidents and
+  Proxy tabs (`/api/logs/path` and `/api/logs/events` take
+  `?source=server|launcher|incidents|proxy`)
+- Explain the last bad run: `claude-ollama why [--since MINUTES] [--json]`
+  (dispatched like `logs`, before any pull or launch, no size needed) runs
+  `ollama/incidents/why.py` (stdlib; `CLAUDE_OLLAMA_WHY_BIN` overrides it for
+  tests) on the proxy log and the current incidents file and prints one verdict,
+  one evidence line, one `fix:` line, a `prefix:` hit-rate line and a `drift:`
+  line; tests: `ollama/incidents/why.test.sh`
 - Console: `claude-ollama ui [--port N]` serves `web/console` (Next.js with AI
   Elements) at `http://127.0.0.1:8765/`, built on first run with pnpm
   (reinstalled when `pnpm-lock.yaml` is newer than `node_modules/.modules.yaml`,
@@ -838,17 +845,59 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   to `--log` (0700 dir, 0600 file): `ts`, `request_id` (uuid4, also sent
   upstream as `X-Claude-Ollama-Request`), `sections`, `stable_sections`,
   `diverged_at` (`system`, `tools`, `message:N` or null), `offset` (byte within
-  that section's canonical text), `diff` (at most 200 chars from there) and
-  `prompt_bytes`; nothing else of the body is logged. `bin/claude-ollama` starts
-  it before `launch_claude` unless `CLAUDE_OLLAMA_PROXY=0`
-  (`CLAUDE_OLLAMA_PROXY_BIN` overrides the script; tests stub it), with
-  `--watch-pid $$`, the log at `$CLAUDE_CONSOLE_STATE_DIR/proxy/requests.jsonl`
-  when that dir exists, else `~/.claude-ollama/proxy/requests.jsonl`, waits for
-  the port file and writes `~/.claude-ollama/proxy-settings.json` with
-  `env.ANTHROPIC_BASE_URL` pointed at the proxy (the settings file `claude`
-  gets); when the port never appears it warns and keeps the direct URL. It only
-  observes: no rewriting, no tool pruning. Tests: `bin/messages-proxy.test.sh`
-  (stub upstream), `bin/claude-ollama.test.sh` (stub proxy).
+  that section's canonical text), `diff` (at most 200 chars from there),
+  `prompt_bytes` and `ledger`
+  (`{"system": bytes, "tools": {"<name>": bytes}, "messages": bytes}` of the
+  canonical text, so the console can show what each tool schema costs; a tool
+  without a name is `tool:N`); nothing else of the body is logged.
+  `bin/claude-ollama` starts it before `launch_claude` unless
+  `CLAUDE_OLLAMA_PROXY=0` (`CLAUDE_OLLAMA_PROXY_BIN` overrides the script; tests
+  stub it), with `--watch-pid $$`, the log at
+  `$CLAUDE_CONSOLE_STATE_DIR/proxy/requests.jsonl` when that dir exists, else
+  `~/.claude-ollama/proxy/requests.jsonl`, waits for the port file and writes
+  `~/.claude-ollama/proxy-settings.json` with `env.ANTHROPIC_BASE_URL` pointed
+  at the proxy (the settings file `claude` gets); when the port never appears it
+  warns and keeps the direct URL. It only observes: no rewriting, no tool
+  pruning. The console's Logs page has a Proxy tab (`source=proxy` on both log
+  routes, reading only `$CLAUDE_CONSOLE_STATE_DIR/proxy/requests.jsonl`) with a
+  header (prefix hit rate, average prompt bytes, the top three diverging
+  sections), each row as `diverged_at · offset · diff` (`stable · N sections`
+  when nothing changed) and a ledger panel listing the latest request's tool
+  schemas by bytes with a bar (`web/console/src/lib/proxy-log.ts`:
+  `parseProxyRow`, `prefixHitRate`, `topDivergingSections`, `latestLedger`,
+  `ledgerTools`, `proxyFrame`). Tests: `bin/messages-proxy.test.sh` (stub
+  upstream), `bin/claude-ollama.test.sh` (stub proxy), the console's vitest
+  suite.
+- Why: `claude-ollama why [--since MINUTES] [--json]` execs
+  `ollama/incidents/why.py --proxy-log FILE --incidents-dir DIR` (stdlib only;
+  `CLAUDE_OLLAMA_WHY_BIN` overrides it for tests; `--now ISO` fixes the clock
+  for tests) with the proxy log the launcher writes and
+  `$CLAUDE_CONSOLE_STATE_DIR/incidents`, before any pull or launch. It reads the
+  proxy rows, the file `incidents/current` names (refused outside that folder)
+  plus its `.latest` row (counted once), skips rows with a `kind`, keeps the
+  last `--since` minutes, joins each incident to the last request at most 5 s
+  before it, and prints a one-screen verdict chosen by a fixed priority:
+  `truncated` > `evicted` (evicted rows, or `reprefilled` after `embed`, `load`
+  or `unload`) > `reprefilled after expired` > `prompt drift at system|tools` (a
+  request that diverged before the messages, preferring the one joined to an
+  incident) > `compacted` > `degraded` > `reprefilled` with no known event >
+  `nothing wrong`; `aborted` never decides. The lines are `verdict:` (cause,
+  summary, window), `evidence:` (counts, the last time, the preceding event or
+  the diverging section, offset and diff, and the joined request:
+  `the request Ns before it diverged at X` or `no request within 5s before it`),
+  `fix:` (one command or variable: `bin/ollama-profiles`,
+  `OLLAMA_MAX_LOADED_MODELS=2` plus `CLAUDE_OLLAMA_LEASE`, `OLLAMA_KEEP_ALIVE`,
+  `move the volatile line after the stable prefix: "<diff>"`,
+  `CLAUDE_OLLAMA_HANDOFF_PCT`, `ladder.py --inspect`, `claude-ollama doctor`, or
+  `nothing to do`), `prefix: N% of M requests stable through tools` (a request
+  counts when `diverged_at` is null or a `message:N`; the first row, with
+  nothing to compare, is skipped) and `drift:` with the top three diverging
+  sections and counts (`none`). `--json` prints one object (`verdict`,
+  `summary`, `evidence`, `fix`, `prefix`, `diverging`, `incidents`, `window`).
+  Tests: `ollama/incidents/why.test.sh` (inline fixture logs for every rung, the
+  join window, `--since`, `.latest` and empty or unreadable inputs),
+  `bin/claude-ollama.test.sh` (stub `why`; `why` never launches, starts no proxy
+  and no watcher).
 - Residency lease: `bin/ollama-lease` (bash 3.2, `jq`) keeps one file per
   holder, `<pid>.json` with `{name, model, num_ctx, rung, started}`, under
   `${CLAUDE_OLLAMA_LEASE_DIR:-~/.claude-ollama/lease}` (0700/0600), guarded by a
