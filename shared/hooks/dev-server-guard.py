@@ -11,7 +11,6 @@ ENV_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 PACKAGE_MANAGERS = {"npm", "pnpm", "yarn", "bun"}
 PACKAGE_OPTIONS_WITH_VALUE = {"-C", "--dir", "--filter", "-F", "--prefix", "--cwd"}
 START_SCRIPTS = {"dev", "start"}
-INSTALL_COMMANDS = {"install", "i", "add", "ci"}
 VITE_SUBCOMMANDS = {"dev", "serve"}
 BROWSER_OPENERS = {"open", "xdg-open", "start"}
 LOOPBACK_URL = re.compile(r"^https?://(?:localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)(?::\d+)?(?:/|$)")
@@ -20,10 +19,9 @@ REASON = (
     "returns the real URL and keeps the log. Check one with mcp__dev__dev_status; "
     "read errors with mcp__dev__dev_errors or mcp__dev__page_check."
 )
-INSTALL_REASON = (
-    "Install packages with mcp__dev__dev_install (no packages: install from the lockfile; "
-    "packages: add them, dev: true for devDependencies): it runs the lockfile's package manager "
-    "and returns the result. Check what is installed with mcp__dev__dev_deps, never by listing node_modules."
+PNPM_REASON = (
+    "pnpm runs outside the sandbox only as one plain command: write `pnpm -C DIR SCRIPT ...` "
+    "with no `cd &&`, pipe, `;` or `&`, so its store is never corrupted by a sandbox EPERM."
 )
 OPEN_REASON = (
     "Open local pages with mcp__dev__page_check (pass url for a full URL such as "
@@ -100,11 +98,14 @@ def starts_dev_server(segment):
     return is_framework_server(words)
 
 
-def installs_packages(segment):
+def runs_pnpm(segment):
     words = without_environment(segment.split())
-    if len(words) < 2 or words[0] not in PACKAGE_MANAGERS:
-        return False
-    return package_script_words(words)[:1] != [] and package_script_words(words)[0] in INSTALL_COMMANDS
+    return words[:1] == ["pnpm"]
+
+
+def pnpm_shares_the_line(command):
+    parts = [segment for segment in segments(command) if segment.strip()]
+    return len(parts) > 1 and any(runs_pnpm(segment) for segment in parts)
 
 
 def opens_local_url(segment):
@@ -130,9 +131,9 @@ def main():
     if any(starts_dev_server(segment) for segment in segments(command)):
         record_denial("dev-server-guard", payload, REASON)
         print(json.dumps(deny(REASON)))
-    elif any(installs_packages(segment) for segment in segments(command)):
-        record_denial("dev-server-guard", payload, INSTALL_REASON)
-        print(json.dumps(deny(INSTALL_REASON)))
+    elif pnpm_shares_the_line(command):
+        record_denial("dev-server-guard", payload, PNPM_REASON)
+        print(json.dumps(deny(PNPM_REASON)))
     elif any(opens_local_url(segment) for segment in segments_with_quoted_words(command)):
         print(json.dumps(deny(OPEN_REASON)))
 

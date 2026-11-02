@@ -231,14 +231,17 @@ and `Bash(dangerouslyDisableSandbox:true)`, a retry outside the sandbox, still
 ask, and `git-push-guard.py` denies a push written as `git -C`, `--git-dir` or a
 path to `git`, which that ask would miss.
 
-Five command families run outside the sandbox through `excludedCommands`:
-`cmux`, `gh`, `short`, `git push` and `claude-custom ctx7` (the `/find-docs`
-CLI, which then uses your own network, proxy and certificates, and resolves the
-pinned `ctx7` from `~/.cache/claude-custom`, which the sandbox cannot write).
-The first four still prompt; `ctx7` is allowed without one. An exclusion applies
-only when every segment of the command line matches, so a piped
-`claude-custom ctx7 ... | head` runs inside the sandbox. MCP servers and hooks
-run outside the sandbox too, as they do in the personal overlay.
+Six command families run outside the sandbox through `excludedCommands`: `cmux`,
+`gh`, `short`, `git push`, `claude-custom ctx7` (the `/find-docs` CLI, which
+then uses your own network, proxy and certificates, and resolves the pinned
+`ctx7` from `~/.cache/claude-custom`, which the sandbox cannot write) and `pnpm`
+(inside the sandbox its hardlinks from the store fail with EPERM and corrupt
+`node_modules/.pnpm`, so installs and tests kept breaking). All but `ctx7` still
+prompt. An exclusion applies only when every segment of the command line
+matches, so a piped `claude-custom ctx7 ... | head` runs inside the sandbox;
+`shared/hooks/dev-server-guard.py` therefore denies a `pnpm` that shares its
+line with `cd &&`, a pipe or `;` and asks for `pnpm -C DIR SCRIPT`. MCP servers
+and hooks run outside the sandbox too, as they do in the personal overlay.
 
 What this gives up, compared with the older session sandbox:
 
@@ -354,10 +357,10 @@ the named packages, `dev: true` for devDependencies, then `dev_deps` for them),
 browser errors, console warnings and Next.js errors), `page_snapshot` (the open
 page's elements with refs) and `page_act` (click, fill, type, press, select,
 check or scroll one ref, then the errors it caused). `dev_start`, `dev_stop` and
-`dev_install` ask before they run; the others do not. Bash `pnpm install` and
-`pnpm add` (npm, yarn and bun too) are denied by
-`shared/hooks/dev-server-guard.py`, which points the model at `dev_install`, and
-`dev_deps` replaces listing `node_modules`, which `tool-nudge.py` refuses until
+`dev_install` ask before they run; the others do not. Bash
+`pnpm -C DIR install|add|test` runs outside the sandbox after the Bash prompt
+(see `excludedCommands` above), so the model may use either, and `dev_deps`
+replaces listing `node_modules`, which `tool-nudge.py` refuses until
 `/find-docs` ran (a package's own `node_modules/<name>/package.json` is exempt).
 Servers a session starts stop when it ends. The server reads `.next/dev/lock`
 for its port and `/_next/mcp` on Next.js 16+; other frameworks get log errors

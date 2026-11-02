@@ -58,7 +58,7 @@ for settings in "$repo"/ollama/settings.*.json; do
     "$(jq -r .env.CLAUDE_CODE_EXTRA_BODY "$settings" | jq -c .)"
   check_eq "${settings##*/} runs Bash in Claude Code's own sandbox and lets sandboxed commands run without a prompt" "true true" \
     "$(jq -r '[.sandbox.enabled, .sandbox.autoAllowBashIfSandboxed] | map(tostring) | join(" ")' "$settings")"
-  check_eq "${settings##*/} runs only cmux, gh, short, git push and claude-custom ctx7 outside the sandbox" '["cmux *","gh *","short *","git push *","claude-custom ctx7 *"]' \
+  check_eq "${settings##*/} runs only cmux, gh, short, git push, claude-custom ctx7 and pnpm outside the sandbox" '["cmux *","gh *","short *","git push *","claude-custom ctx7 *","pnpm *"]' \
     "$(jq -c .sandbox.excludedCommands "$settings")"
   check_eq "${settings##*/} reaches github.com, the loopback addresses, and the npm, Go, PyPI and GitHub download hosts" \
     '["127.0.0.1","[::1]","github.com","*.github.com","*.githubusercontent.com","registry.npmjs.org","proxy.golang.org","sum.golang.org","pypi.org","files.pythonhosted.org","context7.com"] true' \

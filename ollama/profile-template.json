@@ -83,7 +83,8 @@
       "gh *",
       "short *",
       "git push *",
-      "claude-custom ctx7 *"
+      "claude-custom ctx7 *",
+      "pnpm *"
     ],
     "network": {
       "allowedDomains": [

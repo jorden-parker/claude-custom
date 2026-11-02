@@ -566,9 +566,12 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `dev_start`, `dev_stop` and `dev_install` still ask, and no bare `mcp__dev`
   may be allowed. `shared/hooks/dev-server-guard.py` (Ollama-only, PreToolUse on
   Bash) denies `pnpm dev`-style starts and points the model at `dev_start`,
-  denies `pnpm install`/`add`-style package installs and points it at
-  `dev_install` and `dev_deps`, and denies `open` on a loopback URL and points
-  it at `page_check`.
+  denies `open` on a loopback URL and points it at `page_check`, and denies a
+  `pnpm` that shares its line with `cd &&`, a pipe or `;`, since `pnpm *` is an
+  `excludedCommands` entry and only a one-segment line leaves the sandbox.
+  Inside the sandbox pnpm's hardlinks hit EPERM and corrupt the virtual store,
+  so Bash `pnpm -C DIR install|add|test` runs outside it after the Bash prompt;
+  `dev_install` stays as the tool form.
 - `shared/mcp/repo-tools.py` is the `repo` MCP server the Ollama profiles start
   beside code-search and allow without a prompt (`mcp__repo` in
   `permissions.allow`; `bin/check-config` checks it and that

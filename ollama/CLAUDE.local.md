@@ -11,7 +11,8 @@
   - start a dev server: mcp__dev__dev_start, not `pnpm dev`/`npm start`
   - server output or errors: mcp__dev__dev_logs/dev_errors, not tailing a log
   - is a package installed: mcp__dev__dev_deps, not `ls node_modules`
-  - install or add packages: mcp__dev__dev_install, not `pnpm install`/`add`
+  - install, add or test packages: `pnpm -C DIR install|add|test` as one plain
+    command (no `cd &&`, no pipe), or mcp__dev__dev_install
   - open or test a page: mcp__dev__page_check/page_snapshot/page_act, not
     `open`/`curl`
   - library docs: /find-docs, not reading node_modules
@@ -38,11 +39,11 @@
     installed and current, and which version of a package is in; use it instead
     of listing node_modules), dev_install (runs the lockfile's package manager:
     no packages installs from the lockfile, packages adds them, dev: true for
-    devDependencies; never Bash `pnpm install`); page_check (opens a local page
-    in the cmux browser and returns its errors; pass url for a full local URL
-    such as https://127.0.0.1:4000/; never Bash open), page_snapshot (elements
-    with refs), page_act (click, fill, press by ref). Fix every error and
-    warning they return.
+    devDependencies; Bash `pnpm -C DIR install` works too); page_check (opens a
+    local page in the cmux browser and returns its errors; pass url for a full
+    local URL such as https://127.0.0.1:4000/; never Bash open), page_snapshot
+    (elements with refs), page_act (click, fill, press by ref). Fix every error
+    and warning they return.
   - Skills: /find-docs (library, framework, SDK or API docs), /pr-draft,
     /pr-review-draft, /handoff, /cmux-markdown; the rest are listed by the Skill
     tool.
