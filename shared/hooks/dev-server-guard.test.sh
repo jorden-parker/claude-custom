@@ -53,6 +53,8 @@ expect deny  'pnpm -C web/console x cowsay'
 expect deny  'pnpm "exec" vitest run'
 expect deny  "pnpm 'dlx' cowsay"
 expect deny  'pnpm "unterminated exec'
+expect deny  'pnpm --reporter default exec vitest run'
+expect allow 'pnpm -C web/console test -- exec'
 expect allow 'npx vitest run'
 expect allow 'pnpm -C web/console run build'
 expect allow 'cd web/console && npm test'
