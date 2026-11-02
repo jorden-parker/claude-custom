@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { emptyLineFor } from "@/lib/whimsy-copy";
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -30,9 +31,12 @@ export function DraftList() {
   }
   if (rows.length === 0) {
     return (
-      <p className="text-sm text-muted-foreground">
-        No drafts yet. /pr-draft and /pr-review-draft write them here.
-      </p>
+      <>
+        <p className="text-sm text-muted-foreground">
+          No drafts yet. /pr-draft and /pr-review-draft write them here.
+        </p>
+        <p className="text-sm text-muted-foreground italic">{emptyLineFor("drafts")}</p>
+      </>
     );
   }
   return (

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { emptyLineFor } from "@/lib/whimsy-copy";
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -34,9 +35,12 @@ export function ReviewList() {
   }
   if (reviews.length === 0) {
     return (
-      <p className="text-sm text-muted-foreground">
-        No reviews yet. Run <code className="rounded bg-muted px-1 font-mono text-xs">claude-ollama review PR</code>.
-      </p>
+      <>
+        <p className="text-sm text-muted-foreground">
+          No reviews yet. Run <code className="rounded bg-muted px-1 font-mono text-xs">claude-ollama review PR</code>.
+        </p>
+        <p className="text-sm text-muted-foreground italic">{emptyLineFor("reviews")}</p>
+      </>
     );
   }
   return (

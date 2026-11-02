@@ -15,6 +15,7 @@ import { elapsedSeconds, formatElapsed, statusOf } from "@/lib/run-display";
 import type { RunStatus, RunSummary } from "@/lib/run-log";
 import type { RunState } from "@/lib/run-state";
 import { runStatusLabel, runStatusTextClass } from "@/lib/run-status-style";
+import { PetalBurst } from "@/components/petal-burst";
 import { ProgressBar } from "@/components/progress-bar";
 
 const TICK_MS = 1000;
@@ -170,7 +171,8 @@ function measuredProgress(texts: string[]): { percent: number; text: string } | 
 
 function EndBanner({ status, code }: { status: RunStatus; code: number }) {
   return (
-    <Card>
+    <Card className="relative">
+      <PetalBurst status={status} />
       <CardContent className={`text-sm font-medium ${runStatusTextClass(status)}`}>
         {runStatusLabel(status)}
         {status === "failed" ? ` (exit ${code})` : ""}

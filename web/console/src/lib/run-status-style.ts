@@ -9,11 +9,11 @@ const labels: Record<RunStatus, string> = {
 };
 
 const textClasses: Record<RunStatus, string> = {
-  running: "border-info-border text-info-foreground",
-  ok: "border-success-border text-success-foreground",
-  failed: "border-error-border text-error-foreground",
-  cancelled: "text-muted-foreground",
-  lost: "border-warning-border text-warning-foreground",
+  running: "border-info-border bg-info text-info-foreground",
+  ok: "border-success-border bg-success text-success-foreground",
+  failed: "border-error-border bg-error text-error-foreground",
+  cancelled: "bg-neutral text-muted-foreground",
+  lost: "border-warning-border bg-warning text-warning-foreground",
 };
 
 const dotClasses: Record<RunStatus, string> = {

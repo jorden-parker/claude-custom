@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { emptyLineFor } from "@/lib/whimsy-copy";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { useRunSummaries } from "@/components/use-run-summaries";
@@ -17,7 +18,12 @@ export function RunList() {
     return <p className="text-sm text-muted-foreground">Loading runs...</p>;
   }
   if (runs.length === 0) {
-    return <p className="text-sm text-muted-foreground">No runs yet. Start one above.</p>;
+    return (
+      <>
+        <p className="text-sm text-muted-foreground">No runs yet. Start one above.</p>
+        <p className="text-sm text-muted-foreground italic">{emptyLineFor("runs")}</p>
+      </>
+    );
   }
   return (
     <ul className="flex flex-col gap-3">

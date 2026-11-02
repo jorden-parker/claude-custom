@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Sparkles } from "lucide-react";
+import { GardenSprite } from "@/components/garden-sprite";
 import { SectionIcon } from "@/components/section-icon";
 import {
   SidebarContent,
@@ -28,12 +28,9 @@ export function ConsoleNav() {
       <SidebarHeader>
         <Link
           href="/"
-          className="flex items-center gap-2 px-2 py-1.5 font-semibold tracking-heading"
+          className="flex items-center gap-2 px-2 py-1.5 font-heading text-lg font-semibold tracking-heading"
         >
-          <Sparkles
-            className="size-4 transition-transform hover:rotate-12 motion-reduce:transform-none"
-            aria-hidden="true"
-          />
+          <GardenSprite />
           claude-ollama
         </Link>
       </SidebarHeader>
