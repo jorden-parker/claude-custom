@@ -288,15 +288,29 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `<git common dir>/handoff/` and `/handoff` resumes from the newest one.
   `bin/check-config` checks each `shared/skills/*` name matches its folder.
 - `shared/skills/find-docs/SKILL.md` is the `/find-docs` skill: current library
-  docs from Context7 through its CLI (`npx ctx7@0.8.2 library`, then
-  `npx ctx7@0.8.2 docs`), adapted from the upstream skill pinned in
+  docs from Context7 through its CLI (`claude-custom ctx7 library`, then
+  `claude-custom ctx7 docs`), adapted from the upstream skill pinned in
   `shared/skills/find-docs/UPSTREAM`. `bin/claude-custom install` links it into
-  `~/.claude/skills/` and `claude-ollama` copies it into its session. Both
-  sandboxes allow `context7.com` (the personal one also `registry.npmjs.org`,
-  for `npx`); every sandbox hides `~/.config/context7`, so lookups run
-  anonymously unless `CONTEXT7_API_KEY` is in the launcher's environment. The
-  CLI version is pinned in the skill and the prompt files; `bin/check-config`
-  checks they agree, checks the link, and that `PREFERENCES.md`,
+  `~/.claude/skills/` and `claude-ollama` copies it into its session. The skill
+  runs the CLI through `claude-custom ctx7 library|docs ...` (at most 80 lines,
+  every other ctx7 command refused). Both overlays run `claude-custom ctx7 *`
+  outside the sandbox (`excludedCommands`) and allow it without a prompt
+  (`permissions.allow`), so it uses your own network, proxy, certificates and
+  `~/.config/context7` (a `ctx7 login` or `CONTEXT7_API_KEY` raises the quota);
+  the Qwen Seatbelt profile still hides that folder. An exclusion applies only
+  when every segment of the command line matches, so the skill runs it as one
+  plain command with no pipe. Because it runs unsandboxed, the wrapper never
+  lets `npx` resolve `ctx7` from the project or the sandbox's npm cache, which
+  the session can write: it runs from `$HOME/.cache/claude-custom/ctx7` (never
+  an environment variable; no sandbox may write it) with `--prefix` and
+  `--cache` pinned there, and where that folder cannot be written (under
+  Seatbelt, or inside the sandbox) it runs from a fresh temp folder as
+  `--prefix` instead, never the working folder. Claude Code itself keeps the
+  `claude-custom ctx7 *` exemption narrow: a pipe or `;` segment that does not
+  match sends the line back into the sandbox, and a file redirect or command
+  substitution still prompts. The CLI version is pinned once, as `ctx7_version`
+  in `bin/claude-custom`; `bin/check-config` checks the wrapper, the prompt
+  files and both overlays, checks the link, and that `PREFERENCES.md`,
   `CLAUDE.local.md` and `QWEN.local.md` name the skill.
 - `bin/pr-review-local --model M [--base-url URL] [--post] [--json] [--color auto|always|never] [--log-dir DIR] [--no-log] [--range BASE..HEAD | PR]`
   reviews a GitHub PR with a local model, or local commits with `--range` (no
@@ -330,8 +344,8 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   tool unlocks text search for the turn even when it errors, so a dead server
   can't lock the model out. As PreToolUse on Read, Skill and Bash it also denies
   reading, listing or searching inside `node_modules` until the `find-docs`
-  skill or an `npx ctx7` command ran in the turn (Next's generated `AGENTS.md`
-  sends models to `node_modules/next/dist/docs` otherwise). The profiles allow
+  skill or a `ctx7` command ran in the turn (Next's generated `AGENTS.md` sends
+  models to `node_modules/next/dist/docs` otherwise). The profiles allow
   `Skill(find-docs)` without a prompt; `bin/check-config` checks it.
 - All settings files (`personal/settings.tokens.json`, `ollama/settings.*.json`)
   run hooks as
@@ -366,18 +380,18 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `shared/sandbox-env`, which points Go, npm, pnpm, pip, uv, yarn and bun at
   caches under that one folder, so no cache an unsandboxed process executes from
   (`~/.npm/_npx`, `~/Library/pnpm`, `~/go/pkg/mod`, `~/.cache/claude-custom`) is
-  writable. It also sets `NODE_USE_ENV_PROXY=1`, since Node's `fetch` (used by
-  `npx ctx7`) otherwise ignores the sandbox's `HTTPS_PROXY` and every request
-  fails. `bin/check-config` asserts the block's exact values, and a misspelled
-  key is silently ignored, so the check must change with the block. The profiles
-  set `sandbox.enabled` and `autoAllowBashIfSandboxed: true`, so sandboxed
-  commands run without a prompt (a skill's `!` commands included);
-  `excludedCommands` (`cmux`, `gh`, `short`, `git push`) run outside the
-  sandbox, each after the `Bash` prompt, and `permissions.ask` holds only
-  `Bash(git commit *)`, `Bash(git push *)` and
-  `Bash(dangerouslyDisableSandbox:true)`; `bin/check-config` checks both. The
-  profiles also set `CLAUDE_CODE_EXTRA_BODY` to
-  `{"thinking":{"type":"disabled"}}` so Ollama skips reasoning;
+  writable. It also sets `NODE_USE_ENV_PROXY=1`, since Node's `fetch` (a
+  sandboxed `npx`, for one) otherwise ignores the sandbox's `HTTPS_PROXY` and
+  every request fails. `bin/check-config` asserts the block's exact values, and
+  a misspelled key is silently ignored, so the check must change with the block.
+  The profiles set `sandbox.enabled` and `autoAllowBashIfSandboxed: true`, so
+  sandboxed commands run without a prompt (a skill's `!` commands included);
+  `excludedCommands` (`cmux`, `gh`, `short`, `git push`, `claude-custom ctx7`)
+  run outside the sandbox, each after the `Bash` prompt except the allowed
+  `ctx7`, and `permissions.ask` holds only `Bash(git commit *)`,
+  `Bash(git push *)` and `Bash(dangerouslyDisableSandbox:true)`;
+  `bin/check-config` checks both. The profiles also set `CLAUDE_CODE_EXTRA_BODY`
+  to `{"thinking":{"type":"disabled"}}` so Ollama skips reasoning;
   `bin/check-config` checks it. `shared/hooks/git-push-guard.py` (Ollama-only,
   PreToolUse on Bash) denies force pushes, remote deletes, `--mirror`,
   `--prune`, `-c alias.*`, pushes to `main` or `master`, and any push not

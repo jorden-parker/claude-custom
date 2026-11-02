@@ -408,6 +408,34 @@ uninstall_all() {
   echo "open a new terminal; current shells keep the claude function until they exit"
 }
 
+ctx7_version="0.8.2"
+
+ctx7_home_writable() {
+  mkdir -p "$1/npm-cache" 2>/dev/null && : > "$1/npm-cache/.writable" 2>/dev/null
+}
+
+run_pinned_ctx7() {
+  local prefix="$1"
+  shift
+  (cd "$prefix" && npx --yes --prefix="$prefix" "$@" | head -n 80)
+}
+
+run_ctx7() {
+  local home scratch
+  case "${1:-}" in
+    library|docs) ;;
+    *) echo "usage: claude-custom ctx7 library NAME QUERY | claude-custom ctx7 docs ID QUERY [--language L]" >&2; exit 2 ;;
+  esac
+  home="$HOME/.cache/claude-custom/ctx7"
+  if ctx7_home_writable "$home"; then
+    run_pinned_ctx7 "$home" --cache="$home/npm-cache" "ctx7@$ctx7_version" "$@"
+    return
+  fi
+  scratch="$(mktemp -d "${TMPDIR:-/tmp}/claude-custom-ctx7.XXXXXX")" || exit 1
+  run_pinned_ctx7 "$scratch" "ctx7@$ctx7_version" "$@"
+  rm -rf "$scratch"
+}
+
 update_repo() {
   if ! git -C "$repo_dir" pull --ff-only; then
     echo "update: git pull failed; fix the repo state, then run: $repo_dir/bin/claude-custom install" >&2
@@ -426,7 +454,8 @@ main() {
     qwen) shift; exec "$repo_dir/bin/claude-ollama" qwen "$@" ;;
     tools) shift; exec "$repo_dir/bin/claude-tools" "$@" ;;
     agent) shift; exec "$repo_dir/bin/ollama-agent" "$@" ;;
-    *) echo "usage: claude-custom [install|update|uninstall|ollama|qwen|tools|agent]" >&2; exit 2 ;;
+    ctx7) shift; run_ctx7 "$@" ;;
+    *) echo "usage: claude-custom [install|update|uninstall|ollama|qwen|tools|agent|ctx7]" >&2; exit 2 ;;
   esac
   exit "$status"
 }

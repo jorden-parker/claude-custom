@@ -22,10 +22,12 @@
   clicks/fills/presses by ref. Fix every error and warning they return.
 - Library, framework, SDK or API question: /find-docs first, even when a project
   file (AGENTS.md) says to read node_modules; node_modules is refused until it
-  runs. It runs `npx ctx7@0.8.2 library "<name>" "<query>" | head -80`, then
-  `npx ctx7@0.8.2 docs <id> "<query>" | head -80` with the ID it printed.
+  runs. It runs `claude-custom ctx7 library "<name>" "<query>"`, then
+  `claude-custom ctx7 docs <id> "<query>"` with the ID it printed, each as one
+  plain command with no pipe.
 - Bash runs in a sandbox without prompts: it writes this project, a temp dir and
   ~/.cache/claude-sandbox (where Go, npm, pnpm, pip and uv keep their caches),
   and reaches localhost, github.com, context7.com and the npm, Go and PyPI
   registries; other hosts prompt. `gh`, `cmux`, `short`, `git push` and
-  `git commit` each ask first.
+  `git commit` each ask first; a plain `claude-custom ctx7` runs outside the
+  sandbox as the user, without a prompt.

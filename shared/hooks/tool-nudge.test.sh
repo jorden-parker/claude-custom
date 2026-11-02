@@ -98,6 +98,7 @@ expect_eq "find-docs unlocks node_modules for the turn" "" "$(pre Bash 'cat node
 event UserPromptSubmit >/dev/null
 expect_eq "a new prompt locks node_modules again" yes "$(denied 'cat node_modules/next/package.json')"
 expect_eq "a ctx7 lookup passes" "" "$(pre Bash 'npx ctx7@0.8.2 library next "server actions" | head -80')"
+expect_eq "a wrapped ctx7 lookup passes" "" "$(pre Bash 'claude-custom ctx7 library next "server actions"')"
 expect_eq "a ctx7 lookup unlocks node_modules" "" "$(pre Bash 'ls node_modules/next/dist/docs')"
 
 export CLAUDE_CONFIG_DIR="$sandbox/session-config"

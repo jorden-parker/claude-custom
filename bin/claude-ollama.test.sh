@@ -501,6 +501,36 @@ check_eq "ollama-agent without go exit status" 1 "$?"
 check_that "ollama-agent without go message" grep -qF "ollama-agent: needs Go 1.26+" "$sandbox/err"
 run_capture "$sandbox/repo/bin/claude-custom" agent
 check_that "claude-custom agent runs ollama-agent" grep -qF "ollama-agent: needs Go 1.26+" "$sandbox/err"
+cat > "$sandbox/stubbin/npx" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" > "$sandbox/npx-args"
+pwd > "$sandbox/npx-cwd"
+seq 1 100
+EOF
+chmod +x "$sandbox/stubbin/npx"
+ctx7_home="$HOME/.cache/claude-custom/ctx7"
+run_capture env XDG_CACHE_HOME="$sandbox/elsewhere" "$sandbox/repo/bin/claude-custom" ctx7 library next "server actions"
+check_eq "claude-custom ctx7 runs the pinned CLI from the claude-custom cache folder under the real home, never from the project or an environment variable" \
+  "--yes --prefix=$ctx7_home --cache=$ctx7_home/npm-cache ctx7@0.8.2 library next server actions" "$(cat "$sandbox/npx-args")"
+check_eq "claude-custom ctx7 runs inside that folder" "$ctx7_home" "$(cat "$sandbox/npx-cwd")"
+check_eq "claude-custom ctx7 prints at most 80 lines" 80 "$(wc -l < "$sandbox/out" | tr -d ' ')"
+run_capture "$sandbox/repo/bin/claude-custom" ctx7 docs /vercel/next.js "app router" --language en
+check_eq "claude-custom ctx7 passes the docs arguments through" \
+  "--yes --prefix=$ctx7_home --cache=$ctx7_home/npm-cache ctx7@0.8.2 docs /vercel/next.js app router --language en" "$(cat "$sandbox/npx-args")"
+rm -f "$sandbox/npx-args"
+run_capture "$sandbox/repo/bin/claude-custom" ctx7 login
+check_eq "claude-custom ctx7 refuses every other ctx7 command" 2 "$?"
+check_that "claude-custom ctx7 names the two lookups it runs" grep -qF "claude-custom ctx7 library NAME QUERY" "$sandbox/err"
+check_not "a refused ctx7 command never reaches npx" test -e "$sandbox/npx-args"
+mkdir -p "$sandbox/sealed-home/.cache" "$sandbox/tmp"
+chmod 555 "$sandbox/sealed-home/.cache"
+(cd "$sandbox/repo" && HOME="$sandbox/sealed-home" TMPDIR="$sandbox/tmp" run_capture "$sandbox/repo/bin/claude-custom" ctx7 library react hooks)
+scratch_prefix="$(sed -n 's/^--yes --prefix=\([^ ]*\) .*/\1/p' "$sandbox/npx-args")"
+check_eq "claude-custom ctx7 runs from a fresh temp folder where the cache folder cannot be written, as under Seatbelt, never from the working folder" \
+  "--yes --prefix=$scratch_prefix ctx7@0.8.2 library react hooks" "$(cat "$sandbox/npx-args")"
+check_that "that temp folder is under TMPDIR" contains "$scratch_prefix" "$sandbox/tmp/claude-custom-ctx7."
+check_eq "claude-custom ctx7 runs inside that temp folder" "$scratch_prefix" "$(cat "$sandbox/npx-cwd")"
+check_not "claude-custom ctx7 removes that temp folder afterwards" test -d "$scratch_prefix"
 run_capture "$installer" bogus
 check_eq "unknown subcommand exit status" 2 "$?"
 check_that "usage lists the new subcommands" grep -qF "install|update|uninstall|ollama|qwen|tools|agent" "$sandbox/err"
@@ -960,7 +990,7 @@ run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "a fetch list adds WebFetch to the tools" grep -qF -- "--tools Bash,Read,Edit,Write,Skill,TaskStop,WebFetch -p hi" "$sandbox/out"
 check_that "a fetch list passes the derived settings" grep -qF -- "--settings $fetch_settings_file" "$sandbox/out"
 check_that "an invalid fetch line is ignored with a message" grep -qxF "claude-ollama: ignoring fetch domain 'bad_host' (expected a hostname like docs.python.org)" "$sandbox/err"
-check_eq "a fetch list allows WebFetch for exactly the listed hosts" '["mcp__code-search__semantic_search","mcp__repo","mcp__dev__dev_status","mcp__dev__dev_logs","mcp__dev__dev_errors","mcp__dev__page_check","mcp__dev__page_snapshot","mcp__dev__page_act","Skill(find-docs)","WebFetch(domain:docs.python.org)","WebFetch(domain:pkg.go.dev)"]' "$(jq -c .permissions.allow "$fetch_settings_file")"
+check_eq "a fetch list allows WebFetch for exactly the listed hosts" '["mcp__code-search__semantic_search","mcp__repo","mcp__dev__dev_status","mcp__dev__dev_logs","mcp__dev__dev_errors","mcp__dev__page_check","mcp__dev__page_snapshot","mcp__dev__page_act","Skill(find-docs)","Bash(claude-custom ctx7 *)","WebFetch(domain:docs.python.org)","WebFetch(domain:pkg.go.dev)"]' "$(jq -c .permissions.allow "$fetch_settings_file")"
 check_that "the derived settings lift the bare WebFetch deny" jq -e '.permissions.deny | index("WebFetch") == null' "$fetch_settings_file"
 check_that "the derived settings keep WebSearch denied" jq -e '.permissions.deny | index("WebSearch") != null' "$fetch_settings_file"
 check_eq "the derived settings deny loopback hosts for WebFetch" '["WebFetch(domain:localhost)","WebFetch(domain:127.0.0.1)","WebFetch(domain:0.0.0.0)","WebFetch(domain:[::1])"]' "$(jq -c '[.permissions.deny[] | select(startswith("WebFetch("))]' "$fetch_settings_file")"

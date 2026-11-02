@@ -74,13 +74,20 @@
       "mcp__dev__page_check",
       "mcp__dev__page_snapshot",
       "mcp__dev__page_act",
-      "Skill(find-docs)"
+      "Skill(find-docs)",
+      "Bash(claude-custom ctx7 *)"
     ]
   },
   "sandbox": {
     "enabled": true,
     "autoAllowBashIfSandboxed": true,
-    "excludedCommands": ["cmux *", "gh *", "short *", "git push *"],
+    "excludedCommands": [
+      "cmux *",
+      "gh *",
+      "short *",
+      "git push *",
+      "claude-custom ctx7 *"
+    ],
     "network": {
       "allowedDomains": [
         "127.0.0.1",

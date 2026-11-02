@@ -10,9 +10,9 @@
   the embedding pull failed, tell the user to pick "Set up embedding model" in
   `claude-ollama`.
 - Library, framework, SDK or API question: /find-docs first in
-  run_shell_command. It runs
-  `npx ctx7@0.8.2 library "<name>" "<query>" | head -80`, then
-  `npx ctx7@0.8.2 docs <id> "<query>" | head -80` with the ID it printed.
+  run_shell_command. It runs `claude-custom ctx7 library "<name>" "<query>"`,
+  then `claude-custom ctx7 docs <id> "<query>"` with the ID it printed, each as
+  one plain command with no pipe.
 - Bound shell output: `| head -50`, tests quiet or failures only.
 - Smallest edit that works; never rewrite a whole file.
 - Reply in 10 lines or fewer unless asked for code.

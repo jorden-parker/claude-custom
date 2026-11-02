@@ -9,12 +9,13 @@ description:
 
 # Find docs
 
-Context7 serves current, version-specific docs through the `ctx7` CLI. Two
-steps, always in this order, each piped through `| head -80`:
+Context7 serves current, version-specific docs through the `ctx7` CLI, run
+through `claude-custom ctx7`, which prints at most 80 lines. Two steps, always
+in this order, each as one plain command (no pipe, no `cd`, no variable):
 
 ```
-npx ctx7@0.8.2 library "<name>" "<query>" | head -80
-npx ctx7@0.8.2 docs <id> "<query>" [--language L] | head -80
+claude-custom ctx7 library "<name>" "<query>"
+claude-custom ctx7 docs <id> "<query>" [--language L]
 ```
 
 ## 1. Resolve the library
@@ -38,13 +39,13 @@ commands per question: after that, answer from the best result you have.
 
 ## Auth and errors
 
-Lookups work anonymously. `CONTEXT7_API_KEY` in the environment raises the
-quota; the sandbox cannot run `ctx7 login`. On a quota error ("Monthly quota
-reached", "quota exceeded") tell the user, suggest a key from
-https://context7.com/dashboard, then answer from memory flagged as possibly
-outdated. Never fall back silently. Needs Node 22.21 or newer: inside the
-sandbox it reaches context7.com only through the sandbox proxy, which Node's
-fetch uses when `NODE_USE_ENV_PROXY=1` (set by `shared/sandbox-env`). If it
-still reports the network unreachable, tell the user rather than retrying. The
-version is pinned; bump it in this file, `CLAUDE.local.md`, `QWEN.local.md` and
-`CLAUDE.md` together.
+Lookups work anonymously. `CONTEXT7_API_KEY` in the environment or a
+`ctx7 login` raises the quota. On a quota error ("Monthly quota reached", "quota
+exceeded") tell the user, suggest a key from https://context7.com/dashboard,
+then answer from memory flagged as possibly outdated. Never fall back silently.
+A plain `claude-custom ctx7 ...` command runs outside Claude Code's sandbox
+(`excludedCommands` in both overlays), as the user, with their own network,
+proxy and certificates; a pipe or any other command beside it sends the whole
+line back into the sandbox. If it reports `fetch failed`, tell the user rather
+than retrying. The CLI version is pinned as `ctx7_version` in
+`bin/claude-custom`.

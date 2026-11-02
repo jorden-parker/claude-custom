@@ -213,8 +213,13 @@ and `Bash(dangerouslyDisableSandbox:true)`, a retry outside the sandbox, still
 ask, and `git-push-guard.py` denies a push written as `git -C`, `--git-dir` or a
 path to `git`, which that ask would miss.
 
-Four command families run outside the sandbox through `excludedCommands`:
-`cmux`, `gh`, `short` and `git push`. Each still prompts. MCP servers and hooks
+Five command families run outside the sandbox through `excludedCommands`:
+`cmux`, `gh`, `short`, `git push` and `claude-custom ctx7` (the `/find-docs`
+CLI, which then uses your own network, proxy and certificates, and resolves the
+pinned `ctx7` from `~/.cache/claude-custom`, which the sandbox cannot write).
+The first four still prompt; `ctx7` is allowed without one. An exclusion applies
+only when every segment of the command line matches, so a piped
+`claude-custom ctx7 ... | head` runs inside the sandbox. MCP servers and hooks
 run outside the sandbox too, as they do in the personal overlay.
 
 What this gives up, compared with the older session sandbox:

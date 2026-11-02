@@ -58,7 +58,7 @@ for settings in "$repo"/ollama/settings.*.json; do
     "$(jq -r .env.CLAUDE_CODE_EXTRA_BODY "$settings" | jq -c .)"
   check_eq "${settings##*/} runs Bash in Claude Code's own sandbox and lets sandboxed commands run without a prompt" "true true" \
     "$(jq -r '[.sandbox.enabled, .sandbox.autoAllowBashIfSandboxed] | map(tostring) | join(" ")' "$settings")"
-  check_eq "${settings##*/} runs only cmux, gh, short and git push outside the sandbox" '["cmux *","gh *","short *","git push *"]' \
+  check_eq "${settings##*/} runs only cmux, gh, short, git push and claude-custom ctx7 outside the sandbox" '["cmux *","gh *","short *","git push *","claude-custom ctx7 *"]' \
     "$(jq -c .sandbox.excludedCommands "$settings")"
   check_eq "${settings##*/} reaches github.com, the loopback addresses, and the npm, Go, PyPI and GitHub download hosts" \
     '["127.0.0.1","[::1]","github.com","*.github.com","*.githubusercontent.com","registry.npmjs.org","proxy.golang.org","sum.golang.org","pypi.org","files.pythonhosted.org","context7.com"] true' \
@@ -160,7 +160,7 @@ check_eq "settings.tokens.json reaches the same hosts and writes the same cache 
     and .sandbox.filesystem.allowWrite == $ollama[0].sandbox.filesystem.allowWrite
     and .sandbox.filesystem.denyRead == ["~/.ssh", "~/.aws", "~/.config/gh", "~/.config/context7", "~/.npmrc", "~/Library/Keychains", "~/.local/share/claude-custom"]
     and .sandbox.credentials == $ollama[0].sandbox.credentials
-    and .sandbox.excludedCommands == ["gh *", "git push *"]
+    and .sandbox.excludedCommands == ["gh *", "git push *", "claude-custom ctx7 *"]
   ' "$repo/personal/settings.tokens.json")"
 check_eq "shared/sandbox-env keeps every package cache under the folder both sandboxes may write" \
   "$(jq -r '.sandbox.filesystem.allowWrite[0]' "$repo/ollama/settings.27b.json")" \
@@ -282,10 +282,20 @@ for draft_skill in pr-draft pr-review-draft; do
   check_that "claude-custom install links the $draft_skill skill" grep -qF "shared/skills/$draft_skill" "$repo/bin/claude-custom"
 done
 check_that "claude-custom install links the find-docs skill" grep -qF "shared/skills/find-docs" "$repo/bin/claude-custom"
-ctx7_pin="$(grep -o "npx ctx7@[0-9][0-9.]*" "$repo/shared/skills/find-docs/SKILL.md" | sort -u)"
-check_that "the find-docs skill runs one pinned Context7 CLI version" test "$(wc -l <<<"$ctx7_pin")" -eq 1 -a -n "$ctx7_pin"
-for prompt_file in ollama/CLAUDE.local.md ollama/QWEN.local.md CLAUDE.md; do
-  check_eq "$prompt_file runs the same Context7 CLI version as the skill" "$ctx7_pin" "$(grep -o "npx ctx7@[^ \`]*" "$repo/$prompt_file" | sort -u)"
+check_that "claude-custom ctx7 pins one Context7 CLI version" grep -qE '^ctx7_version="[0-9]+\.[0-9]+\.[0-9]+"$' "$repo/bin/claude-custom"
+check_that "claude-custom ctx7 runs only the library and docs lookups" grep -qF 'library|docs) ;;' "$repo/bin/claude-custom"
+check_that "claude-custom ctx7 resolves the CLI from ~/.cache/claude-custom, which no sandbox can write, never from the project" \
+  grep -qF -- "run_pinned_ctx7 \"\$home\" --cache=\"\$home/npm-cache\" \"ctx7@\$ctx7_version\"" "$repo/bin/claude-custom"
+check_that "claude-custom ctx7 pins that folder under the real home, not an environment variable" grep -qF "home=\"\$HOME/.cache/claude-custom/ctx7\"" "$repo/bin/claude-custom"
+check_that "claude-custom ctx7 never resolves the CLI from the working folder: without its cache folder it runs from a fresh temp folder" \
+  grep -qF "scratch=\"\$(mktemp -d \"\${TMPDIR:-/tmp}/claude-custom-ctx7.XXXXXX\")\"" "$repo/bin/claude-custom"
+for prompt_file in shared/skills/find-docs/SKILL.md ollama/CLAUDE.local.md ollama/QWEN.local.md; do
+  check_that "$prompt_file runs the Context7 CLI through claude-custom ctx7" grep -qF 'claude-custom ctx7 library' "$repo/$prompt_file"
+  check_not "$prompt_file never runs npx ctx7, which would resolve a package the session wrote" grep -qF 'npx ctx7' "$repo/$prompt_file"
+done
+for settings in "$repo"/personal/settings.tokens.json "$repo"/ollama/settings.*.json; do
+  check_eq "${settings##*/} runs claude-custom ctx7 outside the sandbox, as you, without a prompt" "claude-custom ctx7 * Bash(claude-custom ctx7 *)" \
+    "$(jq -r '[(.sandbox.excludedCommands[] | select(startswith("claude-custom ctx7"))), (.permissions.allow[] | select(startswith("Bash(claude-custom ctx7")))] | join(" ")' "$settings")"
 done
 check_that "CLAUDE.local.md points the model at the find-docs skill" grep -qF "/find-docs" "$repo/ollama/CLAUDE.local.md"
 check_that "QWEN.local.md points the model at the find-docs skill" grep -qF "/find-docs" "$repo/ollama/QWEN.local.md"

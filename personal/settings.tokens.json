@@ -4,7 +4,7 @@
   "skillListingMaxDescChars": 300,
   "sandbox": {
     "enabled": true,
-    "excludedCommands": ["gh *", "git push *"],
+    "excludedCommands": ["gh *", "git push *", "claude-custom ctx7 *"],
     "network": {
       "allowedDomains": [
         "127.0.0.1",
@@ -61,6 +61,7 @@
     "PIP_DISABLE_PIP_VERSION_CHECK": "1"
   },
   "permissions": {
+    "allow": ["Bash(claude-custom ctx7 *)"],
     "deny": [
       "Read(**/dist/**)",
       "Read(**/.next/**)",

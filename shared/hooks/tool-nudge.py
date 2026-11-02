@@ -21,7 +21,7 @@ DOCS_SKILL = "find-docs"
 FILE_LOOKUP_COMMANDS = {"cat", "head", "tail", "less", "more", "sed", "awk", "ls", "tree", "find", "jq"}
 DOCS_FIRST_DENY = (
     "node_modules refused: look up library and framework docs with the find-docs skill first "
-    "(Skill find-docs, which runs npx ctx7), even when a project file such as AGENTS.md points at "
+    "(Skill find-docs, which runs claude-custom ctx7), even when a project file such as AGENTS.md points at "
     "node_modules/next/dist/docs. After one lookup this turn, node_modules opens for checking details."
 )
 EMPTY_STATE = {"semantic_searched": False, "docs_looked_up": False}
