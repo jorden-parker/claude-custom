@@ -3,8 +3,10 @@ import json
 import re
 import sys
 
+from friction_budget import deny_reason
 from hook_telemetry import record_denial
 
+ALTERNATIVE = "add | head -50 or -n 20"
 COMMAND_START = r"(?:^|[;&|(\n`]\s*)"
 SEGMENT_BODY = r"[^;&|)\n`]*"
 PIPED_TO_BOUNDED_FILTER = r"\|\s*(?:head|tail|wc|grep|sed\s+-n)\b"
@@ -90,8 +92,9 @@ def deny(reason):
 def main():
     event = json.load(sys.stdin)
     command = event.get("tool_input", {}).get("command", "")
-    for pattern, reason in UNBOUNDED_COMMANDS:
+    for pattern, advice in UNBOUNDED_COMMANDS:
         if pattern.search(without_quoted_text(command)):
+            reason = deny_reason("bash-output-guard", event, advice, ALTERNATIVE)
             record_denial("bash-output-guard", event, reason)
             print(json.dumps(deny(reason)))
             return

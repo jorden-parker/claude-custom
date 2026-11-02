@@ -78,6 +78,26 @@ def print_denials(denials):
         print(f"{hook:<20}{count:>7}  {reason}")
 
 
+def trip_rows(trips):
+    by_hook = defaultdict(int)
+    for trip in trips:
+        by_hook[trip.get("hook", "unknown")] += 1
+    return sorted(by_hook.items(), key=lambda row: row[1], reverse=True)
+
+
+def print_friction(frictions):
+    print()
+    if not frictions:
+        print("friction: none")
+        return
+    print("friction")
+    cache_hits = [line for line in frictions if "saved_bytes" in line]
+    trips = [line for line in frictions if "saved_bytes" not in line]
+    for hook, count in trip_rows(trips):
+        print(f"{hook:<20}{count:>7} trip{'' if count == 1 else 's'}")
+    print(f"cache hits: {len(cache_hits)}, bytes saved: {sum(hit['saved_bytes'] for hit in cache_hits)}")
+
+
 def main():
     path = log_path_from(sys.argv[1:], os.environ)
     if not path:
@@ -92,6 +112,7 @@ def main():
     print_tool_table(calls)
     print_largest_calls(calls)
     print_denials(denials)
+    print_friction([record for record in records if record.get("kind") == "friction"])
 
 
 main()

@@ -211,6 +211,15 @@
             "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/host-env \"$CLAUDE_CUSTOM_HOME\"/shared/hooks/tool-nudge.py"
           }
         ]
+      },
+      {
+        "matcher": "Read|mcp__repo__git_status|mcp__code-search__semantic_search",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/host-env \"$CLAUDE_CUSTOM_HOME\"/shared/hooks/repeat-call-cache.py"
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -270,6 +279,15 @@
             "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/host-env \"$CLAUDE_CUSTOM_HOME\"/shared/hooks/context-budget.py"
           }
         ]
+      },
+      {
+        "matcher": "Read|mcp__repo__git_status|mcp__code-search__semantic_search",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/host-env \"$CLAUDE_CUSTOM_HOME\"/shared/hooks/repeat-call-cache.py"
+          }
+        ]
       }
     ],
     "Stop": [
@@ -297,6 +315,10 @@
           {
             "type": "command",
             "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/host-env \"$CLAUDE_CUSTOM_HOME\"/shared/hooks/tool-nudge.py"
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/host-env \"$CLAUDE_CUSTOM_HOME\"/shared/hooks/friction_budget.py"
           },
           {
             "type": "command",

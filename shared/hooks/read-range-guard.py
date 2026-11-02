@@ -3,9 +3,11 @@ import json
 import sys
 from pathlib import Path
 
+from friction_budget import deny_reason
 from hook_telemetry import record_denial
 
 MAX_LINES = 300
+ALTERNATIVE = f"pass limit {MAX_LINES} or less, or search first"
 
 
 def line_count(path):
@@ -49,7 +51,7 @@ def main():
         return
     lines = line_count(path)
     if lines > MAX_LINES:
-        reason = reason_for(path, lines)
+        reason = deny_reason("read-range-guard", event, reason_for(path, lines), ALTERNATIVE)
         record_denial("read-range-guard", event, reason)
         print(json.dumps(deny(reason)))
 

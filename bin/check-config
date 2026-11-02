@@ -308,7 +308,18 @@ notes_incidents() {
   jq -e '[.hooks.UserPromptSubmit[].hooks[].command] | any(test("incident-note"))' "$1" >/dev/null
 }
 
+resets_friction_budget() {
+  jq -e '[.hooks.UserPromptSubmit[].hooks[].command] | any(test("friction_budget"))' "$1" >/dev/null
+}
+
+caches_repeat_calls() {
+  jq -e --arg event "$2" '[.hooks[$event][] | select((.matcher // "") | test("Read") and test("mcp__repo__git_status") and test("mcp__code-search__semantic_search")) | .hooks[].command] | any(test("repeat-call-cache"))' "$1" >/dev/null
+}
+
 for settings in "$repo"/ollama/settings.*.json; do
+  check_that "${settings##*/} runs friction_budget.py on each prompt" resets_friction_budget "$settings"
+  check_that "${settings##*/} runs repeat-call-cache.py before Read, git_status and semantic_search" caches_repeat_calls "$settings" PreToolUse
+  check_that "${settings##*/} runs repeat-call-cache.py after Read, git_status and semantic_search" caches_repeat_calls "$settings" PostToolUse
   check_that "${settings##*/} runs tool-nudge.py before Bash and semantic_search" gates_text_search "$settings"
   check_that "${settings##*/} runs tool-nudge.py before Read and Skill" gates_node_modules_reads "$settings"
   check_that "${settings##*/} runs context-budget.py after every tool" watches_context_budget "$settings"

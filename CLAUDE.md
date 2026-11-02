@@ -411,6 +411,35 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   that count. Test files, files under `test`, `tests`, `__tests__`, `testdata`,
   `fixtures`, `eval` or `.claude`, and non-code files always pass.
   `CLAUDE_CUSTOM_TDD=0` turns it off. Tests: `shared/hooks/tdd-guard.test.sh`.
+- `shared/hooks/friction_budget.py` is the friction budget the efficiency guards
+  share (`bash-output-guard.py`, `read-range-guard.py`, `tool-nudge.py`; never
+  the safety guards or `tdd-guard.py`, which has its own strikes). Each of them
+  passes its denial through `deny_reason(hook, event, reason, alternative)`,
+  which keys it by hook, tool and a fingerprint (Bash: the command minus digits,
+  quoted strings and each path's last segment; Read: the path plus a 300-line
+  bucket of `offset` and `limit`; otherwise the sorted input JSON) and counts it
+  in `${CLAUDE_CONFIG_DIR:-~/.claude}/cache/friction/<session_id>.json`. The
+  first three denials of one fingerprint keep their reason; the fourth and later
+  get a plan reset instead (one line naming what the model keeps trying, the
+  hook's one allowed alternative, and an order to stop retrying) and write a
+  `"kind": "friction"` telemetry line with the fingerprint's hash, never the
+  command. As a UserPromptSubmit hook (Ollama-only, in
+  `ollama/hooks.extra.json`) it resets that file each turn; without that reset
+  (the personal overlay) the file never exists and every denial stays plain.
+  `CLAUDE_CUSTOM_FRICTION=0` turns it off. `shared/hooks/repeat-call-cache.py`
+  (Ollama-only, PreToolUse and PostToolUse on Read, `mcp__repo__git_status` and
+  `mcp__code-search__semantic_search`) keeps a per-turn result cache in the same
+  file: after a call it records the call number, the output's sha256 and size,
+  and an invalidation stamp (the file's mtime for Read, `HEAD` plus the index
+  mtime for `git_status`, none for a search); an error result (`Error` text or
+  an error flag) is never recorded. Before an exact same-turn repeat whose stamp
+  is unchanged it denies with
+  `same result as call #N this turn, unchanged since; use it` and writes a
+  friction line carrying `saved_bytes`. `bin/check-config` fails when an Ollama
+  profile lacks either hook, and `bin/tool-telemetry-report` prints a friction
+  section (trips per hook, cache hits, bytes saved). Tests:
+  `shared/hooks/friction_budget.test.sh`,
+  `shared/hooks/repeat-call-cache.test.sh`, and the three guards' tests.
 - `shared/hooks/name-nudge.py` is wired only in the Ollama profiles, as
   PreToolUse on Edit, Write and MultiEdit. It never denies: when the written
   text declares a placeholder name (`tmp`, `data2`, `obj`, `handleStuff`, a
