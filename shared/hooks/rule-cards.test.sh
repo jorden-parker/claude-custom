@@ -7,7 +7,7 @@ sandbox="$(mktemp -d)"
 trap 'rm -rf "$sandbox"' EXIT
 export HOME="$sandbox/home"
 export CLAUDE_CONFIG_DIR="$sandbox/config"
-export CLAUDE_OLLAMA_RULE_CARDS="$sandbox/cards"
+export CLAUDE_OLLAMA_RULE_CARDS_DIR="$sandbox/cards"
 mkdir -p "$HOME" "$sandbox/cards" "$sandbox/project/web/console/src"
 
 card() {
@@ -19,7 +19,7 @@ card() {
     printf '  - %s\n' "$@"
     echo '---'
     printf '%s\n' "$body"
-  } > "$CLAUDE_OLLAMA_RULE_CARDS/$id.md"
+  } > "$CLAUDE_OLLAMA_RULE_CARDS_DIR/$id.md"
 }
 
 card shell "Shell scripts stay bash 3.2 compatible; run shellcheck on them." "suffix: .sh"
@@ -79,7 +79,7 @@ expect_contains "a card without a body is reported on stderr" "empty.md" "$(cat 
 expect_eq "the hook never denies" 0 "$(printf '{"session_id":"s9","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git commit"}}' | python3 "$hook" 2>/dev/null | grep -c permissionDecision)"
 
 mkdir -p "$sandbox/cards2"
-export CLAUDE_OLLAMA_RULE_CARDS="$sandbox/cards2"
+export CLAUDE_OLLAMA_RULE_CARDS_DIR="$sandbox/cards2"
 filler="$(printf 'x%.0s' $(seq 1 500))"
 card console "P $filler" "path: web/console/"
 card tsx "S $filler" "suffix: .tsx"
@@ -94,7 +94,14 @@ S $filler" "$first"
 expect_eq "the next call carries the card that did not fit" "T $filler" "$(context_for s4 Write '{"file_path": "web/console/b.tsx", "content": ""}')"
 expect_eq "--match prints nothing when no card matches" "" "$(python3 "$hook" --match Read '{"file_path": "a.rs"}')"
 
-export CLAUDE_OLLAMA_RULE_CARDS="$sandbox/cards"
+export CLAUDE_OLLAMA_RULE_CARDS_DIR="$sandbox/cards"
+export CLAUDE_OLLAMA_RULE_CARDS=0
+expect_eq "CLAUDE_OLLAMA_RULE_CARDS=0 turns the hook off" "" "$(context_for s5 Edit '{"file_path": "off.sh", "old_string": "a", "new_string": "b"}')"
+expect_eq "the switched-off hook writes no state" no "$([ -e "$CLAUDE_CONFIG_DIR/cache/rule-cards/s5.json" ] && echo yes || echo no)"
+expect_eq "--match ignores the switch" "shell" "$(python3 "$hook" --match Edit '{"file_path": "off.sh"}' 2>/dev/null)"
+expect_eq "--list ignores the switch" yes "$(python3 "$hook" --list 2>/dev/null | grep -q '^shell:' && echo yes || echo no)"
+unset CLAUDE_OLLAMA_RULE_CARDS
+expect_contains "the hook is on again without the switch" "bash 3.2" "$(context_for s5 Edit '{"file_path": "off.sh", "old_string": "a", "new_string": "b"}')"
 listed="$(python3 "$hook" --list 2>"$sandbox/list-stderr")"
 expect_eq "--list exits 1 when a card is malformed" 1 "$(python3 "$hook" --list >/dev/null 2>&1; echo $?)"
 expect_contains "--list names a malformed card on stderr" "broken.md" "$(cat "$sandbox/list-stderr")"
@@ -107,7 +114,7 @@ write: tool Write" "$listed"
 rm "$sandbox/cards/broken.md" "$sandbox/cards/empty.md"
 expect_eq "--list exits 0 with only good cards" 0 "$(python3 "$hook" --list >/dev/null 2>&1; echo $?)"
 
-unset CLAUDE_OLLAMA_RULE_CARDS
+unset CLAUDE_OLLAMA_RULE_CARDS_DIR
 export CLAUDE_CUSTOM_HOME="$repo"
 expect_eq "without the override the cards come from CLAUDE_CUSTOM_HOME" 0 "$(python3 "$hook" --list >/dev/null 2>&1; echo $?)"
 expect_contains "the repo's shell card fires on a .sh edit" "bash 3.2" "$(cat "$repo/ollama/rule-cards/$(python3 "$hook" --match Edit '{"file_path": "x.sh"}' | head -n 1).md")"

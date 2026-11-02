@@ -510,11 +510,12 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   line on stderr. `--list` prints each id with its triggers and exits 1 when one
   is malformed (`claude-ollama doctor` prints `ok   rule cards: N` or a warn
   naming the card); `--match TOOL JSON` prints the ids one call would deliver.
-  `CLAUDE_OLLAMA_RULE_CARDS` overrides the folder (default
-  `$CLAUDE_CUSTOM_HOME/ollama/rule-cards`). `bin/check-config` fails when a card
-  is malformed, two share an id, a body is over the cap, a card's line also sits
-  in `CLAUDE.local.md`, `system-prompt.md` or `PREFERENCES.md`, or an Ollama
-  profile lacks the hook. Tests: `shared/hooks/rule-cards.test.sh`,
+  `CLAUDE_OLLAMA_RULE_CARDS=0` turns the hook off (no output, no state; `--list`
+  and `--match` ignore it); `CLAUDE_OLLAMA_RULE_CARDS_DIR` overrides the folder
+  (default `$CLAUDE_CUSTOM_HOME/ollama/rule-cards`). `bin/check-config` fails
+  when a card is malformed, two share an id, a body is over the cap, a card's
+  line also sits in `CLAUDE.local.md`, `system-prompt.md` or `PREFERENCES.md`,
+  or an Ollama profile lacks the hook. Tests: `shared/hooks/rule-cards.test.sh`,
   `bin/claude-ollama.test.sh` (doctor).
 - `shared/hooks/name-nudge.py` is wired only in the Ollama profiles, as
   PreToolUse on Edit, Write and MultiEdit. It never denies: when the written
