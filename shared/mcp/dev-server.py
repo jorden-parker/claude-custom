@@ -183,8 +183,17 @@ def project_dir(arguments):
     return dir_text
 
 
+def is_walked_dir(dir_text):
+    folder = ROOT
+    for part in PurePath(dir_text).parts:
+        if part != "." and (is_skipped_folder(folder, part) or part.casefold() == "node_modules"):
+            return False
+        folder = folder / part
+    return True
+
+
 def require_app_dir(dir_text):
-    if "node_modules" in PurePath(dir_text).parts or not has_start_script(dir_text):
+    if not is_walked_dir(dir_text) or not has_start_script(dir_text):
         raise ToolError(f"{dir_text} is not an app dir (no package.json with a dev or start script); dev_status lists them")
 
 
@@ -555,7 +564,7 @@ def dev_start(arguments):
 
 
 def require_package_dir(dir_text):
-    if "node_modules" in PurePath(dir_text).parts or not (ROOT / dir_text / "package.json").is_file():
+    if not is_walked_dir(dir_text) or not (ROOT / dir_text / "package.json").is_file():
         raise ToolError(NOT_A_PACKAGE_DIR.format(dir_text))
 
 
