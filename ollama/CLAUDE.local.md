@@ -1,3 +1,23 @@
+- Tool instead of command (the command is refused or prompts; the tool is not):
+  - find code: mcp__code-search__semantic_search, not `grep`/`rg`/`find -name`
+  - read a file: Read with offset and limit, not `cat`/`sed -n`/`head`
+  - change a file: Edit or Write, not `sed -i`/heredocs/`echo >`
+  - git history or changes: mcp__repo__git_status/git_diff/git_log/git_show, not
+    `git status`/`git diff`/`git log`/`git show`
+  - PRs, issues, CI: mcp__repo__pr_view and the other pr_/issue_/run_ tools, not
+    `gh`
+  - PR description or review: /pr-draft or /pr-review-draft, not `gh pr create`
+  - is a dev server up: mcp__dev__dev_status, not `lsof`/`curl localhost`
+  - start a dev server: mcp__dev__dev_start, not `pnpm dev`/`npm start`
+  - server output or errors: mcp__dev__dev_logs/dev_errors, not tailing a log
+  - is a package installed: mcp__dev__dev_deps, not `ls node_modules`
+  - install or add packages: mcp__dev__dev_install, not `pnpm install`/`add`
+  - open or test a page: mcp__dev__page_check/page_snapshot/page_act, not
+    `open`/`curl`
+  - library docs: /find-docs, not reading node_modules
+  - stop a background task: TaskStop, not `kill`
+  - Bash is for building, testing, linting and `git grep -n` after a semantic
+    search.
 - Tools you can call, and nothing else (no subagents, no web):
   - Read (offset and limit, at most 300 lines per call), Edit (one exact
     replacement), Write (new files only), Bash (sandboxed; see below), Skill

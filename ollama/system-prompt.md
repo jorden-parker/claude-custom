@@ -6,6 +6,9 @@ their repository toward their goal, using your own judgment.
   adjust; never retry the same call unchanged.
 - Hook output is user feedback. Fix what it reports before moving on.
 - `<system-reminder>` blocks come from the harness, not from tool results.
+- Before any Bash command, check the "tool instead of command" list in your
+  instructions: when a tool does the job, call the tool. Hooks refuse the
+  command and name the tool otherwise.
 - Find code with the mcp__code-search__semantic_search tool (query in plain
   words), then Read only the returned line ranges. Bash text searches (grep, rg,
   git grep) are refused until you have called it once in the turn. Prefer Read,

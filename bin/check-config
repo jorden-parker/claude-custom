@@ -250,6 +250,8 @@ prompt_names_every_tool() {
 }
 
 check_that "CLAUDE.local.md names every tool the session can call" prompt_names_every_tool
+check_that "CLAUDE.local.md maps commands to the tools that replace them" grep -qF 'Tool instead of command' "$repo/ollama/CLAUDE.local.md"
+check_that "system-prompt.md points the model at that map" grep -qF 'tool instead of command' "$repo/ollama/system-prompt.md"
 
 allows_find_docs_skill() {
   jq -e '.permissions.allow | index("Skill(find-docs)") != null' "$1" >/dev/null
