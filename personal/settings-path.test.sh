@@ -21,12 +21,13 @@ check_eq() {
 mkdir -p "$repo/personal" "$repo/shared" "$tmp/home" "$tmp/bin"
 cp "$source_repo/personal/settings-path" "$source_repo/personal/launch" \
   "$source_repo/personal/settings.tokens.json" "$repo/personal/"
-cp "$source_repo/shared/profile-overlay" "$repo/shared/"
+cp "$source_repo/shared/profile-overlay" "$source_repo/shared/sandbox-env" "$repo/shared/"
 cat > "$tmp/bin/claude" <<'EOF'
 #!/bin/sh
 echo "ARGS: $*"
+echo "SANDBOX_CACHE=${CLAUDE_SANDBOX_CACHE_DIR-unset}"
 EOF
-chmod +x "$repo/personal/settings-path" "$repo/personal/launch" "$repo/shared/profile-overlay" "$tmp/bin/claude"
+chmod +x "$repo/personal/settings-path" "$repo/personal/launch" "$repo/shared/profile-overlay" "$repo/shared/sandbox-env" "$tmp/bin/claude"
 
 run_in_config() {
   env -i HOME="$tmp/home" XDG_CONFIG_HOME="$tmp/xdg" XDG_CACHE_HOME="$tmp/cache" PATH="$tmp/bin:$jq_dir:/usr/bin:/bin" "$@"
@@ -63,11 +64,17 @@ check_eq "an ollama profile never selects the claude-code overlay" "$shared_over
 rm -f "$config/profiles/ollama-27b.json"
 
 rm -f "$config/profiles/claude-code.json"
-check_eq "launch passes the shared overlay without a profile" "ARGS: --settings $shared_overlay -p hi" "$(run_in_config "$repo/personal/launch" -p hi 2>/dev/null)"
+check_eq "launch passes the shared overlay without a profile" "ARGS: --settings $shared_overlay -p hi" "$(run_in_config "$repo/personal/launch" -p hi 2>/dev/null | head -n 1)"
+check_eq "launch runs claude in the sandbox env when no profile turns it off" "SANDBOX_CACHE=$tmp/home/.cache/claude-sandbox" "$(run_in_config "$repo/personal/launch" -p hi 2>/dev/null | tail -n 1)"
 
 printf '%s' '{"sandbox":false}' > "$config/profiles/claude-code.json"
-check_eq "launch passes the derived overlay when a profile turns the sandbox off" "ARGS: --settings $cache -p hi" "$(run_in_config "$repo/personal/launch" -p hi 2>/dev/null)"
+check_eq "launch passes the derived overlay when a profile turns the sandbox off" "ARGS: --settings $cache -p hi" "$(run_in_config "$repo/personal/launch" -p hi 2>/dev/null | head -n 1)"
 check_eq "that overlay has the sandbox off" false "$(jq '.sandbox.enabled' "$cache")"
+check_eq "a profile with sandbox false runs claude without sandbox-env" "SANDBOX_CACHE=unset" "$(run_in_config "$repo/personal/launch" -p hi 2>/dev/null | tail -n 1)"
 rm -f "$config/profiles/claude-code.json"
+
+printf '' > "$config/sandbox-off"
+check_eq "the sandbox-off file runs claude without sandbox-env" "SANDBOX_CACHE=unset" "$(run_in_config "$repo/personal/launch" -p hi 2>/dev/null | tail -n 1)"
+rm -f "$config/sandbox-off"
 
 if [ "$failures" -eq 0 ]; then echo "all passed"; else echo "$failures failed"; exit 1; fi

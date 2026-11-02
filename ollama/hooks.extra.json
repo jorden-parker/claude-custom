@@ -5,11 +5,11 @@
       "hooks": [
         {
           "type": "command",
-          "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/git-push-guard.py"
+          "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/host-env \"$CLAUDE_CUSTOM_HOME\"/shared/hooks/git-push-guard.py"
         },
         {
           "type": "command",
-          "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/dev-server-guard.py"
+          "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/host-env \"$CLAUDE_CUSTOM_HOME\"/shared/hooks/dev-server-guard.py"
         }
       ]
     },
@@ -18,7 +18,7 @@
       "hooks": [
         {
           "type": "command",
-          "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/tool-nudge.py"
+          "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/host-env \"$CLAUDE_CUSTOM_HOME\"/shared/hooks/tool-nudge.py"
         }
       ]
     }
@@ -28,7 +28,7 @@
       "hooks": [
         {
           "type": "command",
-          "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/hooks/tool-nudge.py"
+          "command": "\"$CLAUDE_CUSTOM_HOME\"/shared/host-env \"$CLAUDE_CUSTOM_HOME\"/shared/hooks/tool-nudge.py"
         }
       ]
     }

@@ -230,14 +230,14 @@ prepare_embedding() {
 
 add_mcp_server() {
   [ "$("$profile_overlay" mcp "$profile_file" "$1")" = true ] || return 0
-  servers="${servers:+$servers,}\"$1\":$2"
+  servers="${servers:+$servers,}\"$1\":{\"command\":\"$2\",\"args\":[\"python3\",\"$3\"]}"
 }
 
 mcp_config() {
   servers=""
-  add_mcp_server code-search "$(printf '{"command":"python3","args":["%s"]}' "$repo_dir/shared/mcp/code-search.py")"
-  add_mcp_server repo "$(printf '{"command":"python3","args":["%s"]}' "$repo_dir/shared/mcp/repo-tools.py")"
-  add_mcp_server dev "$(printf '{"command":"python3","args":["%s"]}' "$repo_dir/shared/mcp/dev-server.py")"
+  add_mcp_server code-search "$repo_dir/shared/host-env" "$repo_dir/shared/mcp/code-search.py"
+  add_mcp_server repo "$repo_dir/shared/host-env" "$repo_dir/shared/mcp/repo-tools.py"
+  add_mcp_server dev "$repo_dir/shared/host-env" "$repo_dir/shared/mcp/dev-server.py"
   printf '{"mcpServers":{%s}}' "$servers"
 }
 
@@ -666,7 +666,7 @@ launch_qwen() {
   write_qwen_settings
   write_qwen_context
   stop_launcher_log qwen
-  exec qwen "${launch_args[@]}" "$@"
+  exec "$repo_dir/shared/sandbox-env" qwen "${launch_args[@]}" "$@"
 }
 
 report() {
@@ -1146,4 +1146,4 @@ claude_args=(
   --tools "$(launch_tools)"
 )
 stop_launcher_log claude
-exec claude "${claude_args[@]}" "$@"
+exec "$repo_dir/shared/sandbox-env" claude "${claude_args[@]}" "$@"

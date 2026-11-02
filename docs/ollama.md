@@ -189,21 +189,24 @@ not used, so image paste does not work on them.
 ### The command sandbox
 
 Bash runs in Claude Code's own sandbox. Each `ollama/settings.<size>.json` sets
-it: writes go to the project, a temp dir and the package caches (`~/.cache`,
-`~/Library/Caches`, `~/.npm`, `~/go/pkg/mod`, the pnpm store and state folders
-and bun's cache), so `go test` and `pnpm install` work inside; only
-`~/.cache/claude-custom`, which holds the Stop hook's log, the edit-check cache
-and the machine copy of the personal overlay, stays unwritable (`denyWrite`).
-The network reaches loopback addresses (dev servers, and so Ollama's own API on
-11434), `github.com` and its subdomains, `*.githubusercontent.com`,
-`registry.npmjs.org`, `proxy.golang.org`, `sum.golang.org`, `pypi.org`,
-`files.pythonhosted.org` and `context7.com` (the `/find-docs` skill) without a
-prompt, and any other host prompts once; sandboxed commands cannot read SSH
-keys, cloud credentials, the keychain, `~/.claude`, `~/.qwen` or the console
-state folder. `GH_TOKEN`, `GITHUB_TOKEN` and `SHORTCUT_API_TOKEN` are unset for
-sandboxed commands. The profile's `env` sets `NODE_USE_ENV_PROXY=1`, since
-Node's `fetch` (used by `npx ctx7`) otherwise ignores the sandbox proxy. Hooks
-and the MCP servers run outside the sandbox with your own environment. Sandboxed
+it: writes go to the project, a temp dir and `~/.cache/claude-sandbox`; the
+network reaches loopback addresses (dev servers, and so Ollama's own API on
+11434), `github.com`, `registry.npmjs.org`, `proxy.golang.org`,
+`sum.golang.org`, `pypi.org`, `files.pythonhosted.org`,
+`objects.githubusercontent.com`, `codeload.github.com` and `context7.com` (the
+`/find-docs` skill), and any other host prompts first; sandboxed commands cannot
+read SSH keys, cloud credentials, the keychain, `~/.claude`, `~/.qwen` or the
+console state folder. `GH_TOKEN`, `GITHUB_TOKEN` and `SHORTCUT_API_TOKEN` are
+unset for sandboxed commands. The launcher runs `claude` through
+`shared/sandbox-env`, which points Go, npm, pnpm, pip, uv, yarn and bun at
+caches under `~/.cache/claude-sandbox`, so `go test` and `pnpm install` work
+inside the sandbox while the caches your own shell and the hooks execute from
+(`~/.npm/_npx`, `~/Library/pnpm`, `~/go/pkg/mod`, `~/.cache/claude-custom`,
+which holds the Stop hook's log and the machine copy of the personal overlay)
+stay unwritable. Hooks and the MCP servers run outside the sandbox through
+`shared/host-env`, which drops those cache variables again, so a hook's
+`go test` or `npx fallow` never executes from the sandbox's cache (a
+`GOMODCACHE` of your own is dropped with them for that one process). Sandboxed
 commands run without a prompt (`autoAllowBashIfSandboxed: true`), which is what
 lets a skill's `!` commands such as `git status` run; `git commit`, `git push`
 and `Bash(dangerouslyDisableSandbox:true)`, a retry outside the sandbox, still
@@ -232,13 +235,11 @@ What this gives up, compared with the older session sandbox:
   delete models); `claude-ollama` checks the model pins before each launch.
 - Hooks run the project's own tools (`node_modules/.bin`, the `npx fallow`
   fallback) outside the sandbox, and the session can write the project, so a
-  binary planted there runs as you. The package caches (`~/.npm/_npx`, the pnpm
-  store, `~/go/pkg/mod`) are writable too, so a hook's `npx fallow` or `go test`
-  can execute from a cache the session wrote; `~/.cache/claude-custom` stays
-  unwritable, so the Stop hook's log and the machine overlay cannot be changed
-  from inside.
-- Qwen Code's Seatbelt profile cannot prompt per host: outbound TCP is loopback
-  plus ports 443 and 80 anywhere.
+  binary planted there runs as you. That comes with running project tooling from
+  hooks; the sandbox cache folder keeps it from spreading to `~/.npm`,
+  `~/Library/pnpm` or `~/go`.
+- Qwen Code's Seatbelt profile cannot name hosts: outbound TCP is loopback plus
+  ports 443 and 80 anywhere.
 
 `bin/ollama-models` manages the installed models:
 
@@ -304,16 +305,16 @@ exported, since Qwen Code turns its sandbox off when it is set). The profile is
 `ollama/qwen-sandbox.sb`; Qwen Code looks a custom profile up only at
 `.qwen/sandbox-macos-<name>.sb` under the current folder, so each launch copies
 it to `.qwen/sandbox-macos-claude-ollama.sb` in the project and lists that path
-in `.git/info/exclude`. Inside: the project, the temp dir, `QWEN_HOME` and the
-same package caches as the Claude profiles (never `~/.cache/claude-custom`) are
-writable, `~/.ssh`, `~/.aws`, `~/.config/gh`, `~/.config/context7`, `~/.npmrc`,
-the keychain, `~/.claude`, `~/.qwen` and the console state are unreadable, and
-outbound TCP reaches loopback (Ollama, dev servers) plus ports 443 and 80
-anywhere, since Seatbelt cannot prompt per host. `GH_TOKEN`, `GITHUB_TOKEN` and
-`SHORTCUT_API_TOKEN` are unset for the launch. `gh` and `git push` fail inside
-(no keychain, no SSH): run them from your own terminal. Without `sandbox-exec`
-(Linux), the launcher says so and Qwen Code runs as you.
-`claude-ollama qwen --print-config` and `qwen doctor` report the sandbox.
+in `.git/info/exclude`. Inside: the project, the temp dir, `QWEN_HOME` and
+`~/.cache/claude-sandbox` (the launcher runs `qwen` through `shared/sandbox-env`
+too) are writable, `~/.ssh`, `~/.aws`, `~/.config/gh`, `~/.config/context7`,
+`~/.npmrc`, the keychain, `~/.claude`, `~/.qwen` and the console state are
+unreadable, and outbound TCP reaches loopback (Ollama, dev servers) plus ports
+443 and 80 anywhere. `GH_TOKEN`, `GITHUB_TOKEN` and `SHORTCUT_API_TOKEN` are
+unset for the launch. `gh` and `git push` fail inside (no keychain, no SSH): run
+them from your own terminal. Without `sandbox-exec` (Linux), the launcher says
+so and Qwen Code runs as you. `claude-ollama qwen --print-config` and
+`qwen doctor` report the sandbox.
 
 ### Dev servers and the browser
 
@@ -450,10 +451,10 @@ size's launch (every key optional):
 ```
 
 `tools` takes `default|allow|ask|deny|off` per tool: `allow` and `ask` add the
-tool to `--tools` and the settings, `off` and `deny` remove it, `default`
-leaves it. `Agent` cannot be enabled for Ollama (there is no side model). A
-`context` or `parameters` override recreates the `-cc` model at launch, as the
-Modelfile drift fix does, and `doctor` checks the same values. `env` takes only
+tool to `--tools` and the settings, `off` and `deny` remove it, `default` leaves
+it. `Agent` cannot be enabled for Ollama (there is no side model). A `context`
+or `parameters` override recreates the `-cc` model at launch, as the Modelfile
+drift fix does, and `doctor` checks the same values. `env` takes only
 `CLAUDE_OLLAMA_TELEMETRY`, `CLAUDE_OLLAMA_NO_INDEX`, `CLAUDE_OLLAMA_OPEN_DRAFTS`
 and `CLAUDE_OLLAMA_CMUX`, and a variable already set in your shell wins. A
 symlinked profile stops the launch. `claude-ollama --print-config SIZE` and

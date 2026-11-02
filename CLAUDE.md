@@ -11,9 +11,9 @@ four parts:
 - **Personal setup** (`personal/`, `project/`): loaded with `--settings` by the
   `claude` shell function, and `shared/preferences/PREFERENCES.md` is
   `@`-imported into `~/.claude/CLAUDE.md`, to cut token usage on the normal
-  Anthropic-backed `claude`; the overlay also turns Claude Code's own sandbox on
-  (the project, the temp dir and the package caches are writable; the known
-  registries need no prompt, any other host prompts once) and asks before any
+  Anthropic-backed `claude`; the overlay also turns Claude Code's own sandbox
+  on, runs `claude` through `shared/sandbox-env` (`personal/launch`), which
+  points package caches at `~/.cache/claude-sandbox`, and asks before any
   unsandboxed retry.
 - **Preference enforcement** (`shared/hooks/`, `shared/preferences/`): hooks and
   a short rules file that both the personal setup and the work harness load, so
@@ -292,12 +292,12 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `npx ctx7@0.8.2 docs`), adapted from the upstream skill pinned in
   `shared/skills/find-docs/UPSTREAM`. `bin/claude-custom install` links it into
   `~/.claude/skills/` and `claude-ollama` copies it into its session. Both
-  sandboxes allow `context7.com` and `registry.npmjs.org` (for `npx`); every
-  sandbox hides `~/.config/context7`, so lookups run anonymously unless
-  `CONTEXT7_API_KEY` is in the launcher's environment. The CLI version is pinned
-  in the skill and the prompt files; `bin/check-config` checks they agree,
-  checks the link, and that `PREFERENCES.md`, `CLAUDE.local.md` and
-  `QWEN.local.md` name the skill.
+  sandboxes allow `context7.com` (the personal one also `registry.npmjs.org`,
+  for `npx`); every sandbox hides `~/.config/context7`, so lookups run
+  anonymously unless `CONTEXT7_API_KEY` is in the launcher's environment. The
+  CLI version is pinned in the skill and the prompt files; `bin/check-config`
+  checks they agree, checks the link, and that `PREFERENCES.md`,
+  `CLAUDE.local.md` and `QWEN.local.md` name the skill.
 - `bin/pr-review-local --model M [--base-url URL] [--post] [--json] [--color auto|always|never] [--log-dir DIR] [--no-log] [--range BASE..HEAD | PR]`
   reviews a GitHub PR with a local model, or local commits with `--range` (no
   `gh`, no comments or CI, no `--post`): `gh`/`git` gather the PR (no checkout
@@ -334,8 +334,11 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   sends models to `node_modules/next/dist/docs` otherwise). The profiles allow
   `Skill(find-docs)` without a prompt; `bin/check-config` checks it.
 - All settings files (`personal/settings.tokens.json`, `ollama/settings.*.json`)
-  run hooks as `"$CLAUDE_CUSTOM_HOME"/shared/hooks/<name>`, and
-  `bin/claude-ollama` starts its MCP servers with `python3` by path
+  run hooks as
+  `"$CLAUDE_CUSTOM_HOME"/shared/host-env "$CLAUDE_CUSTOM_HOME"/shared/hooks/<name>`,
+  and `bin/claude-ollama` starts its MCP servers through `shared/host-env` too:
+  it unsets the cache variables `shared/sandbox-env` set, so nothing a hook or
+  server runs (`go test`, `npx fallow`) executes from the sandbox-writable cache
   (`bin/check-config` checks both). Hook commands go through a shell, so the
   variable expands. `personal/claude.sh` and `personal/claude.fish` pass it to
   `claude` with `env` (the rc block defines it unexported), and
@@ -356,23 +359,22 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   backstop. `bin/check-config` fails when the Ollama deny lists differ. A local
   model's weights are not trusted, so Bash runs in Claude Code's own sandbox,
   configured by the `sandbox` block in `ollama/profile-template.json` (rendered
-  per size). Sandboxed commands write the project, a temp dir and the package
-  caches (`~/.cache`, `~/Library/Caches`, `~/.npm`, `~/go/pkg/mod`, the pnpm
-  store and state folders, bun's cache), never `~/.cache/claude-custom`
-  (`denyWrite`: it holds the hooks' state and the machine copy of the personal
-  overlay), reach loopback addresses, `github.com` and its subdomains,
-  `*.githubusercontent.com`, the npm, Go and PyPI registries and `context7.com`
-  without a prompt (any other host prompts once), and cannot read credentials or
-  `~/.claude`. The profile's `env` sets `NODE_USE_ENV_PROXY=1`, since Node's
-  `fetch` (used by `npx ctx7`) otherwise ignores the sandbox's `HTTPS_PROXY` and
-  every request fails. The launcher execs `claude` and `qwen` directly; hooks
-  and MCP servers run with your own environment. `bin/check-config` asserts the
-  block's exact values, and a misspelled key is silently ignored, so the check
-  must change with the block. The profiles set `sandbox.enabled` and
-  `autoAllowBashIfSandboxed: true`, so sandboxed commands run without a prompt
-  (a skill's `!` commands included); `excludedCommands` (`cmux`, `gh`, `short`,
-  `git push`) run outside the sandbox, each after the `Bash` prompt, and
-  `permissions.ask` holds only `Bash(git commit *)`, `Bash(git push *)` and
+  per size). Sandboxed commands write the project, a temp dir and
+  `~/.cache/claude-sandbox`, reach loopback addresses, `github.com`, the npm, Go
+  and PyPI registries and GitHub downloads, and cannot read credentials or
+  `~/.claude`. The launcher execs `claude` and `qwen` through
+  `shared/sandbox-env`, which points Go, npm, pnpm, pip, uv, yarn and bun at
+  caches under that one folder, so no cache an unsandboxed process executes from
+  (`~/.npm/_npx`, `~/Library/pnpm`, `~/go/pkg/mod`, `~/.cache/claude-custom`) is
+  writable. It also sets `NODE_USE_ENV_PROXY=1`, since Node's `fetch` (used by
+  `npx ctx7`) otherwise ignores the sandbox's `HTTPS_PROXY` and every request
+  fails. `bin/check-config` asserts the block's exact values, and a misspelled
+  key is silently ignored, so the check must change with the block. The profiles
+  set `sandbox.enabled` and `autoAllowBashIfSandboxed: true`, so sandboxed
+  commands run without a prompt (a skill's `!` commands included);
+  `excludedCommands` (`cmux`, `gh`, `short`, `git push`) run outside the
+  sandbox, each after the `Bash` prompt, and `permissions.ask` holds only
+  `Bash(git commit *)`, `Bash(git push *)` and
   `Bash(dangerouslyDisableSandbox:true)`; `bin/check-config` checks both. The
   profiles also set `CLAUDE_CODE_EXTRA_BODY` to
   `{"thinking":{"type":"disabled"}}` so Ollama skips reasoning;
@@ -385,8 +387,8 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   (`Artifact`, `Workflow`, `ScheduleWakeup`, `SendFeedback` and the deferred
   ones), since a bare deny removes the tool's schema from the request;
   `bin/check-config` fails when an Ollama profile lacks one of those bare
-  denies. The personal overlay's sandbox allows the same hosts and caches;
-  `bin/check-config` checks they match the Ollama profiles.
+  denies. The personal overlay's sandbox allows the same caches and loopback
+  addresses; `bin/check-config` checks they match the Ollama profiles.
 - `bin/claude-ollama` resolves its own symlink to find `ollama/`. It unsets
   `ANTHROPIC_API_KEY`, passes `--settings ollama/settings.<size>.json`,
   `--system-prompt-file ollama/system-prompt.md` (replacing Claude Code's
@@ -565,20 +567,21 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `ollama-<size>`) layers on top through `shared/profile-overlay` (POSIX sh +
   jq): `settings` applies tool states, `sandbox:false` (claude-code only) and
   `context`; `tools`, `env`, `mcp`, `parameters`, `summary` and `check` serve
-  `bin/claude-ollama`. It refuses a symlinked profile, and `Agent` never
-  reaches an Ollama profile. `personal/settings-path` turns the sandbox off
-  when `profile-overlay sandbox-off` (the file or the profile) says so. The overlay sets `sandbox.enabled` and the ask rule
+  `bin/claude-ollama`. It refuses a symlinked profile, and `Agent` never reaches
+  an Ollama profile. The overlay sets `sandbox.enabled` and the ask rule
   `Bash(dangerouslyDisableSandbox:true)`, so every personal session (subagents
   and `--agent pr-review` included) runs Claude's shell commands inside Claude
   Code's sandbox and asks before one runs outside it; `bin/check-config` checks
-  both. It lets sandboxed commands write the package caches beyond the project
-  and the temp dir (never `~/.cache/claude-custom`), reach the known registries
-  without a prompt, and never read `~/.local/share/claude-custom` (the console
-  token). The Ollama profiles use the same sandbox with their own `sandbox`
-  block; `claude-ollama qwen` runs Qwen Code inside macOS Seatbelt
-  (`ollama/qwen-sandbox.sb`, the same caches), and the launcher unsets an outer
-  `SANDBOX`, which `advanced.excludedEnvVars` keeps a project `.env` from
-  setting.
+  both. It lets sandboxed commands write only `~/.cache/claude-sandbox` beyond
+  the project and the temp dir, reach the same hosts as the Ollama profiles, and
+  never read `~/.local/share/claude-custom` (the console token);
+  `personal/launch` runs `claude` through `shared/sandbox-env` unless
+  `profile-overlay sandbox-off` says the `sandbox-off` file or the `claude-code`
+  profile turned the sandbox off. The Ollama profiles use the same sandbox with
+  their own `sandbox` block; `claude-ollama qwen` runs Qwen Code inside macOS
+  Seatbelt (`ollama/qwen-sandbox.sb`, the same cache folder), and the launcher
+  unsets an outer `SANDBOX`, which `advanced.excludedEnvVars` keeps a project
+  `.env` from setting.
 - `go/internal/picker/` has two packages: `profiles` (`Load` reads the
   configured sizes from `ollama/`, `EmbeddingModel` the search model) and `ui`
   (the Bubble Tea model).

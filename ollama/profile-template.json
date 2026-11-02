@@ -26,8 +26,7 @@
     "CLAUDE_CODE_TOTAL_TOKENS_REMINDER": "off",
     "CLAUDE_CODE_EXTRA_BODY": "{\"thinking\":{\"type\":\"disabled\"}}",
     "CLAUDE_STREAM_IDLE_TIMEOUT_MS": "1800000",
-    "API_TIMEOUT_MS": "1800000",
-    "NODE_USE_ENV_PROXY": "1"
+    "API_TIMEOUT_MS": "1800000"
   },
   "permissions": {
     "deny": [
@@ -95,17 +94,7 @@
       "allowLocalBinding": true
     },
     "filesystem": {
-      "allowWrite": [
-        "~/.cache",
-        "~/Library/Caches",
-        "~/.npm",
-        "~/go/pkg/mod",
-        "~/Library/pnpm/store",
-        "~/.local/share/pnpm/store",
-        "~/.local/state/pnpm",
-        "~/.bun/install/cache"
-      ],
-      "denyWrite": ["~/.cache/claude-custom"],
+      "allowWrite": ["~/.cache/claude-sandbox"],
       "denyRead": [
         "~/.ssh",
         "~/.aws",

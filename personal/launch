@@ -1,4 +1,8 @@
 #!/bin/sh
 set -u
 repo_dir="$(cd "$(dirname "$0")/.." && pwd -P)"
-exec claude --settings "$("$repo_dir/personal/settings-path")" "$@"
+settings="$("$repo_dir/personal/settings-path")"
+if [ "$("$repo_dir/shared/profile-overlay" sandbox-off)" = true ]; then
+  exec claude --settings "$settings" "$@"
+fi
+exec "$repo_dir/shared/sandbox-env" claude --settings "$settings" "$@"

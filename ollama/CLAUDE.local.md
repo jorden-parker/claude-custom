@@ -25,6 +25,7 @@
   runs. It runs `npx ctx7@0.8.2 library "<name>" "<query>" | head -80`, then
   `npx ctx7@0.8.2 docs <id> "<query>" | head -80` with the ID it printed.
 - Bash runs in a sandbox without prompts: it writes this project, a temp dir and
-  the package caches (Go, npm, pnpm, pip, uv, bun), and reaches localhost,
-  GitHub, context7.com and the npm, Go and PyPI registries; other hosts prompt
-  once. `gh`, `cmux`, `short`, `git push` and `git commit` each ask first.
+  ~/.cache/claude-sandbox (where Go, npm, pnpm, pip and uv keep their caches),
+  and reaches localhost, github.com, context7.com and the npm, Go and PyPI
+  registries; other hosts prompt. `gh`, `cmux`, `short`, `git push` and
+  `git commit` each ask first.
