@@ -13,6 +13,14 @@ export type MockRun = {
   spec: MockSpec;
 };
 
+export type ReportFile = {
+  name: string;
+  modifiedAt: string;
+  problem: string | null;
+};
+
+export type MockSpikeDiagnostics = { directory: string; files: ReportFile[] };
+
 export type MockSpikeReport = {
   file: string;
   model: string;
@@ -55,6 +63,35 @@ export function listMockSpikeReports(
       const report = readReport(path.join(directory, name), name);
       return report === null ? [] : [report];
     });
+}
+
+export function mockSpikeDiagnostics(
+  directory: string = reportsDir(),
+): MockSpikeDiagnostics {
+  const files = readNames(directory)
+    .filter((name) => REPORT_PATTERN.test(name))
+    .map((name) => ({
+      name,
+      modifiedAt: new Date(
+        modifiedAt(path.join(directory, name)),
+      ).toISOString(),
+      problem: readProblem(path.join(directory, name)),
+    }));
+  return { directory, files };
+}
+
+function readProblem(file: string): string | null {
+  try {
+    const stored = JSON.parse(
+      fs.readFileSync(file, "utf8"),
+    ) as Partial<StoredReport>;
+    if (typeof stored.model !== "string") return "no model field";
+    if (!Array.isArray(stored.results)) return "no results array";
+    if (stored.results.length === 0) return "no runs recorded";
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error.message : "unreadable";
+  }
 }
 
 function readNames(directory: string): string[] {

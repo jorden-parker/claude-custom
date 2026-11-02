@@ -2,7 +2,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CONSOLE_COMMANDS, CONSOLE_QUERIES, findCommand, toolsReportArgv } from "./console-commands";
+import {
+  CONSOLE_COMMANDS,
+  CONSOLE_QUERIES,
+  findCommand,
+  toolsReportArgv,
+} from "./console-commands";
 
 describe("console commands", () => {
   let repo: string;
@@ -51,11 +56,28 @@ describe("console commands", () => {
       "qwen-doctor",
       "model-upgrade",
       "model-pin",
+      "mock-spike",
     ]);
   });
 
+  it("builds the mock-spike argv for a configured size and refuses others", () => {
+    expect(findCommand("mock-spike")?.argv({ size: "27b" }, repo)).toEqual([
+      `${repo}/bin/claude-ollama`,
+      "mock-spike",
+      "27b",
+    ]);
+    expect(findCommand("mock-spike")?.argv({ size: "9b" }, repo)).toBeNull();
+    expect(findCommand("mock-spike")?.label({ size: "27b" })).toBe(
+      "Mock spike (27b)",
+    );
+  });
+
   it("builds the doctor argv for a configured size", () => {
-    expect(doctor()?.argv({ size: "27b" }, repo)).toEqual([`${repo}/bin/claude-ollama`, "doctor", "27b"]);
+    expect(doctor()?.argv({ size: "27b" }, repo)).toEqual([
+      `${repo}/bin/claude-ollama`,
+      "doctor",
+      "27b",
+    ]);
   });
 
   it("labels doctor with its size", () => {
@@ -100,7 +122,9 @@ describe("console commands", () => {
     });
 
     it("labels review with its PR number and size", () => {
-      expect(review()?.label({ size: "27b", pr: "12" })).toBe("Review PR 12 (27b)");
+      expect(review()?.label({ size: "27b", pr: "12" })).toBe(
+        "Review PR 12 (27b)",
+      );
     });
 
     it("runs in the project folder the console was started from", () => {
@@ -108,13 +132,21 @@ describe("console commands", () => {
     });
 
     it("refuses a PR value that is not a positive number", () => {
-      for (const pr of ["0", "12abc", "--post", "https://github.com/x/y/pull/1", "feature-branch"]) {
+      for (const pr of [
+        "0",
+        "12abc",
+        "--post",
+        "https://github.com/x/y/pull/1",
+        "feature-branch",
+      ]) {
         expect(review()?.argv({ size: "27b", pr }, repo)).toBeNull();
       }
     });
 
     it("refuses an extra key such as post", () => {
-      expect(review()?.argv({ size: "27b", pr: "12", post: "1" }, repo)).toBeNull();
+      expect(
+        review()?.argv({ size: "27b", pr: "12", post: "1" }, repo),
+      ).toBeNull();
     });
 
     it("refuses a size that is not configured", () => {
@@ -127,13 +159,21 @@ describe("console commands", () => {
     });
 
     it("refuses a project folder that is not a directory", () => {
-      vi.stubEnv("CONSOLE_PROJECT_DIR", path.join(repo, "ollama", "Modelfile.27b"));
+      vi.stubEnv(
+        "CONSOLE_PROJECT_DIR",
+        path.join(repo, "ollama", "Modelfile.27b"),
+      );
       expect(review()?.argv({ size: "27b", pr: "12" }, repo)).toBeNull();
     });
   });
 
   it("builds one -set pair per assignment", () => {
-    expect(serverSet()?.argv({ assignments: "OLLAMA_KEEP_ALIVE=1h,OLLAMA_DEBUG=1" }, repo)).toEqual([
+    expect(
+      serverSet()?.argv(
+        { assignments: "OLLAMA_KEEP_ALIVE=1h,OLLAMA_DEBUG=1" },
+        repo,
+      ),
+    ).toEqual([
       agent(),
       "-set",
       "OLLAMA_KEEP_ALIVE=1h",
@@ -169,7 +209,9 @@ describe("console commands", () => {
   });
 
   it("refuses server-set with an extra key", () => {
-    expect(serverSet()?.argv({ assignments: "OLLAMA_DEBUG=1", size: "27b" }, repo)).toBeNull();
+    expect(
+      serverSet()?.argv({ assignments: "OLLAMA_DEBUG=1", size: "27b" }, repo),
+    ).toBeNull();
   });
 
   it("builds the server-apply argv with no parameters", () => {
@@ -179,57 +221,83 @@ describe("console commands", () => {
   });
 
   it("builds the speed-check argv with no parameters", () => {
-    expect(speedCheck()?.argv({}, repo)).toEqual([`${repo}/bin/claude-ollama`, "speed-check"]);
+    expect(speedCheck()?.argv({}, repo)).toEqual([
+      `${repo}/bin/claude-ollama`,
+      "speed-check",
+    ]);
     expect(speedCheck()?.label({})).toBe("Speed check");
     expect(speedCheck()?.argv({ size: "27b" }, repo)).toBeNull();
   });
 
   it("builds the thinking-check argv with no parameters", () => {
-    expect(findCommand("thinking-check")?.argv({}, repo)).toEqual([`${repo}/bin/claude-ollama`, "thinking-check"]);
+    expect(findCommand("thinking-check")?.argv({}, repo)).toEqual([
+      `${repo}/bin/claude-ollama`,
+      "thinking-check",
+    ]);
     expect(findCommand("thinking-check")?.label({})).toBe("Thinking check");
-    expect(findCommand("thinking-check")?.argv({ size: "27b" }, repo)).toBeNull();
+    expect(
+      findCommand("thinking-check")?.argv({ size: "27b" }, repo),
+    ).toBeNull();
   });
 
   it("builds the config-check argv with no parameters", () => {
-    expect(findCommand("config-check")?.argv({}, repo)).toEqual([`${repo}/bin/check-config`]);
+    expect(findCommand("config-check")?.argv({}, repo)).toEqual([
+      `${repo}/bin/check-config`,
+    ]);
     expect(findCommand("config-check")?.label({})).toBe("Config check");
     expect(findCommand("config-check")?.argv({ size: "27b" }, repo)).toBeNull();
   });
 
   it("builds the models-outdated argv with no parameters", () => {
-    expect(findCommand("models-outdated")?.argv({}, repo)).toEqual([`${repo}/bin/ollama-models`, "outdated"]);
+    expect(findCommand("models-outdated")?.argv({}, repo)).toEqual([
+      `${repo}/bin/ollama-models`,
+      "outdated",
+    ]);
     expect(findCommand("models-outdated")?.label({})).toBe("Outdated models");
-    expect(findCommand("models-outdated")?.argv({ size: "27b" }, repo)).toBeNull();
+    expect(
+      findCommand("models-outdated")?.argv({ size: "27b" }, repo),
+    ).toBeNull();
   });
 
   it("builds the model-upgrade argv for a configured size", () => {
-    expect(findCommand("model-upgrade")?.argv({ size: "27b" }, repo)).toEqual([`${repo}/bin/model-upgrade`, "27b"]);
-    expect(findCommand("model-upgrade")?.label({ size: "27b" })).toBe("Model upgrade (27b)");
-    expect(findCommand("model-upgrade")?.argv({ size: "99b" }, repo)).toBeNull();
-    expect(findCommand("model-upgrade")?.argv({ size: "27b", force: "1" }, repo)).toBeNull();
+    expect(findCommand("model-upgrade")?.argv({ size: "27b" }, repo)).toEqual([
+      `${repo}/bin/model-upgrade`,
+      "27b",
+    ]);
+    expect(findCommand("model-upgrade")?.label({ size: "27b" })).toBe(
+      "Model upgrade (27b)",
+    );
+    expect(
+      findCommand("model-upgrade")?.argv({ size: "99b" }, repo),
+    ).toBeNull();
+    expect(
+      findCommand("model-upgrade")?.argv({ size: "27b", force: "1" }, repo),
+    ).toBeNull();
   });
 
   it("builds the model-pin argv for an Ollama library model name", () => {
-    expect(findCommand("model-pin")?.argv({ name: "qwen3.6:35b-mlx" }, repo)).toEqual([
-      `${repo}/bin/ollama-models`,
-      "pin",
-      "qwen3.6:35b-mlx",
-    ]);
-    expect(findCommand("model-pin")?.label({ name: "qwen3.6:35b-mlx" })).toBe("Pin qwen3.6:35b-mlx");
-    expect(findCommand("model-pin")?.argv({ name: "qwen3-embedding" }, repo)).toEqual([
-      `${repo}/bin/ollama-models`,
-      "pin",
-      "qwen3-embedding",
-    ]);
+    expect(
+      findCommand("model-pin")?.argv({ name: "qwen3.6:35b-mlx" }, repo),
+    ).toEqual([`${repo}/bin/ollama-models`, "pin", "qwen3.6:35b-mlx"]);
+    expect(findCommand("model-pin")?.label({ name: "qwen3.6:35b-mlx" })).toBe(
+      "Pin qwen3.6:35b-mlx",
+    );
+    expect(
+      findCommand("model-pin")?.argv({ name: "qwen3-embedding" }, repo),
+    ).toEqual([`${repo}/bin/ollama-models`, "pin", "qwen3-embedding"]);
   });
 
   it("refuses a model-pin name that is not a plain library model", () => {
-    expect(findCommand("model-pin")?.argv({ name: "hf.co/a/b:c" }, repo)).toBeNull();
+    expect(
+      findCommand("model-pin")?.argv({ name: "hf.co/a/b:c" }, repo),
+    ).toBeNull();
     expect(findCommand("model-pin")?.argv({ name: "--help" }, repo)).toBeNull();
     expect(findCommand("model-pin")?.argv({ name: "a b" }, repo)).toBeNull();
     expect(findCommand("model-pin")?.argv({ name: "" }, repo)).toBeNull();
     expect(findCommand("model-pin")?.argv({}, repo)).toBeNull();
-    expect(findCommand("model-pin")?.argv({ name: "qwen3", size: "27b" }, repo)).toBeNull();
+    expect(
+      findCommand("model-pin")?.argv({ name: "qwen3", size: "27b" }, repo),
+    ).toBeNull();
   });
 
   it("builds the qwen-doctor argv for a configured size", () => {
@@ -239,13 +307,19 @@ describe("console commands", () => {
       "doctor",
       "27b",
     ]);
-    expect(findCommand("qwen-doctor")?.label({ size: "27b" })).toBe("Qwen doctor (27b)");
+    expect(findCommand("qwen-doctor")?.label({ size: "27b" })).toBe(
+      "Qwen doctor (27b)",
+    );
     expect(findCommand("qwen-doctor")?.argv({ size: "35b" }, repo)).toBeNull();
     expect(findCommand("qwen-doctor")?.argv({}, repo)).toBeNull();
   });
 
   it("builds the prepare argv for a configured size", () => {
-    expect(prepare()?.argv({ size: "27b" }, repo)).toEqual([`${repo}/bin/claude-ollama`, "prepare", "27b"]);
+    expect(prepare()?.argv({ size: "27b" }, repo)).toEqual([
+      `${repo}/bin/claude-ollama`,
+      "prepare",
+      "27b",
+    ]);
   });
 
   it("labels prepare with its size", () => {
@@ -258,7 +332,10 @@ describe("console commands", () => {
   });
 
   it("builds the prepare-embedding argv with no parameters", () => {
-    expect(prepareEmbedding()?.argv({}, repo)).toEqual([`${repo}/bin/claude-ollama`, "prepare-embedding"]);
+    expect(prepareEmbedding()?.argv({}, repo)).toEqual([
+      `${repo}/bin/claude-ollama`,
+      "prepare-embedding",
+    ]);
   });
 
   it("labels prepare-embedding", () => {
@@ -270,7 +347,9 @@ describe("console commands", () => {
   });
 
   it("builds the prune argv with --yes and --only before each name", () => {
-    expect(prune()?.argv({ names: "ollama.com/x:latest,qwen3-old:7b" }, repo)).toEqual([
+    expect(
+      prune()?.argv({ names: "ollama.com/x:latest,qwen3-old:7b" }, repo),
+    ).toEqual([
       `${repo}/bin/ollama-models`,
       "prune",
       "--yes",
@@ -294,7 +373,9 @@ describe("console commands", () => {
 
   it("refuses an empty prune list and more than 50 names", () => {
     expect(prune()?.argv({ names: "" }, repo)).toBeNull();
-    const fiftyOne = Array.from({ length: 51 }, (_, index) => `m${index}`).join(",");
+    const fiftyOne = Array.from({ length: 51 }, (_, index) => `m${index}`).join(
+      ",",
+    );
     expect(prune()?.argv({ names: fiftyOne }, repo)).toBeNull();
   });
 
@@ -303,7 +384,9 @@ describe("console commands", () => {
   });
 
   it("builds one -set per assignment with the user scope last", () => {
-    expect(toolsSet()?.argv({ assignments: "WebFetch=deny;Bash=allow,off" }, repo)).toEqual([
+    expect(
+      toolsSet()?.argv({ assignments: "WebFetch=deny;Bash=allow,off" }, repo),
+    ).toEqual([
       BIN(),
       "-set",
       "WebFetch=deny",
@@ -325,25 +408,38 @@ describe("console commands", () => {
   });
 
   it("labels tools-set with its number of changes", () => {
-    expect(toolsSet()?.label({ assignments: "Read=ask;Bash=deny" })).toBe("Tool permissions (2 changes)");
+    expect(toolsSet()?.label({ assignments: "Read=ask;Bash=deny" })).toBe(
+      "Tool permissions (2 changes)",
+    );
   });
 
   it("accepts the forty-item limit and refuses forty-one", () => {
-    const forty = Array.from({ length: 40 }, (_, index) => `Tool${index}=deny`).join(";");
+    const forty = Array.from(
+      { length: 40 },
+      (_, index) => `Tool${index}=deny`,
+    ).join(";");
     expect(toolsSet()?.argv({ assignments: forty }, repo)).not.toBeNull();
-    expect(toolsSet()?.argv({ assignments: `${forty};Extra=deny` }, repo)).toBeNull();
+    expect(
+      toolsSet()?.argv({ assignments: `${forty};Extra=deny` }, repo),
+    ).toBeNull();
   });
 
   it("refuses a name with parentheses, a scoped rule, or a name joined by a semicolon", () => {
-    expect(toolsSet()?.argv({ assignments: "Bash(git log *)=deny" }, repo)).toBeNull();
-    expect(toolsSet()?.argv({ assignments: "Bash;WebFetch=deny" }, repo)).toBeNull();
+    expect(
+      toolsSet()?.argv({ assignments: "Bash(git log *)=deny" }, repo),
+    ).toBeNull();
+    expect(
+      toolsSet()?.argv({ assignments: "Bash;WebFetch=deny" }, repo),
+    ).toBeNull();
     expect(toolsSet()?.argv({ assignments: "Bash" }, repo)).toBeNull();
   });
 
   it("refuses an unknown permission or off with deny or default", () => {
     expect(toolsSet()?.argv({ assignments: "Bash=maybe" }, repo)).toBeNull();
     expect(toolsSet()?.argv({ assignments: "Bash=deny,off" }, repo)).toBeNull();
-    expect(toolsSet()?.argv({ assignments: "Bash=default,off" }, repo)).toBeNull();
+    expect(
+      toolsSet()?.argv({ assignments: "Bash=default,off" }, repo),
+    ).toBeNull();
   });
 
   it("refuses an empty or missing assignments value", () => {
@@ -354,7 +450,12 @@ describe("console commands", () => {
   it("builds the report argv with the user scope and the override", () => {
     expect(toolsReportArgv(repo)).toEqual([BIN(), "-json", "user"]);
     vi.stubEnv("CONSOLE_TOOLS_SETTINGS", "/tmp/fixture/settings.json");
-    expect(toolsReportArgv(repo)).toEqual([BIN(), "-json", "-settings", "/tmp/fixture/settings.json"]);
+    expect(toolsReportArgv(repo)).toEqual([
+      BIN(),
+      "-json",
+      "-settings",
+      "/tmp/fixture/settings.json",
+    ]);
   });
 });
 
@@ -382,29 +483,46 @@ describe("console queries", () => {
 
   it("refuses a print-config size that is not configured", () => {
     expect(CONSOLE_QUERIES.printConfig.argv({ size: "35b" }, repo)).toBeNull();
-    expect(CONSOLE_QUERIES.printConfig.argv({ size: "27b --help" }, repo)).toBeNull();
+    expect(
+      CONSOLE_QUERIES.printConfig.argv({ size: "27b --help" }, repo),
+    ).toBeNull();
   });
 
   it("refuses print-config with an extra key or no size", () => {
-    expect(CONSOLE_QUERIES.printConfig.argv({ size: "27b", extra: "x" }, repo)).toBeNull();
+    expect(
+      CONSOLE_QUERIES.printConfig.argv({ size: "27b", extra: "x" }, repo),
+    ).toBeNull();
     expect(CONSOLE_QUERIES.printConfig.argv({}, repo)).toBeNull();
   });
 
   it("builds the logs path argv with no parameters", () => {
-    expect(CONSOLE_QUERIES.logPath.argv({}, repo)).toEqual([`${repo}/bin/claude-ollama`, "logs", "--path"]);
+    expect(CONSOLE_QUERIES.logPath.argv({}, repo)).toEqual([
+      `${repo}/bin/claude-ollama`,
+      "logs",
+      "--path",
+    ]);
   });
 
   it("refuses any parameter for the logs path query", () => {
-    expect(CONSOLE_QUERIES.logPath.argv({ path: "/etc/passwd" }, repo)).toBeNull();
+    expect(
+      CONSOLE_QUERIES.logPath.argv({ path: "/etc/passwd" }, repo),
+    ).toBeNull();
   });
 
   describe("benches", () => {
     beforeEach(() => {
-      fs.writeFileSync(path.join(repo, "ollama", "settings.27b.json"), JSON.stringify({ model: "qwen-27b" }));
+      fs.writeFileSync(
+        path.join(repo, "ollama", "settings.27b.json"),
+        JSON.stringify({ model: "qwen-27b" }),
+      );
     });
 
     const command = (name: string) => findCommand(name);
-    const messagesParams = { size: "27b", thinking: "disabled", prefix: "20000" };
+    const messagesParams = {
+      size: "27b",
+      thinking: "disabled",
+      prefix: "20000",
+    };
 
     it("builds the messages bench argv with the size's model", () => {
       expect(command("messages-bench")?.argv(messagesParams, repo)).toEqual([
@@ -419,22 +537,49 @@ describe("console queries", () => {
     });
 
     it("labels the messages bench with its choices", () => {
-      expect(command("messages-bench")?.label(messagesParams)).toBe("Messages bench 27b (disabled, 20000)");
+      expect(command("messages-bench")?.label(messagesParams)).toBe(
+        "Messages bench 27b (disabled, 20000)",
+      );
     });
 
     it("refuses a messages bench with a thinking mode or prefix outside the choices", () => {
-      expect(command("messages-bench")?.argv({ ...messagesParams, thinking: "fast" }, repo)).toBeNull();
-      expect(command("messages-bench")?.argv({ ...messagesParams, prefix: "123" }, repo)).toBeNull();
+      expect(
+        command("messages-bench")?.argv(
+          { ...messagesParams, thinking: "fast" },
+          repo,
+        ),
+      ).toBeNull();
+      expect(
+        command("messages-bench")?.argv(
+          { ...messagesParams, prefix: "123" },
+          repo,
+        ),
+      ).toBeNull();
     });
 
     it("refuses a messages bench for an unconfigured size or an extra key", () => {
-      expect(command("messages-bench")?.argv({ ...messagesParams, size: "35b" }, repo)).toBeNull();
-      expect(command("messages-bench")?.argv({ ...messagesParams, extra: "x" }, repo)).toBeNull();
+      expect(
+        command("messages-bench")?.argv(
+          { ...messagesParams, size: "35b" },
+          repo,
+        ),
+      ).toBeNull();
+      expect(
+        command("messages-bench")?.argv(
+          { ...messagesParams, extra: "x" },
+          repo,
+        ),
+      ).toBeNull();
     });
 
     it("builds the cache probe argv for a configured size", () => {
-      expect(command("cache-probe")?.argv({ size: "27b" }, repo)).toEqual([`${repo}/bin/ollama-cache-probe`, "27b"]);
-      expect(command("cache-probe")?.label({ size: "27b" })).toBe("Cache probe (27b)");
+      expect(command("cache-probe")?.argv({ size: "27b" }, repo)).toEqual([
+        `${repo}/bin/ollama-cache-probe`,
+        "27b",
+      ]);
+      expect(command("cache-probe")?.label({ size: "27b" })).toBe(
+        "Cache probe (27b)",
+      );
       expect(command("cache-probe")?.argv({ size: "35b" }, repo)).toBeNull();
     });
 
@@ -444,29 +589,54 @@ describe("console queries", () => {
         "--model",
         "qwen-27b",
       ]);
-      expect(command("review-eval")?.argv({ size: "27b", extra: "x" }, repo)).toBeNull();
+      expect(
+        command("review-eval")?.argv({ size: "27b", extra: "x" }, repo),
+      ).toBeNull();
     });
 
     it("builds the bench-off run argv from the fixed servers and models", () => {
-      expect(command("bench-off-run")?.argv({ server: "omlx-mtp", model: "qwen3.8-27b" }, repo)).toEqual([
+      expect(
+        command("bench-off-run")?.argv(
+          { server: "omlx-mtp", model: "qwen3.8-27b" },
+          repo,
+        ),
+      ).toEqual([
         `${repo}/bin/backend-bench-off`,
         "run",
         "omlx-mtp",
         "qwen3.8-27b",
       ]);
-      expect(command("bench-off-run")?.label({ server: "omlx-mtp", model: "qwen3.8-27b" })).toBe(
-        "Bench-off omlx-mtp qwen3.8-27b",
-      );
+      expect(
+        command("bench-off-run")?.label({
+          server: "omlx-mtp",
+          model: "qwen3.8-27b",
+        }),
+      ).toBe("Bench-off omlx-mtp qwen3.8-27b");
     });
 
     it("refuses a bench-off run with a server or model outside the choices", () => {
-      expect(command("bench-off-run")?.argv({ server: "lmstudio", model: "qwen3.8-27b" }, repo)).toBeNull();
-      expect(command("bench-off-run")?.argv({ server: "omlx", model: "qwen3.8-27b;ls" }, repo)).toBeNull();
+      expect(
+        command("bench-off-run")?.argv(
+          { server: "lmstudio", model: "qwen3.8-27b" },
+          repo,
+        ),
+      ).toBeNull();
+      expect(
+        command("bench-off-run")?.argv(
+          { server: "omlx", model: "qwen3.8-27b;ls" },
+          repo,
+        ),
+      ).toBeNull();
     });
 
     it("builds the bench-off report argv and refuses any params", () => {
-      expect(command("bench-off-report")?.argv({}, repo)).toEqual([`${repo}/bin/backend-bench-off`, "report"]);
-      expect(command("bench-off-report")?.argv({ extra: "x" }, repo)).toBeNull();
+      expect(command("bench-off-report")?.argv({}, repo)).toEqual([
+        `${repo}/bin/backend-bench-off`,
+        "report",
+      ]);
+      expect(
+        command("bench-off-report")?.argv({ extra: "x" }, repo),
+      ).toBeNull();
     });
   });
 });

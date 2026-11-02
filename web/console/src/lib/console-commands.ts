@@ -1,5 +1,10 @@
 import fs from "node:fs";
-import { BENCH_OFF_MODELS, BENCH_OFF_SERVERS, PREFIX_TOKENS, THINKING_MODES } from "./bench-choices";
+import {
+  BENCH_OFF_MODELS,
+  BENCH_OFF_SERVERS,
+  PREFIX_TOKENS,
+  THINKING_MODES,
+} from "./bench-choices";
 import { configuredSizes } from "./sizes";
 import { modelForSize } from "./size-models";
 import { PR_NUMBER_PATTERN } from "./pr-number";
@@ -27,15 +32,23 @@ const NAME_PATTERN = /^[A-Za-z0-9._:/-]{1,128}$/;
 const MAX_PRUNE_NAMES = 50;
 
 function isConfiguredSizeOnly(params: CommandParams, repoDir: string): boolean {
-  return hasExactKeys(params, ["size"]) && configuredSizes(repoDir).includes(params.size);
+  return (
+    hasExactKeys(params, ["size"]) &&
+    configuredSizes(repoDir).includes(params.size)
+  );
 }
 
 function isChoice(choices: readonly string[], value: string): boolean {
   return choices.includes(value);
 }
 
-function configuredModel(params: CommandParams, repoDir: string): string | null {
-  return configuredSizes(repoDir).includes(params.size) ? modelForSize(repoDir, params.size) : null;
+function configuredModel(
+  params: CommandParams,
+  repoDir: string,
+): string | null {
+  return configuredSizes(repoDir).includes(params.size)
+    ? modelForSize(repoDir, params.size)
+    : null;
 }
 
 function sizeArgv(subcommand: string) {
@@ -62,7 +75,10 @@ const prepare: ConsoleCommand = {
 const prepareEmbedding: ConsoleCommand = {
   name: "prepare-embedding",
   label: () => "Set up embedding model",
-  argv: (params, repoDir) => (hasExactKeys(params, []) ? [`${repoDir}/bin/claude-ollama`, "prepare-embedding"] : null),
+  argv: (params, repoDir) =>
+    hasExactKeys(params, [])
+      ? [`${repoDir}/bin/claude-ollama`, "prepare-embedding"]
+      : null,
 };
 
 function pruneNames(params: CommandParams): string[] | null {
@@ -71,7 +87,8 @@ function pruneNames(params: CommandParams): string[] | null {
   }
   const names = params.names.split(",");
   const valid =
-    names.length <= MAX_PRUNE_NAMES && names.every((name) => NAME_PATTERN.test(name) && !name.startsWith("-"));
+    names.length <= MAX_PRUNE_NAMES &&
+    names.every((name) => NAME_PATTERN.test(name) && !name.startsWith("-"));
   return valid ? names : null;
 }
 
@@ -86,13 +103,21 @@ const prune: ConsoleCommand = {
     if (names === null) {
       return null;
     }
-    return [`${repoDir}/bin/ollama-models`, "prune", "--yes", "--only", ...names];
+    return [
+      `${repoDir}/bin/ollama-models`,
+      "prune",
+      "--yes",
+      "--only",
+      ...names,
+    ];
   },
 };
 
 function projectDirectory(): string | undefined {
   const dir = process.env.CONSOLE_PROJECT_DIR;
-  return dir && fs.existsSync(dir) && fs.statSync(dir).isDirectory() ? dir : undefined;
+  return dir && fs.existsSync(dir) && fs.statSync(dir).isDirectory()
+    ? dir
+    : undefined;
 }
 
 const review: ConsoleCommand = {
@@ -117,59 +142,86 @@ const serverSet: ConsoleCommand = {
   name: "server-set",
   label: (params) => `Set ${params.assignments.split(",").join(", ")}`,
   argv: (params, repoDir) => {
-    const assignments = hasExactKeys(params, ["assignments"]) ? parseAssignments(params.assignments) : null;
+    const assignments = hasExactKeys(params, ["assignments"])
+      ? parseAssignments(params.assignments)
+      : null;
     if (assignments === null) {
       return null;
     }
-    return [ollamaAgentPath(repoDir), ...assignments.flatMap(({ name, value }) => ["-set", `${name}=${value}`])];
+    return [
+      ollamaAgentPath(repoDir),
+      ...assignments.flatMap(({ name, value }) => ["-set", `${name}=${value}`]),
+    ];
   },
 };
 
 const serverApply: ConsoleCommand = {
   name: "server-apply",
   label: () => "Apply server.env",
-  argv: (params, repoDir) => (hasExactKeys(params, []) ? [ollamaAgentPath(repoDir), "-apply"] : null),
+  argv: (params, repoDir) =>
+    hasExactKeys(params, []) ? [ollamaAgentPath(repoDir), "-apply"] : null,
 };
 
 const speedCheck: ConsoleCommand = {
   name: "speed-check",
   label: () => "Speed check",
-  argv: (params, repoDir) => (hasExactKeys(params, []) ? [`${repoDir}/bin/claude-ollama`, "speed-check"] : null),
+  argv: (params, repoDir) =>
+    hasExactKeys(params, [])
+      ? [`${repoDir}/bin/claude-ollama`, "speed-check"]
+      : null,
 };
 
 const thinkingCheck: ConsoleCommand = {
   name: "thinking-check",
   label: () => "Thinking check",
   argv: (params, repoDir) =>
-    hasExactKeys(params, []) ? [`${repoDir}/bin/claude-ollama`, "thinking-check"] : null,
+    hasExactKeys(params, [])
+      ? [`${repoDir}/bin/claude-ollama`, "thinking-check"]
+      : null,
 };
 
 const configCheck: ConsoleCommand = {
   name: "config-check",
   label: () => "Config check",
-  argv: (params, repoDir) => (hasExactKeys(params, []) ? [`${repoDir}/bin/check-config`] : null),
+  argv: (params, repoDir) =>
+    hasExactKeys(params, []) ? [`${repoDir}/bin/check-config`] : null,
 };
 
 const modelsOutdated: ConsoleCommand = {
   name: "models-outdated",
   label: () => "Outdated models",
-  argv: (params, repoDir) => (hasExactKeys(params, []) ? [`${repoDir}/bin/ollama-models`, "outdated"] : null),
+  argv: (params, repoDir) =>
+    hasExactKeys(params, [])
+      ? [`${repoDir}/bin/ollama-models`, "outdated"]
+      : null,
 };
 
 const qwenDoctor: ConsoleCommand = {
   name: "qwen-doctor",
   label: (params) => `Qwen doctor (${params.size})`,
   argv: (params, repoDir) =>
-    isConfiguredSizeOnly(params, repoDir) ? [`${repoDir}/bin/claude-ollama`, "qwen", "doctor", params.size] : null,
+    isConfiguredSizeOnly(params, repoDir)
+      ? [`${repoDir}/bin/claude-ollama`, "qwen", "doctor", params.size]
+      : null,
 };
 
 const modelUpgrade: ConsoleCommand = {
   name: "model-upgrade",
   label: (params) => `Model upgrade (${params.size})`,
-  argv: (params, repoDir) => (isConfiguredSizeOnly(params, repoDir) ? [`${repoDir}/bin/model-upgrade`, params.size] : null),
+  argv: (params, repoDir) =>
+    isConfiguredSizeOnly(params, repoDir)
+      ? [`${repoDir}/bin/model-upgrade`, params.size]
+      : null,
 };
 
-const LIBRARY_MODEL_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}(:[A-Za-z0-9._-]{1,63})?$/;
+const mockSpike: ConsoleCommand = {
+  name: "mock-spike",
+  label: (params) => `Mock spike (${params.size})`,
+  argv: sizeArgv("mock-spike"),
+};
+
+const LIBRARY_MODEL_PATTERN =
+  /^[a-z0-9][a-z0-9._-]{0,63}(:[A-Za-z0-9._-]{1,63})?$/;
 
 const modelPin: ConsoleCommand = {
   name: "model-pin",
@@ -200,24 +252,33 @@ export const CONSOLE_QUERIES = {
 } satisfies Record<string, ConsoleQuery>;
 
 const ASSIGNMENT_LIMIT = 40;
-const ASSIGNMENT_PATTERN = /^[A-Za-z][A-Za-z0-9]{0,63}=(default|deny|(allow|ask)(,off)?)$/;
+const ASSIGNMENT_PATTERN =
+  /^[A-Za-z][A-Za-z0-9]{0,63}=(default|deny|(allow|ask)(,off)?)$/;
 
 const toolsSet: ConsoleCommand = {
   name: "tools-set",
-  label: (params) => `Tool permissions (${assignmentsOf(params.assignments)?.length ?? 0} changes)`,
+  label: (params) =>
+    `Tool permissions (${assignmentsOf(params.assignments)?.length ?? 0} changes)`,
   argv: (params, repoDir) => {
-    const assignments = hasExactKeys(params, ["assignments"]) ? assignmentsOf(params.assignments) : null;
+    const assignments = hasExactKeys(params, ["assignments"])
+      ? assignmentsOf(params.assignments)
+      : null;
     if (assignments === null) {
       return null;
     }
     const setFlags = assignments.flatMap((assignment) => ["-set", assignment]);
-    return [`${repoDir}/bin/claude-tools`, ...setFlags, ...toolsSettingsScope()];
+    return [
+      `${repoDir}/bin/claude-tools`,
+      ...setFlags,
+      ...toolsSettingsScope(),
+    ];
   },
 };
 
 const messagesBench: ConsoleCommand = {
   name: "messages-bench",
-  label: (params) => `Messages bench ${params.size} (${params.thinking}, ${params.prefix})`,
+  label: (params) =>
+    `Messages bench ${params.size} (${params.thinking}, ${params.prefix})`,
   argv: (params, repoDir) => {
     const model = configuredModel(params, repoDir);
     if (
@@ -274,7 +335,12 @@ const benchOffRun: ConsoleCommand = {
     ) {
       return null;
     }
-    return [`${repoDir}/bin/backend-bench-off`, "run", params.server, params.model];
+    return [
+      `${repoDir}/bin/backend-bench-off`,
+      "run",
+      params.server,
+      params.model,
+    ];
   },
 };
 
@@ -310,6 +376,7 @@ export const CONSOLE_COMMANDS: readonly ConsoleCommand[] = [
   qwenDoctor,
   modelUpgrade,
   modelPin,
+  mockSpike,
 ];
 
 export function toolsReportArgv(repoDir: string): string[] {
@@ -326,7 +393,9 @@ function assignmentsOf(text: string | undefined): string[] | null {
     return null;
   }
   const items = text.split(";");
-  const valid = items.length <= ASSIGNMENT_LIMIT && items.every((item) => ASSIGNMENT_PATTERN.test(item));
+  const valid =
+    items.length <= ASSIGNMENT_LIMIT &&
+    items.every((item) => ASSIGNMENT_PATTERN.test(item));
   return valid ? items : null;
 }
 
@@ -340,7 +409,9 @@ function ollamaAgentPath(repoDir: string): string {
 
 function hasExactKeys(params: CommandParams, keys: readonly string[]): boolean {
   const names = Object.keys(params);
-  return names.length === keys.length && keys.every((key) => names.includes(key));
+  return (
+    names.length === keys.length && keys.every((key) => names.includes(key))
+  );
 }
 
 function parseAssignments(text: string): Assignment[] | null {
@@ -348,11 +419,18 @@ function parseAssignments(text: string): Assignment[] | null {
   if (parts.length > MAX_ASSIGNMENTS) {
     return null;
   }
-  const assignments = parts.map(splitAssignment).filter((item): item is Assignment => item !== null);
-  if (assignments.length !== parts.length || new Set(assignments.map(({ name }) => name)).size !== parts.length) {
+  const assignments = parts
+    .map(splitAssignment)
+    .filter((item): item is Assignment => item !== null);
+  if (
+    assignments.length !== parts.length ||
+    new Set(assignments.map(({ name }) => name)).size !== parts.length
+  ) {
     return null;
   }
-  return assignments.every(({ name, value }) => validServerValue(name, value)) ? assignments : null;
+  return assignments.every(({ name, value }) => validServerValue(name, value))
+    ? assignments
+    : null;
 }
 
 function splitAssignment(part: string): Assignment | null {

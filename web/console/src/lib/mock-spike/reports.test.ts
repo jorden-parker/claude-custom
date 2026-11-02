@@ -2,7 +2,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { listMockSpikeReports, specFromReply } from "./reports.ts";
+import {
+  listMockSpikeReports,
+  mockSpikeDiagnostics,
+  specFromReply,
+} from "./reports.ts";
 
 const patches = [
   '{"op":"add","path":"/root","value":"main"}',
@@ -63,7 +67,37 @@ describe("listMockSpikeReports", () => {
     expect(reports[0].runs[0].score.valid).toBe(true);
   });
 
+  it("describes every matching file and why it was skipped", () => {
+    fs.writeFileSync(
+      path.join(directory, "mock-spike-ok.json"),
+      JSON.stringify({
+        model: "m",
+        summary: { verdict: "sound" },
+        results: [{ brief: "b", run: 1, reply: "" }],
+      }),
+    );
+    fs.writeFileSync(
+      path.join(directory, "mock-spike-empty.json"),
+      JSON.stringify({ model: "m", results: [] }),
+    );
+    fs.writeFileSync(path.join(directory, "mock-spike-broken.json"), "nope");
+    const diagnostics = mockSpikeDiagnostics(directory);
+    expect(diagnostics.directory).toBe(directory);
+    expect(
+      Object.fromEntries(
+        diagnostics.files.map((file) => [file.name, file.problem]),
+      ),
+    ).toEqual({
+      "mock-spike-ok.json": null,
+      "mock-spike-empty.json": "no runs recorded",
+      "mock-spike-broken.json": expect.stringContaining("JSON"),
+    });
+  });
+
   it("returns nothing for a missing folder", () => {
     expect(listMockSpikeReports(path.join(directory, "missing"))).toEqual([]);
+    expect(mockSpikeDiagnostics(path.join(directory, "missing")).files).toEqual(
+      [],
+    );
   });
 });
