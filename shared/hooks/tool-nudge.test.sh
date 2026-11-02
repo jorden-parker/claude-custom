@@ -82,6 +82,7 @@ pre mcp__code-search__semantic_search >/dev/null
 node_modules_deny="$(pre Bash 'grep -rn useActionState node_modules/next/dist')"
 expect_eq "a search inside node_modules is denied before find-docs" yes "$(mentions "$node_modules_deny" '^deny: ')"
 expect_eq "the node_modules deny names find-docs" yes "$(mentions "$node_modules_deny" 'find-docs')"
+expect_eq "the node_modules deny names dev_deps for install checks" yes "$(mentions "$node_modules_deny" 'mcp__dev__dev_deps')"
 expect_eq "reading node_modules docs with cat is denied" yes "$(denied 'cat node_modules/next/dist/docs/index.md')"
 expect_eq "listing node_modules is denied" yes "$(denied 'ls node_modules/next/dist/docs')"
 expect_eq "find in node_modules is denied" yes "$(denied 'find node_modules/next -type f')"
