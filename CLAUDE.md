@@ -393,6 +393,13 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `node_modules/<name>/package.json` is an install check, not docs, and always
   passes. The profiles allow `Skill(find-docs)` without a prompt;
   `bin/check-config` checks it.
+- `shared/hooks/name-nudge.py` is wired only in the Ollama profiles, as
+  PreToolUse on Edit, Write and MultiEdit. It never denies: when the written
+  text declares a placeholder name (`tmp`, `data2`, `obj`, `handleStuff`, a
+  `Helper`/`Utils` suffix) or a Write names a code file that way (`utils.ts`,
+  `misc.py`), it returns one `additionalContext` line asking for a name that
+  says what the thing holds or does. Only code files count (by suffix, or a
+  shebang for an extensionless one). Tests: `shared/hooks/name-nudge.test.sh`.
 - `shared/hooks/context-budget.py` and `shared/hooks/handoff-relaunch.py`
   (Ollama-only, in `ollama/hooks.extra.json`) chain short sessions through
   `/handoff` instead of letting the small model compact. The first is a
