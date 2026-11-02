@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { Suspense, type ReactNode } from "react";
 import { ConsoleNav } from "@/components/console-nav";
 import {
   Sidebar,
@@ -11,7 +11,9 @@ export function ConsoleShell({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <SidebarProvider>
       <Sidebar collapsible="icon">
-        <ConsoleNav />
+        <Suspense>
+          <ConsoleNav />
+        </Suspense>
       </Sidebar>
       <SidebarInset>
         <header className="flex h-12 items-center gap-2 border-b px-4">
