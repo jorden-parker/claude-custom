@@ -435,7 +435,29 @@ it calls no model. The first run installs and builds `web/console` with pnpm
 missing). `/fetch-domains` edits the web fetch hosts file
 (`~/.config/claude-custom/fetch-domains`): it toggles suggested docs sites and
 adds hosts, checked with the launcher's hostname pattern, and each save takes
-effect at the next launch; its saves also appear in `/history`. `/history` lists
+effect at the next launch; its saves also appear in `/history`. A per-size
+profile, `~/.config/claude-custom/profiles/ollama-<size>.json`, overrides that
+size's launch (every key optional):
+
+```json
+{
+  "tools": { "WebFetch": "allow", "Glob": "off" },
+  "context": 65536,
+  "parameters": { "temperature": 0.6 },
+  "mcp": { "dev": false },
+  "env": { "CLAUDE_OLLAMA_TELEMETRY": "0" }
+}
+```
+
+`tools` takes `default|allow|ask|deny|off` per tool: `allow` and `ask` add the
+tool to `--tools` and the settings, `off` and `deny` remove it, `default`
+leaves it. `Agent` cannot be enabled for Ollama (there is no side model). A
+`context` or `parameters` override recreates the `-cc` model at launch, as the
+Modelfile drift fix does, and `doctor` checks the same values. `env` takes only
+`CLAUDE_OLLAMA_TELEMETRY`, `CLAUDE_OLLAMA_NO_INDEX`, `CLAUDE_OLLAMA_OPEN_DRAFTS`
+and `CLAUDE_OLLAMA_CMUX`, and a variable already set in your shell wins. A
+symlinked profile stops the launch. `claude-ollama --print-config SIZE` and
+`doctor` show the profile path and the overrides in effect. `/history` lists
 every settings and LaunchAgent change, with a diff and a Restore button;
 recording is on by default and `CLAUDE_CUSTOM_HISTORY=off` turns it off. While
 it runs, the command writes the page URL to `.web-url` in the log directory and

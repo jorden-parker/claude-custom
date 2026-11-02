@@ -1,0 +1,177 @@
+#!/bin/sh
+set -u
+
+env_allowlist="CLAUDE_OLLAMA_TELEMETRY CLAUDE_OLLAMA_NO_INDEX CLAUDE_OLLAMA_OPEN_DRAFTS CLAUDE_OLLAMA_CMUX"
+
+fail() {
+  echo "profile-overlay: $1" >&2
+  exit 1
+}
+
+usage() {
+  echo "usage: profile-overlay settings BASE PROFILE OUT | tools BASE_LIST PROFILE | env PROFILE | mcp PROFILE NAME | parameters PROFILE < LINES | sandbox-off | summary PROFILE | check PROFILE" >&2
+  exit 2
+}
+
+read_profile() {
+  if [ -L "$1" ]; then
+    fail "$1 is a symlink; edit the file it points to instead"
+  fi
+  if [ ! -e "$1" ]; then
+    echo '{}'
+    return 0
+  fi
+  jq -ce 'if type == "object" then . else error("not an object") end' "$1" 2>/dev/null ||
+    fail "$1 is not a JSON object"
+}
+
+profile_id() {
+  profile_name="${1##*/}"
+  echo "${profile_name%.json}"
+}
+
+is_set() {
+  eval "[ \"\${$1+set}\" = set ]"
+}
+
+write_settings() {
+  settings_base="$1"
+  settings_profile_path="$2"
+  settings_out="$3"
+  profile="$(read_profile "$settings_profile_path")" || exit 1
+  claude=false
+  [ "$(profile_id "$settings_profile_path")" = claude-code ] && claude=true
+  settings_tmp="$settings_out.$$.tmp"
+  if (umask 077 && jq --argjson profile "$profile" --argjson claude "$claude" '
+    def clear_rule($name):
+      .permissions.allow = ((.permissions.allow // []) - [$name])
+      | .permissions.ask = ((.permissions.ask // []) - [$name])
+      | .permissions.deny = ((.permissions.deny // []) - [$name]);
+    def add_rule($name; $state):
+      if $state == "allow" then .permissions.allow += [$name]
+      elif $state == "ask" then .permissions.ask += [$name]
+      elif $state == "deny" or $state == "off" then .permissions.deny += [$name]
+      else . end;
+    ($profile.tools // {} | to_entries
+      | map(select(.value != "default" and (.key != "Agent" or $claude)))) as $tools
+    | reduce $tools[] as $tool (.; clear_rule($tool.key) | add_rule($tool.key; $tool.value))
+    | if ($claude and ($profile.sandbox == false)) then .sandbox.enabled = false else . end
+    | if ($profile | has("context")) then .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS = ($profile.context | tostring) else . end
+  ' "$settings_base" > "$settings_tmp"); then
+    mv -f "$settings_tmp" "$settings_out"
+  else
+    rm -f "$settings_tmp"
+    fail "could not write $settings_out"
+  fi
+}
+
+tools_list() {
+  profile="$(read_profile "$2")" || exit 1
+  jq -rn --arg base "$1" --argjson profile "$profile" '
+    ($base | split(",") | map(select(. != ""))) as $list
+    | reduce ($profile.tools // {} | to_entries[]) as $tool ($list;
+        if $tool.key == "Agent" then .
+        elif $tool.value == "allow" or $tool.value == "ask" then
+          (if index($tool.key) == null then . + [$tool.key] else . end)
+        elif $tool.value == "off" or $tool.value == "deny" then map(select(. != $tool.key))
+        else . end)
+    | join(",")
+  '
+}
+
+print_env() {
+  profile="$(read_profile "$1")" || exit 1
+  printf '%s\n' "$profile" | jq -r --arg allowed "$env_allowlist" '
+    (.env // {}) | to_entries[]
+    | select(.key as $key | ($allowed | split(" ") | index($key)) != null)
+    | "\(.key)=\(.value | tostring | @sh)"
+  ' | while IFS= read -r assignment; do
+    if ! is_set "${assignment%%=*}"; then
+      echo "export $assignment"
+    fi
+  done
+}
+
+mcp_enabled() {
+  profile="$(read_profile "$1")" || exit 1
+  printf '%s\n' "$profile" | jq -r --arg name "$2" 'if .mcp[$name] == false then "false" else "true" end'
+}
+
+merge_parameters() {
+  profile="$(read_profile "$1")" || exit 1
+  jq -Rrn --argjson profile "$profile" '
+    ([inputs | select(length > 0) | capture("^(?<key>[^ ]+) (?<value>.+)$")]) as $base
+    | (($profile.parameters // {}) | with_entries(.value |= tostring)) as $parameters
+    | (if ($profile | has("context")) then {num_ctx: ($profile.context | tostring)} else {} end) as $context
+    | ($parameters + $context) as $overrides
+    | ($base | map(.key)) as $keys
+    | ($base | map({key, value: ($overrides[.key] // .value)}))
+      + ($overrides | to_entries | map(select(.key as $key | ($keys | index($key)) == null)))
+    | .[] | "\(.key) \(.value)"
+  '
+}
+
+sandbox_off_requested() {
+  machine_config="${XDG_CONFIG_HOME:-$HOME/.config}/claude-custom"
+  if [ -e "$machine_config/sandbox-off" ]; then
+    echo true
+    return 0
+  fi
+  profile="$(read_profile "$machine_config/profiles/claude-code.json")" || exit 1
+  printf '%s\n' "$profile" | jq -r 'if .sandbox == false then "true" else "false" end'
+}
+
+summary() {
+  profile="$(read_profile "$1")" || exit 1
+  printf '%s\n' "$profile" | jq -r '
+    [
+      (.tools // {} | to_entries[] | "tools.\(.key)=\(.value)"),
+      (if has("sandbox") then "sandbox=\(.sandbox)" else empty end),
+      (if has("context") then "context=\(.context)" else empty end),
+      (.parameters // {} | to_entries[] | "parameters.\(.key)=\(.value)"),
+      (.mcp // {} | to_entries[] | "mcp.\(.key)=\(.value)"),
+      (.env // {} | to_entries[] | "env.\(.key)=\(.value)")
+    ]
+    | if length == 0 then "none" else join(", ") end
+  '
+}
+
+[ $# -gt 0 ] || usage
+
+case "$1" in
+  settings)
+    [ $# -eq 4 ] || usage
+    write_settings "$2" "$3" "$4"
+    ;;
+  tools)
+    [ $# -eq 3 ] || usage
+    tools_list "$2" "$3"
+    ;;
+  env)
+    [ $# -eq 2 ] || usage
+    print_env "$2"
+    ;;
+  mcp)
+    [ $# -eq 3 ] || usage
+    mcp_enabled "$2" "$3"
+    ;;
+  parameters)
+    [ $# -eq 2 ] || usage
+    merge_parameters "$2"
+    ;;
+  sandbox-off)
+    [ $# -eq 1 ] || usage
+    sandbox_off_requested
+    ;;
+  summary)
+    [ $# -eq 2 ] || usage
+    summary "$2"
+    ;;
+  check)
+    [ $# -eq 2 ] || usage
+    read_profile "$2" >/dev/null
+    ;;
+  *)
+    usage
+    ;;
+esac

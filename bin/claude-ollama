@@ -19,6 +19,9 @@ qwen_home="$session_config_dir/qwen"
 append_prompt="$session_config_dir/append-prompt.md"
 fetch_domains_file="${XDG_CONFIG_HOME:-$HOME/.config}/claude-custom/fetch-domains"
 fetch_settings="$session_config_dir/fetch-settings.json"
+profile_settings="$session_config_dir/profile-settings.json"
+profiles_dir="${XDG_CONFIG_HOME:-$HOME/.config}/claude-custom/profiles"
+profile_overlay="$repo_dir/shared/profile-overlay"
 fetch_domain_pattern='^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z][a-z0-9-]*[a-z0-9]$'
 review_log_dir="${PR_REVIEW_LOG_DIR:-$HOME/.local/share/claude-custom/reviews}"
 console_state_dir="${CLAUDE_CONSOLE_STATE_DIR:-$HOME/.local/share/claude-custom/console}"
@@ -78,11 +81,11 @@ base_model() {
 }
 
 modelfile_num_ctx() {
-  sed -n 's/^PARAMETER num_ctx //p' "$profile_dir/Modelfile.$size"
+  modelfile_parameters | sed -n 's/^num_ctx //p'
 }
 
 modelfile_parameters() {
-  sed -n 's/^PARAMETER //p' "$profile_dir/Modelfile.$size"
+  sed -n 's/^PARAMETER //p' "$profile_dir/Modelfile.$size" | "$profile_overlay" parameters "$profile_file"
 }
 
 installed_parameters_match() {
@@ -106,7 +109,16 @@ refresh_parameters() {
 }
 
 profile_context_tokens() {
-  jq -r .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS "$profile_dir/settings.$size.json"
+  jq -r .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS "$(launch_settings_file)"
+}
+
+profile_summary() {
+  "$profile_overlay" summary "$profile_file"
+}
+
+load_profile() {
+  "$profile_overlay" check "$profile_file" || exit 1
+  eval "$("$profile_overlay" env "$profile_file")"
 }
 
 pinned_digest() {
@@ -197,11 +209,12 @@ ensure_model() {
   fi
   if is_gguf_base; then
     import_gguf || exit 1
-    return
+  else
+    ollama pull "$(base_model)"
+    verify_pulled "$(base_model)" || exit 1
+    ollama create "$model" -f "$profile_dir/Modelfile.$size"
   fi
-  ollama pull "$(base_model)"
-  verify_pulled "$(base_model)" || exit 1
-  ollama create "$model" -f "$profile_dir/Modelfile.$size"
+  refresh_parameters "$model"
 }
 
 ensure_embedding_model() {
@@ -215,11 +228,17 @@ prepare_embedding() {
   exec ollama pull "$embedding_model"
 }
 
+add_mcp_server() {
+  [ "$("$profile_overlay" mcp "$profile_file" "$1")" = true ] || return 0
+  servers="${servers:+$servers,}\"$1\":$2"
+}
+
 mcp_config() {
-  printf '{"mcpServers":{"code-search":{"command":"python3","args":["%s"]},"repo":{"command":"python3","args":["%s"]},"dev":{"command":"python3","args":["%s"]}}}' \
-    "$repo_dir/shared/mcp/code-search.py" \
-    "$repo_dir/shared/mcp/repo-tools.py" \
-    "$repo_dir/shared/mcp/dev-server.py"
+  servers=""
+  add_mcp_server code-search "$(printf '{"command":"python3","args":["%s"]}' "$repo_dir/shared/mcp/code-search.py")"
+  add_mcp_server repo "$(printf '{"command":"python3","args":["%s"]}' "$repo_dir/shared/mcp/repo-tools.py")"
+  add_mcp_server dev "$(printf '{"command":"python3","args":["%s"]}' "$repo_dir/shared/mcp/dev-server.py")"
+  printf '{"mcpServers":{%s}}' "$servers"
 }
 
 warm_model() {
@@ -396,12 +415,32 @@ write_fetch_settings() {
   mv -f "$target" "$fetch_settings"
 }
 
-launch_settings_file() {
+launch_base_settings() {
   if [ -n "${launch_fetch_domains:-}" ]; then echo "$fetch_settings"; else echo "$settings_file"; fi
 }
 
-launch_tools() {
+write_profile_settings() {
+  rm -f "$profile_settings"
+  [ -e "$profile_file" ] || return 0
+  "$profile_overlay" settings "$(launch_base_settings)" "$profile_file" "$profile_settings"
+}
+
+write_launch_settings() {
+  mkdir -p "$session_config_dir"
+  write_fetch_settings
+  write_profile_settings
+}
+
+launch_settings_file() {
+  if [ -e "$profile_file" ]; then echo "$profile_settings"; else launch_base_settings; fi
+}
+
+base_tools() {
   if [ -n "${launch_fetch_domains:-}" ]; then echo "$tools,WebFetch"; else echo "$tools"; fi
+}
+
+launch_tools() {
+  "$profile_overlay" tools "$(base_tools)" "$profile_file"
 }
 
 seed_session_state() {
@@ -456,6 +495,8 @@ print_config() {
   echo "max context tokens: $(profile_context_tokens)"
   echo "settings: $(launch_settings_file)"
   echo "fetch domains: $(fetch_domains_label)"
+  echo "profile: $profile_file"
+  echo "overrides: $(profile_summary)"
   echo "tools: $(launch_tools)"
   echo "command: $(claude_command)"
 }
@@ -791,6 +832,7 @@ check_browser() {
 
 doctor() {
   local status=0
+  write_launch_settings
   report ok "jq on PATH"
   check_model_present model "$model" "run claude-ollama $size to pull and create it" || status=1
   check_model_present "embedding model" "$embedding_model" "pick 'Set up embedding model' in claude-ollama" || status=1
@@ -800,6 +842,7 @@ doctor() {
   check_reachable || status=1
   check_server_env || status=1
   check_fetch_domains
+  report ok "profile $profile_file: $(profile_summary)"
   check_gh_login
   check_browser
   check_model_allowed
@@ -1043,6 +1086,8 @@ fi
 
 model="$(jq -r .model "$profile_dir/settings.$size.json")"
 settings_file="$profile_dir/settings.$size.json"
+profile_file="$profiles_dir/ollama-$size.json"
+load_profile
 
 case "$mode" in
   print-config)
@@ -1050,6 +1095,7 @@ case "$mode" in
       print_qwen_config
     else
       launch_fetch_domains="$(fetch_domains)"
+      write_launch_settings
       print_config
     fi
     exit 0 ;;
@@ -1088,7 +1134,7 @@ if [ "$harness" = qwen ]; then
   launch_qwen "$@"
 fi
 launch_fetch_domains="$(fetch_domains)"
-write_fetch_settings
+write_launch_settings
 write_append_prompt
 claude_args=(
   --settings "$(launch_settings_file)"

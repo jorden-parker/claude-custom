@@ -62,3 +62,12 @@ To turn Claude Code's sandbox off on one machine only, create an empty
 other machine keeps it on. The console's `/machine` page shows `sandbox-off`,
 edits `gh-repos` and `enabled-tools` with history, and never creates or deletes
 `sandbox-off`.
+
+Per-profile options go in `~/.config/claude-custom/profiles/<id>.json`, where
+`<id>` is `claude-code` (the personal overlay) or `ollama-<size>`. Every key is
+optional and a missing file changes nothing. `personal/settings-path` layers
+`claude-code.json` onto the machine copy after `enabled-tools` and
+`sandbox-off`, through `shared/profile-overlay settings`; `claude-ollama` layers
+its own profile onto the fetch-domains copy of the launch settings, and onto
+the `--tools` list, the MCP servers and the Modelfile parameters. See
+`docs/ollama.md` for the keys.

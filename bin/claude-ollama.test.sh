@@ -1115,6 +1115,59 @@ run_capture "$repo/bin/claude-ollama" --help
 check_that "claude-ollama help lists qwen" grep -qF -- "qwen [size] [qwen args...]: launch Qwen Code" "$sandbox/out"
 check_that "claude-ollama help lists qwen doctor" grep -qF -- "qwen doctor [size]: check qwen" "$sandbox/out"
 
+new_sandbox
+export XDG_CONFIG_HOME="$sandbox/xdg"
+profiles="$XDG_CONFIG_HOME/claude-custom/profiles"
+mkdir -p "$profiles"
+printf '%s' '{"tools":{"Glob":"allow"},"mcp":{"dev":false},"env":{"CLAUDE_OLLAMA_TELEMETRY":"0"}}' > "$profiles/ollama-27b.json"
+profile_settings="$HOME/.claude-ollama/profile-settings.json"
+run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_that "a profile adds its allowed tool to --tools" grep -qF -- "--tools Bash,Read,Edit,Write,Skill,TaskStop,Glob -p hi" "$sandbox/out"
+check_that "a profile launches the settings it derives" grep -qF -- "--settings $profile_settings" "$sandbox/out"
+check_that "the derived settings allow the tool" jq -e '.permissions.allow | index("Glob") != null' "$profile_settings"
+check_that "the derived settings keep the profile model" jq -e '.model == "qwen3.8-27b-cc"' "$profile_settings"
+check_not "a disabled MCP server drops out of --mcp-config" grep -qF '"dev":{' "$sandbox/out"
+check_that "enabled MCP servers stay in --mcp-config" grep -qF '"repo":{' "$sandbox/out"
+check_eq "a profile env value applies before the launch" unset "$(cat "$sandbox/telemetry-env")"
+
+new_sandbox
+export XDG_CONFIG_HOME="$sandbox/xdg"
+profiles="$XDG_CONFIG_HOME/claude-custom/profiles"
+mkdir -p "$profiles"
+profile_settings="$HOME/.claude-ollama/profile-settings.json"
+printf '%s' '{"context":32768}' > "$profiles/ollama-27b.json"
+run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_that "a context override recreates the model with its num_ctx" grep -qxF "modelfile: PARAMETER num_ctx 32768" "$sandbox/ollama.log"
+check_that "the recreated model builds on the installed one" grep -qxF "modelfile: FROM qwen3.8-27b-cc" "$sandbox/ollama.log"
+check_that "claude-ollama says it recreates with the merged parameters" grep -qF "recreating qwen3.8-27b-cc with num_ctx 32768 temperature 0.7 top_k 20 top_p 0.8" "$sandbox/err"
+check_eq "the derived settings carry the override context" 32768 "$(jq -r '.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS' "$profile_settings")"
+check_that "the launch uses the derived settings" grep -qF -- "--settings $profile_settings" "$sandbox/out"
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2" run_capture "$repo/bin/claude-ollama" doctor 27b
+check_eq "doctor with a context override exits 0" 0 "$?"
+check_that "doctor agrees with the override context" grep -qxF "ok   num_ctx 32768 matches CLAUDE_CODE_MAX_CONTEXT_TOKENS" "$sandbox/out"
+
+new_sandbox
+export XDG_CONFIG_HOME="$sandbox/xdg"
+profiles="$XDG_CONFIG_HOME/claude-custom/profiles"
+mkdir -p "$profiles"
+printf '%s' '{"tools":{"Glob":"allow"},"mcp":{"dev":false},"env":{"CLAUDE_OLLAMA_TELEMETRY":"0"}}' > "$profiles/ollama-27b.json"
+run_capture "$repo/bin/claude-ollama" --print-config 27b
+check_that "print-config shows the profile path" grep -qxF "profile: $profiles/ollama-27b.json" "$sandbox/out"
+check_that "print-config shows the overrides in effect" grep -qxF "overrides: tools.Glob=allow, mcp.dev=false, env.CLAUDE_OLLAMA_TELEMETRY=0" "$sandbox/out"
+check_that "print-config shows the profile tools" grep -qxF "tools: Bash,Read,Edit,Write,Skill,TaskStop,Glob" "$sandbox/out"
+check_not "print-config shows no dev server with dev disabled" grep -qF '"dev":{' "$sandbox/out"
+
+new_sandbox
+export XDG_CONFIG_HOME="$sandbox/xdg"
+profiles="$XDG_CONFIG_HOME/claude-custom/profiles"
+mkdir -p "$profiles"
+printf '{}' > "$sandbox/elsewhere.json"
+ln -s "$sandbox/elsewhere.json" "$profiles/ollama-27b.json"
+run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_eq "a symlinked profile stops the launch" 1 "$?"
+check_that "a symlinked profile says it is a symlink" grep -qF "is a symlink" "$sandbox/err"
+check_not "a symlinked profile launches nothing" grep -q '^ARGS:' "$sandbox/out"
+
 if [ "$failures" -eq 0 ]; then
   echo "all passed"
 else
