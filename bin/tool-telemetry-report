@@ -3,10 +3,12 @@ import json
 import os
 import statistics
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import datetime
 
 TOP_CALLS = 5
+LINT_MIN_DENIALS = 30
+LINT_TRIPS_PER_100 = 20
 
 
 def log_path_from(arguments, environment):
@@ -98,6 +100,46 @@ def print_friction(frictions):
     print(f"cache hits: {len(cache_hits)}, bytes saved: {sum(hit['saved_bytes'] for hit in cache_hits)}")
 
 
+def guard_rows(denials, trips):
+    denials_by_hook = defaultdict(list)
+    for denial in denials:
+        denials_by_hook[denial.get("hook", "unknown")].append(denial)
+    trips_by_hook = dict(trip_rows(trips))
+    hooks = sorted(set(denials_by_hook) | set(trips_by_hook), key=lambda hook: -len(denials_by_hook[hook]))
+    return [(hook, denials_by_hook[hook], trips_by_hook.get(hook, 0)) for hook in hooks]
+
+
+def trips_per_100(denial_count, trip_count):
+    return round(100 * trip_count / denial_count) if denial_count else None
+
+
+def most_common_reason(hook_denials):
+    return Counter(denial.get("reason", "") for denial in hook_denials).most_common(1)[0][0]
+
+
+def lint_lines(rows):
+    lines = []
+    for hook, hook_denials, trip_count in rows:
+        rate = trips_per_100(len(hook_denials), trip_count)
+        if len(hook_denials) >= LINT_MIN_DENIALS and rate > LINT_TRIPS_PER_100:
+            lines.append(f"lint: {hook}: message unclear or rule too strict: {most_common_reason(hook_denials)}")
+    return lines or ["lint: none flagged"]
+
+
+def print_guards(denials, trips):
+    print()
+    rows = guard_rows(denials, trips)
+    if not rows:
+        print("guards: none")
+        return
+    print("guards")
+    print(f"{'hook':<20}{'denials':>8}{'trips':>7}{'per100':>8}")
+    for hook, hook_denials, trip_count in rows:
+        rate = trips_per_100(len(hook_denials), trip_count)
+        print(f"{hook:<20}{len(hook_denials):>8}{trip_count:>7}{'-' if rate is None else rate:>8}")
+    print("\n".join(lint_lines(rows)))
+
+
 def main():
     path = log_path_from(sys.argv[1:], os.environ)
     if not path:
@@ -112,7 +154,9 @@ def main():
     print_tool_table(calls)
     print_largest_calls(calls)
     print_denials(denials)
-    print_friction([record for record in records if record.get("kind") == "friction"])
+    frictions = [record for record in records if record.get("kind") == "friction"]
+    print_friction(frictions)
+    print_guards(denials, [line for line in frictions if "saved_bytes" not in line])
 
 
 main()

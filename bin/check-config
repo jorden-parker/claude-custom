@@ -334,6 +334,38 @@ for settings in "$repo"/ollama/settings.*.json; do
   check_that "${settings##*/} runs incident-note.py on each prompt" notes_incidents "$settings"
 done
 
+recipe_problems() {
+  python3 - "$repo" <<'PYTHON'
+import json
+import re
+import sys
+from pathlib import Path
+
+repo = Path(sys.argv[1])
+for recipe_file in sorted((repo / "ollama" / "recipes").glob("*.json")):
+    hook = recipe_file.stem
+    if not (repo / "shared" / "hooks" / f"{hook}.py").is_file():
+        print(f"{recipe_file.name}: no hook shared/hooks/{hook}.py")
+    recipes = json.loads(recipe_file.read_text())
+    if not isinstance(recipes, list) or not recipes:
+        print(f"{recipe_file.name}: must be a non-empty list")
+        continue
+    for index, recipe in enumerate(recipes):
+        try:
+            re.compile(recipe["match"])
+        except (KeyError, TypeError, re.error) as error:
+            print(f"{recipe_file.name}[{index}]: match does not compile ({error})")
+        steps = recipe.get("steps")
+        if not isinstance(steps, list) or not steps or len(steps) > 3 or any(not isinstance(step, str) or not step.strip() for step in steps):
+            print(f"{recipe_file.name}[{index}]: steps must be one to three non-empty strings")
+PYTHON
+}
+
+check_eq "every recovery recipe names a hook, compiles its match and lists one to three steps" "" "$(recipe_problems)"
+for hook in bash-output-guard read-range-guard tool-nudge tdd-guard; do
+  check_that "ollama/recipes/$hook.json exists for the guard that uses it" test -f "$repo/ollama/recipes/$hook.json"
+done
+
 check_eq "tool-telemetry counts the same line limit that bash-output-trim applies" \
   "$(sed -n 's/^MAX_LINES = //p' "$repo/shared/hooks/bash-output-trim.py")" \
   "$(sed -n 's/^TRIM_LINE_LIMIT = //p' "$repo/shared/hooks/tool-telemetry.py")"

@@ -1226,6 +1226,26 @@ check_classifier() {
   fi
 }
 
+check_guards() {
+  local log lint
+  log="$(telemetry_log_path)"
+  if [ -z "$log" ] || [ ! -f "$log" ]; then
+    report ok "guards: not checked (no telemetry log)"
+    return 0
+  fi
+  if ! lint="$("$repo_dir/bin/tool-telemetry-report" "$log" 2>/dev/null | sed -n 's/^lint: //p')" || [ -z "$lint" ]; then
+    report warn "guards: not checked (tool-telemetry-report failed on $log)"
+    return 0
+  fi
+  if [ "$lint" = "none flagged" ]; then
+    report ok "guards: none flagged"
+    return 0
+  fi
+  while IFS= read -r line; do
+    report warn "guards: $line"
+  done <<< "$lint"
+}
+
 report_lease() {
   local state holder_name holder_pid holder_model
   read -r state holder_name _ holder_pid _ holder_model _ <<< "$1"
@@ -1259,6 +1279,7 @@ doctor() {
   check_reachable || status=1
   check_server_env || status=1
   check_classifier || status=1
+  check_guards
   check_beacon
   check_fetch_domains
   report ok "profile $profile_file: $(profile_summary)"

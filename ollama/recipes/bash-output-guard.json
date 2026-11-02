@@ -1,0 +1,26 @@
+[
+  {
+    "match": "git log",
+    "steps": [
+      "call mcp__repo__git_log (it is bounded) when the session has it",
+      "else run git log --oneline -n 20",
+      "open one commit with mcp__repo__git_show, never the whole log"
+    ]
+  },
+  {
+    "match": "Lockfiles",
+    "steps": [
+      "Grep the lockfile for the package name with -n",
+      "Read only those lines with offset and limit",
+      "for the installed version call mcp__dev__dev_deps instead"
+    ]
+  },
+  {
+    "match": "Recursive ls",
+    "steps": [
+      "run find . -maxdepth 2 -not -path '*/node_modules/*'",
+      "use Glob with one pattern for the files you need",
+      "narrow to the folder you care about before listing"
+    ]
+  }
+]

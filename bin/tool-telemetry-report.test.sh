@@ -50,12 +50,34 @@ check "cache hits and bytes saved are summed" \
   grep -qxF 'cache hits: 2, bytes saved: 1500' <<<"$output"
 check "friction lines are not counted as denials" \
   grep -Eq '^bash-output-guard +2 +ls -R is unbounded$' <<<"$output"
+check "the guards table counts denials and trips per hook with trips per 100 denials" \
+  grep -Eq '^bash-output-guard +2 +2 +100$' <<<"$output"
+check "a hook with trips and no denials shows no rate" \
+  grep -Eq '^tool-nudge +0 +1 +-$' <<<"$output"
+check "cache hits are not guard trips" test "$(grep -c '^repeat-call-cache' <<<"$output")" -eq 0
+check "a hook under 30 denials is never flagged" \
+  grep -qxF 'lint: none flagged' <<<"$output"
+strict_log="$sandbox/strict.log"
+{
+  for _ in $(seq 25); do echo '{"time":1781870400,"session":"c","kind":"deny","hook":"read-range-guard","tool":"Read","reason":"a.py has 900 lines"}'; done
+  for _ in $(seq 10); do echo '{"time":1781870400,"session":"c","kind":"deny","hook":"read-range-guard","tool":"Read","reason":"b.py has 500 lines"}'; done
+  for _ in $(seq 8); do echo '{"time":1781870400,"session":"c","kind":"friction","hook":"read-range-guard","tool":"Read","reason":"plan reset after 4 near-identical Read denials","fingerprint":"aa"}'; done
+  for _ in $(seq 40); do echo '{"time":1781870400,"session":"c","kind":"deny","hook":"tool-nudge","tool":"Bash","reason":"Text search refused"}'; done
+  for _ in $(seq 5); do echo '{"time":1781870400,"session":"c","kind":"friction","hook":"tool-nudge","tool":"Bash","reason":"plan reset after 4 near-identical Bash denials","fingerprint":"bb"}'; done
+} >"$strict_log"
+strict_output="$("$report" "$strict_log")"
+check "trips per 100 denials is rounded" grep -Eq '^read-range-guard +35 +8 +23$' <<<"$strict_output"
+check "a hook over 20 trips per 100 denials with 30 or more denials is flagged with its most common reason" \
+  grep -qxF 'lint: read-range-guard: message unclear or rule too strict: a.py has 900 lines' <<<"$strict_output"
+check "a hook under the rate is not flagged" test "$(grep -c '^lint: tool-nudge' <<<"$strict_output")" -eq 0
 calls_only="$sandbox/calls-only.log"
 head -n 1 "$log" >"$calls_only"
 check "a log with no denials says so" \
   grep -qxF 'denials: none' <<<"$("$report" "$calls_only")"
 check "a log with no friction says so" \
   grep -qxF 'friction: none' <<<"$("$report" "$calls_only")"
+check "a log with no guard events says so" \
+  grep -qxF 'guards: none' <<<"$("$report" "$calls_only")"
 linked_log="$sandbox/linked.log"
 ln -s "$log" "$linked_log"
 linked_output="$("$report" "$linked_log" 2>"$sandbox/linked.err")"

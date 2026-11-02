@@ -58,11 +58,24 @@ expect_eq "the reset names what the model keeps trying" yes "$(mentions "$reset_
 expect_eq "the reset names the one allowed alternative" yes "$(mentions "$reset_line" 'add | head -50 or -n 20')"
 expect_eq "the reset orders the model to stop retrying" yes "$(mentions "$reset_line" 'top retrying')"
 expect_eq "a fifth call stays reset" yes "$(mentions "$(bash_deny s1 'git log src/e.py')" 'add | head -50')"
+expect_eq "the reset ends with the matching recovery recipe, numbered" yes "$(mentions "$reset_line" 'Recovery: 1. ')"
+expect_eq "the recipe names the git_log tool" yes "$(mentions "$reset_line" 'mcp__repo__git_log')"
+expect_eq "the recipe has at most three steps" no "$(mentions "$reset_line" '4. ')"
+new_turn s4
+for _ in 1 2 3; do deny_via s4 bash-output-guard "add | head -50" Bash '{"command":"foo"}' "No recipe matches this." >/dev/null; done
+unmatched_line="$(deny_via s4 bash-output-guard "add | head -50" Bash '{"command":"foo"}' "No recipe matches this.")"
+expect_eq "an unmatched reason gets the plan reset alone" yes "$(mentions "$unmatched_line" 'Stop retrying')"
+expect_eq "an unmatched reason gets no steps" no "$(mentions "$unmatched_line" 'Recovery:')"
+expect_eq "every friction guard has a recipe file" "" "$(for hook in bash-output-guard read-range-guard tool-nudge tdd-guard; do [ -f "$hooks_dir/../../ollama/recipes/$hook.json" ] || echo "$hook"; done)"
+expect_eq "numbered steps stop at three" "1. a; 2. b; 3. c" "$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import recovery_recipes; print(recovery_recipes.numbered_steps(["a", "b", "c", "d"]))' "$hooks_dir")"
+expect_eq "read-range-guard's recipe matches its reason" yes "$(mentions "$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import recovery_recipes; print(recovery_recipes.recovery_line("read-range-guard", "/p/a.py has 900 lines. Find the lines you need first"))' "$hooks_dir")" 'offset')"
+expect_eq "tool-nudge's recipe matches its search reason" yes "$(mentions "$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import recovery_recipes; print(recovery_recipes.recovery_line("tool-nudge", "Text search refused: call mcp__code-search__semantic_search first"))' "$hooks_dir")" 'semantic_search')"
+expect_eq "tool-nudge's recipe matches its docs reason" yes "$(mentions "$(python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import recovery_recipes; print(recovery_recipes.recovery_line("tool-nudge", "node_modules refused: to check whether a package is installed"))' "$hooks_dir")" 'find-docs')"
 expect_eq "a different fingerprint in the same turn is not counted" "Unbounded git log." "$(bash_deny s1 'cat package-lock.json')"
 expect_eq "another hook's denial of the same input is counted apart" "Original." \
   "$(deny_via s1 read-range-guard "pass limit 300 or less" Bash '{"command":"git log"}' "Original.")"
 
-expect_eq "each trip writes one friction telemetry line" 2 "$(grep -c '"kind": "friction"' "$CLAUDE_TOOL_TELEMETRY")"
+expect_eq "each trip writes one friction telemetry line" 3 "$(grep -c '"kind": "friction"' "$CLAUDE_TOOL_TELEMETRY")"
 expect_eq "the trip line names the hook" yes "$(mentions "$(cat "$CLAUDE_TOOL_TELEMETRY")" '"hook": "bash-output-guard"')"
 expect_eq "the trip line carries a fingerprint hash" yes "$(mentions "$(cat "$CLAUDE_TOOL_TELEMETRY")" '"fingerprint": "')"
 expect_eq "the trip line never carries the command" no "$(mentions "$(cat "$CLAUDE_TOOL_TELEMETRY")" 'git log')"
