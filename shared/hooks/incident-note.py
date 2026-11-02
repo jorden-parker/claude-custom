@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 INCIDENTS_FILE_VARIABLE = "CLAUDE_OLLAMA_INCIDENTS_FILE"
-CAUSE_ORDER = ("aborted", "evicted", "truncated", "reprefilled", "compacted", "unknown")
+CAUSE_ORDER = ("aborted", "evicted", "truncated", "reprefilled", "compacted", "relaunched", "unknown")
 
 
 def claude_config_dir():
@@ -81,6 +81,12 @@ def explanation(incident):
             f"compacted at {thousands(tokens)}"
             if has_count
             else "the context was compacted"
+        )
+    if cause == "relaunched":
+        return (
+            f"resumed from a handoff note at {thousands(tokens)}"
+            if has_count
+            else "resumed from a handoff note"
         )
     return str(incident.get("detail", ""))[:80]
 

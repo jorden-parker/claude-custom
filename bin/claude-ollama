@@ -15,9 +15,13 @@ ollama_agent="${CLAUDE_OLLAMA_AGENT:-$repo_dir/bin/ollama-agent}"
 gguf_inspect="${CLAUDE_OLLAMA_GGUF_INSPECT:-$repo_dir/bin/gguf-inspect}"
 session_config_dir="$HOME/.claude-ollama"
 drafts_dir="$session_config_dir/drafts"
-relaunch_dir="$session_config_dir/relaunch"
+relaunch_root="$session_config_dir/relaunch"
+relaunch_dir="$relaunch_root/$$"
 claude_pid=""
 relaunch_args=()
+relaunch_note=""
+relaunch_prompt=""
+relaunch_percent=""
 qwen_home="$session_config_dir/qwen"
 append_prompt="$session_config_dir/append-prompt.md"
 fetch_domains_file="${XDG_CONFIG_HOME:-$HOME/.config}/claude-custom/fetch-domains"
@@ -523,11 +527,55 @@ write_append_prompt() {
   return 0
 }
 
+remove_stale_relaunch_dirs() {
+  local dir pid
+  for dir in "$relaunch_root"/*/; do
+    [ -d "$dir" ] || continue
+    pid="${dir%/}"
+    pid="${pid##*/}"
+    case "$pid" in ''|*[!0-9]*|"$$") continue ;; esac
+    kill -0 "$pid" 2>/dev/null || rm -rf "$dir"
+  done
+}
+
+remove_relaunch_dir() {
+  rm -rf "$relaunch_dir"
+}
+
 prepare_relaunch_dir() {
   (umask 077; mkdir -p "$relaunch_dir")
-  chmod 700 "$relaunch_dir"
+  chmod 700 "$relaunch_root" "$relaunch_dir"
   rm -f "$relaunch_dir/relaunch"
+  trap remove_relaunch_dir EXIT
+  remove_stale_relaunch_dirs
   export CLAUDE_OLLAMA_RELAUNCH_DIR="$relaunch_dir"
+}
+
+read_relaunch_sentinel() {
+  local sentinel="$relaunch_dir/relaunch"
+  relaunch_note="$(jq -r '.note // empty' "$sentinel" 2>/dev/null)"
+  relaunch_prompt="$(jq -r '.prompt // empty' "$sentinel" 2>/dev/null)"
+  relaunch_percent="$(jq -r '.percent // empty' "$sentinel" 2>/dev/null)"
+  rm -f "$sentinel"
+}
+
+relaunch_tokens() {
+  [ -n "$relaunch_percent" ] || { echo null; return; }
+  jq -n --arg percent "$relaunch_percent" --arg context "$(profile_context_tokens)" \
+    '(($percent | tonumber) * ($context | tonumber) / 100) | floor' 2>/dev/null || echo null
+}
+
+record_relaunch_incident() {
+  local file="${CLAUDE_OLLAMA_INCIDENTS_FILE:-}"
+  [ -n "$file" ] && [ -d "${file%/*}" ] || return 0
+  (umask 077; jq -cn --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg detail "$relaunch_note" --argjson tokens "$(relaunch_tokens)" \
+    '{ts: $ts, cause: "relaunched", detail: $detail, tokens: $tokens}' >> "$file")
+}
+
+announce_relaunch() {
+  local at="${relaunch_percent:+ at $relaunch_percent%}" next="relaunching claude"
+  [ -z "$relaunch_prompt" ] || next="resuming \"$relaunch_prompt\""
+  echo "claude-ollama: context budget reached$at: handoff saved, $next" >&2
 }
 
 terminate_claude() {
@@ -569,7 +617,10 @@ set_relaunch_args() {
   if ends_with_prompt "$@"; then
     unset "relaunch_args[${#relaunch_args[@]}-1]"
   fi
-  relaunch_args+=(/handoff)
+  case "$relaunch_prompt" in
+    ''|-*) relaunch_args+=(/handoff) ;;
+    *) relaunch_args+=("/handoff $relaunch_prompt") ;;
+  esac
 }
 
 launch_claude() {
@@ -580,8 +631,9 @@ launch_claude() {
   local status=0
   run_claude "${claude_args[@]}" "$@" || status=$?
   while [ -e "$relaunch_dir/relaunch" ]; do
-    rm -f "$relaunch_dir/relaunch"
-    echo "claude-ollama: context budget reached: handoff saved, relaunching claude" >&2
+    read_relaunch_sentinel
+    announce_relaunch
+    record_relaunch_incident
     set_relaunch_args "$@"
     status=0
     run_claude "${claude_args[@]}" "${relaunch_args[@]}" || status=$?

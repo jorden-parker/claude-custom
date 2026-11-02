@@ -42,6 +42,7 @@ describe("incidentCounts", () => {
       truncated: 0,
       reprefilled: 0,
       compacted: 0,
+      relaunched: 0,
       unknown: 0,
     });
   });
@@ -58,6 +59,16 @@ describe("incidentFrame", () => {
     expect(frame.level).toBe("warn");
     expect(frame.text).toMatch(
       /^\d\d:\d\d:\d\d reprefilled prompt eval time = 9800\.00 ms \/ 61234 tokens \(61k tokens\)$/,
+    );
+  });
+
+  it("shows a relaunch as information with the note it resumed from", () => {
+    const line =
+      '{"ts": "2026-11-02T14:07:00.000Z", "cause": "relaunched", "detail": "/repo/.git/handoff/2026-11-02-1406-tests.md", "tokens": 37806}';
+    const frame = incidentFrame(parseIncident(line)!);
+    expect(frame.level).toBe("info");
+    expect(frame.text).toMatch(
+      /^\d\d:\d\d:\d\d relaunched {2}\/repo\/\.git\/handoff\/2026-11-02-1406-tests\.md \(38k tokens\)$/,
     );
   });
 

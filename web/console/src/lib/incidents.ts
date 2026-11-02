@@ -6,6 +6,7 @@ export const INCIDENT_CAUSES = [
   "truncated",
   "reprefilled",
   "compacted",
+  "relaunched",
   "unknown",
 ] as const;
 
@@ -24,6 +25,7 @@ const causeLevel: Record<IncidentCause, LogLevel> = {
   truncated: "error",
   reprefilled: "warn",
   compacted: "info",
+  relaunched: "info",
   unknown: "debug",
 };
 

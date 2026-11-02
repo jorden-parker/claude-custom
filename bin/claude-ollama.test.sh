@@ -67,7 +67,7 @@ new_sandbox() {
   unset ZDOTDIR XDG_CONFIG_HOME CLAUDE_CONFIG_DIR STUB_OLLAMA_SHOW_EXIT STUB_OLLAMA_PULL_EXIT
   unset STUB_OLLAMA_PID STUB_OLLAMA_ENV STUB_CURL_EXIT STUB_OLLAMA_NUM_CTX STUB_AGENT_EXIT CMUX_SOCKET_PATH CLAUDE_OLLAMA_CMUX
   unset STUB_SHASUM_DIGEST STUB_INSPECT_EXIT STUB_CLAUDE_STDERR CLAUDE_CONSOLE_STATE_DIR
-  unset CLAUDE_TOOL_TELEMETRY CLAUDE_OLLAMA_TELEMETRY STUB_CLAUDE_RELAUNCH_ONCE STUB_CLAUDE_EXIT CLAUDE_OLLAMA_RELAUNCH
+  unset CLAUDE_TOOL_TELEMETRY CLAUDE_OLLAMA_TELEMETRY STUB_CLAUDE_RELAUNCH_ONCE STUB_CLAUDE_RELAUNCH_PROMPT STUB_CLAUDE_EXIT CLAUDE_OLLAMA_RELAUNCH
   export SHELL=/bin/zsh
   record_installed_parameters
   export CLAUDE_OLLAMA_MANAGED_SETTINGS="$sandbox/managed-settings.json"
@@ -84,9 +84,14 @@ env > "$sandbox/claude-env"
 echo "\$\$" > "$sandbox/claude-pid"
 echo "\$PPID" > "$sandbox/claude-ppid"
 echo "\${CLAUDE_OLLAMA_RELAUNCH_DIR-unset}" > "$sandbox/relaunch-dir-env"
+for arg; do echo "ARG: \$arg"; done
+if [ -n "\${CLAUDE_OLLAMA_RELAUNCH_DIR:-}" ]; then
+  for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "\$CLAUDE_OLLAMA_RELAUNCH_DIR/claude.pid" ] && break; sleep 0.1; done
+  cat "\$CLAUDE_OLLAMA_RELAUNCH_DIR/claude.pid" > "$sandbox/pid-file-seen" 2>/dev/null
+fi
 if [ -n "\${STUB_CLAUDE_RELAUNCH_ONCE:-}" ] && [ ! -e "$sandbox/relaunched" ]; then
   : > "$sandbox/relaunched"
-  echo note.md > "\$CLAUDE_OLLAMA_RELAUNCH_DIR/relaunch"
+  jq -cn --arg prompt "\${STUB_CLAUDE_RELAUNCH_PROMPT:-}" '{note: "note.md", prompt: \$prompt, percent: 71}' > "\$CLAUDE_OLLAMA_RELAUNCH_DIR/relaunch"
 fi
 [ -n "\${STUB_CLAUDE_STDERR:-}" ] && echo "\$STUB_CLAUDE_STDERR" >&2
 exit "\${STUB_CLAUDE_EXIT:-0}"
@@ -1251,25 +1256,48 @@ check_that "a symlinked profile says it is a symlink" grep -qF "is a symlink" "$
 check_not "a symlinked profile launches nothing" grep -q '^ARGS:' "$sandbox/out"
 
 new_sandbox
-relaunch_dir="$HOME/.claude-ollama/relaunch"
-run_capture env STUB_CLAUDE_RELAUNCH_ONCE=1 "$repo/bin/claude-ollama" 27b "finish the tests"
+relaunch_root="$HOME/.claude-ollama/relaunch"
+incidents_dir="$sandbox/home/.local/share/claude-custom/console/incidents"
+stale_pid="$(sleep 60 >/dev/null 2>&1 & echo $!)"
+kill "$stale_pid"
+wait "$stale_pid" 2>/dev/null
+live_pid="$(sleep 60 >/dev/null 2>&1 & echo $!)"
+mkdir -p "$relaunch_root/$stale_pid" "$relaunch_root/$live_pid" "$relaunch_root/notes"
+run_capture env STUB_CLAUDE_RELAUNCH_ONCE=1 STUB_CLAUDE_RELAUNCH_PROMPT="finish the tests" "$repo/bin/claude-ollama" 27b "finish the tests"
+launcher_pid="$(cat "$sandbox/claude-ppid")"
+relaunch_dir="$relaunch_root/$launcher_pid"
 check_eq "a relaunch sentinel starts claude a second time" 2 "$(grep -c '^ARGS:' "$sandbox/out")"
-check_that "the second run ends with /handoff in place of the user's prompt" grep -qF -- "--tools Bash,Read,Edit,Write,Skill,TaskStop /handoff" "$sandbox/out"
-check_eq "the user's prompt reaches only the first run" 1 "$(grep -c 'finish the tests' "$sandbox/out")"
-check_that "the relaunch is announced on stderr" grep -qF "context budget reached: handoff saved, relaunching claude" "$sandbox/err"
-check_eq "the pid file holds claude's pid" "$(cat "$sandbox/claude-pid")" "$(cat "$relaunch_dir/claude.pid")"
-check_eq "claude is told the relaunch dir" "$relaunch_dir" "$(cat "$sandbox/relaunch-dir-env")"
-check_eq "the relaunch dir is private" 700 "$(stat -f %Lp "$relaunch_dir")"
-check_not "the sentinel is consumed" test -e "$relaunch_dir/relaunch"
+check_that "the second run ends with /handoff and the pending prompt as one word" grep -qxF -- "ARG: /handoff finish the tests" "$sandbox/out"
+check_eq "the user's prompt reaches the first run and the handoff" 2 "$(grep -c '^ARGS:.*finish the tests' "$sandbox/out")"
+check_that "the relaunch names the percent and the prompt on stderr" grep -qxF 'claude-ollama: context budget reached at 71%: handoff saved, resuming "finish the tests"' "$sandbox/err"
+check_eq "the pid file holds claude's pid" "$(cat "$sandbox/claude-pid")" "$(cat "$sandbox/pid-file-seen")"
+check_eq "claude is told a relaunch dir named after the launcher's pid" "$relaunch_dir" "$(cat "$sandbox/relaunch-dir-env")"
+check_not "the launcher removes its relaunch dir on exit" test -e "$relaunch_dir"
+check_eq "the relaunch root is private" 700 "$(stat -f %Lp "$relaunch_root")"
+check_not "a sibling dir whose pid is dead is removed" test -e "$relaunch_root/$stale_pid"
+check_that "a sibling dir whose pid runs is kept" test -d "$relaunch_root/$live_pid"
+check_that "a sibling that is not a pid is kept" test -d "$relaunch_root/notes"
+kill "$live_pid" 2>/dev/null
+relaunch_incident="$(grep '"cause":"relaunched"' "$(cat "$incidents_dir/current")")"
+check_eq "the relaunch writes one incident line" 1 "$(printf '%s\n' "$relaunch_incident" | grep -c relaunched)"
+check_eq "the incident names the note" note.md "$(printf '%s\n' "$relaunch_incident" | jq -r .detail)"
+check_eq "the incident derives the tokens from the percent" "$(( 71 * $(jq -r .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS "$repo/ollama/settings.27b.json") / 100 ))" "$(printf '%s\n' "$relaunch_incident" | jq -r .tokens)"
+check_that "the incident has a UTC timestamp" grep -qE '^20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$' <<< "$(printf '%s\n' "$relaunch_incident" | jq -r .ts)"
+check_eq "the incidents file is private" 600 "$(stat -f %Lp "$(cat "$incidents_dir/current")")"
 rm -f "$sandbox/relaunched"
 run_capture env STUB_CLAUDE_RELAUNCH_ONCE=1 "$repo/bin/claude-ollama" 27b --continue
 check_that "flags stay and /handoff is appended when there was no prompt" grep -qF -- "--tools Bash,Read,Edit,Write,Skill,TaskStop --continue /handoff" "$sandbox/out"
+check_that "the second run ends with a bare /handoff when the sentinel has no prompt" grep -qxF -- "ARG: /handoff" "$sandbox/out"
+check_that "without a prompt the banner says relaunching" grep -qxF 'claude-ollama: context budget reached at 71%: handoff saved, relaunching claude' "$sandbox/err"
 rm -f "$sandbox/relaunched"
-run_capture env STUB_CLAUDE_RELAUNCH_ONCE=1 "$repo/bin/claude-ollama" 27b --permission-mode plan
+run_capture env STUB_CLAUDE_RELAUNCH_ONCE=1 STUB_CLAUDE_RELAUNCH_PROMPT="-p hi" "$repo/bin/claude-ollama" 27b --permission-mode plan
 check_that "a trailing option value is kept on relaunch" grep -qF -- "--tools Bash,Read,Edit,Write,Skill,TaskStop --permission-mode plan /handoff" "$sandbox/out"
+check_that "a prompt that starts with a dash gives a bare /handoff" grep -qxF -- "ARG: /handoff" "$sandbox/out"
 rm -f "$sandbox/relaunched"
 run_capture env STUB_CLAUDE_RELAUNCH_ONCE=1 "$repo/bin/claude-ollama" 27b --permission-mode plan "finish the tests"
 check_that "a prompt after an option value is replaced on relaunch" grep -qF -- "--tools Bash,Read,Edit,Write,Skill,TaskStop --permission-mode plan /handoff" "$sandbox/out"
+run_capture env CLAUDE_OLLAMA_INCIDENTS=0 STUB_CLAUDE_RELAUNCH_ONCE=1 "$repo/bin/claude-ollama" 27b -p hi
+check_eq "no incidents file means no incident line and no failure" 0 "$?"
 run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_eq "without a sentinel claude runs once" 1 "$(grep -c '^ARGS:' "$sandbox/out")"
 check_not "and nothing says relaunching" grep -q relaunching "$sandbox/err"
