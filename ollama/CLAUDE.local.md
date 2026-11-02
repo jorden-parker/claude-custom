@@ -14,6 +14,8 @@
 - Bound shell output: `| head -50`, tests quiet or failures only.
 - Smallest edit that works; never rewrite a whole file.
 - Reply in 10 lines or fewer unless asked for code.
+- When a "Context budget" note arrives, finish the edit, call Skill handoff with
+  `save`, then stop and say a relaunch is coming.
 - Dev servers: mcp__dev__dev_status first and use the URL it returns; never
   guess a port. Start one with mcp__dev__dev_start, not Bash `pnpm dev`.
 - Test UI changes in the browser: mcp__dev__page_check opens the page (pass url

@@ -377,6 +377,34 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   skill or a `ctx7` command ran in the turn (Next's generated `AGENTS.md` sends
   models to `node_modules/next/dist/docs` otherwise). The profiles allow
   `Skill(find-docs)` without a prompt; `bin/check-config` checks it.
+- `shared/hooks/context-budget.py` and `shared/hooks/handoff-relaunch.py`
+  (Ollama-only, in `ollama/hooks.extra.json`) chain short sessions through
+  `/handoff` instead of letting the small model compact. The first is a
+  PostToolUse hook on every tool: it sums the last assistant `usage` in the
+  event's `transcript_path` (`input_tokens` plus both cache counts), and at
+  `CLAUDE_OLLAMA_HANDOFF_PCT` (default 70) of `CLAUDE_CODE_MAX_CONTEXT_TOKENS`
+  (silent when unset) adds one `additionalContext` per session telling the model
+  to finish its edit, call `Skill handoff save` and stop; the state file is
+  `${CLAUDE_CONFIG_DIR:-~/.claude}/cache/context-budget/<session_id>.json`
+  (`nudged_at`), and each nudge is one `"kind": "budget"` telemetry line
+  (`hook_telemetry.record_hook_event`). The second is a Stop hook: with
+  `CLAUDE_OLLAMA_RELAUNCH_DIR` set, that state nudged and not yet relaunched,
+  and a note in `<git common dir>/handoff/` (from the event's `cwd`) newer than
+  the nudge, it writes the note's path to
+  `$CLAUDE_OLLAMA_RELAUNCH_DIR/relaunch`, marks the state `relaunched` and sends
+  SIGTERM to the pid in `claude.pid` there, only when `ps -o comm=` names a node
+  or claude process; it never exits 2. `bin/claude-ollama` (`launch_claude`)
+  exports that dir as `~/.claude-ollama/relaunch` (0700), runs `claude` in the
+  background with the tty's stdin, writes `claude.pid`, forwards SIGINT/SIGTERM
+  and waits; while the sentinel exists it removes it, prints
+  `context budget reached: handoff saved, relaunching claude` and runs `claude`
+  again with the same flags, a trailing positional prompt replaced by
+  `/handoff`. Without a sentinel it exits with claude's status;
+  `CLAUDE_OLLAMA_RELAUNCH=0` keeps the single `exec`. `bin/check-config` fails
+  when a profile lacks either hook. Tests:
+  `shared/hooks/context-budget.test.sh`, `shared/hooks/handoff-relaunch.test.sh`
+  (stub `ps`, a sleeping process), `bin/claude-ollama.test.sh`
+  (`STUB_CLAUDE_RELAUNCH_ONCE`).
 - All settings files (`personal/settings.tokens.json`, `ollama/settings.*.json`)
   run hooks as
   `"$CLAUDE_CUSTOM_HOME"/shared/host-env "$CLAUDE_CUSTOM_HOME"/shared/hooks/<name>`,

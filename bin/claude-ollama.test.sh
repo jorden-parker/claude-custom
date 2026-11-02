@@ -67,7 +67,7 @@ new_sandbox() {
   unset ZDOTDIR XDG_CONFIG_HOME CLAUDE_CONFIG_DIR STUB_OLLAMA_SHOW_EXIT STUB_OLLAMA_PULL_EXIT
   unset STUB_OLLAMA_PID STUB_OLLAMA_ENV STUB_CURL_EXIT STUB_OLLAMA_NUM_CTX STUB_AGENT_EXIT CMUX_SOCKET_PATH CLAUDE_OLLAMA_CMUX
   unset STUB_SHASUM_DIGEST STUB_INSPECT_EXIT STUB_CLAUDE_STDERR CLAUDE_CONSOLE_STATE_DIR
-  unset CLAUDE_TOOL_TELEMETRY CLAUDE_OLLAMA_TELEMETRY
+  unset CLAUDE_TOOL_TELEMETRY CLAUDE_OLLAMA_TELEMETRY STUB_CLAUDE_RELAUNCH_ONCE STUB_CLAUDE_EXIT CLAUDE_OLLAMA_RELAUNCH
   export SHELL=/bin/zsh
   record_installed_parameters
   export CLAUDE_OLLAMA_MANAGED_SETTINGS="$sandbox/managed-settings.json"
@@ -81,8 +81,15 @@ echo "\${CODE_SEARCH_EMBED-unset}" > "$sandbox/embed-env"
 echo "\${CLAUDE_CONFIG_DIR-unset}" > "$sandbox/config-dir-env"
 echo "\${CLAUDE_CODE_TMPDIR-unset}" > "$sandbox/tmpdir-env"
 env > "$sandbox/claude-env"
+echo "\$\$" > "$sandbox/claude-pid"
+echo "\$PPID" > "$sandbox/claude-ppid"
+echo "\${CLAUDE_OLLAMA_RELAUNCH_DIR-unset}" > "$sandbox/relaunch-dir-env"
+if [ -n "\${STUB_CLAUDE_RELAUNCH_ONCE:-}" ] && [ ! -e "$sandbox/relaunched" ]; then
+  : > "$sandbox/relaunched"
+  echo note.md > "\$CLAUDE_OLLAMA_RELAUNCH_DIR/relaunch"
+fi
 [ -n "\${STUB_CLAUDE_STDERR:-}" ] && echo "\$STUB_CLAUDE_STDERR" >&2
-exit 0
+exit "\${STUB_CLAUDE_EXIT:-0}"
 EOF
   cat > "$sandbox/stubbin/qwen" <<EOF
 #!/bin/sh
@@ -1216,6 +1223,29 @@ run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_eq "a symlinked profile stops the launch" 1 "$?"
 check_that "a symlinked profile says it is a symlink" grep -qF "is a symlink" "$sandbox/err"
 check_not "a symlinked profile launches nothing" grep -q '^ARGS:' "$sandbox/out"
+
+new_sandbox
+relaunch_dir="$HOME/.claude-ollama/relaunch"
+run_capture env STUB_CLAUDE_RELAUNCH_ONCE=1 "$repo/bin/claude-ollama" 27b "finish the tests"
+check_eq "a relaunch sentinel starts claude a second time" 2 "$(grep -c '^ARGS:' "$sandbox/out")"
+check_that "the second run ends with /handoff in place of the user's prompt" grep -qF -- "--tools Bash,Read,Edit,Write,Skill,TaskStop /handoff" "$sandbox/out"
+check_eq "the user's prompt reaches only the first run" 1 "$(grep -c 'finish the tests' "$sandbox/out")"
+check_that "the relaunch is announced on stderr" grep -qF "context budget reached: handoff saved, relaunching claude" "$sandbox/err"
+check_eq "the pid file holds claude's pid" "$(cat "$sandbox/claude-pid")" "$(cat "$relaunch_dir/claude.pid")"
+check_eq "claude is told the relaunch dir" "$relaunch_dir" "$(cat "$sandbox/relaunch-dir-env")"
+check_eq "the relaunch dir is private" 700 "$(stat -f %Lp "$relaunch_dir")"
+check_not "the sentinel is consumed" test -e "$relaunch_dir/relaunch"
+rm -f "$sandbox/relaunched"
+run_capture env STUB_CLAUDE_RELAUNCH_ONCE=1 "$repo/bin/claude-ollama" 27b --continue
+check_that "flags stay and /handoff is appended when there was no prompt" grep -qF -- "--tools Bash,Read,Edit,Write,Skill,TaskStop --continue /handoff" "$sandbox/out"
+run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_eq "without a sentinel claude runs once" 1 "$(grep -c '^ARGS:' "$sandbox/out")"
+check_not "and nothing says relaunching" grep -q relaunching "$sandbox/err"
+run_capture env STUB_CLAUDE_EXIT=3 "$repo/bin/claude-ollama" 27b -p hi
+check_eq "the launcher exits with claude's status" 3 "$?"
+run_capture env CLAUDE_OLLAMA_RELAUNCH=0 "$repo/bin/claude-ollama" 27b -p hi
+check_eq "CLAUDE_OLLAMA_RELAUNCH=0 execs claude in the launcher's place" "$$" "$(cat "$sandbox/claude-ppid")"
+check_eq "and sets no relaunch dir" unset "$(cat "$sandbox/relaunch-dir-env")"
 
 if [ "$failures" -eq 0 ]; then
   echo "all passed"
