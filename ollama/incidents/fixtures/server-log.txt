@@ -31,3 +31,6 @@ slot   operator(): id  0 | task 3 | new prompt, n_ctx_slot = 65536, n_keep = 4, 
 slot print_timing: id  0 | task 3 | prompt eval time =  52000.00 ms / 65400 tokens (    0.80 ms per token,  1257.69 tokens per second)
 time=2026-11-02T14:04:00.000Z level=INFO source=sched.go:900 msg="runner idle timer fired" model=qwen3.6:35b-cc
 time=2026-11-02T14:04:01.000Z level=INFO source=sched.go:901 msg="embedding request" model=qwen3-embedding:0.6b
+[GIN] 2026/11/02 - 14:04:02 | 200 | 120ms | 127.0.0.1 | POST "/api/embed"
+slot   operator(): id  0 | task 4 | new prompt, n_ctx_slot = 65536, n_keep = 4, task.n_tokens = 65450
+slot print_timing: id  0 | task 4 | prompt eval time =  52000.00 ms / 65450 tokens (    0.80 ms per token,  1258.65 tokens per second)

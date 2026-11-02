@@ -399,6 +399,10 @@ incident_log_args() {
   printf '%s\n' --log "$log"
 }
 
+incident_watcher() {
+  echo "${CLAUDE_OLLAMA_INCIDENT_WATCHER:-$profile_dir/incidents/watcher.py}"
+}
+
 start_incident_watcher() {
   [ "${CLAUDE_OLLAMA_INCIDENTS:-}" = 0 ] && return 0
   local incidents_dir="$console_state_dir/incidents" incidents_file log_args=()
@@ -408,7 +412,7 @@ start_incident_watcher() {
     log_args+=("$arg")
   done < <(incident_log_args)
   export CLAUDE_OLLAMA_INCIDENTS_FILE="$incidents_file"
-  nohup "${CLAUDE_OLLAMA_INCIDENT_WATCHER:-$profile_dir/incidents/watcher.py}" ${log_args[@]+"${log_args[@]}"} \
+  nohup "$(incident_watcher)" ${log_args[@]+"${log_args[@]}"} \
     --model "$model" --out "$incidents_file" --watch-pid "$$" \
     --transcripts "$session_config_dir/projects" >/dev/null 2>&1 &
 }
@@ -994,6 +998,23 @@ check_browser() {
   fi
 }
 
+matched_rule_count() {
+  awk 'NF == 2 && $2 > 0 { matched++ } END { print matched + 0 }'
+}
+
+check_classifier() {
+  local log hits
+  if ! log="$(server_log_path)"; then
+    report ok "incident classifier not checked (no server log)"
+    return 0
+  fi
+  if hits="$("$(incident_watcher)" --check-rules --log "$log" --model "$model" 2>/dev/null)"; then
+    report ok "incident classifier matches the server log (rules: $(printf '%s\n' "$hits" | matched_rule_count))"
+  else
+    report fail "incident classifier is blind to the server log format (update ollama/incidents/watcher.py rules)"
+  fi
+}
+
 doctor() {
   local status=0
   write_launch_settings
@@ -1005,6 +1026,7 @@ doctor() {
   check_hooks_present || status=1
   check_reachable || status=1
   check_server_env || status=1
+  check_classifier || status=1
   check_fetch_domains
   report ok "profile $profile_file: $(profile_summary)"
   check_gh_login

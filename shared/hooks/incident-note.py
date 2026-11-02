@@ -35,13 +35,13 @@ def read_incidents(path):
         lines = Path(path).read_text().splitlines()
     except OSError:
         return []
-    incidents = []
+    rows = []
     for line in lines:
         try:
-            incidents.append(json.loads(line))
+            rows.append(json.loads(line))
         except ValueError:
             continue
-    return incidents
+    return [row for row in rows if "kind" not in row]
 
 
 def local_clock(timestamp):
