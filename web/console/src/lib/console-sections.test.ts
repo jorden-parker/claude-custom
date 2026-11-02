@@ -21,4 +21,12 @@ describe("CONSOLE_SECTIONS", () => {
     const hrefs = CONSOLE_SECTIONS.map((section) => section.href);
     expect(hrefs.indexOf("/profiles")).toBe(hrefs.indexOf("/tools") + 1);
   });
+
+  it("places Settings right after Profiles", () => {
+    const hrefs = CONSOLE_SECTIONS.map((section) => section.href);
+    expect(hrefs.indexOf("/settings")).toBe(hrefs.indexOf("/profiles") + 1);
+    expect(
+      CONSOLE_SECTIONS.find((section) => section.href === "/settings")?.title,
+    ).toBe("Settings");
+  });
 });

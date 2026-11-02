@@ -43,6 +43,11 @@ export const CONSOLE_SECTIONS: readonly ConsoleSection[] = [
     summary: "Per-profile tools, sandbox, model, MCP servers and env",
   },
   {
+    href: "/settings",
+    title: "Settings",
+    summary: "Every harness switch, its default and each profile's value",
+  },
+  {
     href: "/benchmarks",
     title: "Benchmarks",
     summary: "Benches, bench-off report and tool telemetry",
@@ -71,7 +76,8 @@ export const CONSOLE_SECTIONS: readonly ConsoleSection[] = [
   {
     href: "/workspaces",
     title: "Workspaces",
-    summary: "Folders claude-ollama trusts, and the project skills each one offers",
+    summary:
+      "Folders claude-ollama trusts, and the project skills each one offers",
   },
   {
     href: "/history",

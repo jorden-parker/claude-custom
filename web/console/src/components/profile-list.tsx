@@ -1,23 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import type { ProfileSummary } from "@/lib/profiles";
+import { useProfileSummaries } from "@/components/use-profile-summaries";
 
 export function ProfileList() {
-  const [profiles, setProfiles] = useState<ProfileSummary[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    void loadProfiles().then((result) => {
-      if (result.ok) {
-        setProfiles(result.profiles);
-      } else {
-        setError(result.message);
-      }
-    });
-  }, []);
+  const { profiles, error } = useProfileSummaries();
 
   if (error !== null) {
     return <p className="text-sm text-error-foreground">{error}</p>;
@@ -45,7 +40,8 @@ function ProfileCard({ profile }: { profile: ProfileSummary }) {
           <CardDescription>{describe(profile)}</CardDescription>
         </CardHeader>
         <CardContent className="text-sm text-muted-foreground">
-          {profile.overrides} {profile.overrides === 1 ? "override" : "overrides"}
+          {profile.overrides}{" "}
+          {profile.overrides === 1 ? "override" : "overrides"}
         </CardContent>
       </Card>
     </Link>
@@ -56,14 +52,7 @@ function describe(profile: ProfileSummary): string {
   if (profile.model === null) {
     return "Your Claude Code settings";
   }
-  return profile.context === null ? profile.model : `${profile.model}, context ${profile.context}`;
-}
-
-async function loadProfiles(): Promise<{ ok: true; profiles: ProfileSummary[] } | { ok: false; message: string }> {
-  const response = await fetch("/api/profiles", { cache: "no-store" });
-  if (!response.ok) {
-    return { ok: false, message: `profiles failed with status ${response.status}` };
-  }
-  const body = (await response.json()) as { profiles: ProfileSummary[] };
-  return { ok: true, profiles: body.profiles };
+  return profile.context === null
+    ? profile.model
+    : `${profile.model}, context ${profile.context}`;
 }

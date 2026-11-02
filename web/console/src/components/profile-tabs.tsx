@@ -6,10 +6,10 @@ import type { ProfileDetail } from "@/lib/profile-base";
 import {
   CONTEXT_CAP,
   CONTEXT_MINIMUM,
-  HANDOFF_PERCENT_RANGE,
   OLLAMA_MCP_SERVERS,
   PARAMETER_RANGES,
   PROFILE_ENV_FIELDS,
+  envFieldsByGroup,
   toolStatesFor,
   type ProfileEnvField,
   type ProfileOverride,
@@ -25,7 +25,9 @@ import {
 } from "@/lib/profile-draft";
 import type { ToolRow, ToolState } from "@/lib/tool-states";
 
-export type ProfileUpdate = (change: (current: ProfileOverride) => ProfileOverride) => void;
+export type ProfileUpdate = (
+  change: (current: ProfileOverride) => ProfileOverride,
+) => void;
 
 export type ProfileTabProps = {
   detail: ProfileDetail;
@@ -36,15 +38,25 @@ export type ProfileTabProps = {
 
 type FieldProps = Pick<ProfileTabProps, "detail" | "draft" | "update">;
 
-export function ProfileToolsTab({ detail, draft, saved, update }: ProfileTabProps) {
+export function ProfileToolsTab({
+  detail,
+  draft,
+  saved,
+  update,
+}: ProfileTabProps) {
   const rows = detail.base.tools.map(toolLine);
   return (
     <ToolStateTable
       rows={rows}
       states={stateByName(rows, draft)}
       options={(name) => toolStatesFor(detail.kind, name)}
-      isChanged={(name) => (draft.tools?.[name] ?? "default") !== (saved.tools?.[name] ?? "default")}
-      onChange={(name, state) => update((current) => withToolState(current, name, state))}
+      isChanged={(name) =>
+        (draft.tools?.[name] ?? "default") !==
+        (saved.tools?.[name] ?? "default")
+      }
+      onChange={(name, state) =>
+        update((current) => withToolState(current, name, state))
+      }
     />
   );
 }
@@ -57,8 +69,13 @@ function toolLine(tool: ToolRow): ToolLine {
   };
 }
 
-function stateByName(rows: readonly ToolLine[], draft: ProfileOverride): Record<string, ToolState> {
-  return Object.fromEntries(rows.map((row) => [row.name, draft.tools?.[row.name] ?? "default"]));
+function stateByName(
+  rows: readonly ToolLine[],
+  draft: ProfileOverride,
+): Record<string, ToolState> {
+  return Object.fromEntries(
+    rows.map((row) => [row.name, draft.tools?.[row.name] ?? "default"]),
+  );
 }
 
 export function ProfileModelTab({ detail, draft, update }: ProfileTabProps) {
@@ -67,7 +84,9 @@ export function ProfileModelTab({ detail, draft, update }: ProfileTabProps) {
   }
   return (
     <div className="flex flex-col gap-4 text-sm">
-      <p className="text-muted-foreground">Sandbox is always on for Ollama profiles.</p>
+      <p className="text-muted-foreground">
+        Sandbox is always on for Ollama profiles.
+      </p>
       <ContextField detail={detail} draft={draft} update={update} />
       <ThinkingSwitch enabled={draft.thinking === true} update={update} />
       <ParameterFields detail={detail} draft={draft} update={update} />
@@ -75,7 +94,10 @@ export function ProfileModelTab({ detail, draft, update }: ProfileTabProps) {
   );
 }
 
-function ThinkingSwitch({ enabled, update }: Pick<FieldProps, "update"> & { enabled: boolean }) {
+function ThinkingSwitch({
+  enabled,
+  update,
+}: Pick<FieldProps, "update"> & { enabled: boolean }) {
   return (
     <label className="flex items-center gap-2 text-sm">
       <input
@@ -83,14 +105,22 @@ function ThinkingSwitch({ enabled, update }: Pick<FieldProps, "update"> & { enab
         role="switch"
         aria-label="Thinking enabled"
         checked={enabled}
-        onChange={(event) => update((current) => withThinking(current, event.target.checked ? true : null))}
+        onChange={(event) =>
+          update((current) =>
+            withThinking(current, event.target.checked ? true : null),
+          )
+        }
       />
-      Model thinking on (off by default: Claude Code asks for high effort on every turn)
+      Model thinking on (off by default: Claude Code asks for high effort on
+      every turn)
     </label>
   );
 }
 
-function SandboxSwitch({ enabled, update }: Pick<FieldProps, "update"> & { enabled: boolean }) {
+function SandboxSwitch({
+  enabled,
+  update,
+}: Pick<FieldProps, "update"> & { enabled: boolean }) {
   return (
     <label className="flex items-center gap-2 text-sm">
       <input
@@ -98,7 +128,11 @@ function SandboxSwitch({ enabled, update }: Pick<FieldProps, "update"> & { enabl
         role="switch"
         aria-label="Sandbox enabled"
         checked={enabled}
-        onChange={(event) => update((current) => withSandbox(current, event.target.checked ? null : false))}
+        onChange={(event) =>
+          update((current) =>
+            withSandbox(current, event.target.checked ? null : false),
+          )
+        }
       />
       Sandbox enabled for this profile
     </label>
@@ -116,7 +150,11 @@ function ContextField({ detail, draft, update }: FieldProps) {
         step={1}
         placeholder={String(detail.base.context ?? "default")}
         value={draft.context ?? ""}
-        onChange={(event) => update((current) => withContext(current, numberOrNull(event.target.value)))}
+        onChange={(event) =>
+          update((current) =>
+            withContext(current, numberOrNull(event.target.value)),
+          )
+        }
       />
     </FieldRow>
   );
@@ -133,7 +171,11 @@ function ParameterFields({ detail, draft, update }: FieldProps) {
             step="any"
             placeholder={String(detail.base.parameters[name] ?? "unset")}
             value={draft.parameters?.[name] ?? ""}
-            onChange={(event) => update((current) => withParameter(current, name, numberOrNull(event.target.value)))}
+            onChange={(event) =>
+              update((current) =>
+                withParameter(current, name, numberOrNull(event.target.value)),
+              )
+            }
           />
         </FieldRow>
       ))}
@@ -155,16 +197,25 @@ export function ProfileMcpHooksTab({ detail, draft, update }: ProfileTabProps) {
     <div className="flex flex-col gap-6 text-sm">
       <Section title="MCP servers">
         {detail.base.mcpServers.length === 0 ? (
-          <p className="text-muted-foreground">Claude Code uses the MCP servers in your own settings.</p>
+          <p className="text-muted-foreground">
+            Claude Code uses the MCP servers in your own settings.
+          </p>
         ) : (
           OLLAMA_MCP_SERVERS.map((name) => (
-            <McpSwitch key={name} name={name} enabled={draft.mcp?.[name] !== false} update={update} />
+            <McpSwitch
+              key={name}
+              name={name}
+              enabled={draft.mcp?.[name] !== false}
+              update={update}
+            />
           ))
         )}
       </Section>
       <Section title="Hooks (read-only)">
         {detail.base.hooks.length === 0 ? (
-          <p className="text-muted-foreground">No hooks in the rendered settings.</p>
+          <p className="text-muted-foreground">
+            No hooks in the rendered settings.
+          </p>
         ) : (
           <HookTable detail={detail} />
         )}
@@ -173,7 +224,15 @@ export function ProfileMcpHooksTab({ detail, draft, update }: ProfileTabProps) {
   );
 }
 
-function McpSwitch({ name, enabled, update }: { name: string; enabled: boolean; update: ProfileUpdate }) {
+function McpSwitch({
+  name,
+  enabled,
+  update,
+}: {
+  name: string;
+  enabled: boolean;
+  update: ProfileUpdate;
+}) {
   return (
     <label className="flex items-center gap-2">
       <input
@@ -181,7 +240,11 @@ function McpSwitch({ name, enabled, update }: { name: string; enabled: boolean; 
         role="switch"
         aria-label={`MCP ${name}`}
         checked={enabled}
-        onChange={(event) => update((current) => withMcp(current, name, event.target.checked ? null : false))}
+        onChange={(event) =>
+          update((current) =>
+            withMcp(current, name, event.target.checked ? null : false),
+          )
+        }
       />
       <span className="font-mono">{name}</span>
     </label>
@@ -200,7 +263,10 @@ function HookTable({ detail }: { detail: ProfileDetail }) {
       </thead>
       <tbody>
         {detail.base.hooks.map((hook) => (
-          <tr key={`${hook.event}-${hook.matcher}-${hook.command}`} className="border-b">
+          <tr
+            key={`${hook.event}-${hook.matcher}-${hook.command}`}
+            className="border-b"
+          >
             <td className="py-2 pr-3">{hook.event}</td>
             <td className="py-2 pr-3 font-mono">{hook.matcher}</td>
             <td className="py-2 pr-3 font-mono">{hook.command}</td>
@@ -212,20 +278,38 @@ function HookTable({ detail }: { detail: ProfileDetail }) {
 }
 
 export function ProfileEnvTab({ detail, draft, update }: FieldProps) {
-  const fields = PROFILE_ENV_FIELDS.filter((field) => !field.ollamaOnly || detail.kind === "ollama");
+  const fields = PROFILE_ENV_FIELDS.filter(
+    (field) => !field.ollamaOnly || detail.kind === "ollama",
+  );
   return (
-    <div className="flex flex-col gap-4 text-sm">
-      {fields.map((field) => (
-        <EnvField key={field.key} field={field} value={draft.env?.[field.key]} update={update} />
+    <div className="flex flex-col gap-6 text-sm">
+      {envFieldsByGroup(fields).map(({ group, fields: grouped }) => (
+        <Section key={group} title={group}>
+          <div className="flex flex-col gap-4">
+            {grouped.map((field) => (
+              <EnvField
+                key={field.key}
+                field={field}
+                value={draft.env?.[field.key]}
+                update={update}
+              />
+            ))}
+          </div>
+        </Section>
       ))}
     </div>
   );
 }
 
-type EnvFieldProps = { field: ProfileEnvField; value: string | undefined; update: ProfileUpdate };
+type EnvFieldProps = {
+  field: ProfileEnvField;
+  value: string | undefined;
+  update: ProfileUpdate;
+};
 
 function EnvField({ field, value, update }: EnvFieldProps) {
-  const setValue = (next: string | null) => update((current) => withEnv(current, field.key, next));
+  const setValue = (next: string | null) =>
+    update((current) => withEnv(current, field.key, next));
   return (
     <div className="grid grid-cols-[14rem_1fr] items-start gap-3">
       <div className="flex flex-col gap-1">
@@ -235,13 +319,17 @@ function EnvField({ field, value, update }: EnvFieldProps) {
       {field.kind === "switch" ? (
         <EnvSwitch field={field} value={value} setValue={setValue} />
       ) : (
-        <EnvPercent field={field} value={value} setValue={setValue} />
+        <EnvNumber field={field} value={value} setValue={setValue} />
       )}
     </div>
   );
 }
 
-type EnvInputProps = { field: ProfileEnvField; value: string | undefined; setValue: (next: string | null) => void };
+type EnvInputProps = {
+  field: ProfileEnvField;
+  value: string | undefined;
+  setValue: (next: string | null) => void;
+};
 
 function EnvSwitch({ field, value, setValue }: EnvInputProps) {
   return (
@@ -250,21 +338,27 @@ function EnvSwitch({ field, value, setValue }: EnvInputProps) {
       value={value ?? "default"}
       onChange={(event) => setValue(envOrNull(event.target.value))}
     >
-      <option value="default">default ({switchWord(field.defaultValue)})</option>
+      <option value="default">
+        default ({switchWord(field.defaultValue)})
+      </option>
       <option value="0">off</option>
       <option value="1">on</option>
     </Select>
   );
 }
 
-function EnvPercent({ field, value, setValue }: EnvInputProps) {
+function EnvNumber({
+  field,
+  value,
+  setValue,
+}: EnvInputProps & { field: Extract<ProfileEnvField, { kind: "number" }> }) {
   return (
     <Input
       type="number"
       aria-label={field.label}
-      min={HANDOFF_PERCENT_RANGE.min}
-      max={HANDOFF_PERCENT_RANGE.max}
-      step={HANDOFF_PERCENT_RANGE.step}
+      min={field.range.min}
+      max={field.range.max}
+      step={field.range.step}
       placeholder={field.defaultValue}
       value={value ?? ""}
       onChange={(event) => setValue(textOrNull(event.target.value))}

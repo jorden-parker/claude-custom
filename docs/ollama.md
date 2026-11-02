@@ -540,13 +540,34 @@ it. `Agent` cannot be enabled for Ollama (there is no side model). A `context`
 or `parameters` override recreates the `-cc` model at launch, as the Modelfile
 drift fix does, and `doctor` checks the same values. `thinking: true` turns the
 model's thinking on for that size (off by default, see above). `env` takes only
-`CLAUDE_OLLAMA_TELEMETRY`, `CLAUDE_OLLAMA_NO_INDEX`,
-`CLAUDE_OLLAMA_OPEN_DRAFTS`, `CLAUDE_OLLAMA_CMUX`, `CLAUDE_OLLAMA_RELAUNCH` (`0`
-keeps the single exec), `CLAUDE_OLLAMA_HANDOFF_PCT` (a whole percent from 30 to
-85, default 70) and `CLAUDE_OLLAMA_INCIDENTS` (`0` turns the incident watcher
-off); the Profiles page's Env tab labels each one in plain words with its
-default, and shows the handoff and incident fields only for the Ollama profiles.
-A variable already set in your shell wins. A symlinked profile stops the launch.
+the harness switches, each `0` or `1` unless noted:
+
+| Key                             | Default | Meaning                                              |
+| ------------------------------- | ------- | ---------------------------------------------------- |
+| `CLAUDE_OLLAMA_PROXY`           | 1       | Observe prompt drift through the messages proxy      |
+| `CLAUDE_OLLAMA_RULE_CARDS`      | 1       | Deliver rule cards just in time                      |
+| `CLAUDE_OLLAMA_RELAUNCH`        | 1       | Hand off before the context fills (`0`: single exec) |
+| `CLAUDE_OLLAMA_HANDOFF_PCT`     | 70      | Hand off at this whole percent of context, 30 to 85  |
+| `CLAUDE_OLLAMA_NO_INDEX`        | 0       | Skip the code search index                           |
+| `CLAUDE_CUSTOM_FRICTION`        | 1       | Reset a looping guard after three identical denials  |
+| `CLAUDE_OLLAMA_LADDER`          | 1       | Degrade rung by rung on incident evidence            |
+| `CLAUDE_OLLAMA_LEASE`           | 1       | Hold an Ollama residency lease and heartbeat         |
+| `CLAUDE_OLLAMA_LEASE_HEARTBEAT` | 120     | Whole seconds between keep-alive heartbeats, 30-600  |
+| `CLAUDE_OLLAMA_FIT`             | 1       | Check memory fit before launch                       |
+| `CLAUDE_OLLAMA_TELEMETRY`       | 1       | Session telemetry                                    |
+| `CLAUDE_OLLAMA_INCIDENTS`       | 1       | Record Ollama incidents                              |
+| `CLAUDE_OLLAMA_PROXY_RECORD`    | 0       | Record every request body for replay benches         |
+| `CLAUDE_OLLAMA_BEACON`          | 1       | Write a machine beacon at launch                     |
+| `CLAUDE_OLLAMA_OPEN_DRAFTS`     | 1       | Open drafts in the browser                           |
+| `CLAUDE_OLLAMA_CMUX`            | 1       | cmux browser tools                                   |
+
+The Profiles page's Env tab shows each one by that label with its default and a
+help sentence, grouped under Prompt and context, Guards, Ollama residency,
+Diagnostics and Browser; the `claude-code` profile sees only the fields that
+apply to plain `claude` (telemetry, the index, drafts, cmux and the friction
+guard). The `/settings` page tables every switch with its default and each
+profile's value, linking to the editors; it changes nothing. A variable already
+set in your shell wins. A symlinked profile stops the launch.
 `claude-ollama --print-config SIZE` and `doctor` show the profile path and the
 overrides in effect. `/history` lists every settings and LaunchAgent change,
 with a diff and a Restore button; recording is on by default and

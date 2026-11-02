@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   CONTEXT_CAP,
+  LEASE_HEARTBEAT_RANGE,
   PROFILE_ENV_FIELDS,
+  PROFILE_ENV_GROUPS,
   PROFILE_ENV_KEYS,
+  envFieldsByGroup,
   overrideCount,
   validateProfileOverride,
   type ProfileRules,
@@ -135,7 +138,8 @@ describe("validateProfileOverride", () => {
     expect(PROFILE_ENV_FIELDS.map((field) => field.key)).toEqual([...PROFILE_ENV_KEYS]);
     expect(PROFILE_ENV_FIELDS.every((field) => field.label !== field.key)).toBe(true);
     expect(PROFILE_ENV_FIELDS.find((field) => field.key === "CLAUDE_OLLAMA_HANDOFF_PCT")).toMatchObject({
-      kind: "percent",
+      kind: "number",
+      range: { min: 30, max: 85, step: 5 },
       defaultValue: "70",
       ollamaOnly: true,
     });
@@ -144,6 +148,79 @@ describe("validateProfileOverride", () => {
       defaultValue: "1",
       ollamaOnly: false,
     });
+  });
+
+  it.each([
+    ["CLAUDE_OLLAMA_PROXY", "1", "Prompt and context", true],
+    ["CLAUDE_OLLAMA_RULE_CARDS", "1", "Prompt and context", true],
+    ["CLAUDE_CUSTOM_FRICTION", "1", "Guards", false],
+    ["CLAUDE_OLLAMA_LADDER", "1", "Guards", true],
+    ["CLAUDE_OLLAMA_LEASE", "1", "Ollama residency", true],
+    ["CLAUDE_OLLAMA_FIT", "1", "Ollama residency", true],
+    ["CLAUDE_OLLAMA_PROXY_RECORD", "0", "Diagnostics", true],
+    ["CLAUDE_OLLAMA_BEACON", "1", "Diagnostics", true],
+  ])("%s is a switch defaulting to %s under %s", (key, defaultValue, group, ollamaOnly) => {
+    expect(PROFILE_ENV_FIELDS.find((field) => field.key === key)).toMatchObject({
+      kind: "switch",
+      defaultValue,
+      group,
+      ollamaOnly,
+    });
+    expect(accepted({ env: { [key]: "0" } }, OLLAMA)).toEqual({ env: { [key]: "0" } });
+    expect(rejected({ env: { [key]: "yes" } }, OLLAMA)).toBe(`${key} must be 0 or 1`);
+  });
+
+  it("labels every switch in plain words", () => {
+    const labelOf = (key: string) => PROFILE_ENV_FIELDS.find((field) => field.key === key)?.label;
+    expect(labelOf("CLAUDE_OLLAMA_PROXY")).toBe("Observe prompt drift through the messages proxy");
+    expect(labelOf("CLAUDE_OLLAMA_PROXY_RECORD")).toBe("Record every request body for replay benches");
+    expect(labelOf("CLAUDE_CUSTOM_FRICTION")).toBe("Reset a looping guard after three identical denials");
+    expect(labelOf("CLAUDE_OLLAMA_LEASE")).toBe("Hold an Ollama residency lease and heartbeat");
+    expect(labelOf("CLAUDE_OLLAMA_LEASE_HEARTBEAT")).toBe("Seconds between keep-alive heartbeats");
+    expect(labelOf("CLAUDE_OLLAMA_LADDER")).toBe("Degrade rung by rung on incident evidence");
+    expect(labelOf("CLAUDE_OLLAMA_FIT")).toBe("Check memory fit before launch");
+    expect(labelOf("CLAUDE_OLLAMA_BEACON")).toBe("Write a machine beacon at launch");
+    expect(labelOf("CLAUDE_OLLAMA_RULE_CARDS")).toBe("Deliver rule cards just in time");
+  });
+
+  it("takes the lease heartbeat as whole seconds from 30 to 600", () => {
+    expect(PROFILE_ENV_FIELDS.find((field) => field.key === "CLAUDE_OLLAMA_LEASE_HEARTBEAT")).toMatchObject({
+      kind: "number",
+      range: LEASE_HEARTBEAT_RANGE,
+      defaultValue: "120",
+      group: "Ollama residency",
+      ollamaOnly: true,
+    });
+    expect(LEASE_HEARTBEAT_RANGE).toEqual({ min: 30, max: 600, step: 10 });
+    expect(accepted({ env: { CLAUDE_OLLAMA_LEASE_HEARTBEAT: "60" } }, OLLAMA)).toEqual({
+      env: { CLAUDE_OLLAMA_LEASE_HEARTBEAT: "60" },
+    });
+    const message = "CLAUDE_OLLAMA_LEASE_HEARTBEAT must be a whole number from 30 to 600";
+    for (const value of ["29", "601", "1.5", "fast", 120]) {
+      expect(rejected({ env: { CLAUDE_OLLAMA_LEASE_HEARTBEAT: value } }, OLLAMA)).toBe(message);
+    }
+  });
+
+  it("keeps the Ollama-only switches off the claude-code profile", () => {
+    expect(accepted({ env: { CLAUDE_CUSTOM_FRICTION: "0" } }, CLAUDE_CODE)).toEqual({
+      env: { CLAUDE_CUSTOM_FRICTION: "0" },
+    });
+    expect(rejected({ env: { CLAUDE_OLLAMA_LEASE: "0" } }, CLAUDE_CODE)).toBe(
+      "CLAUDE_OLLAMA_LEASE only applies to Ollama profiles",
+    );
+  });
+
+  it("groups every field under one of the page headings, in heading order", () => {
+    expect(PROFILE_ENV_GROUPS).toEqual(["Prompt and context", "Guards", "Ollama residency", "Diagnostics", "Browser"]);
+    expect(PROFILE_ENV_FIELDS.every((field) => PROFILE_ENV_GROUPS.includes(field.group))).toBe(true);
+    const grouped = envFieldsByGroup(PROFILE_ENV_FIELDS);
+    expect(grouped.map(({ group }) => group)).toEqual([...PROFILE_ENV_GROUPS]);
+    expect(grouped.flatMap(({ fields }) => fields.map((field) => field.key))).toEqual([...PROFILE_ENV_KEYS]);
+    expect(grouped.find(({ group }) => group === "Guards")?.fields.map((field) => field.key)).toEqual([
+      "CLAUDE_CUSTOM_FRICTION",
+      "CLAUDE_OLLAMA_LADDER",
+    ]);
+    expect(envFieldsByGroup([]).length).toBe(0);
   });
 
   it("rejects keys it does not know and non-object bodies", () => {

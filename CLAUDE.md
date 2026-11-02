@@ -37,7 +37,13 @@ four parts:
   The `/profiles` pages drive `GET /api/profiles` and
   `GET`/`PUT /api/profiles/<id>`, which edit
   `$XDG_CONFIG_HOME/claude-custom/profiles/<id>.json` (validated by
-  `web/console/src/lib/profile-rules.ts`; an empty PUT deletes the file). The
+  `web/console/src/lib/profile-rules.ts`; an empty PUT deletes the file). Each
+  profile's Env tab groups the harness switches under "Prompt and context",
+  "Guards", "Ollama residency", "Diagnostics" and "Browser"
+  (`PROFILE_ENV_GROUPS`, `envFieldsByGroup`). The `/settings` page
+  (`settings-overview.tsx`) reads the same `GET /api/profiles`, whose summaries
+  carry each profile's `env`, and tables every switch by key, label and default
+  with one column per profile linking to its editor; it has no write route. The
   `/workspaces` page drives `GET`/`PUT /api/workspaces`
   (`web/console/src/lib/workspaces.ts`): it lists the `projects` of the
   launcher's `~/.claude-ollama/.claude.json` with `hasTrustDialogAccepted` and
@@ -936,13 +942,21 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `CLAUDE_CODE_EXTRA_BODY` that turns thinking off, so Claude Code's own
   adaptive request reaches Ollama); `tools`, `env`, `mcp`, `parameters`,
   `summary` and `check` serve `bin/claude-ollama`. `env` exports only its
-  `env_allowlist` (`CLAUDE_OLLAMA_TELEMETRY`, `CLAUDE_OLLAMA_NO_INDEX`,
-  `CLAUDE_OLLAMA_OPEN_DRAFTS`, `CLAUDE_OLLAMA_CMUX`, `CLAUDE_OLLAMA_RELAUNCH`,
-  `CLAUDE_OLLAMA_HANDOFF_PCT`, `CLAUDE_OLLAMA_INCIDENTS`), which must equal
-  `PROFILE_ENV_KEYS` in `web/console/src/lib/profile-rules.ts`
-  (`bin/check-config` checks it); the console's Profiles page shows each key by
-  the plain label and default in `PROFILE_ENV_FIELDS`, never the variable name,
-  and hides the handoff and incident fields from the `claude-code` profile. It
+  `env_allowlist`: the 0/1 switches `CLAUDE_OLLAMA_TELEMETRY`,
+  `CLAUDE_OLLAMA_NO_INDEX`, `CLAUDE_OLLAMA_OPEN_DRAFTS`, `CLAUDE_OLLAMA_CMUX`,
+  `CLAUDE_OLLAMA_RELAUNCH`, `CLAUDE_OLLAMA_INCIDENTS`, `CLAUDE_OLLAMA_PROXY`
+  (default on), `CLAUDE_OLLAMA_PROXY_RECORD` (default off),
+  `CLAUDE_CUSTOM_FRICTION` (on), `CLAUDE_OLLAMA_LEASE` (on),
+  `CLAUDE_OLLAMA_LADDER` (on), `CLAUDE_OLLAMA_FIT` (on), `CLAUDE_OLLAMA_BEACON`
+  (on) and `CLAUDE_OLLAMA_RULE_CARDS` (on), plus `CLAUDE_OLLAMA_HANDOFF_PCT` (a
+  whole percent from 30 to 85, default 70) and `CLAUDE_OLLAMA_LEASE_HEARTBEAT`
+  (whole seconds from 30 to 600, default 120). That list must equal
+  `PROFILE_ENV_KEYS` in `web/console/src/lib/profile-rules.ts`, and this file
+  and `docs/ollama.md` must name every key (`bin/check-config` checks both); the
+  console's Profiles page shows each key by the plain label, default and help
+  sentence in `PROFILE_ENV_FIELDS`, never the variable name, grouped under the
+  field's `group`, and hides every Ollama-only field from the `claude-code`
+  profile, which of the harness switches sees only `CLAUDE_CUSTOM_FRICTION`. It
   refuses a symlinked profile, and `Agent` never reaches an Ollama profile. The
   overlay sets `sandbox.enabled` and the ask rule
   `Bash(dangerouslyDisableSandbox:true)`, so every personal session (subagents

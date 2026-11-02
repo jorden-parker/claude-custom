@@ -7,7 +7,11 @@ import {
   readTextOrNull as readText,
   writePrivateText,
 } from "./machine-policy";
-import { overrideCount, type ProfileKind, type ProfileOverride } from "./profile-rules";
+import {
+  overrideCount,
+  type ProfileKind,
+  type ProfileOverride,
+} from "./profile-rules";
 import { modelForSize, sizeSettings } from "./size-models";
 import { consoleRepoDir, listSizes } from "./sizes";
 
@@ -18,6 +22,7 @@ export type ProfileSummary = {
   model: string | null;
   context: number | null;
   overrides: number;
+  env: Record<string, string>;
 };
 
 const CLAUDE_CODE_PROFILE = "claude-code";
@@ -26,7 +31,10 @@ const HISTORY_KIND = "profile";
 const EMPTY_TEXT = "{}\n";
 
 export function profileIds(): string[] {
-  return [CLAUDE_CODE_PROFILE, ...listSizes().map((size) => `${OLLAMA_PREFIX}${size}`)];
+  return [
+    CLAUDE_CODE_PROFILE,
+    ...listSizes().map((size) => `${OLLAMA_PREFIX}${size}`),
+  ];
 }
 
 export function isKnownProfile(id: string): boolean {
@@ -53,13 +61,15 @@ export function listProfiles(): ProfileSummary[] {
 export function profileSummary(id: string): ProfileSummary {
   const size = sizeOfProfile(id);
   const repoDir = consoleRepoDir();
+  const override = readOverride(id);
   return {
     id,
     title: profileTitle(id),
     kind: profileKind(id),
     model: size === null ? null : modelForSize(repoDir, size),
     context: size === null ? null : sizeSettings(repoDir, size).context,
-    overrides: overrideCount(readOverride(id)),
+    overrides: overrideCount(override),
+    env: override.env ?? {},
   };
 }
 
@@ -76,7 +86,9 @@ export function profileProblem(id: string): string | null {
   if (isSymlink(profilesDir())) {
     return `${profilesDir()} is a symlink; edit the folder it points to instead`;
   }
-  return isSymlink(target) ? `${target} is a symlink; edit the file it points to instead` : null;
+  return isSymlink(target)
+    ? `${target} is a symlink; edit the file it points to instead`
+    : null;
 }
 
 export function readOverride(id: string): ProfileOverride {
@@ -95,7 +107,10 @@ export function saveOverride(id: string, override: ProfileOverride): void {
   }
   const target = profileFilePath(id);
   const before = readText(target);
-  const next = overrideCount(override) === 0 ? null : `${JSON.stringify(override, null, 2)}\n`;
+  const next =
+    overrideCount(override) === 0
+      ? null
+      : `${JSON.stringify(override, null, 2)}\n`;
   if (before === null && next === null) {
     return;
   }
@@ -128,4 +143,3 @@ function parseJson(text: string): unknown {
 function isObject(value: unknown): boolean {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
-

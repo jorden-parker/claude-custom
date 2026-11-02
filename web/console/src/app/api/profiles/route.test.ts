@@ -40,8 +40,24 @@ describe("/api/profiles", () => {
 
     expect(response.status).toBe(200);
     expect(body.profiles).toEqual([
-      { id: "claude-code", title: "Claude Code", kind: "claude-code", model: null, context: null, overrides: 0 },
-      { id: "ollama-27b", title: "Ollama 27b", kind: "ollama", model: "qwen3.8-27b-cc", context: 65536, overrides: 0 },
+      {
+        id: "claude-code",
+        title: "Claude Code",
+        kind: "claude-code",
+        model: null,
+        context: null,
+        overrides: 0,
+        env: {},
+      },
+      {
+        id: "ollama-27b",
+        title: "Ollama 27b",
+        kind: "ollama",
+        model: "qwen3.8-27b-cc",
+        context: 65536,
+        overrides: 0,
+        env: {},
+      },
     ]);
   });
 });

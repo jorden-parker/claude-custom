@@ -52,11 +52,22 @@ describe("profiles", () => {
     fs.writeFileSync(
       path.join(repoDir, "ollama", "sizes.json"),
       JSON.stringify({
-        "27b": { base: "qwen3.8:27b-mlx", model: "qwen3.8-27b-cc", context: 65536, parameters: { temperature: 0.7 } },
+        "27b": {
+          base: "qwen3.8:27b-mlx",
+          model: "qwen3.8-27b-cc",
+          context: 65536,
+          parameters: { temperature: 0.7 },
+        },
       }),
     );
-    fs.writeFileSync(path.join(repoDir, "ollama", "settings.27b.json"), JSON.stringify({ model: "qwen3.8-27b-cc" }));
-    fs.writeFileSync(path.join(repoDir, "ollama", "Modelfile.27b"), "FROM qwen3.8:27b-mlx\n");
+    fs.writeFileSync(
+      path.join(repoDir, "ollama", "settings.27b.json"),
+      JSON.stringify({ model: "qwen3.8-27b-cc" }),
+    );
+    fs.writeFileSync(
+      path.join(repoDir, "ollama", "Modelfile.27b"),
+      "FROM qwen3.8:27b-mlx\n",
+    );
   }
 
   it("lists claude-code and one profile per configured size", () => {
@@ -70,10 +81,21 @@ describe("profiles", () => {
   });
 
   it("summarises each profile with its model, context and override count", () => {
-    saveOverride("ollama-27b", { context: 32768, env: { CLAUDE_OLLAMA_CMUX: "0" } });
+    saveOverride("ollama-27b", {
+      context: 32768,
+      env: { CLAUDE_OLLAMA_CMUX: "0" },
+    });
 
     expect(listProfiles()).toEqual([
-      { id: "claude-code", title: "Claude Code", kind: "claude-code", model: null, context: null, overrides: 0 },
+      {
+        id: "claude-code",
+        title: "Claude Code",
+        kind: "claude-code",
+        model: null,
+        context: null,
+        overrides: 0,
+        env: {},
+      },
       {
         id: "ollama-27b",
         title: "Ollama 27b",
@@ -81,6 +103,7 @@ describe("profiles", () => {
         model: "qwen3.8-27b-cc",
         context: 65536,
         overrides: 2,
+        env: { CLAUDE_OLLAMA_CMUX: "0" },
       },
     ]);
   });
@@ -90,13 +113,21 @@ describe("profiles", () => {
   });
 
   it("writes the override as a 0600 file in a 0700 folder and reads it back", () => {
-    saveOverride("claude-code", { sandbox: false, tools: { WebFetch: "deny" } });
+    saveOverride("claude-code", {
+      sandbox: false,
+      tools: { WebFetch: "deny" },
+    });
 
     const target = profileFilePath("claude-code");
-    expect(target).toBe(path.join(configHome, "claude-custom", "profiles", "claude-code.json"));
+    expect(target).toBe(
+      path.join(configHome, "claude-custom", "profiles", "claude-code.json"),
+    );
     expect(fs.statSync(target).mode & 0o777).toBe(0o600);
     expect(fs.statSync(path.dirname(target)).mode & 0o777).toBe(0o700);
-    expect(readOverride("claude-code")).toEqual({ sandbox: false, tools: { WebFetch: "deny" } });
+    expect(readOverride("claude-code")).toEqual({
+      sandbox: false,
+      tools: { WebFetch: "deny" },
+    });
   });
 
   it("deletes the file when the override is empty (Reset to defaults)", () => {
@@ -110,11 +141,15 @@ describe("profiles", () => {
   it("refuses to write through a symlinked override file", () => {
     const elsewhere = path.join(configHome, "elsewhere.json");
     fs.writeFileSync(elsewhere, "{}\n");
-    fs.mkdirSync(path.dirname(profileFilePath("claude-code")), { recursive: true });
+    fs.mkdirSync(path.dirname(profileFilePath("claude-code")), {
+      recursive: true,
+    });
     fs.symlinkSync(elsewhere, profileFilePath("claude-code"));
 
     expect(profileProblem("claude-code")).toContain("is a symlink");
-    expect(() => saveOverride("claude-code", { sandbox: false })).toThrow("is a symlink");
+    expect(() => saveOverride("claude-code", { sandbox: false })).toThrow(
+      "is a symlink",
+    );
     expect(fs.readFileSync(elsewhere, "utf8")).toBe("{}\n");
   });
 
@@ -122,7 +157,10 @@ describe("profiles", () => {
     const elsewhere = path.join(configHome, "elsewhere");
     fs.mkdirSync(elsewhere);
     fs.mkdirSync(path.join(configHome, "claude-custom"), { recursive: true });
-    fs.symlinkSync(elsewhere, path.join(configHome, "claude-custom", "profiles"));
+    fs.symlinkSync(
+      elsewhere,
+      path.join(configHome, "claude-custom", "profiles"),
+    );
 
     expect(profileProblem("claude-code")).toContain("is a symlink");
   });
