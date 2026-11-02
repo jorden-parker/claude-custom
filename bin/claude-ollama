@@ -598,8 +598,10 @@ start_messages_proxy() {
   upstream="$(jq -r '.env.ANTHROPIC_BASE_URL // empty' "$(configured_settings_file)")"
   [ -n "$upstream" ] || return 0
   rm -f "$proxy_port_file"
+  local record_args=()
+  [ "${CLAUDE_OLLAMA_PROXY_RECORD:-}" != 1 ] || record_args=(--record "$session_config_dir/proxy/record")
   nohup "$(messages_proxy)" --upstream "$upstream" --port 0 --port-file "$proxy_port_file" \
-    --log "$(proxy_log_dir)/requests.jsonl" --watch-pid "$$" >/dev/null 2>&1 &
+    --log "$(proxy_log_dir)/requests.jsonl" --watch-pid "$$" ${record_args[@]+"${record_args[@]}"} >/dev/null 2>&1 &
   if ! wait_for_proxy_port; then
     echo "claude-ollama: messages proxy did not start; claude talks to $upstream directly" >&2
     return 0
@@ -1431,6 +1433,7 @@ case "${1:-}" in
     echo "doctor [size]: check models, context sizes, hooks, Ollama, the server env and the launch beacon"
     echo "--print-config [size]: print the resolved settings and the claude command"
     echo "logs [-n LINES|--path]: follow the Ollama server log (LaunchAgent, Homebrew service or app), or print its path"
+    echo "rescue [size] [--out FILE] [--since MINUTES]: write one redacted markdown report (doctor, config, logs, incidents, proxy stats) to paste into a bug report"
     echo "review [size] PR [--post]: review a pull request with the size's model, one file per request"
     echo "mock-spike [size] [--runs N] [--brief NAME]...: measure how well the size's model streams json-render mockup patches"
     echo "ui [--port N]: serve the console (runs, health, logs, models, reviews) at http://127.0.0.1:8765/"
@@ -1447,6 +1450,7 @@ harness=claude
 mode=launch
 case "${1:-}" in
   doctor) mode=doctor; shift ;;
+  rescue) mode=rescue; shift ;;
   --print-config) mode=print-config; shift ;;
   logs) mode=logs; shift ;;
   prepare-embedding) mode=prepare-embedding; shift ;;
@@ -1495,6 +1499,22 @@ run_review() {
   exec "${CLAUDE_OLLAMA_REVIEWER:-$repo_dir/bin/pr-review-local}" --model "$model" --base-url "$ollama_url" "$@" "$target"
 }
 
+rescue_bin() {
+  echo "${CLAUDE_OLLAMA_RESCUE_BIN:-$profile_dir/rescue.py}"
+}
+
+run_rescue() {
+  local env_file status=0
+  env_file="$(mktemp "${TMPDIR:-/tmp}/claude-ollama-rescue-env.XXXXXX")"
+  running_server_env > "$env_file" 2>/dev/null || true
+  "$(rescue_bin)" --launcher "$repo_dir/bin/claude-ollama" --size "$size" \
+    --fingerprint-bin "$repo_dir/bin/sync-fingerprint" --lease-bin "$lease_bin" \
+    --session-dir "$session_config_dir" --state-dir "$console_state_dir" \
+    --ollama-url "$ollama_url" --server-env "$env_file" "$@" || status=$?
+  rm -f "$env_file"
+  exit "$status"
+}
+
 run_mock_spike() {
   acquire_lease mock-spike --model "$model" || exit 3
   ensure_model
@@ -1529,6 +1549,7 @@ case "$mode" in
     fi
     exit 0 ;;
   doctor) if [ "$harness" = qwen ]; then qwen_doctor; else doctor; fi ;;
+  rescue) run_rescue "$@" ;;
   review) run_review "$review_target" "$@" ;;
   mock-spike) run_mock_spike "$@" ;;
   prepare) ensure_model; exit 0 ;;

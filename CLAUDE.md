@@ -173,6 +173,29 @@ before changing how any file gets applied.
   `$CLAUDE_CONSOLE_STATE_DIR/launcher.log` (0600, moved to `launcher.log.1` past
   1 MiB); the console's Logs page has Ollama server and Launcher tabs
   (`/api/logs/path` and `/api/logs/events` take `?source=server|launcher`)
+- Rescue report: `claude-ollama rescue [size] [--out FILE] [--since MINUTES]`
+  (dispatched like `doctor`: no pull, no launch; `ollama/rescue.py`, stdlib
+  only, does the work and `CLAUDE_OLLAMA_RESCUE_BIN` overrides it for tests)
+  writes one pasteable markdown file, by default
+  `~/.claude-ollama/rescue/<utc-time>.md` (0700 dir, 0600 file), prints its path
+  and a five-line summary (`doctor:`, `lease:`, `incidents:`, `proxy:`,
+  `memory:`) and exits 0 unless `--out` cannot be written. Its sections, each
+  capped and redacted: `doctor` output, `--print-config` output, the
+  `sync-fingerprint` JSON, the running server's `OLLAMA_*` env (the launcher
+  hands it over in a temp file) and the `/api/ps` runners, the lease holders and
+  the session's rung, the last 50 incident rows with per-cause counts over the
+  whole file, the proxy log's prefix hit rate (requests that kept every section
+  but the newest message) and its top three diverging sections with their last
+  diff over the last `--since` minutes (default 120) plus the record dir and its
+  count when `~/.claude-ollama/proxy/record` exists, the launcher log tail (60
+  lines), the Ollama server log tail (60 lines, through
+  `claude-ollama logs --path`), the first 20 lines of the newest note in
+  `<git common dir>/handoff/`, and free memory. Any token-looking string (40+
+  base64 chars, `sk-`, `ghp_`, `Bearer `) becomes `<redacted>` and `$HOME`
+  becomes `~`; whatever it cannot read becomes one `unavailable: <why>` line
+  under its heading. Tests: `ollama/rescue.test.sh` (stub launcher, lease and
+  fingerprint tools, a stub `/api/ps`, fixture logs),
+  `bin/claude-ollama.test.sh` (dispatch and the server env hand-off).
 - Console: `claude-ollama ui [--port N]` serves `web/console` (Next.js with AI
   Elements) at `http://127.0.0.1:8765/`, built on first run with pnpm
   (reinstalled when `pnpm-lock.yaml` is newer than `node_modules/.modules.yaml`,
@@ -784,16 +807,20 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   upstream as `X-Claude-Ollama-Request`), `sections`, `stable_sections`,
   `diverged_at` (`system`, `tools`, `message:N` or null), `offset` (byte within
   that section's canonical text), `diff` (at most 200 chars from there) and
-  `prompt_bytes`; nothing else of the body is logged. `bin/claude-ollama` starts
-  it before `launch_claude` unless `CLAUDE_OLLAMA_PROXY=0`
-  (`CLAUDE_OLLAMA_PROXY_BIN` overrides the script; tests stub it), with
-  `--watch-pid $$`, the log at `$CLAUDE_CONSOLE_STATE_DIR/proxy/requests.jsonl`
-  when that dir exists, else `~/.claude-ollama/proxy/requests.jsonl`, waits for
-  the port file and writes `~/.claude-ollama/proxy-settings.json` with
-  `env.ANTHROPIC_BASE_URL` pointed at the proxy (the settings file `claude`
-  gets); when the port never appears it warns and keeps the direct URL. It only
-  observes: no rewriting, no tool pruning. Tests: `bin/messages-proxy.test.sh`
-  (stub upstream), `bin/claude-ollama.test.sh` (stub proxy).
+  `prompt_bytes`; nothing else of the body is logged. `--record DIR` also saves
+  each body verbatim as `DIR/<request_id>.json` (0700 dir, 0600 files) for
+  `messages-bench --replay` and `ollama-cache-probe --replay`; never on by
+  default, the launcher passes `--record ~/.claude-ollama/proxy/record` only
+  when `CLAUDE_OLLAMA_PROXY_RECORD=1`. `bin/claude-ollama` starts it before
+  `launch_claude` unless `CLAUDE_OLLAMA_PROXY=0` (`CLAUDE_OLLAMA_PROXY_BIN`
+  overrides the script; tests stub it), with `--watch-pid $$`, the log at
+  `$CLAUDE_CONSOLE_STATE_DIR/proxy/requests.jsonl` when that dir exists, else
+  `~/.claude-ollama/proxy/requests.jsonl`, waits for the port file and writes
+  `~/.claude-ollama/proxy-settings.json` with `env.ANTHROPIC_BASE_URL` pointed
+  at the proxy (the settings file `claude` gets); when the port never appears it
+  warns and keeps the direct URL. It only observes: no rewriting, no tool
+  pruning. Tests: `bin/messages-proxy.test.sh` (stub upstream),
+  `bin/claude-ollama.test.sh` (stub proxy).
 - Residency lease: `bin/ollama-lease` (bash 3.2, `jq`) keeps one file per
   holder, `<pid>.json` with `{name, model, num_ctx, rung, started}`, under
   `${CLAUDE_OLLAMA_LEASE_DIR:-~/.claude-ollama/lease}` (0700/0600), guarded by a

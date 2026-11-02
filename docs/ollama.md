@@ -192,6 +192,21 @@ LaunchAgent plist when one exists, else uses the Homebrew service log
 `~/.ollama/logs/server.log`, and exits 1 when none exists. A server started by
 hand with `ollama serve` prints to its own terminal and has no file to follow.
 
+When something goes wrong on a machine you are not sitting at (the work laptop,
+say), do not describe the symptoms: run `claude-ollama rescue` there and paste
+the file it names. It writes one redacted markdown report under
+`~/.claude-ollama/rescue/` with the `doctor` and `--print-config` output, the
+sync fingerprint, the running server env and loaded runners, the lease holders
+and rung, the last incidents, the proxy's prefix hit rate and top diverging
+sections, the launcher and server log tails, the newest handoff note and free
+memory, and prints a five-line summary. Tokens become `<redacted>` and your home
+folder becomes `~`, so the file is safe to paste; anything it cannot read shows
+as `unavailable: <why>` rather than stopping the report. `--since 30` narrows
+the proxy window, `--out FILE` picks the file. To capture the real prompts for a
+later `messages-bench --replay` or `ollama-cache-probe --replay`, launch with
+`CLAUDE_OLLAMA_PROXY_RECORD=1` once; the report then names the record folder and
+how many requests it holds.
+
 Sample `doctor` output (all healthy):
 
 ```

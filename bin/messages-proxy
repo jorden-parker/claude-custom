@@ -29,6 +29,7 @@ def parse_args(argv):
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--port-file")
     parser.add_argument("--log", required=True)
+    parser.add_argument("--record", help="folder that gets each /v1/messages body as <request_id>.json")
     parser.add_argument("--watch-pid", type=int)
     return parser.parse_args(argv)
 
@@ -119,6 +120,20 @@ class RequestLog:
             os.chmod(self.path, 0o600)
 
 
+class BodyRecorder:
+    def __init__(self, folder):
+        self.folder = folder
+        os.makedirs(folder, mode=0o700, exist_ok=True)
+        os.chmod(folder, 0o700)
+
+    def save(self, request_id, body):
+        path = os.path.join(self.folder, f"{request_id}.json")
+        descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(body)
+        os.chmod(path, 0o600)
+
+
 def now_iso():
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
@@ -169,7 +184,7 @@ def returned_headers(headers):
     return [(name, value) for name, value in headers.items() if name.lower() not in HOP_BY_HOP_HEADERS]
 
 
-def observe_request(body, tracker, log):
+def observe_request(body, tracker, log, recorder):
     try:
         parsed = json.loads(body)
     except ValueError:
@@ -181,6 +196,8 @@ def observe_request(body, tracker, log):
     row.update(tracker.compare(prompt_sections(parsed)))
     row["prompt_bytes"] = len(body)
     log.append(row)
+    if recorder is not None:
+        recorder.save(request_id, body)
     return request_id
 
 
@@ -189,6 +206,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
     upstream = None
     tracker = None
     log = None
+    recorder = None
 
     def log_message(self, format, *args):
         return
@@ -230,7 +248,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
     def forward(self, body):
         request_id = None
         if self.command == "POST" and self.path == MESSAGES_PATH:
-            request_id = observe_request(body, self.tracker, self.log)
+            request_id = observe_request(body, self.tracker, self.log, self.recorder)
         connection = http.client.HTTPConnection(self.upstream.hostname, self.upstream.port, timeout=UPSTREAM_TIMEOUT_SECONDS)
         try:
             connection.putrequest(self.command, self.path, skip_host=True, skip_accept_encoding=True)
@@ -293,6 +311,7 @@ def serve(options):
         "upstream": upstream,
         "tracker": SectionTracker(),
         "log": RequestLog(options.log),
+        "recorder": BodyRecorder(options.record) if options.record else None,
     })
     server = ThreadingHTTPServer(("127.0.0.1", options.port), handler)
     server.daemon_threads = True

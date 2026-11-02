@@ -19,6 +19,7 @@ from pathlib import Path
 config_path, log_path, port_path = sys.argv[1:4]
 config = json.loads(Path(config_path).read_text())
 pending = list(config["responses"])
+replay_pending = list(config.get("replay_responses", []))
 
 
 def chat_reply(count, seconds):
@@ -57,7 +58,10 @@ class Handler(BaseHTTPRequestHandler):
             log.write(json.dumps(body, sort_keys=True) + "\n")
         if config.get("hangup"):
             return
-        if body.get("messages") == []:
+        if self.path == "/v1/messages":
+            input_tokens, cached = replay_pending.pop(0) if replay_pending else [0, None]
+            self.reply({"usage": {"input_tokens": input_tokens, "cache_read_input_tokens": cached, "output_tokens": 1}})
+        elif body.get("messages") == []:
             self.reply({"done": True})
         else:
             self.reply(chat_reply(*(pending.pop(0) if pending else [0, 0.0])))
@@ -253,6 +257,49 @@ unreachable_status=0
 "$probe" --base-url http://127.0.0.1:9 27b > /dev/null 2> "$tmp/unreachable.err" || unreachable_status=$?
 check "unreachable server exits non-zero" [ "$unreachable_status" -ne 0 ]
 check "unreachable server gets a clear message" grep -q "cannot reach Ollama" "$tmp/unreachable.err"
+
+cat > "$tmp/replay_dir.py" <<'PY'
+import json
+import os
+import sys
+from pathlib import Path
+
+folder = Path(sys.argv[1])
+folder.mkdir()
+turns = [("zzz-first", 100, "first recorded turn"), ("aaa-second", 200, "second recorded turn"), ("mmm-third", 300, "third recorded turn")]
+for name, age, turn in turns:
+    path = folder / f"{name}.json"
+    path.write_text(json.dumps({"model": "recorded", "max_tokens": 50, "stream": True, "system": "be terse", "messages": [{"role": "user", "content": turn}]}))
+    os.utime(path, (1_700_000_000 + age, 1_700_000_000 + age))
+PY
+python3 "$tmp/replay_dir.py" "$tmp/replay"
+replay_turns() { grep -o '"content": "[a-z]* recorded turn"' "$run_dir/requests.log" | tr '\n' ' '; }
+
+start_stub '{"tags": ["qwen3.8-27b-cc"], "responses": [], "replay_responses": [[1000, 0], [1010, 900], [1020, 200]]}'
+replay_table="$(probe_output --replay "$tmp/replay" 27b 2> "$tmp/replay.err")"
+replay_status=$?
+check "--replay exits 0" [ "$replay_status" -eq 0 ]
+check "--replay unloads the model before the first body" [ "$(request_at 1 | jq -r '.keep_alive')" = 0 ]
+check "--replay sends the bodies in ts order" [ "$(replay_turns)" = '"content": "first recorded turn" "content": "second recorded turn" "content": "third recorded turn" ' ]
+check "--replay substitutes the size's model" [ "$(request_at 2 | jq -r .model)" = qwen3.8-27b-cc ]
+check "--replay keeps the system prompt" [ "$(request_at 2 | jq -r .system)" = "be terse" ]
+check "--replay asks for one token without streaming" [ "$(request_at 2 | jq -c '[.max_tokens, .stream]')" = '[1,false]' ]
+check "--replay names the first body as the baseline" has_row "$replay_table" "^zzz-first +1000 +0 +- "
+check "--replay scores each next body by its cached tokens" has_row "$replay_table" "^aaa-second +1010 +900 +89\.1 "
+check "--replay scores a weak reuse" has_row "$replay_table" "^mmm-third +1020 +200 +19\.6 "
+check "--replay prints a verdict" has_row "$replay_table" "^Replay: 1 of 2 consecutive requests reused the cache"
+
+start_stub '{"tags": ["qwen3.8-27b-cc"], "responses": [], "replay_responses": [[1000, 0], [1010, 900], [1020, 200]]}'
+replay_json="$(probe_output --replay "$tmp/replay" --json 27b 2>/dev/null)"
+check "--replay --json lists one row per body" [ "$(printf '%s' "$replay_json" | jq '.replay | length')" = 3 ]
+check "--replay --json carries the request id and hit" [ "$(printf '%s' "$replay_json" | jq -c '.replay[1] | [.request_id, .hit_percent]')" = '["aaa-second",89.1]' ]
+check "--replay --json counts the reused pairs" [ "$(printf '%s' "$replay_json" | jq -c '[.reused_pairs, .pairs]')" = '[1,2]' ]
+
+mkdir "$tmp/empty-replay"
+empty_status=0
+probe_output --replay "$tmp/empty-replay" 27b > /dev/null 2> "$tmp/empty.err" || empty_status=$?
+check "an empty replay dir exits 1" [ "$empty_status" -eq 1 ]
+check "an empty replay dir says so" grep -q "no .json bodies" "$tmp/empty.err"
 
 stop_stub
 if [ "$failures" -ne 0 ]; then
