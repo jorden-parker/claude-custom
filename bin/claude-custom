@@ -512,26 +512,53 @@ ctx7_home_writable() {
   mkdir -p "$1/npm-cache" 2>/dev/null && : > "$1/npm-cache/.writable" 2>/dev/null
 }
 
-run_pinned_ctx7() {
-  local prefix="$1"
-  shift
-  (cd "$prefix" && npx --yes --prefix="$prefix" "$@" | head -n 80)
+ctx7_registry() {
+  (cd "$1" && npm config get registry 2>/dev/null) || echo "an unknown registry"
 }
 
-run_ctx7() {
-  local home scratch
+explain_ctx7_failure() {
+  local prefix="$1" status="$2"
+  echo "claude-custom ctx7: npm could not fetch ctx7@$ctx7_version from $(ctx7_registry "$prefix") (exit $status)" >&2
+  echo "claude-custom ctx7: npm reads ~/.npmrc here, never a project .npmrc; put the registry's auth token line in ~/.npmrc" >&2
+}
+
+run_pinned_ctx7() {
+  local prefix="$1" output status
+  shift
+  output="$(mktemp "${TMPDIR:-/tmp}/claude-custom-ctx7-out.XXXXXX")" || return 1
+  (cd "$prefix" && npx --yes --prefix="$prefix" "$@") > "$output"
+  status=$?
+  head -n 80 "$output"
+  rm -f "$output"
+  [ "$status" -eq 0 ] || explain_ctx7_failure "$prefix" "$status"
+  return "$status"
+}
+
+run_ctx7_from_scratch() {
+  local scratch status
+  scratch="$(mktemp -d "${TMPDIR:-/tmp}/claude-custom-ctx7.XXXXXX")" || exit 1
+  run_pinned_ctx7 "$scratch" "ctx7@$ctx7_version" "$@"
+  status=$?
+  rm -rf "$scratch"
+  return "$status"
+}
+
+check_ctx7_lookup() {
   case "${1:-}" in
     library|docs) ;;
     *) echo "usage: claude-custom ctx7 library NAME QUERY | claude-custom ctx7 docs ID QUERY [--language L]" >&2; exit 2 ;;
   esac
+}
+
+run_ctx7() {
+  local home
+  check_ctx7_lookup "$@"
   home="$HOME/.cache/claude-custom/ctx7"
   if ctx7_home_writable "$home"; then
     run_pinned_ctx7 "$home" --cache="$home/npm-cache" "ctx7@$ctx7_version" "$@"
     return
   fi
-  scratch="$(mktemp -d "${TMPDIR:-/tmp}/claude-custom-ctx7.XXXXXX")" || exit 1
-  run_pinned_ctx7 "$scratch" "ctx7@$ctx7_version" "$@"
-  rm -rf "$scratch"
+  run_ctx7_from_scratch "$@"
 }
 
 update_repo() {
@@ -552,7 +579,7 @@ main() {
     qwen) shift; exec "$repo_dir/bin/claude-ollama" qwen "$@" ;;
     tools) shift; exec "$repo_dir/bin/claude-tools" "$@" ;;
     agent) shift; exec "$repo_dir/bin/ollama-agent" "$@" ;;
-    ctx7) shift; run_ctx7 "$@" ;;
+    ctx7) shift; run_ctx7 "$@"; status=$? ;;
     sync-check) shift; sync_check "$@" ;;
     *) echo "usage: claude-custom [install|update|uninstall|ollama|qwen|tools|agent|ctx7|sync-check]" >&2; exit 2 ;;
   esac

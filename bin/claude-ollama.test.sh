@@ -601,6 +601,34 @@ check_eq "claude-custom ctx7 runs from a fresh temp folder where the cache folde
 check_that "that temp folder is under TMPDIR" contains "$scratch_prefix" "$sandbox/tmp/claude-custom-ctx7."
 check_eq "claude-custom ctx7 runs inside that temp folder" "$scratch_prefix" "$(cat "$sandbox/npx-cwd")"
 check_not "claude-custom ctx7 removes that temp folder afterwards" test -d "$scratch_prefix"
+cat > "$sandbox/stubbin/npx" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" > "$sandbox/npx-args"
+echo "fetching"
+echo "npm error code E401" >&2
+echo "npm error Unable to authenticate, need: Basic realm=\"Artifactory\"" >&2
+exit 1
+EOF
+cat > "$sandbox/stubbin/npm" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" > "$sandbox/npm-args"
+pwd > "$sandbox/npm-cwd"
+echo "https://npm.example.test/"
+EOF
+chmod +x "$sandbox/stubbin/npx" "$sandbox/stubbin/npm"
+run_capture env XDG_CACHE_HOME="$sandbox/elsewhere" "$sandbox/repo/bin/claude-custom" ctx7 library next "server actions"
+check_eq "a failed ctx7 fetch keeps npx's exit status" 1 "$?"
+check_eq "a failed ctx7 fetch still prints what npx wrote" "fetching" "$(cat "$sandbox/out")"
+check_that "a failed ctx7 fetch keeps npm's own error lines" grep -qF "npm error code E401" "$sandbox/err"
+check_that "a failed ctx7 fetch ends with one line naming the version, the registry npm used and the exit status" \
+  grep -qF "claude-custom ctx7: npm could not fetch ctx7@0.8.2 from https://npm.example.test/ (exit 1)" "$sandbox/err"
+check_that "a failed ctx7 fetch says a project .npmrc is never read here" \
+  grep -qF "claude-custom ctx7: npm reads ~/.npmrc here, never a project .npmrc; put the registry's auth token line in ~/.npmrc" "$sandbox/err"
+check_eq "the registry is read the way npx resolves it, from the same folder" "$ctx7_home" "$(cat "$sandbox/npm-cwd")"
+check_eq "the registry is read with npm config get" "config get registry" "$(cat "$sandbox/npm-args")"
+(cd "$sandbox/repo" && HOME="$sandbox/sealed-home" TMPDIR="$sandbox/tmp" run_capture "$sandbox/repo/bin/claude-custom" ctx7 library react hooks)
+check_eq "a failed ctx7 fetch from the temp folder keeps npx's exit status too" 1 "$?"
+check_not "the temp folder is removed after a failure as well" test -d "$(sed -n 's/^--yes --prefix=\([^ ]*\) .*/\1/p' "$sandbox/npx-args")"
 run_capture "$installer" bogus
 check_eq "unknown subcommand exit status" 2 "$?"
 check_that "usage lists the new subcommands" grep -qF "install|update|uninstall|ollama|qwen|tools|agent" "$sandbox/err"
