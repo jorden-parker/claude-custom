@@ -108,7 +108,9 @@ run_capture() {
 
 copy_repo() {
   mkdir -p "$1"
-  cp -R "$repo/bin" "$repo/personal" "$repo/shared" "$repo/ollama" "$repo/go" "$1/"
+  cp -R "$repo/bin" "$repo/personal" "$repo/shared" "$repo/ollama" "$repo/go" "$repo/docs" "$1/"
+  mkdir -p "$1/web/console/src/lib"
+  cp "$repo"/web/console/src/lib/*.generated.json "$1/web/console/src/lib/"
 }
 
 make_all_rc_files() {
