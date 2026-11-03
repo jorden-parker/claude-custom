@@ -41,13 +41,11 @@ headroom_value() {
 profile_layer() {
   layer_profile="$1"
   claude="$2"
-  summary_reserve=0
   default_output_tokens=0
   if [ "$claude" = false ]; then
-    summary_reserve="$(headroom_value summary_reserve)"
     default_output_tokens="$(headroom_value output_tokens)"
   fi
-  jq --argjson profile "$layer_profile" --argjson claude "$claude" --argjson summaryReserve "$summary_reserve" --argjson defaultOutputTokens "$default_output_tokens" '
+  jq --argjson profile "$layer_profile" --argjson claude "$claude" --argjson defaultOutputTokens "$default_output_tokens" '
     def clear_rule($name):
       .permissions.allow = ((.permissions.allow // []) - [$name])
       | .permissions.ask = ((.permissions.ask // []) - [$name])
@@ -64,8 +62,7 @@ profile_layer() {
     | (.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS // $defaultOutputTokens | tonumber) as $baseOutputTokens
     | (if ($claude | not) and ($profile | has("output_tokens")) then $profile.output_tokens else $baseOutputTokens end) as $outputTokens
     | if ($claude | not) and ($profile | has("output_tokens")) then .env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = ($outputTokens | tostring) else . end
-    | if ($profile | has("context")) then .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS = (($profile.context - $outputTokens - $summaryReserve) | if . > 0 then tostring else error("context must exceed the headroom") end)
-      elif ($claude | not) and ($profile | has("output_tokens")) then .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS = (((.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS | tonumber) + $baseOutputTokens - $outputTokens) | tostring)
+    | if ($profile | has("context")) then .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS = (if $profile.context > $outputTokens then $profile.context | tostring else error("context must exceed the output tokens") end)
       else . end
     | if (($claude | not) and $profile.thinking == true) then del(.env.CLAUDE_CODE_EXTRA_BODY) else . end
   '

@@ -56,12 +56,14 @@ profile_output_tokens() {
   jq -r .env.CLAUDE_CODE_MAX_OUTPUT_TOKENS "$launch_settings"
 }
 
-summary_reserve() {
-  jq -r .summary_reserve "$profile_dir/headroom.json"
-}
-
-context_headroom() {
-  echo $(( $(modelfile_num_ctx) - $(profile_context_tokens) - $(profile_output_tokens) ))
+compaction_point() {
+  local output window by_percent by_buffer
+  output="$(profile_output_tokens)"
+  [ "$output" -le 20000 ] || output=20000
+  window=$(( $(profile_context_tokens) - output ))
+  by_percent=$(( window * $(jq -r '.env.CLAUDE_AUTOCOMPACT_PCT_OVERRIDE // 100' "$launch_settings") / 100 ))
+  by_buffer=$(( window - 13000 ))
+  if [ "$by_percent" -lt "$by_buffer" ]; then echo "$by_percent"; else echo "$by_buffer"; fi
 }
 
 profile_summary() {

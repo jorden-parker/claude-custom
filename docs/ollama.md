@@ -187,15 +187,13 @@ service itself.
 launching anything (the checks live in `bin/claude-ollama-doctor`, which the
 launcher runs with the resolved size). It needs `jq` on PATH
 (`brew install jq`); without it the launcher exits with an error. It reports
-each model (main, embedding), whether `num_ctx` in the Modelfile leaves
-`CLAUDE_CODE_MAX_CONTEXT_TOKENS` plus `CLAUDE_CODE_MAX_OUTPUT_TOKENS` at least
-the `summary_reserve` from `ollama/headroom.json` (so a compaction at 88% still
-fits with its summary), whether each hook named in `ollama/settings.<size>.json`
-exists and is executable under `shared/hooks/`, whether Ollama answers at
-`OLLAMA_HOST`, and whether the running server has every variable from
-`ollama/server.env`. Anything missing exits 1. The server-env check is how to
-confirm `server.env` is applied. The server's environment is read with
-`pgrep`/`ps` (or `/proc` on Linux).
+each model (main, embedding), whether `num_ctx` in the Modelfile covers
+`CLAUDE_CODE_MAX_CONTEXT_TOKENS` (with the token count where Claude Code will
+compact), whether each hook named in `ollama/settings.<size>.json` exists and is
+executable under `shared/hooks/`, whether Ollama answers at `OLLAMA_HOST`, and
+whether the running server has every variable from `ollama/server.env`. Anything
+missing exits 1. The server-env check is how to confirm `server.env` is applied.
+The server's environment is read with `pgrep`/`ps` (or `/proc` on Linux).
 
 `claude-ollama --print-config [size]` prints the resolved values (model, base
 model, embedding model, context sizes, settings path, tools) and the exact
@@ -230,7 +228,7 @@ ok   jq on PATH
 ok   model qwen3.8-27b-cc
 ok   embedding model qwen3-embedding:0.6b
 ok   digest qwen3.8:27b-mlx matches its pin
-ok   num_ctx 65536 leaves 4096 tokens over CLAUDE_CODE_MAX_CONTEXT_TOKENS 53248 plus output 8192 (reserve 4096)
+ok   num_ctx 65536 matches CLAUDE_CODE_MAX_CONTEXT_TOKENS 65536; Claude Code compacts at 44344 tokens
 ok   hook bash-output-guard.py present
 ok   ollama reachable at http://localhost:11434
 ok   server env OLLAMA_FLASH_ATTENTION=1

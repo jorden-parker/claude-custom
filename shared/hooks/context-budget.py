@@ -10,6 +10,9 @@ import hook_state
 from hook_telemetry import record_hook_event
 from profile_env import catalogue_default
 
+COMPACT_BUFFER_TOKENS = 13000
+OUTPUT_RESERVE_CAP = 20000
+HANDOFF_MARGIN_TOKENS = 4000
 CONTEXT_TOKEN_KEYS = ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
 HANDOFF_NUDGE = (
     "Context budget: {percent}% of the {max_tokens}-token window is used. Finish the current edit, "
@@ -49,12 +52,22 @@ def last_context_tokens(transcript_path):
     return None
 
 
-def percent_used(event):
-    max_tokens = positive_int(os.environ.get("CLAUDE_CODE_MAX_CONTEXT_TOKENS"))
-    used = last_context_tokens(event.get("transcript_path"))
-    if max_tokens is None or used is None:
-        return None, None
-    return used * 100 // max_tokens, max_tokens
+def compaction_point(max_tokens):
+    output_tokens = positive_int(os.environ.get("CLAUDE_CODE_MAX_OUTPUT_TOKENS"))
+    if output_tokens is None:
+        return None
+    window = max_tokens - min(output_tokens, OUTPUT_RESERVE_CAP)
+    percent = positive_int(os.environ.get("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE")) or 100
+    return min(window * percent // 100, window - COMPACT_BUFFER_TOKENS)
+
+
+def handoff_threshold(max_tokens):
+    percent = positive_int(os.environ.get("CLAUDE_OLLAMA_HANDOFF_PCT")) or int(catalogue_default("CLAUDE_OLLAMA_HANDOFF_PCT"))
+    by_percent = max_tokens * percent // 100
+    compaction = compaction_point(max_tokens)
+    if compaction is None:
+        return by_percent
+    return min(by_percent, compaction - HANDOFF_MARGIN_TOKENS)
 
 
 def nudge_reply(percent, max_tokens):
@@ -79,10 +92,11 @@ def main():
     path = hook_state.state_path("context-budget", event.get("session_id", "nosession"))
     if path.exists():
         return
-    percent, max_tokens = percent_used(event)
-    threshold = positive_int(os.environ.get("CLAUDE_OLLAMA_HANDOFF_PCT")) or int(catalogue_default("CLAUDE_OLLAMA_HANDOFF_PCT"))
-    if percent is None or percent < threshold:
+    max_tokens = positive_int(os.environ.get("CLAUDE_CODE_MAX_CONTEXT_TOKENS"))
+    used = last_context_tokens(event.get("transcript_path"))
+    if max_tokens is None or used is None or used < handoff_threshold(max_tokens):
         return
+    percent = used * 100 // max_tokens
     record_nudge(path, percent)
     reply = nudge_reply(percent, max_tokens)
     record_hook_event("context-budget", event, "budget", reply["hookSpecificOutput"]["additionalContext"])

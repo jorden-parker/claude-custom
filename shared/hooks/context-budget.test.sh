@@ -45,6 +45,14 @@ mentions() { grep -q "$2" <<<"$1" && echo yes || echo no; }
 over="$(transcript_with 46000)"
 under="$(transcript_with 30000)"
 
+before_compaction="$(transcript_with 41000)"
+expect_eq "41000 of 65536 nudges, since Claude Code compacts at 44344 (window 57344 minus 13000), before 70%" yes \
+  "$(mentions "$(CLAUDE_CODE_MAX_CONTEXT_TOKENS=65536 CLAUDE_CODE_MAX_OUTPUT_TOKENS=8192 CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=88 reply_for sc1 "$before_compaction")" 'handoff')"
+expect_eq "39000 of 65536 stays quiet, more than 4000 tokens before that compaction" "" \
+  "$(CLAUDE_CODE_MAX_CONTEXT_TOKENS=65536 CLAUDE_CODE_MAX_OUTPUT_TOKENS=8192 CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=88 reply_for sc2 "$(transcript_with 39000)")"
+expect_eq "a lower percent override moves the compaction and the nudge earlier" yes \
+  "$(mentions "$(CLAUDE_CODE_MAX_CONTEXT_TOKENS=65536 CLAUDE_CODE_MAX_OUTPUT_TOKENS=8192 CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=50 reply_for sc3 "$(transcript_with 26000)")" 'handoff')"
+
 nudge="$(CLAUDE_CODE_MAX_CONTEXT_TOKENS=65536 reply_for s1 "$over")"
 expect_eq "46000 of 65536 nudges toward the handoff skill" yes "$(mentions "$nudge" 'handoff')"
 expect_eq "the nudge says to call the skill with save" yes "$(mentions "$nudge" 'save')"
@@ -74,7 +82,7 @@ touch -t 202001010000 "$stale_state"
 CLAUDE_CODE_MAX_CONTEXT_TOKENS=65536 reply_for sprune "$(transcript_with 60000)" > /dev/null
 expect_eq "a session's first nudge prunes week-old state" no "$(test -e "$stale_state" && echo yes || echo no)"
 
-expect_eq "each of the four nudges logs one budget telemetry line" 4 "$(grep -c '"kind": "budget"' "$CLAUDE_TOOL_TELEMETRY")"
+expect_eq "each of the six nudges logs one budget telemetry line" 6 "$(grep -c '"kind": "budget"' "$CLAUDE_TOOL_TELEMETRY")"
 expect_eq "the telemetry line names the hook" yes "$(mentions "$(cat "$CLAUDE_TOOL_TELEMETRY")" '"hook": "context-budget"')"
 
 if [ "$failures" -eq 0 ]; then

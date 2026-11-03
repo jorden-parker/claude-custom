@@ -61,13 +61,13 @@ output_tokens() {
 }
 
 context_tokens() {
-  local tokens
-  tokens=$(( $(field "$1" context) - $(output_tokens "$1") - $(headroom summary_reserve) ))
-  if [ "$tokens" -le 0 ]; then
-    echo "ollama-profiles: size $1 has context $(field "$1" context), which leaves no room after the output_tokens and summary_reserve in headroom.json" >&2
+  local context
+  context="$(field "$1" context)"
+  if [ "$context" -le "$(output_tokens "$1")" ]; then
+    echo "ollama-profiles: size $1 has context $context, which leaves no room after its output_tokens" >&2
     return 1
   fi
-  echo "$tokens"
+  echo "$context"
 }
 
 render_settings() {

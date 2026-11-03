@@ -48,16 +48,13 @@ check_digests() {
 }
 
 check_context_sizes() {
-  local ctx tokens output reserve headroom
+  local ctx tokens
   ctx="$(modelfile_num_ctx)"
   tokens="$(profile_context_tokens)"
-  output="$(profile_output_tokens)"
-  reserve="$(summary_reserve)"
-  headroom="$(context_headroom)"
-  if [ "$headroom" -ge "$reserve" ]; then
-    report ok "num_ctx $ctx leaves $headroom tokens over CLAUDE_CODE_MAX_CONTEXT_TOKENS $tokens plus output $output (reserve $reserve)"
+  if [ "$ctx" -ge "$tokens" ]; then
+    report ok "num_ctx $ctx matches CLAUDE_CODE_MAX_CONTEXT_TOKENS $tokens; Claude Code compacts at $(compaction_point) tokens"
   else
-    report fail "num_ctx $ctx leaves $headroom tokens over CLAUDE_CODE_MAX_CONTEXT_TOKENS $tokens plus output $output, below the reserve $reserve (run bin/ollama-profiles)"
+    report fail "num_ctx $ctx is below CLAUDE_CODE_MAX_CONTEXT_TOKENS $tokens (run bin/ollama-profiles)"
   fi
 }
 

@@ -749,7 +749,7 @@ print_config() {
   echo "num_ctx: $(modelfile_num_ctx)"
   echo "max context tokens: $(profile_context_tokens)"
   echo "max output tokens: $(profile_output_tokens)"
-  echo "context headroom: $(context_headroom) (reserve $(summary_reserve))"
+  echo "compacts at: $(compaction_point) tokens"
   local layer_labels
   layer_labels="$(settings_layer_labels)"
   echo "settings: $settings_file${layer_labels:+ + $layer_labels}"

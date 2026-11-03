@@ -777,8 +777,12 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   PostToolUse hook on every tool: it sums the last assistant `usage` in the
   event's `transcript_path` (`input_tokens` plus both cache counts), and at
   `CLAUDE_OLLAMA_HANDOFF_PCT` (default 70) of `CLAUDE_CODE_MAX_CONTEXT_TOKENS`
-  (silent when unset) adds one `additionalContext` per session telling the model
-  to finish its edit, call `Skill handoff save` and stop; the state file is
+  (silent when unset), or 4000 tokens before Claude Code's own compaction point
+  when that comes first (window = max context minus
+  `min(CLAUDE_CODE_MAX_OUTPUT_TOKENS, 20000)`, compacting at
+  `min(window × CLAUDE_AUTOCOMPACT_PCT_OVERRIDE%, window − 13000)`), adds one
+  `additionalContext` per session telling the model to finish its edit, call
+  `Skill handoff save` and stop; the state file is
   `${CLAUDE_CONFIG_DIR:-~/.claude}/cache/context-budget/<session_id>.json`
   (`nudged_at`), and each nudge is one `"kind": "budget"` telemetry line
   (`hook_telemetry.record_hook_event`). The second is a Stop hook with
@@ -902,7 +906,7 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   which applies them in that fixed order onto `ollama/settings.<size>.json`:
   fetch domains (lift the bare `WebFetch` deny, allow each host, deny loopback
   hosts, `skipWebFetchPreflight`), then the profile with `--context` replacing
-  its `context` (the same rules as `settings`, so the headroom margin holds at a
+  its `context` (the same rules as `settings`, so the max context follows a
   lowered context), then `env.ANTHROPIC_BASE_URL`. It runs on every launch,
   `--print-config` and `doctor`, after the proxy starts, on a ladder
   context-down and on its recovery. With no layer in effect `claude` gets
@@ -1346,17 +1350,17 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   relaunch loop also wakes on a `ladder` file: it prints
   `claude-ollama: ladder <rung>: <reason>`, recomposes the launch settings with
   the rung's `context` as the context layer, so `CLAUDE_CODE_MAX_CONTEXT_TOKENS`
-  keeps the headroom margin, re-acquires the session lease with `--rung`, and
-  runs `claude` again with the same flags, a trailing prompt dropped and
-  `--continue` added; a handoff sentinel in the same pass still wins the
-  arguments. Every relaunch exports `CODE_SEARCH_EMBED=0` while `embed-off`
-  exists, and `code-search.py` itself answers words only while that file is in
-  `$CLAUDE_OLLAMA_RELAUNCH_DIR`. Tests: `ollama/incidents/ladder.test.sh`
-  (inline incident rows, a sleeping pid, a stub `ps`, a stub `ollama-lease` with
-  `STUB_FIT`), `bin/claude-ollama.test.sh` (stub ladder,
-  `STUB_CLAUDE_LADDER_ONCE`, `STUB_CLAUDE_LADDER_UP`),
-  `shared/mcp/code-search.test.sh`. The console's Server page has a Residency
-  card (`web/console/src/components/residency-card.tsx`,
+  follows it, re-acquires the session lease with `--rung`, and runs `claude`
+  again with the same flags, a trailing prompt dropped and `--continue` added; a
+  handoff sentinel in the same pass still wins the arguments. Every relaunch
+  exports `CODE_SEARCH_EMBED=0` while `embed-off` exists, and `code-search.py`
+  itself answers words only while that file is in `$CLAUDE_OLLAMA_RELAUNCH_DIR`.
+  Tests: `ollama/incidents/ladder.test.sh` (inline incident rows, a sleeping
+  pid, a stub `ps`, a stub `ollama-lease` with `STUB_FIT`),
+  `bin/claude-ollama.test.sh` (stub ladder, `STUB_CLAUDE_LADDER_ONCE`,
+  `STUB_CLAUDE_LADDER_UP`), `shared/mcp/code-search.test.sh`. The console's
+  Server page has a Residency card
+  (`web/console/src/components/residency-card.tsx`,
   `web/console/src/lib/lease.ts`): `GET /api/lease` runs
   `bin/ollama-lease holders` with `CLAUDE_CUSTOM_HOME` and answers
   `{holders, rung, fit}` (the live `session` holder's rung and the newest
@@ -1411,21 +1415,25 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `bin/check-config` fails when one is missing. `ollama/sizes.json` is the
   single source for each size's `context` and `output_tokens`:
   `bin/ollama-profiles` writes them to `Modelfile.<size>` (`num_ctx`,
-  `num_predict`) and to `CLAUDE_CODE_MAX_OUTPUT_TOKENS`, and the context minus
-  `output_tokens` and the `summary_reserve` from `ollama/headroom.json` to
-  `CLAUDE_CODE_MAX_CONTEXT_TOKENS`, so the prompt at the 88% compaction trigger
-  plus the output and the compaction summary still fit in `num_ctx` (a size
+  `num_predict`) and to `CLAUDE_CODE_MAX_OUTPUT_TOKENS`, and the full context to
+  `CLAUDE_CODE_MAX_CONTEXT_TOKENS`: Claude Code itself keeps every prompt plus
+  its output 3000 tokens under that number and compacts at
+  `min(window × 88%, window − 13000)` of the window left after the output, so
+  subtracting the output again only made it compact at half of `num_ctx` (a size
   without `output_tokens` takes `headroom.json`'s; `bin/check-config` asserts
-  the sum and that `num_predict`, `CLAUDE_CODE_MAX_OUTPUT_TOKENS` and
-  `sizes.json` agree per size, `doctor` reports the headroom, and a profile's
-  `context` or `output_tokens` override keeps the same margin through
-  `shared/profile-overlay`); the `ollama create` names are the ones that `model`
-  and the `ANTHROPIC_DEFAULT_*_MODEL` vars refer to. A managed `availableModels`
-  that lacks the model makes Claude Code substitute a `[1m]` ID, which assumes a
-  1M window; `claude-ollama doctor` warns when that happens. Each profile's own
-  `availableModels` lists only its main model; `bin/check-config` checks it.
-  `ollama/system-prompt.md` replaces Claude Code's default system prompt for
-  both sizes; keep it short and don't put size-specific rules in it.
+  the context equals `num_ctx`, that `num_predict`,
+  `CLAUDE_CODE_MAX_OUTPUT_TOKENS` and `sizes.json` agree per size, and that
+  `precomputeCompactionEnabled` is false, since a background summary is a second
+  full prefill on the one local model; `doctor` and `--print-config` print the
+  compaction point, and a profile's `context` override sets the max context
+  tokens through `shared/profile-overlay`); the `ollama create` names are the
+  ones that `model` and the `ANTHROPIC_DEFAULT_*_MODEL` vars refer to. A managed
+  `availableModels` that lacks the model makes Claude Code substitute a `[1m]`
+  ID, which assumes a 1M window; `claude-ollama doctor` warns when that happens.
+  Each profile's own `availableModels` lists only its main model;
+  `bin/check-config` checks it. `ollama/system-prompt.md` replaces Claude Code's
+  default system prompt for both sizes; keep it short and don't put
+  size-specific rules in it.
 - The personal overlay is loaded with `--settings` by the `claude` shell
   function (`personal/claude.sh` for bash/zsh/ksh, `personal/claude.fish` for
   fish), wired into rc files by `bin/claude-custom install`, never merged into
@@ -1441,12 +1449,11 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `ollama-<size>`) layers on top through `shared/profile-overlay` (POSIX sh +
   jq): `settings` applies tool states, `sandbox:false` (claude-code only),
   `context`, `output_tokens` (1024 to 16384: `CLAUDE_CODE_MAX_OUTPUT_TOKENS` and
-  the `num_predict` parameter, the freed tokens going back to the context) and
-  `thinking:true` (Ollama only; it drops the `CLAUDE_CODE_EXTRA_BODY` that turns
-  thinking off, so Claude Code's own adaptive request reaches Ollama); `tools`,
-  `env`, `mcp`, `parameters`, `summary` and `check` serve `bin/claude-ollama`.
-  `env` exports only the keys of the profile env catalogue
-  `shared/profile-env.json` (an ordered list of
+  the `num_predict` parameter) and `thinking:true` (Ollama only; it drops the
+  `CLAUDE_CODE_EXTRA_BODY` that turns thinking off, so Claude Code's own
+  adaptive request reaches Ollama); `tools`, `env`, `mcp`, `parameters`,
+  `summary` and `check` serve `bin/claude-ollama`. `env` exports only the keys
+  of the profile env catalogue `shared/profile-env.json` (an ordered list of
   `{key, group, kind, default, min, max, step | choices, label, help, ollamaOnly}`,
   `kind` one of `switch`, `integer`, `choice`; values are not checked there):
   the 0/1 switches `CLAUDE_OLLAMA_TELEMETRY` (default off),

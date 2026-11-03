@@ -54,12 +54,12 @@ exit_status_of() {
 
 check_eq "check passes on current files" 0 "$(exit_status_of --check)"
 check_eq "the 27b Modelfile keeps the full context as num_ctx" "PARAMETER num_ctx 65536" "$(grep '^PARAMETER num_ctx' "$profiles/Modelfile.27b")"
-check_eq "the 27b context tokens leave room for the output and the compaction summary" 53248 "$(jq -r .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS "$profiles/settings.27b.json")"
+check_eq "the 27b context tokens are the full num_ctx, since Claude Code keeps the output and a margin under them itself" 65536 "$(jq -r .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS "$profiles/settings.27b.json")"
 check_eq "the output tokens come from the size's output_tokens" 8192 "$(jq -r .env.CLAUDE_CODE_MAX_OUTPUT_TOKENS "$profiles/settings.27b.json")"
 check_eq "the 27b Modelfile caps each reply at the size's output_tokens" "PARAMETER num_predict 8192" "$(grep '^PARAMETER num_predict' "$profiles/Modelfile.27b")"
-check_eq "the 35b context tokens leave the same room" 86016 "$(jq -r .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS "$profiles/settings.35b.json")"
+check_eq "the 35b context tokens are its full num_ctx too" 98304 "$(jq -r .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS "$profiles/settings.35b.json")"
 
-sed 's/53248/32768/' "$profiles/settings.27b.json" > "$sandbox/stale.json" && mv "$sandbox/stale.json" "$profiles/settings.27b.json"
+sed 's/65536/32768/' "$profiles/settings.27b.json" > "$sandbox/stale.json" && mv "$sandbox/stale.json" "$profiles/settings.27b.json"
 check_eq "check fails on a stale file" 1 "$(exit_status_of --check)"
 check_that "check names the stale file" sh -c "CLAUDE_CUSTOM_REPO='$sandbox' '$gen' --check 2>&1 | grep -q 'settings.27b.json'"
 
@@ -120,14 +120,14 @@ printf '{"27b":{"base":"qwen3.8:27b-mlx","model":"qwen3.8-27b-cc","context":6553
 generate >/dev/null
 check_that "render creates a new size" test -f "$profiles/settings.9b.json"
 check_eq "new size has its model" "qwen3.5-9b-cc" "$(jq -r .model "$profiles/settings.9b.json")"
-check_eq "new size has its context" "4096" "$(jq -r .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS "$profiles/settings.9b.json")"
+check_eq "new size has its context" "16384" "$(jq -r .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS "$profiles/settings.9b.json")"
 check_eq "new size Modelfile" "FROM qwen3.5:9b-mlx
 PARAMETER num_ctx 16384
 PARAMETER num_predict 8192" "$(cat "$profiles/Modelfile.9b")"
 check_eq "a size without output_tokens takes the headroom default" 8192 "$(jq -r .env.CLAUDE_CODE_MAX_OUTPUT_TOKENS "$profiles/settings.9b.json")"
 check_eq "a size's own output_tokens caps its replies" "PARAMETER num_predict 4096" "$(grep '^PARAMETER num_predict' "$profiles/Modelfile.9b-short")"
 check_eq "a size's own output_tokens reaches its settings" 4096 "$(jq -r .env.CLAUDE_CODE_MAX_OUTPUT_TOKENS "$profiles/settings.9b-short.json")"
-check_eq "a size's own output_tokens widens its context tokens" 8192 "$(jq -r .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS "$profiles/settings.9b-short.json")"
+check_eq "a size's own output_tokens leaves its context tokens at num_ctx" 16384 "$(jq -r .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS "$profiles/settings.9b-short.json")"
 check_eq "size with a renderer uses Ollama's renderer and parser" "FROM hf.co/example/Qwen3.5-9B-GGUF:Q4_K_M
 PARAMETER num_ctx 16384
 PARAMETER num_predict 8192
@@ -169,7 +169,7 @@ check_not "render without prettier leaves files unwritten" test -f "$profiles/Mo
 generate >/dev/null
 
 printf '{"27b":{"base":"qwen3.8:27b-mlx","model":"qwen3.8-27b-cc","context":65536},"tiny":{"base":"qwen3.5:9b-mlx","model":"qwen3.5-tiny-cc","context":8192}}\n' > "$profiles/sizes.json"
-check_eq "a context that leaves no room after the headroom is refused" 1 "$(exit_status_of)"
+check_eq "a context that leaves no room after the output tokens is refused" 1 "$(exit_status_of)"
 check_that "the refusal names the size" sh -c "CLAUDE_CUSTOM_REPO='$sandbox' '$gen' 2>&1 | grep -q 'size tiny has context 8192'"
 if [ "$failures" -eq 0 ]; then
   echo "all passed"

@@ -128,7 +128,7 @@ check_that "doctor reports jq" grep -qxF "ok   jq on PATH" "$sandbox/out"
 check_that "doctor reports the main model" grep -qxF "ok   model qwen3.8-27b-cc" "$sandbox/out"
 check_not "doctor no longer checks a side model" grep -q "side model" "$sandbox/out"
 check_that "doctor reports the embedding model" grep -qxF "ok   embedding model qwen3-embedding:0.6b" "$sandbox/out"
-check_that "doctor reports context sizes agree" grep -qxF "ok   num_ctx 65536 leaves 4096 tokens over CLAUDE_CODE_MAX_CONTEXT_TOKENS 53248 plus output 8192 (reserve 4096)" "$sandbox/out"
+check_that "doctor reports context sizes agree" grep -qxF "ok   num_ctx 65536 matches CLAUDE_CODE_MAX_CONTEXT_TOKENS 65536; Claude Code compacts at 44344 tokens" "$sandbox/out"
 check_that "doctor reports hooks" grep -qxF "ok   hook stop-verify.py present" "$sandbox/out"
 check_that "doctor reports reachability" grep -qxF "ok   ollama reachable at http://127.0.0.1:11434" "$sandbox/out"
 check_that "doctor reports server env" grep -qxF "ok   server env OLLAMA_KV_CACHE_TYPE=q8_0" "$sandbox/out"
@@ -210,7 +210,7 @@ sed 's/num_ctx 65536/num_ctx 32768/' "$sandbox/repo/ollama/Modelfile.27b" > "$sa
 mv "$sandbox/Modelfile.27b" "$sandbox/repo/ollama/Modelfile.27b"
 doctor="$sandbox/repo/bin/claude-ollama-doctor" run_doctor
 check_eq "doctor with mismatched context sizes exit status" 1 "$?"
-check_that "doctor fails mismatched context sizes" grep -qxF "fail num_ctx 32768 leaves -28672 tokens over CLAUDE_CODE_MAX_CONTEXT_TOKENS 53248 plus output 8192, below the reserve 4096 (run bin/ollama-profiles)" "$sandbox/out"
+check_that "doctor fails mismatched context sizes" grep -qxF "fail num_ctx 32768 is below CLAUDE_CODE_MAX_CONTEXT_TOKENS 65536 (run bin/ollama-profiles)" "$sandbox/out"
 
 new_sandbox
 copy_repo "$sandbox/repo"
@@ -257,7 +257,7 @@ mkdir -p "$XDG_CONFIG_HOME/claude-custom/profiles"
 printf '%s' '{"context":32768}' > "$XDG_CONFIG_HOME/claude-custom/profiles/ollama-27b.json"
 run_doctor
 check_eq "doctor with a context override exits 0" 0 "$?"
-check_that "doctor agrees with the override context" grep -qxF "ok   num_ctx 32768 leaves 4096 tokens over CLAUDE_CODE_MAX_CONTEXT_TOKENS 20480 plus output 8192 (reserve 4096)" "$sandbox/out"
+check_that "doctor agrees with the override context" grep -qxF "ok   num_ctx 32768 matches CLAUDE_CODE_MAX_CONTEXT_TOKENS 32768; Claude Code compacts at 11576 tokens" "$sandbox/out"
 check_that "doctor names the profile and its overrides" grep -q "^ok   profile $XDG_CONFIG_HOME/claude-custom/profiles/ollama-27b.json: " "$sandbox/out"
 fetch_list="$XDG_CONFIG_HOME/claude-custom/fetch-domains"
 printf 'docs.python.org\n' > "$fetch_list"

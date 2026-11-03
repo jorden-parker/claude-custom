@@ -295,13 +295,10 @@ modelfile_num_ctx_for() {
   sed -n 's/^PARAMETER num_ctx //p' "$repo/ollama/Modelfile.$1"
 }
 
-leaves_headroom() {
-  local size="${1##*/settings.}" tokens output reserve
+context_is_num_ctx() {
+  local size="${1##*/settings.}"
   size="${size%.json}"
-  tokens="$(jq -r .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS "$1")"
-  output="$(jq -r .env.CLAUDE_CODE_MAX_OUTPUT_TOKENS "$1")"
-  reserve="$(jq -r .summary_reserve "$repo/ollama/headroom.json")"
-  [ $((tokens + output + reserve)) -le "$(modelfile_num_ctx_for "$size")" ]
+  [ "$(jq -r .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS "$1")" = "$(modelfile_num_ctx_for "$size")" ]
 }
 
 modelfile_num_predict_for() {
@@ -318,10 +315,10 @@ for settings in "$repo"/ollama/settings.*.json; do
   check_eq "${settings##*/} sends the output tokens sizes.json gives the $size size" "$(size_output_tokens "$size")" "$(jq -r .env.CLAUDE_CODE_MAX_OUTPUT_TOKENS "$settings")"
   check_eq "Modelfile.$size caps num_predict at the same output tokens" "$(size_output_tokens "$size")" "$(modelfile_num_predict_for "$size")"
 done
-check_that "headroom.json reserves at least 2048 tokens for the compaction summary" \
-  test "$(jq -r .summary_reserve "$repo/ollama/headroom.json")" -ge 2048
 for settings in "$repo"/ollama/settings.*.json; do
-  check_that "${settings##*/} leaves room under num_ctx for the output and the compaction summary" leaves_headroom "$settings"
+  check_that "${settings##*/} gives Claude Code the full num_ctx, since it keeps the output and a margin under it itself" context_is_num_ctx "$settings"
+  check_eq "${settings##*/} never precomputes a compaction summary in a second request to the one local model" false \
+    "$(jq -r .precomputeCompactionEnabled "$settings")"
 done
 
 watches_context_budget() {
