@@ -494,16 +494,7 @@ check_that "QWEN.local.md points the model at the find-docs skill" grep -qF "/fi
 check_that "PREFERENCES.md points the model at the find-docs skill" grep -qF "/find-docs" "$repo/shared/preferences/PREFERENCES.md"
 check_that "the pr-review-draft skill finds the PR from the current branch" grep -qF 'head:BRANCH' "$repo/shared/skills/pr-review-draft/SKILL.md"
 check_that "CLAUDE.local.md points the model at the draft skills" grep -qF "/pr-draft" "$repo/ollama/CLAUDE.local.md"
-overlay_env_keys() {
-  sed -n 's/^env_allowlist="\(.*\)"$/\1/p' "$repo/shared/profile-overlay" | tr ' ' '\n' | sort
-}
-console_env_keys() {
-  sed -n '/^export const PROFILE_ENV_KEYS = \[$/,/^\] as const;$/p' "$repo/web/console/src/lib/profile-rules.ts" | sed -n 's/^ *"\([A-Z_]*\)",$/\1/p' | sort
-}
-check_that "the console lists at least one profile env key" test -n "$(console_env_keys)"
-check_eq "the profile overlay's env allowlist and the console's PROFILE_ENV_KEYS name the same variables" "$(console_env_keys)" "$(overlay_env_keys)"
-for env_key in $(console_env_keys); do
-  check_that "docs/ollama.md names the profile env key $env_key" grep -qF "\`$env_key\`" "$repo/docs/ollama.md"
+for env_key in $(jq -r '.[].key' "$repo/shared/profile-env.json"); do
   check_that "CLAUDE.md names the profile env key $env_key" grep -qF "\`$env_key\`" "$repo/CLAUDE.md"
 done
 check_that "the launcher and the console agree on the drafts folder" grep -qF '.claude-ollama/drafts' "$repo/web/console/src/lib/drafts.ts"

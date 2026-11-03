@@ -14,6 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from hook_telemetry import record_hook_event
+from profile_env import catalogue_default
 from test_scope import expected_test_path, is_code, is_test, resolve_test, within
 
 EDIT_TOOLS = {"Edit", "Write", "MultiEdit"}
@@ -100,10 +101,11 @@ def refusal_reason(resolved, path, cwd, edited):
 
 
 def mode_from_env():
-    requested = os.environ.get("CLAUDE_OLLAMA_TEST_AFTER_EDIT", "suggest")
+    default_mode = catalogue_default("CLAUDE_OLLAMA_TEST_AFTER_EDIT")
+    requested = os.environ.get("CLAUDE_OLLAMA_TEST_AFTER_EDIT", default_mode)
     if requested == "0":
         return None
-    return requested if requested in MODES else "suggest"
+    return requested if requested in MODES else default_mode
 
 
 def content_key(edited, test):

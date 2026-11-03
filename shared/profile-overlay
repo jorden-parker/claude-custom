@@ -1,7 +1,7 @@
 #!/bin/sh
 set -u
 
-env_allowlist="CLAUDE_OLLAMA_TELEMETRY CLAUDE_OLLAMA_NO_INDEX CLAUDE_OLLAMA_OPEN_DRAFTS CLAUDE_OLLAMA_CMUX CLAUDE_OLLAMA_HANDOFF_PCT CLAUDE_OLLAMA_RELAUNCH CLAUDE_OLLAMA_INCIDENTS CLAUDE_OLLAMA_PROXY CLAUDE_OLLAMA_PROXY_RECORD CLAUDE_OLLAMA_PROXY_STABILIZE CLAUDE_CUSTOM_FRICTION CLAUDE_OLLAMA_LEASE CLAUDE_OLLAMA_LEASE_HEARTBEAT CLAUDE_OLLAMA_LADDER CLAUDE_OLLAMA_FIT CLAUDE_OLLAMA_BEACON CLAUDE_OLLAMA_RULE_CARDS CLAUDE_OLLAMA_TEST_AFTER_EDIT CLAUDE_OLLAMA_EDIT_NUDGE CLAUDE_CODE_EFFORT_LEVEL"
+env_catalogue="$(dirname "$0")/profile-env.json"
 
 fail() {
   echo "profile-overlay: $1" >&2
@@ -97,9 +97,10 @@ tools_list() {
 
 print_env() {
   profile="$(read_profile "$1")" || exit 1
-  printf '%s\n' "$profile" | jq -r --arg allowed "$env_allowlist" '
-    (.env // {}) | to_entries[]
-    | select(.key as $key | ($allowed | split(" ") | index($key)) != null)
+  printf '%s\n' "$profile" | jq -r --slurpfile catalogue "$env_catalogue" '
+    ($catalogue[0] | map(.key)) as $allowed
+    | (.env // {}) | to_entries[]
+    | select(.key as $key | $allowed | index($key) != null)
     | "\(.key)=\(.value | tostring | @sh)"
   ' | while IFS= read -r assignment; do
     if ! is_set "${assignment%%=*}"; then
