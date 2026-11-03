@@ -268,6 +268,15 @@ and `Bash(dangerouslyDisableSandbox:true)`, a retry outside the sandbox, still
 ask, and `git-push-guard.py` denies a push written as `git -C`, `--git-dir` or a
 path to `git`, which that ask would miss.
 
+The launcher also puts nvm's Node first on PATH before the hand-off. nvm is a
+shell function loaded from `.zshrc` or `.bashrc`, so a session started from
+fish, a cmux command or launchd otherwise falls back to Homebrew's Node and
+`npx` runs the wrong version. With `~/.nvm` (or `$NVM_DIR`) installed, the
+launcher reads the nearest `.nvmrc` above the working folder, else nvm's
+`default` alias, picks the newest installed match and prints
+`claude-ollama: node: <path> (nvm 20 from /path/.nvmrc)`; `claude-ollama doctor`
+reports the same `node` line.
+
 Six command families run outside the sandbox through `excludedCommands`: `cmux`,
 `gh`, `short`, `git push`, `claude-custom ctx7` (the `/find-docs` CLI, which
 then uses your own network, proxy and certificates, and resolves the pinned
