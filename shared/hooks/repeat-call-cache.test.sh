@@ -80,7 +80,7 @@ touch -t 202401010000 "$big"
 big_input="{\"file_path\":\"$big\"}"
 big_response="$(jq -cn --arg path "$big" --rawfile content "$big" '{type: "text", file: {filePath: $path, content: $content, numLines: 40}}')"
 after Read "$big_input" "$big_response"
-sed -i '' 's/^line 20$/line twenty/' "$big"
+sed -i.bak 's/^line 20$/line twenty/' "$big" && rm -f "$big.bak"
 touch -t 202401020000 "$big"
 narrowed="$(before Read "$big_input")"
 expect_eq "a mid-file change gets 3 lines of margin each side" \
@@ -92,7 +92,7 @@ expect_eq "the second snapshot joins the first" 2 "$(find "$snapshot_dir" -type 
 range_input="{\"file_path\":\"$big\",\"offset\":10,\"limit\":5}"
 range_response="$(jq -cn --arg path "$big" --arg content "$(sed -n 10,14p "$big")" '{type: "text", file: {filePath: $path, content: ($content + "\n"), numLines: 5}}')"
 after Read "$range_input" "$range_response"
-sed -i '' 's/^line 12$/line twelve/' "$big"
+sed -i.bak 's/^line 12$/line twelve/' "$big" && rm -f "$big.bak"
 touch -t 202401030000 "$big"
 narrowed="$(before Read "$range_input")"
 expect_eq "a ranged Read maps the change to absolute lines" \
