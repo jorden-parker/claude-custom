@@ -53,6 +53,15 @@ def edited_files(event, root):
     return sorted({path for path in relative if path})
 
 
+def clear_verified_edits(event, root):
+    log = edits_log(event)
+    remaining = [path for path in log.read_text().splitlines() if relative_to_root(path, root) is None]
+    if remaining:
+        log.write_text("\n".join(remaining) + "\n")
+    else:
+        log.unlink(missing_ok=True)
+
+
 def project_root(cwd):
     result = subprocess.run(["git", "-C", cwd, "rev-parse", "--show-toplevel"], capture_output=True, text=True)
     return Path(result.stdout.strip() if result.returncode == 0 else cwd).resolve()
@@ -233,7 +242,7 @@ def verify_edits(event):
     if failures:
         print("Not done yet: fix these, then finish.\n\n" + "\n\n".join(failures), file=sys.stderr)
         sys.exit(2)
-    edits_log(event).unlink(missing_ok=True)
+    clear_verified_edits(event, root)
 
 
 def main():
