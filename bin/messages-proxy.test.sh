@@ -290,7 +290,7 @@ upstream_row() { sed -n "${1}p" "$run_dir/upstream.log"; }
 row_field() { printf '%s' "$1" | jq -r "$2"; }
 row_count() { wc -l < "$run_dir/proxy/requests.jsonl" | tr -d ' '; }
 upstream_body_is() { [ "$(printf '%s' "$(upstream_row "$1")" | jq -r .body)" = "$(cat "$2")" ]; }
-mode_of() { stat -f %Lp "$1" 2>/dev/null || stat -c %a "$1"; }
+mode_of() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"; }
 diff_has() { row_field "$(log_row "$1")" .diff | grep -q -- "$2"; }
 lacks_text() { ! grep -q -- "$1" "$2"; }
 

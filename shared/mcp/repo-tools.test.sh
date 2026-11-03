@@ -203,8 +203,8 @@ check "draft_pr reply carries no console link the session cannot open" lacks "$d
 check "draft_pr says the page opens in the user's browser" contains "$drafted" "opens in the user's browser"
 pr_file="$(find "$drafts" -name '*-pr-*.json' 2>/dev/null | head -n 1)"
 check "draft_pr writes one draft file" [ -f "$pr_file" ]
-check "the drafts folder is private" [ "$(stat -f %Lp "$drafts" 2>/dev/null || stat -c %a "$drafts")" = 700 ]
-check "the draft file is private" [ "$(stat -f %Lp "$pr_file" 2>/dev/null || stat -c %a "$pr_file")" = 600 ]
+check "the drafts folder is private" [ "$(stat -c %a "$drafts" 2>/dev/null || stat -f %Lp "$drafts")" = 700 ]
+check "the draft file is private" [ "$(stat -c %a "$pr_file" 2>/dev/null || stat -f %Lp "$pr_file")" = 600 ]
 draft_field() {
   python3 -c "import json, sys; value = json.load(open(sys.argv[1]))[sys.argv[2]]; print(value if isinstance(value, (str, int)) else json.dumps(value))" "$1" "$2"
 }

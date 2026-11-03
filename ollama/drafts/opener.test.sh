@@ -147,7 +147,7 @@ check "a draft that was there before the session is left alone" lacks "$(cat "$t
 check "the page sends the browser to the draft with the console token" \
   contains "$(cat "$tmp/opened-pages")" "/drafts/20261029-100001-pr-feature?token=$token"
 check "the token never reaches a command line" lacks "$(cat "$tmp/open.log")" "$token"
-check "the redirect page is private" [ "$(stat -f %Lp "$tmp/state/open" 2>/dev/null || stat -c %a "$tmp/state/open")" = 700 ]
+check "the redirect page is private" [ "$(stat -c %a "$tmp/state/open" 2>/dev/null || stat -f %Lp "$tmp/state/open")" = 700 ]
 write_draft 20261029-100001-pr-feature
 sleep 0.5
 check "a draft opens once" has_lines "$tmp/open.log" 1

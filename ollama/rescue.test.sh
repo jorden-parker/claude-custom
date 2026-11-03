@@ -17,7 +17,7 @@ check() {
   fi
 }
 
-mode_of() { stat -f %Lp "$1" 2>/dev/null || stat -c %a "$1"; }
+mode_of() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"; }
 section() { awk -v heading="## $2" 'substr($0, 1, length(heading)) == heading {inside = 1; next} /^## / {inside = 0} inside' "$1"; }
 section_has() { section "$1" "$2" | grep -q -- "$3"; }
 section_lacks() { ! section "$1" "$2" | grep -q -- "$3"; }

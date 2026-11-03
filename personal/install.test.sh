@@ -209,7 +209,7 @@ check_eq "install runs npm ci with scripts off in the ctx7 cache folder" "ci --i
 check_eq "install runs npm in ~/.cache/claude-custom/ctx7" "$HOME/.cache/claude-custom/ctx7" "$(cat "$sandbox/npm-cwd")"
 check_that "install copies the pinned package.json beside the install" cmp -s "$repo/shared/ctx7/package.json" "$HOME/.cache/claude-custom/ctx7/package.json"
 check_that "install copies the lockfile beside the install" cmp -s "$repo/shared/ctx7/package-lock.json" "$HOME/.cache/claude-custom/ctx7/package-lock.json"
-check_that "the ctx7 cache folder is private" test "$(stat -f %Lp "$HOME/.cache/claude-custom" 2>/dev/null || stat -c %a "$HOME/.cache/claude-custom")" = 700
+check_that "the ctx7 cache folder is private" test "$(stat -c %a "$HOME/.cache/claude-custom" 2>/dev/null || stat -f %Lp "$HOME/.cache/claude-custom")" = 700
 
 new_sandbox
 make_all_rc_files

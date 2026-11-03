@@ -54,7 +54,7 @@ cat > "$sandbox/bin/sandbox-exec" <<'SCRIPT'
 echo "sandbox-exec $*" >> "$STUB_LOG"
 while [ "$1" = -f ] || [ "$1" = -D ]; do
   if [ "$1" = -f ]; then
-    echo "profile_mode=$(stat -f %Lp "$2" 2>/dev/null || stat -c %a "$2")" >> "$STUB_LOG"
+    echo "profile_mode=$(stat -c %a "$2" 2>/dev/null || stat -f %Lp "$2")" >> "$STUB_LOG"
     if cmp -s "$2" "$SANDBOX_PROFILE_SOURCE"; then echo "profile_same=yes" >> "$STUB_LOG"; else echo "profile_same=no" >> "$STUB_LOG"; fi
   fi
   shift 2
