@@ -6,12 +6,18 @@ import { BrandMark } from "@/components/brand-mark";
 import { SectionIcon } from "@/components/section-icon";
 import {
   SidebarContent,
+  SidebarGroup,
+  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  useSidebar,
 } from "@/components/ui/sidebar";
-import { CONSOLE_SECTIONS } from "@/lib/console-sections";
+import {
+  CONSOLE_SECTION_GROUPS,
+  sectionsInGroup,
+} from "@/lib/console-sections";
 
 export function isActiveSection(pathname: string, href: string): boolean {
   if (href === "/") {
@@ -22,6 +28,13 @@ export function isActiveSection(pathname: string, href: string): boolean {
 
 export function ConsoleNav() {
   const pathname = usePathname();
+  const { isMobile, setOpenMobile } = useSidebar();
+
+  const closeMobileSheet = () => {
+    if (isMobile) {
+      setOpenMobile(false);
+    }
+  };
 
   return (
     <>
@@ -35,20 +48,26 @@ export function ConsoleNav() {
         </Link>
       </SidebarHeader>
       <SidebarContent>
-        <SidebarMenu>
-          {CONSOLE_SECTIONS.map((section) => (
-            <SidebarMenuItem key={section.href}>
-              <SidebarMenuButton
-                render={<Link href={section.href} />}
-                isActive={isActiveSection(pathname, section.href)}
-                tooltip={section.summary}
-              >
-                <SectionIcon href={section.href} />
-                <span>{section.title}</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          ))}
-        </SidebarMenu>
+        {CONSOLE_SECTION_GROUPS.map((group) => (
+          <SidebarGroup key={group}>
+            <SidebarGroupLabel>{group}</SidebarGroupLabel>
+            <SidebarMenu>
+              {sectionsInGroup(group).map((section) => (
+                <SidebarMenuItem key={section.href}>
+                  <SidebarMenuButton
+                    render={<Link href={section.href} />}
+                    isActive={isActiveSection(pathname, section.href)}
+                    tooltip={section.summary}
+                    onClick={closeMobileSheet}
+                  >
+                    <SectionIcon href={section.href} />
+                    <span>{section.title}</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroup>
+        ))}
       </SidebarContent>
     </>
   );

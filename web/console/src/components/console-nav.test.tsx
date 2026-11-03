@@ -1,6 +1,16 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { SidebarProvider } from "@/components/ui/sidebar";
+import {
+  Sidebar,
+  SidebarProvider,
+  SidebarTrigger,
+} from "@/components/ui/sidebar";
 import { ConsoleNav, isActiveSection } from "./console-nav";
 
 vi.mock("next/navigation", () => ({
@@ -40,6 +50,41 @@ describe("ConsoleNav", () => {
     expect(
       screen.getByRole("link", { name: "Reviews" }).hasAttribute("data-active"),
     ).toBe(false);
+  });
+
+  it("groups the sections under Work, Observe and Configure", () => {
+    renderNav();
+
+    for (const label of ["Work", "Observe", "Configure"]) {
+      expect(screen.getByText(label)).toBeTruthy();
+    }
+  });
+
+  it("closes the mobile sheet after a link is chosen", async () => {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn().mockImplementation(() => ({
+        matches: true,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })),
+    );
+    render(
+      <SidebarProvider>
+        <SidebarTrigger />
+        <Sidebar>
+          <ConsoleNav />
+        </Sidebar>
+      </SidebarProvider>,
+    );
+    expect(screen.queryByRole("link", { name: "Runs" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /sidebar/i }));
+    fireEvent.click(await screen.findByRole("link", { name: "Runs" }));
+
+    await waitFor(() =>
+      expect(screen.queryByRole("link", { name: "Runs" })).toBeNull(),
+    );
   });
 
   it("renders menu buttons without the pill shape", () => {

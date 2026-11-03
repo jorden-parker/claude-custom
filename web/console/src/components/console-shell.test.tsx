@@ -35,6 +35,21 @@ describe("ConsoleShell", () => {
     ).toBeTruthy();
   });
 
+  it("shows the brand link in the header for small screens", () => {
+    render(
+      <ConsoleShell>
+        <p>page body</p>
+      </ConsoleShell>,
+    );
+    const headerBanner = screen.getByRole("banner");
+    const brandLink = within(headerBanner).getByRole("link", {
+      name: "claude-ollama",
+    });
+
+    expect(brandLink.getAttribute("href")).toBe("/");
+    expect(brandLink.className).toContain("md:hidden");
+  });
+
   it("fills the page width token with padding", () => {
     render(
       <ConsoleShell>
