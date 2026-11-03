@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import hook_state
 from hook_telemetry import record_denial, record_hook_event
 from recovery_recipes import recovery_line
 from test_scope import expected_test_name, is_code, is_test, scope_of
@@ -17,21 +18,14 @@ SEGMENT_SPLIT = re.compile(r"\|\||&&|;|\|")
 TEST_TARGET = re.compile(r"^(test|check|verify)")
 
 
-def state_path(session_id):
-    config_dir = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
-    return config_dir / "cache" / "tdd-guard" / f"{session_id}.json"
-
-
-def load_state(path):
-    try:
-        return {**EMPTY_STATE, **json.loads(path.read_text())}
-    except (OSError, ValueError):
-        return json.loads(json.dumps(EMPTY_STATE))
-
-
-def save_state(path, state):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(state))
+def apply_event(state, event):
+    hook_event = event.get("hook_event_name")
+    if hook_event == "PostToolUse":
+        record_event(state, event)
+        return None
+    if hook_event == "PreToolUse":
+        return gate(state, event)
+    return None
 
 
 def command_segments(command):
@@ -142,15 +136,11 @@ def main():
         return
     if os.environ.get("CLAUDE_CUSTOM_TDD") == "0":
         return
-    path = state_path(event.get("session_id", "nosession"))
-    state = load_state(path)
-    hook_event = event.get("hook_event_name")
-    output = None
-    if hook_event == "PostToolUse":
-        record_event(state, event)
-    elif hook_event == "PreToolUse":
-        output = gate(state, event)
-    save_state(path, state)
+    path = hook_state.state_path("tdd-guard", event.get("session_id", "nosession"))
+    if not path.exists():
+        hook_state.prune("tdd-guard")
+    with hook_state.update_state(path, EMPTY_STATE) as state:
+        output = apply_event(state, event)
     if output is None:
         return
     if "permissionDecisionReason" in output["hookSpecificOutput"]:
