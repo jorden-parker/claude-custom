@@ -81,7 +81,23 @@ export async function modelsSnapshot(deps: ModelsDeps): Promise<ModelsSnapshot> 
   };
 }
 
+const embeddingNameByRepo = new Map<string, Promise<string | null>>();
+
 async function embeddingModelName(deps: ModelsDeps): Promise<string | null> {
+  const cached = embeddingNameByRepo.get(deps.repoDir);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const pending = readEmbeddingModelName(deps);
+  embeddingNameByRepo.set(deps.repoDir, pending);
+  const name = await pending;
+  if (name === null) {
+    embeddingNameByRepo.delete(deps.repoDir);
+  }
+  return name;
+}
+
+async function readEmbeddingModelName(deps: ModelsDeps): Promise<string | null> {
   const [size] = configuredSizes(deps.repoDir);
   const argv = size === undefined ? null : CONSOLE_QUERIES.printConfig.argv({ size }, deps.repoDir);
   if (argv === null) {

@@ -153,6 +153,22 @@ describe("modelsSnapshot", () => {
     expect(snapshot.embedding).toEqual({ name: null, installed: false });
   });
 
+  it("runs print-config once per repo across snapshots", async () => {
+    const runner = printConfigRunner("embedding model: test-embed:0.6b\n");
+    const countingDeps = deps({
+      runOnce: async (argv, options) => {
+        argvs.push([...argv]);
+        return runner(argv, options);
+      },
+    });
+
+    await modelsSnapshot(countingDeps);
+    const second = await modelsSnapshot(countingDeps);
+
+    expect(argvs.filter((argv) => argv.includes("--print-config"))).toHaveLength(1);
+    expect(second.embedding.name).toBe("test-embed:0.6b");
+  });
+
   it("asks Ollama with the configured URL", async () => {
     const urls: string[] = [];
     await modelsSnapshot(deps({ ollamaUrl: "http://127.0.0.1:9999", fetch: fakeFetch({ "/api/tags": TAGS, "/api/ps": PS }, urls) }));

@@ -882,8 +882,9 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `--print-config` and `doctor`, after the proxy starts, on a ladder
   context-down and on its recovery. With no layer in effect `claude` gets
   `ollama/settings.<size>.json` itself; otherwise it gets
-  `~/.claude-ollama/launch-settings.json` (0600), the only derived settings
-  file. Tests: `shared/profile-overlay.test.sh`, `bin/claude-ollama.test.sh`.
+  `~/.claude-ollama/launch-settings/<launcher pid>.json` (0600, removed when the
+  launch ends; `doctor` and `--print-config` compose into a temp file), the only
+  derived settings file. Tests: `shared/profile-overlay.test.sh`, `bin/claude-ollama.test.sh`.
 - `bin/claude-ollama` resolves its own symlink to find `ollama/`. It unsets
   `ANTHROPIC_API_KEY`, passes `--settings` with the launch settings above,
   `--system-prompt-file ollama/system-prompt.md` (replacing Claude Code's
