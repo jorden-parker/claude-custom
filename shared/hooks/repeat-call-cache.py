@@ -2,7 +2,6 @@
 import hashlib
 import json
 import os
-import subprocess
 import sys
 from difflib import SequenceMatcher
 from pathlib import Path
@@ -12,9 +11,8 @@ from friction_budget import call_snapshot_dir, lookup_call, record_call, recorde
 from hook_telemetry import record_hook_event
 
 HOOK = "repeat-call-cache"
-GIT_STATUS_TOOL = "mcp__repo__git_status"
 SEARCH_TOOL = "mcp__code-search__semantic_search"
-CACHED_TOOLS = {"Read", GIT_STATUS_TOOL, SEARCH_TOOL}
+CACHED_TOOLS = {"Read", SEARCH_TOOL}
 ERROR_FLAGS = ("is_error", "isError")
 SNAPSHOT_BYTE_LIMIT = 64 * 1024
 NARROWING_MARGIN = 3
@@ -49,30 +47,10 @@ def file_stamp(tool_input):
         return None
 
 
-def git_output(cwd, *arguments):
-    try:
-        return subprocess.run(["git", *arguments], cwd=cwd, capture_output=True, text=True, check=True).stdout.strip()
-    except (OSError, subprocess.CalledProcessError):
-        return None
-
-
-def git_stamp(cwd):
-    head = git_output(cwd, "rev-parse", "HEAD")
-    index_path = git_output(cwd, "rev-parse", "--git-path", "index")
-    if head is None or index_path is None:
-        return None
-    try:
-        return f"{head}:{os.stat(os.path.join(cwd, index_path)).st_mtime_ns}"
-    except OSError:
-        return None
-
-
 def invalidation_stamp(event):
     tool_name = event.get("tool_name", "")
     if tool_name == "Read":
         return file_stamp(event.get("tool_input") or {})
-    if tool_name == GIT_STATUS_TOOL:
-        return git_stamp(event.get("cwd") or os.getcwd())
     return ""
 
 

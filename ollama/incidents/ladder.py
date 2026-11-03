@@ -5,6 +5,7 @@ import os
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "shared"))
@@ -70,9 +71,12 @@ def parse_options(argv):
 
 def row_time(row):
     try:
-        return time.mktime(time.strptime(row.get("ts", ""), "%Y-%m-%dT%H:%M:%SZ"))
-    except (TypeError, ValueError):
+        moment = datetime.fromisoformat(row.get("ts", "").replace("Z", "+00:00"))
+    except (AttributeError, TypeError, ValueError):
         return time.time()
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return moment.timestamp()
 
 
 def configured_contexts(sizes_path):

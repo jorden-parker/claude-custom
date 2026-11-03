@@ -328,7 +328,7 @@ resets_friction_budget() {
 }
 
 caches_repeat_calls() {
-  jq -e --arg event "$2" '[.hooks[$event][] | select((.matcher // "") | test("Read") and test("mcp__repo__git_status") and test("mcp__code-search__semantic_search")) | .hooks[].command] | any(test("repeat-call-cache"))' "$1" >/dev/null
+  jq -e --arg event "$2" '[.hooks[$event][] | select((.matcher // "") | test("Read") and test("mcp__code-search__semantic_search")) | .hooks[].command] | any(test("repeat-call-cache"))' "$1" >/dev/null
 }
 
 suggests_tests_after_edits() {
@@ -394,8 +394,8 @@ nudges_wasteful_edits() {
 for settings in "$repo"/ollama/settings.*.json; do
   check_that "${settings##*/} runs edit-nudge.py before Edit, Write and MultiEdit" nudges_wasteful_edits "$settings"
   check_that "${settings##*/} runs friction_budget.py on each prompt" resets_friction_budget "$settings"
-  check_that "${settings##*/} runs repeat-call-cache.py before Read, git_status and semantic_search" caches_repeat_calls "$settings" PreToolUse
-  check_that "${settings##*/} runs repeat-call-cache.py after Read, git_status and semantic_search" caches_repeat_calls "$settings" PostToolUse
+  check_that "${settings##*/} runs repeat-call-cache.py before Read and semantic_search" caches_repeat_calls "$settings" PreToolUse
+  check_that "${settings##*/} runs repeat-call-cache.py after Read and semantic_search" caches_repeat_calls "$settings" PostToolUse
   check_that "${settings##*/} runs context-budget.py after every tool" watches_context_budget "$settings"
   check_that "${settings##*/} runs handoff-relaunch.py on Stop" relaunches_on_handoff "$settings"
   check_that "${settings##*/} runs incident-note.py on each prompt" notes_incidents "$settings"

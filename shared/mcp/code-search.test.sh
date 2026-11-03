@@ -318,6 +318,18 @@ index_with_stub
 check "a newer index file is reloaded by the running server" first_line_starts_with "$(live_search "x")" "src/x.py:1-1"
 stop_server
 
+rm -rf "$tmp/relaunch-live"
+mkdir -p "$tmp/relaunch-live"
+CLAUDE_OLLAMA_RELAUNCH_DIR="$tmp/relaunch-live" CODE_SEARCH_EMBED=1 start_server
+embedding_live="$(live_search "password check")"
+check "a running server embeds while embed-off is absent" [ -e "$tmp/embed.log" ]
+check "no words-only note before embed-off" lacks "$embedding_live" "words only"
+python3 "$(dirname "$server")/../relaunch_dir.py" --dir "$tmp/relaunch-live" raise embed-off
+embedding_off_live="$(live_search "password check")"
+check "a running server stops embedding when embed-off appears" [ ! -e "$tmp/embed.log" ]
+check "the running server then says words only" contains "$embedding_off_live" "words only"
+stop_server
+
 stop_stub
 down="$(search "filler")"
 check "an unreachable Ollama still answers from the word index" [ "$(printf '%s' "$down" | reply_is_error)" = "False" ]

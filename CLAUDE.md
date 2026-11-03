@@ -629,35 +629,36 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   file and the ones `tdd-guard.py`, `rule-cards.py`, `context-budget.py`,
   `handoff-relaunch.py` and `incident-note.py` keep) goes through
   `shared/hooks/hook_state.py` (locked, atomic, pruned after 7 days). Each of
-  them passes its denial through `deny_reason(hook, event, reason, alternative)`,
-  which keys it by hook, tool and a fingerprint (Bash: the command minus digits,
-  quoted strings and each path's last segment; Read: the path plus a 300-line
-  bucket of `offset` and `limit`; otherwise the sorted input JSON) and counts it
-  in `${CLAUDE_CONFIG_DIR:-~/.claude}/cache/friction/<session_id>.json`. The
-  first three denials of one fingerprint keep their reason; the fourth and later
-  get a plan reset instead (one line naming what the model keeps trying, the
-  hook's one allowed alternative, and an order to stop retrying) and write a
+  them passes its denial through
+  `deny_reason(hook, event, reason, alternative)`, which keys it by hook, tool
+  and a fingerprint (Bash: the command minus digits, quoted strings and each
+  path's last segment; Read: the path plus a 300-line bucket of `offset` and
+  `limit`; otherwise the sorted input JSON) and counts it in
+  `${CLAUDE_CONFIG_DIR:-~/.claude}/cache/friction/<session_id>.json`. The first
+  three denials of one fingerprint keep their reason; the fourth and later get a
+  plan reset instead (one line naming what the model keeps trying, the hook's
+  one allowed alternative, and an order to stop retrying) and write a
   `"kind": "friction"` telemetry line with the fingerprint's hash, never the
   command. As a UserPromptSubmit hook (Ollama-only, in
   `ollama/hooks.extra.json`) it resets that file each turn; without that reset
   (the personal overlay) the file never exists and every denial stays plain.
   `CLAUDE_CUSTOM_FRICTION=0` turns it off. `shared/hooks/repeat-call-cache.py`
-  (Ollama-only, PreToolUse and PostToolUse on Read, `mcp__repo__git_status` and
-  `mcp__code-search__semantic_search`) keeps a per-turn result cache in the same
-  file: after a call it records the call number, the output's sha256 and size,
-  and an invalidation stamp (the file's mtime for Read, `HEAD` plus the index
-  mtime for `git_status`, none for a search); an error result (`Error` text or
-  an error flag) is never recorded. Before an exact same-turn repeat whose stamp
-  is unchanged it denies with
-  `same result as call #N this turn, unchanged since; use it` and writes a
-  friction line carrying `saved_bytes`. A Read's served content (64 KiB or less)
-  is also kept as a 0600 snapshot under `cache/friction/<session_id>.snapshots/`
-  (stale ones pruned at each record). When the same Read repeats after the
-  file's mtime changed, the hook diffs the snapshot against the file: identical
-  content is the same denial; otherwise it rewrites the call through
-  `updatedInput` (`permissionDecision: allow`) to the changed span plus 3 lines
-  of margin, at most 300 lines, with `additionalContext`
-  `lines A-B changed since call #N; showing only them` (or
+  (Ollama-only, PreToolUse and PostToolUse on Read and
+  `mcp__code-search__semantic_search`; `git_status` is never cached, since no
+  cheap stamp tracks edits to tracked or untracked files) keeps a per-turn
+  result cache in the same file: after a call it records the call number, the
+  output's sha256 and size, and an invalidation stamp (the file's mtime for
+  Read, none for a search); an error result (`Error` text or an error flag) is
+  never recorded. Before an exact same-turn repeat whose stamp is unchanged it
+  denies with `same result as call #N this turn, unchanged since; use it` and
+  writes a friction line carrying `saved_bytes`. A Read's served content (64 KiB
+  or less) is also kept as a 0600 snapshot under
+  `cache/friction/<session_id>.snapshots/` (stale ones pruned at each record).
+  When the same Read repeats after the file's mtime changed, the hook diffs the
+  snapshot against the file: identical content is the same denial; otherwise it
+  rewrites the call through `updatedInput` (`permissionDecision: allow`) to the
+  changed span plus 3 lines of margin, at most 300 lines, with
+  `additionalContext` `lines A-B changed since call #N; showing only them` (or
   `showing only A-C (read on from C+1 for the rest)` when cut); a file with no
   snapshot passes through whole. Recovery recipes are data:
   `ollama/recipes/<hook>.json` holds `{"match": regex, "steps": [...]}` entries
@@ -878,7 +879,8 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `ollama/settings.<size>.json` itself; otherwise it gets
   `~/.claude-ollama/launch-settings/<launcher pid>.json` (0600, removed when the
   launch ends; `doctor` and `--print-config` compose into a temp file), the only
-  derived settings file. Tests: `shared/profile-overlay.test.sh`, `bin/claude-ollama.test.sh`.
+  derived settings file. Tests: `shared/profile-overlay.test.sh`,
+  `bin/claude-ollama.test.sh`.
 - `bin/claude-ollama` resolves its own symlink to find `ollama/`. It unsets
   `ANTHROPIC_API_KEY`, passes `--settings` with the launch settings above,
   `--system-prompt-file ollama/system-prompt.md` (replacing Claude Code's

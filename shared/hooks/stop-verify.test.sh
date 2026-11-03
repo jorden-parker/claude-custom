@@ -280,4 +280,18 @@ check 'no line over 400 chars'           test "$(awk '{ if (length > m) m = leng
 check 'verify block is short'            test "$(wc -l < "$sandbox/stderr")" -le 45
 check 'stderr stays in order'            test "$(grep -nxF 'to stderr' "$sandbox/stderr" | cut -d: -f1)" -lt "$(grep -nxF 'last line' "$sandbox/stderr" | cut -d: -f1)"
 
+repo_a="$(new_repo repo-a)"
+repo_b="$(new_repo repo-b)"
+add_verify "$repo_a" 0
+add_verify "$repo_b" 0
+record_edit "$repo_a/a.txt" two-repos
+record_edit "$repo_b/b.txt" two-repos
+expect allow 'stop in repo A passes'     run_hook "$repo_a" false two-repos
+check 'repo A verify ran on a.txt'       grep -qF 'a.txt' "$repo_a/.claude/args"
+check 'repo B edit is still logged'      grep -qF "$repo_b/b.txt" "$STOP_VERIFY_STATE_DIR/two-repos"
+check 'repo A edit is cleared'           test -z "$(grep -F "$repo_a/a.txt" "$STOP_VERIFY_STATE_DIR/two-repos")"
+expect allow 'stop in repo B passes'     run_hook "$repo_b" false two-repos
+check 'repo B verify ran on b.txt'       grep -qF 'b.txt' "$repo_b/.claude/args"
+check 'log removed once nothing is left' test ! -e "$STOP_VERIFY_STATE_DIR/two-repos"
+
 if [ "$failures" -eq 0 ]; then echo "all passed"; else echo "$failures failed"; exit 1; fi

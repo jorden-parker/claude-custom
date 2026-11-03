@@ -73,6 +73,12 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Transfer-Encoding", "chunked")
         self.end_headers()
+        if "cut=1" in self.path:
+            chunk = sse("cut_chunk_one")
+            self.wfile.write(b"%x\r\n%s\r\n" % (len(chunk), chunk))
+            self.wfile.flush()
+            self.close_connection = True
+            return
         for chunk in REPLY:
             self.wfile.write(b"%x\r\n%s\r\n" % (len(chunk), chunk))
             self.wfile.flush()
@@ -83,6 +89,28 @@ class Handler(BaseHTTPRequestHandler):
 server = HTTPServer(("127.0.0.1", 0), Handler)
 Path(port_path).write_text(str(server.server_port))
 server.serve_forever()
+PY
+
+cat > "$tmp/raw_post.py" <<'PY'
+import socket
+import sys
+
+port, path, body_path = int(sys.argv[1]), sys.argv[2], sys.argv[3]
+body = open(body_path, "rb").read()
+request = b"POST %s HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: %d\r\nConnection: close\r\n\r\n" % (path.encode(), len(body))
+connection = socket.create_connection(("127.0.0.1", port))
+connection.settimeout(5)
+connection.sendall(request + body)
+received = b""
+try:
+    while True:
+        chunk = connection.recv(65536)
+        if not chunk:
+            break
+        received += chunk
+except OSError:
+    pass
+sys.stdout.buffer.write(received)
 PY
 
 cat > "$tmp/send.py" <<'PY'
@@ -470,6 +498,11 @@ beta_status="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: 
 check "Claude Code's ?beta=true messages call is forwarded" [ "$beta_status" = 200 ]
 check "Claude Code's ?beta=true messages call writes a log row" [ "$(wc -l < "$beta_log" 2>/dev/null | tr -d ' ')" = 1 ]
 check "the ?beta=true query reaches the upstream" [ "$(row_field "$(upstream_row 1)" .path)" = "/v1/messages?beta=true" ]
+
+python3 "$tmp/raw_post.py" "$(cat "$run_dir/beta.port")" "/v1/messages?cut=1" "$run_dir/beta.json" > "$run_dir/cut.out"
+check "a stream cut mid-way keeps the chunks already sent" grep -q 'cut_chunk_one' "$run_dir/cut.out"
+check "a stream cut mid-way gets no 502 body" lacks_text "upstream failed" "$run_dir/cut.out"
+check "a stream cut mid-way gets no 502 status line" lacks_text "502" "$run_dir/cut.out"
 stop_proxy
 
 if [ "$failures" -eq 0 ]; then

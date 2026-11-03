@@ -219,7 +219,7 @@
         ]
       },
       {
-        "matcher": "Read|mcp__repo__git_status|mcp__code-search__semantic_search",
+        "matcher": "Read|mcp__code-search__semantic_search",
         "hooks": [
           {
             "type": "command",
@@ -287,7 +287,7 @@
         ]
       },
       {
-        "matcher": "Read|mcp__repo__git_status|mcp__code-search__semantic_search",
+        "matcher": "Read|mcp__code-search__semantic_search",
         "hooks": [
           {
             "type": "command",

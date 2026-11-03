@@ -148,13 +148,7 @@ after Read "$read_input" "$read_response"
 expect_eq "a record after the new prompt drops the stale snapshots" 1 "$(find "$snapshot_dir" -type f | wc -l | tr -d ' ')"
 
 after mcp__repo__git_status '{}' '[{"type":"text","text":"## main\n M notes.txt"}]'
-expect_eq "a repeated git_status with the same HEAD and index is denied" deny "$(decision mcp__repo__git_status '{}')"
-git -C "$repo" add notes.txt
-expect_eq "a changed index passes" allow "$(decision mcp__repo__git_status '{}')"
-after mcp__repo__git_status '{}' '[{"type":"text","text":"## main\nA notes.txt"}]'
-expect_eq "denied again once recorded" deny "$(decision mcp__repo__git_status '{}')"
-git -C "$repo" -c user.name=t -c user.email=t@t commit -q -m second
-expect_eq "a new HEAD passes" allow "$(decision mcp__repo__git_status '{}')"
+expect_eq "a repeated git_status is never served from the cache" allow "$(decision mcp__repo__git_status '{}')"
 
 after mcp__code-search__semantic_search '{"query":"where is auth"}' '{"content":[{"type":"text","text":"src/auth.ts:1"}]}'
 expect_eq "a repeated search is denied" deny "$(decision mcp__code-search__semantic_search '{"query":"where is auth"}')"
