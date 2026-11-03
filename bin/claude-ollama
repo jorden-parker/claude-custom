@@ -1795,7 +1795,7 @@ case "${1:-}" in
   review) mode=review; shift ;;
   mock-spike) mode=mock-spike; shift ;;
   task-eval) mode=task-eval; shift ;;
-  prefix-ab) mode=prefix-ab; shift ;;
+  prefix-ab) mode='prefix-ab'; shift ;;
   ui) mode=ui; shift ;;
   reviews) mode=reviews; shift ;;
   prepare) mode=prepare; shift ;;
