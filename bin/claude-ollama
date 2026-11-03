@@ -212,7 +212,7 @@ warm_embedding_model() {
   embeddings_wanted || return 0
   command -v curl >/dev/null 2>&1 || return 0
   curl -s -o /dev/null -m 30 -X POST "$ollama_url/api/embed" \
-    -d "{\"model\":\"$embedding_model\",\"input\":\"warm up\",\"keep_alive\":\"$keep_alive\"}" >/dev/null 2>&1
+    -d "{\"model\":\"$embedding_model\",\"input\":\"warm up\",\"keep_alive\":\"$keep_alive\"}" >/dev/null 2>&1 || true
 }
 
 acquire_lease() {

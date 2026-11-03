@@ -161,6 +161,7 @@ while [ \$# -gt 0 ]; do
   shift
 done
 case "\$arguments" in *api/tags*) cat "$sandbox/tags.json" ;; esac
+case "\$arguments" in *api/embed*) exit "\${STUB_EMBED_CURL_EXIT:-0}" ;; esac
 case "\$arguments" in *huggingface.co*) printf 'stub weights' > "\$output"; exit "\${STUB_HF_CURL_EXIT:-0}" ;; esac
 exit "\${STUB_CURL_EXIT:-0}"
 EOF
@@ -356,6 +357,9 @@ STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYP
 check_that "claude-ollama warms the embedding model when the server keeps two models" grep -q '127.0.0.1:11434/api/embed' "$sandbox/curl.log"
 check_that "the embedding warm-up names the model and keeps it alive" grep -q '"model":"qwen3-embedding:0.6b","input":"warm up","keep_alive":"30m"' "$sandbox/curl.log"
 check_eq "claude-ollama allows the search server to load embeddings when the server keeps two models" 1 "$(cat "$sandbox/embed-env")"
+rm -f "$sandbox/out"
+STUB_EMBED_CURL_EXIT=28 STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2 OLLAMA_NUM_PARALLEL=1" run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_that "an embedding warm-up that times out still launches claude" grep -q '^ARGS:' "$sandbox/out"
 rm -f "$sandbox/curl.log"
 STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=1" run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_not "claude-ollama skips the embedding warm-up when the server keeps one model" grep -q 'api/embed' "$sandbox/curl.log"
