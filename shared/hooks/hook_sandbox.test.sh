@@ -45,7 +45,7 @@ check "enabled without sandbox-exec leaves argv unchanged" "echo hi" "$(field "$
 out="$(GH_TOKEN=secret LC_ALL=C CLAUDE_CUSTOM_HOOK_SANDBOX=1 HOOK_SANDBOX_PLATFORM=darwin CLAUDE_OLLAMA_SANDBOX_EXEC="$scratch/sandbox-exec" probe)"
 argv_line="$(field "$out" argv)"
 case "$argv_line" in "$scratch/sandbox-exec -f "*) echo "ok: argv starts with sandbox-exec -f" ;; *) echo "FAIL: argv start: $argv_line"; failures=$((failures + 1)) ;; esac
-for needle in "-D HOME_DIR=$HOME" "-D TARGET_DIR=/work/project" "-D TMP_DIR=" "-D CACHE_DIR=$HOME/.cache/claude-sandbox" "shared/sandbox-env echo hi"; do
+for needle in "-D HOME_DIR=$HOME" "-D TARGET_DIR=/work/project" "-D TMP_DIR=" "-D CACHE_DIR=$HOME/.cache/claude-sandbox" "-D GIT_DIR_REAL=/work/project/.git" "shared/sandbox-env echo hi"; do
   case "$argv_line" in *"$needle"*) echo "ok: argv has $needle" ;; *) echo "FAIL: argv lacks $needle: $argv_line"; failures=$((failures + 1)) ;; esac
 done
 check "profile copy is 0600" "0o600" "$(field "$out" mode)"
@@ -58,6 +58,39 @@ extra_keys="$(python3 -c 'import sys; allowed={"PATH","HOME","USER","LOGNAME","S
 check "child env has only allowlisted keys" "" "$extra_keys"
 profile_path="$(field "$out" profile)"
 if [ -e "$profile_path" ]; then echo "FAIL: profile copy left behind"; failures=$((failures + 1)); else echo "ok: profile copy removed"; fi
+
+refusal_probe() {
+  CLAUDE_CUSTOM_HOOK_SANDBOX=1 HOOK_SANDBOX_PLATFORM=darwin CLAUDE_OLLAMA_SANDBOX_EXEC="$scratch/sandbox-exec" PYTHONPATH="$hooks_dir" python3 -c '
+import sys
+import hook_sandbox
+try:
+    with hook_sandbox.confined(["echo", "hi"], sys.argv[1]) as (argv, env):
+        print("confined")
+except hook_sandbox.RefusedTarget:
+    print("refused")
+' "$1"
+}
+
+fake_home="$scratch/fakehome"
+mkdir -p "$fake_home/work"
+check "home target is refused" "refused" "$(HOME="$fake_home" refusal_probe "$fake_home")"
+check "ancestor of home is refused" "refused" "$(HOME="$fake_home" refusal_probe "$scratch")"
+check "root is refused" "refused" "$(HOME="$fake_home" refusal_probe "/")"
+check "folder under home is confined" "confined" "$(HOME="$fake_home" refusal_probe "$fake_home/work")"
+check "refusal is inactive without the switch" "confined" "$(CLAUDE_CUSTOM_HOOK_SANDBOX=0 HOME="$fake_home" PYTHONPATH="$hooks_dir" python3 -c 'import hook_sandbox
+with hook_sandbox.confined(["echo"], "/") as (argv, env): print("confined")')"
+
+main_repo="$scratch/main-repo"
+git init -q "$main_repo"
+git -C "$main_repo" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
+git -C "$main_repo" worktree add -q "$scratch/linked" -b linked
+linked_argv="$(CLAUDE_CUSTOM_HOOK_SANDBOX=1 HOOK_SANDBOX_PLATFORM=darwin CLAUDE_OLLAMA_SANDBOX_EXEC="$scratch/sandbox-exec" PYTHONPATH="$hooks_dir" python3 -c '
+import sys
+import hook_sandbox
+with hook_sandbox.confined(["echo"], sys.argv[1]) as (argv, env):
+    print(" ".join(argv))
+' "$scratch/linked")"
+case "$linked_argv" in *"-D GIT_DIR_REAL=$main_repo/.git "*) echo "ok: worktree resolves the common git dir" ;; *) echo "FAIL: worktree GIT_DIR_REAL: $linked_argv"; failures=$((failures + 1)) ;; esac
 
 if [ "$(uname)" = "Darwin" ] && [ -x /usr/bin/sandbox-exec ]; then
   found="$(CLAUDE_OLLAMA_SANDBOX_EXEC="" PATH="/nonexistent" /usr/bin/python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import hook_sandbox; print(hook_sandbox.sandbox_exec())' "$hooks_dir")"
@@ -81,6 +114,41 @@ with hook_sandbox.confined(["sh", sys.argv[2]], sys.argv[1]) as (argv, env):
     print(result.stdout, result.stderr)
 ' "$project" "$scratch/probe.sh" 2>&1)"
   rm -f "$HOME/hook-sandbox-probe"
+  cat > "$scratch/git-probe.sh" <<'PROBE'
+(echo x > .git/info/x) 2>/dev/null && echo "gitinfo:written"
+(echo x > .git/HEAD) 2>/dev/null && echo "githead:written"
+(echo x > .envrc) 2>/dev/null && echo "envrc:written"
+(mkdir .vscode && echo x > .vscode/tasks.json) 2>/dev/null && echo "vscode:written"
+(mkdir .idea && echo x > .idea/x) 2>/dev/null && echo "idea:written"
+(echo "gitdir: /tmp/elsewhere" > "$LINKED_GIT_FILE") 2>/dev/null && echo "gitfile:written"
+(echo x >> "$COMMON_GIT_DIR/info/x") 2>/dev/null && echo "commondir:written"
+echo ok > plain-file && echo "file:ok"
+PROBE
+  mkdir -p "$project/.git/info"
+  git_out="$(CLAUDE_CUSTOM_HOOK_SANDBOX=1 LINKED_GIT_FILE="$scratch/linked/.git" COMMON_GIT_DIR="$main_repo/.git" PYTHONPATH="$hooks_dir" python3 -c '
+import os, subprocess, sys
+import hook_sandbox
+target = sys.argv[1]
+with hook_sandbox.confined(["sh", sys.argv[2]], target) as (argv, env):
+    result = subprocess.run(argv, cwd=target, env={**env, "LINKED_GIT_FILE": os.environ["LINKED_GIT_FILE"], "COMMON_GIT_DIR": os.environ["COMMON_GIT_DIR"]}, capture_output=True, text=True)
+    print(result.stdout, result.stderr)
+' "$project" "$scratch/git-probe.sh" 2>&1)"
+  linked_out="$(CLAUDE_CUSTOM_HOOK_SANDBOX=1 LINKED_GIT_FILE="$scratch/linked/.git" COMMON_GIT_DIR="$main_repo/.git" PYTHONPATH="$hooks_dir" python3 -c '
+import os, subprocess, sys
+import hook_sandbox
+target = sys.argv[1]
+with hook_sandbox.confined(["sh", sys.argv[2]], target) as (argv, env):
+    result = subprocess.run(argv, cwd=target, env={**env, "LINKED_GIT_FILE": os.environ["LINKED_GIT_FILE"], "COMMON_GIT_DIR": os.environ["COMMON_GIT_DIR"]}, capture_output=True, text=True)
+    print(result.stdout, result.stderr)
+' "$scratch/linked" "$scratch/git-probe.sh" 2>&1)"
+  case "$git_out" in *file:ok*) echo "ok: git probe project is writable" ;; *) echo "FAIL: git probe ran nothing: $git_out"; failures=$((failures + 1)) ;; esac
+  for marker in gitinfo githead envrc vscode idea; do
+    case "$git_out" in *"$marker:written"*) echo "FAIL: real run wrote $marker"; failures=$((failures + 1)) ;; *) echo "ok: real run cannot write $marker" ;; esac
+  done
+  case "$linked_out" in *file:ok*) echo "ok: linked worktree is writable" ;; *) echo "FAIL: linked probe ran nothing: $linked_out"; failures=$((failures + 1)) ;; esac
+  for marker in gitfile commondir; do
+    case "$linked_out" in *"$marker:written"*) echo "FAIL: linked worktree wrote $marker"; failures=$((failures + 1)) ;; *) echo "ok: linked worktree cannot write $marker" ;; esac
+  done
   case "$real_out" in *file:ok*) echo "ok: real run writes in the project" ;; *) echo "FAIL: real run project write: $real_out"; failures=$((failures + 1)) ;; esac
   case "$real_out" in *hooks:written*) echo "FAIL: real run wrote .git/hooks"; failures=$((failures + 1)) ;; *) echo "ok: real run cannot write .git/hooks" ;; esac
   case "$real_out" in *claude:written*) echo "FAIL: real run wrote .claude"; failures=$((failures + 1)) ;; *) echo "ok: real run cannot write .claude" ;; esac

@@ -1,6 +1,7 @@
 import contextlib
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -10,7 +11,14 @@ PROFILE = HOOKS_DIR / "hook-sandbox.sb"
 SANDBOX_ENV = HOOKS_DIR.parent / "sandbox-env"
 DEFAULT_SANDBOX_EXEC = "/usr/bin/sandbox-exec"
 ENV_ALLOWLIST = ("PATH", "HOME", "USER", "LOGNAME", "SHELL", "TERM", "LANG", "CLAUDE_CUSTOM_HOME")
+GIT_QUERY_TIMEOUT_SECONDS = 5
 NOTE = "(ran in the hook sandbox: writes only to the project, temp and ~/.cache/claude-sandbox; no network but localhost)"
+
+
+class RefusedTarget(Exception):
+    def __init__(self, project_dir):
+        super().__init__(f"the project root {project_dir} is too broad for the hook sandbox")
+        self.project_dir = project_dir
 
 
 def enabled():
@@ -32,11 +40,31 @@ def active():
     return enabled() and available()
 
 
+def is_too_broad(project_dir):
+    target = Path(os.path.realpath(project_dir))
+    home = Path(os.path.realpath(Path.home()))
+    return target == home or target in home.parents
+
+
+def real_git_dir(project_dir):
+    fallback = str(Path(project_dir) / ".git")
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(project_dir), "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            capture_output=True, text=True, timeout=GIT_QUERY_TIMEOUT_SECONDS,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return fallback
+    resolved = result.stdout.strip()
+    return resolved if result.returncode == 0 and resolved else fallback
+
+
 def sandboxed_argv(argv, project_dir, temp_dir):
     home = str(Path.home())
     values = {
         "HOME_DIR": home,
         "TARGET_DIR": str(project_dir),
+        "GIT_DIR_REAL": real_git_dir(project_dir),
         "TMP_DIR": temp_dir,
         "CACHE_DIR": f"{home}/.cache/claude-sandbox",
     }
@@ -61,6 +89,8 @@ def confined(argv, project_dir):
     if not active():
         yield list(argv), None
         return
+    if is_too_broad(project_dir):
+        raise RefusedTarget(project_dir)
     with tempfile.TemporaryDirectory(prefix="hook-sandbox.") as raw_temp_dir:
         temp_dir = os.path.realpath(raw_temp_dir)
         yield sandboxed_argv(argv, project_dir, temp_dir), confined_env(temp_dir)

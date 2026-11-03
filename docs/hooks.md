@@ -28,9 +28,12 @@ session loads through `~/.claude/CLAUDE.md`.
 In `claude-ollama` sessions (`CLAUDE_CUSTOM_HOOK_SANDBOX=1`) the project's code
 that `edit-check.py` and `stop-verify.py` run is confined on macOS by
 `shared/hooks/hook-sandbox.sb`: writes only to the project, temp and
-`~/.cache/claude-sandbox` (not the project's `.git/hooks`, `.git/config`,
-`.claude` or `.husky`), no network but localhost, no credential reads and a
-minimal environment without tokens. Fallow is never taken from the project.
+`~/.cache/claude-sandbox` (not the project's `.git`, the real git common dir,
+`.envrc`, `.vscode`, `.idea`, `.claude` or `.husky`; a root that is `/`, the
+home folder or an ancestor of it is refused, so `edit-check.py` skips the check
+and `stop-verify.py` reports `verify not run`), no network but localhost, no
+credential reads and a minimal environment without tokens. Fallow is never taken
+from the project.
 
 To measure what tool calls return and which guards fire, read the telemetry log.
 A `claude-ollama` session records to

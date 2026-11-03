@@ -330,6 +330,15 @@ unset CLAUDE_CUSTOM_HOOK_SANDBOX
 record_edit "$confined_js/src/app.ts"
 expect block 'unconfined verify fails'   run_hook "$confined_js"
 check 'no sandbox note when unconfined'  test -z "$(grep -F 'ran in the hook sandbox' "$sandbox/stderr")"
+export CLAUDE_CUSTOM_HOOK_SANDBOX=1
+home_repo="$(new_repo fakehome)"
+add_verify "$home_repo" 0
+record_edit "$home_repo/src/app.ts"
+rm -f "$sandbox/sandbox-exec.log"
+HOME="$home_repo" run_hook "$home_repo"
+check 'home-dir root reports too broad'  grep -qF "verify not run: the project root $home_repo is too broad for the hook sandbox" "$sandbox/stderr"
+check 'home-dir root ran nothing'        test ! -e "$sandbox/sandbox-exec.log"
+unset CLAUDE_CUSTOM_HOOK_SANDBOX
 unset CLAUDE_OLLAMA_SANDBOX_EXEC HOOK_SANDBOX_PLATFORM CLAUDE_SANDBOX_CACHE_DIR
 
 if [ "$failures" -eq 0 ]; then echo "all passed"; else echo "$failures failed"; exit 1; fi

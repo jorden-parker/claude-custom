@@ -96,8 +96,11 @@ def failure_excerpt(text):
 
 
 def run_failing(command, root):
-    with hook_sandbox.confined(command, root) as (argv, env):
-        result = subprocess.run(argv, cwd=root, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    try:
+        with hook_sandbox.confined(command, root) as (argv, env):
+            result = subprocess.run(argv, cwd=root, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    except hook_sandbox.RefusedTarget as refused:
+        return f"verify not run: {refused}"
     if result.returncode == 0:
         return None
     note = [hook_sandbox.NOTE] if hook_sandbox.active() else []
@@ -179,8 +182,11 @@ def parsed_report(text):
 
 
 def fallow_findings(command, root):
-    with tempfile.TemporaryDirectory(prefix="stop-verify.") as neutral_dir, hook_sandbox.confined(command, root) as (argv, env):
-        result = subprocess.run(argv, cwd=neutral_dir, env=env, capture_output=True, text=True)
+    try:
+        with tempfile.TemporaryDirectory(prefix="stop-verify.") as neutral_dir, hook_sandbox.confined(command, root) as (argv, env):
+            result = subprocess.run(argv, cwd=neutral_dir, env=env, capture_output=True, text=True)
+    except hook_sandbox.RefusedTarget:
+        return []
     report = parsed_report(result.stdout) if result.returncode else None
     if report is None:
         return []

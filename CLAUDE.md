@@ -415,12 +415,16 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   profiles, never the personal overlay) `shared/hooks/hook_sandbox.py` runs the
   subprocesses of `edit-check.py` and `stop-verify.py` under Seatbelt with
   `shared/hooks/hook-sandbox.sb`: writes only to the project, temp and
-  `~/.cache/claude-sandbox` (never `.git/hooks`, `.git/config`, `.claude` or
-  `.husky` of the project), network only to localhost, and a minimal environment
-  (`PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, `TERM`, `LANG`, `LC_*`, `TMPDIR`,
-  `CLAUDE_CUSTOM_HOME`; no tokens). Fallow is never resolved from the project:
-  it runs from a neutral folder with `--root`. Tests:
-  `shared/hooks/hook_sandbox.test.sh`.
+  `~/.cache/claude-sandbox` (never the project's `.git` file or folder, the real
+  git common dir, `.envrc`, `.vscode`, `.idea`, `.claude` or `.husky`; a project
+  root that is `/`, the home folder or an ancestor of it is refused:
+  `edit-check.py` skips the check and `stop-verify.py` reports
+  `verify not run: the project root <dir> is too broad for the hook sandbox`;
+  `edit-check.py` confines the git toplevel of the edited file), network only to
+  localhost, and a minimal environment (`PATH`, `HOME`, `USER`, `LOGNAME`,
+  `SHELL`, `TERM`, `LANG`, `LC_*`, `TMPDIR`, `CLAUDE_CUSTOM_HOME`; no tokens).
+  Fallow is never resolved from the project: it runs from a neutral folder with
+  `--root`. Tests: `shared/hooks/hook_sandbox.test.sh`.
 - `shared/hooks/tool-telemetry.py` is a `PostToolUse` hook on every tool. With
   `CLAUDE_TOOL_TELEMETRY=<file>` set it appends one JSON line per call (time,
   session, tool, bytes, lines, over the trim limit; never the tool input).

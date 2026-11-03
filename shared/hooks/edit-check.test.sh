@@ -166,6 +166,21 @@ grep -qF "TARGET_DIR=$js_project" "$sandbox/sandbox-exec.log" 2>/dev/null || { e
 grep -qF "node_modules/.bin/prettier" "$sandbox/sandbox-exec.log" 2>/dev/null || { echo "FAIL: prettier not run through sandbox-exec"; failures=$((failures + 1)); }
 expect deny 'prettier failure still denies when confined' run_write "$js_project/src/sandboxed.ts" $'export const PRETTIERFAIL = 1;\n'
 expect_stderr_has 'confined failure names the sandbox' 'ran in the hook sandbox'
+rm -rf "$sandbox/cache" "$sandbox/sandbox-exec.log"
+home_project="$sandbox/fakehome"
+mkdir -p "$home_project/node_modules/.bin" "$home_project/src"
+printf '{}' > "$home_project/package.json"
+printf '#!/bin/sh\necho prettier-ran >> "%s/home-prettier.log"\nexit 1\n' "$sandbox" > "$home_project/node_modules/.bin/prettier"
+chmod +x "$home_project/node_modules/.bin/prettier"
+HOME="$home_project" expect allow 'package root at home is not checked' run_write "$home_project/src/broad.ts" $'export const broad = 1;\n'
+[ ! -e "$sandbox/sandbox-exec.log" ] || { echo "FAIL: home-dir root ran through the sandbox"; failures=$((failures + 1)); }
+[ ! -e "$sandbox/home-prettier.log" ] || { echo "FAIL: home-dir root ran unconfined"; failures=$((failures + 1)); }
+git -C "$js_project" init -q
+git -C "$js_project" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
+mkdir -p "$js_project/src/deep"
+rm -rf "$sandbox/cache"
+expect allow 'git toplevel write' run_write "$js_project/src/deep/inner.ts" $'export const inner = 1;\n'
+grep -qF "TARGET_DIR=$js_project " "$sandbox/sandbox-exec.log" 2>/dev/null || { echo "FAIL: git toplevel not the sandbox target"; failures=$((failures + 1)); }
 unset CLAUDE_CUSTOM_HOOK_SANDBOX CLAUDE_OLLAMA_SANDBOX_EXEC HOOK_SANDBOX_PLATFORM CLAUDE_SANDBOX_CACHE_DIR
 
 [ "$failures" -eq 0 ] && echo "all passed" || { echo "$failures failed"; exit 1; }
