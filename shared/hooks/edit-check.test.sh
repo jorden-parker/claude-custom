@@ -2,7 +2,7 @@
 set -u
 hook="$(cd "$(dirname "$0")" && pwd)/edit-check.py"
 failures=0
-sandbox="$(mktemp -d)"
+sandbox="$(cd "$(mktemp -d)" && pwd -P)"
 trap 'rm -rf "$sandbox"' EXIT
 
 stubs="$sandbox/stubs"
@@ -151,5 +151,21 @@ expect allow 'changed content runs gofmt' run_write "$sandbox/go/main.go" $'pack
 check_eq_lines "$sandbox/gofmt.log" 1 'changed content runs gofmt once'
 expect deny  'failure is never cached' run_write "$sandbox/go/main.go" $'package main\n\nvar UNFORMATTED = 1\n'
 expect deny  'failure is re-run next time' run_write "$sandbox/go/main.go" $'package main\n\nvar UNFORMATTED = 1\n'
+
+make_stub sandbox-exec 'echo "$*" >> "'"$sandbox"'/sandbox-exec.log"; while [ "$1" = -f ] || [ "$1" = -D ]; do shift 2; done; exec "$@"'
+export CLAUDE_SANDBOX_CACHE_DIR="$sandbox/sandbox-cache"
+export CLAUDE_OLLAMA_SANDBOX_EXEC="$stubs/sandbox-exec"
+export HOOK_SANDBOX_PLATFORM=darwin
+rm -rf "$sandbox/cache" "$sandbox/sandbox-exec.log"
+expect allow 'clean js write without the switch' run_write "$js_project/src/sandboxed.ts" $'export const sandboxed = 1;\n'
+[ ! -e "$sandbox/sandbox-exec.log" ] || { echo "FAIL: unconfined without the switch"; failures=$((failures + 1)); }
+rm -rf "$sandbox/cache"
+export CLAUDE_CUSTOM_HOOK_SANDBOX=1
+expect allow 'clean js write with the switch' run_write "$js_project/src/sandboxed.ts" $'export const sandboxed = 1;\n'
+grep -qF "TARGET_DIR=$js_project" "$sandbox/sandbox-exec.log" 2>/dev/null || { echo "FAIL: project not the sandbox target"; failures=$((failures + 1)); }
+grep -qF "node_modules/.bin/prettier" "$sandbox/sandbox-exec.log" 2>/dev/null || { echo "FAIL: prettier not run through sandbox-exec"; failures=$((failures + 1)); }
+expect deny 'prettier failure still denies when confined' run_write "$js_project/src/sandboxed.ts" $'export const PRETTIERFAIL = 1;\n'
+expect_stderr_has 'confined failure names the sandbox' 'ran in the hook sandbox'
+unset CLAUDE_CUSTOM_HOOK_SANDBOX CLAUDE_OLLAMA_SANDBOX_EXEC HOOK_SANDBOX_PLATFORM CLAUDE_SANDBOX_CACHE_DIR
 
 [ "$failures" -eq 0 ] && echo "all passed" || { echo "$failures failed"; exit 1; }

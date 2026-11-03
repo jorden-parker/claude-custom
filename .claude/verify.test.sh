@@ -22,7 +22,8 @@ add_test() {
 for test in shared/hooks/edit-check.test.sh shared/hooks/fallow-a.test.sh shared/hooks/fallow-b.test.sh \
   personal/install.test.sh bin/claude-ollama.test.sh bin/claude-ollama-doctor.test.sh bin/claude-ollama-qwen.test.sh bin/ollama-profiles.test.sh .claude/verify.test.sh \
   shared/hooks/hook_state.test.sh shared/hooks/tdd-guard.test.sh shared/hooks/context-budget.test.sh \
-  ollama/drafts/opener.test.sh ollama/incidents/watcher.test.sh ollama/incidents/incident_log.test.sh shared/mcp/repo-tools.test.sh ollama/rescue.test.sh bin/ollama-lease.test.sh; do
+  ollama/drafts/opener.test.sh ollama/incidents/watcher.test.sh ollama/incidents/incident_log.test.sh shared/mcp/repo-tools.test.sh ollama/rescue.test.sh bin/ollama-lease.test.sh \
+  shared/hooks/hook_sandbox.test.sh shared/hooks/stop-verify.test.sh; do
   add_test "$test"
 done
 
@@ -57,6 +58,9 @@ check_ran 'console files run the web tests' "$checks test-web|" web/console/src/
 check_ran 'go files run go tests' "$checks test-go|" go/internal/picker/ui/model.go
 check_ran 'fallow lib runs every fallow test' "$checks|shared/hooks/fallow-a.test.sh|shared/hooks/fallow-b.test.sh|" shared/hooks/fallow-lib.sh
 check_ran 'the hook state module runs every hook test that uses it' "$checks|shared/hooks/context-budget.test.sh|shared/hooks/hook_state.test.sh|shared/hooks/tdd-guard.test.sh|" shared/hooks/hook_state.py
+hook_sandbox_tests="shared/hooks/edit-check.test.sh|shared/hooks/fallow-a.test.sh|shared/hooks/fallow-b.test.sh|shared/hooks/hook_sandbox.test.sh|shared/hooks/stop-verify.test.sh|"
+check_ran 'the hook sandbox module runs the hooks it confines' "$checks|$hook_sandbox_tests" shared/hooks/hook_sandbox.py
+check_ran 'the hook sandbox profile runs the hooks it confines' "$checks|$hook_sandbox_tests" shared/hooks/hook-sandbox.sb
 check_ran 'installer runs install and launcher tests' "$checks|bin/claude-ollama.test.sh|personal/install.test.sh|" bin/claude-custom
 check_ran 'ollama config runs the launcher, doctor and qwen tests' "$checks|bin/claude-ollama-doctor.test.sh|bin/claude-ollama-qwen.test.sh|bin/claude-ollama.test.sh|" ollama/sizes.json
 check_ran 'a launcher library runs every test that sources it' "$checks|bin/claude-ollama-doctor.test.sh|bin/claude-ollama-qwen.test.sh|bin/claude-ollama.test.sh|bin/ollama-lease.test.sh|" bin/lib/size-profile.sh

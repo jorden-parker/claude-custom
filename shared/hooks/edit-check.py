@@ -11,6 +11,8 @@ import tokenize
 from collections import Counter
 from pathlib import Path
 
+import hook_sandbox
+
 OUTPUT_LINE_LIMIT = 40
 CACHE_DIR = Path(os.environ.get("EDIT_CHECK_CACHE_DIR") or Path.home() / ".cache" / "claude-custom" / "edit-check")
 CACHE_MAX_FILES = 500
@@ -137,7 +139,8 @@ def remember_pass(path):
 
 
 def run_check(command, cwd, output_means_failure, keep_line=None):
-    result = subprocess.run(command, cwd=cwd, capture_output=True, text=True)
+    with hook_sandbox.confined(command, cwd) as (argv, env):
+        result = subprocess.run(argv, cwd=cwd, env=env, capture_output=True, text=True)
     output = (result.stdout + result.stderr).strip()
     if keep_line:
         output = "\n".join(line for line in output.splitlines() if keep_line(line))
@@ -147,7 +150,8 @@ def run_check(command, cwd, output_means_failure, keep_line=None):
     if not failed:
         return None
     tool = Path(command[0]).name
-    return f"{tool}: $ {' '.join(command)}\n{first_lines(output)}"
+    note = f"\n{hook_sandbox.NOTE}" if hook_sandbox.active() else ""
+    return f"{tool}: $ {' '.join(command)}\n{first_lines(output)}{note}"
 
 
 def committed_text(path):

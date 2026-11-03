@@ -4,7 +4,10 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
+
+import hook_sandbox
 
 OUTPUT_LINE_LIMIT = 40
 TAIL_LINES = 15
@@ -93,10 +96,12 @@ def failure_excerpt(text):
 
 
 def run_failing(command, root):
-    result = subprocess.run(command, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    with hook_sandbox.confined(command, root) as (argv, env):
+        result = subprocess.run(argv, cwd=root, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     if result.returncode == 0:
         return None
-    return "\n".join([f"$ {' '.join(command)}", *map(clip_line, failure_excerpt(result.stdout))])
+    note = [hook_sandbox.NOTE] if hook_sandbox.active() else []
+    return "\n".join([f"$ {' '.join(command)}", *map(clip_line, failure_excerpt(result.stdout)), *note])
 
 
 def base_branch(root):
@@ -106,14 +111,14 @@ def base_branch(root):
     return None
 
 
-def fallow_command(base, file):
+def fallow_command(base, root, file):
     analysis = ["audit", "--base", base] if base else ["--fail-on-issues"]
-    return ["npx", "--yes", "fallow", *analysis, "--format", "json", file]
+    return ["npx", "--yes", "fallow", "--root", str(root), *analysis, "--format", "json", file]
 
 
 def fallow_commands(root, files):
     base = base_branch(root)
-    return [fallow_command(base, file)
+    return [fallow_command(base, root, file)
             for file in files if JS_FILE.search(file) and (root / file).is_file()]
 
 
@@ -174,7 +179,8 @@ def parsed_report(text):
 
 
 def fallow_findings(command, root):
-    result = subprocess.run(command, cwd=root, capture_output=True, text=True)
+    with tempfile.TemporaryDirectory(prefix="stop-verify.") as neutral_dir, hook_sandbox.confined(command, root) as (argv, env):
+        result = subprocess.run(argv, cwd=neutral_dir, env=env, capture_output=True, text=True)
     report = parsed_report(result.stdout) if result.returncode else None
     if report is None:
         return []

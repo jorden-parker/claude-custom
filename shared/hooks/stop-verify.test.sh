@@ -11,6 +11,7 @@ mkdir -p "$stubs"
 cat > "$stubs/npx" <<STUB
 #!/bin/sh
 echo "\$*" >> "$sandbox/npx.log"
+pwd >> "$sandbox/npx.cwd"
 [ -n "\${FAKE_FALLOW_JSON:-}" ] && cat "\$FAKE_FALLOW_JSON"
 exit "\${FAKE_FALLOW_EXIT:-0}"
 STUB
@@ -135,7 +136,7 @@ printf '{}' > "$js/package.json"
 record_edit "$js/src/app.ts"
 record_edit "$js/README.md"
 expect allow 'clean js project'          run_hook "$js"
-check 'fallow audits the edited file'    grep -qF 'fallow audit --base main --format json src/app.ts' "$sandbox/npx.log"
+check 'fallow audits the edited file'    grep -qF "fallow --root $js audit --base main --format json src/app.ts" "$sandbox/npx.log"
 check 'fallow skips non-js edits'        test "$(wc -l < "$sandbox/npx.log")" -eq 1
 check 'no project-wide fallow'           test -z "$(grep -F 'architecture' "$sandbox/npx.log")"
 
@@ -191,7 +192,7 @@ mkdir -p "$nogit"
 printf '{}' > "$nogit/package.json"
 record_edit "$nogit/index.js"
 expect allow 'js project outside git'    run_hook "$nogit"
-check 'whole-file fallow without git'    grep -qF 'fallow --fail-on-issues --format json index.js' "$sandbox/npx.log"
+check 'whole-file fallow without git'    grep -qF "fallow --root $nogit --fail-on-issues --format json index.js" "$sandbox/npx.log"
 record_edit "$nogit/index.js"
 export FAKE_FALLOW_EXIT=1 FAKE_FALLOW_JSON="$sandbox/combined.json"
 expect block 'findings outside git'      run_hook "$nogit"
@@ -293,5 +294,42 @@ check 'repo A edit is cleared'           test -z "$(grep -F "$repo_a/a.txt" "$ST
 expect allow 'stop in repo B passes'     run_hook "$repo_b" false two-repos
 check 'repo B verify ran on b.txt'       grep -qF 'b.txt' "$repo_b/.claude/args"
 check 'log removed once nothing is left' test ! -e "$STOP_VERIFY_STATE_DIR/two-repos"
+
+cat > "$stubs/sandbox-exec" <<STUB
+#!/bin/sh
+echo "\$*" >> "$sandbox/sandbox-exec.log"
+while [ "\$1" = -f ] || [ "\$1" = -D ]; do shift 2; done
+exec "\$@"
+STUB
+chmod +x "$stubs/sandbox-exec"
+export CLAUDE_SANDBOX_CACHE_DIR="$sandbox/sandbox-cache"
+export CLAUDE_OLLAMA_SANDBOX_EXEC="$stubs/sandbox-exec"
+export HOOK_SANDBOX_PLATFORM=darwin
+
+confined_js="$(new_repo confined-js)"
+printf '{}' > "$confined_js/package.json"
+add_verify "$confined_js" 0
+record_edit "$confined_js/src/app.ts"
+rm -f "$sandbox/sandbox-exec.log" "$sandbox/npx.cwd"
+run_hook "$confined_js"
+check 'unconfined without the switch'    test ! -e "$sandbox/sandbox-exec.log"
+record_edit "$confined_js/src/app.ts"
+rm -f "$sandbox/sandbox-exec.log" "$sandbox/npx.cwd"
+export CLAUDE_CUSTOM_HOOK_SANDBOX=1
+expect allow 'confined clean project'    run_hook "$confined_js"
+check 'verify ran through sandbox-exec'  grep -qF "TARGET_DIR=$confined_js" "$sandbox/sandbox-exec.log"
+check 'verify script was wrapped'        grep -qF "$confined_js/.claude/verify" "$sandbox/sandbox-exec.log"
+check 'fallow ran through sandbox-exec'  grep -qF 'fallow --root' "$sandbox/sandbox-exec.log"
+check 'fallow cwd is outside project'    test -n "$(cat "$sandbox/npx.cwd")" -a -z "$(grep -F "$confined_js" "$sandbox/npx.cwd")"
+check 'fallow carries the root'          grep -qF -- "--root $confined_js" "$sandbox/npx.log"
+add_verify "$confined_js" 1
+record_edit "$confined_js/src/app.ts"
+expect block 'confined verify fails'     run_hook "$confined_js"
+check 'failure names the sandbox'        grep -qF 'ran in the hook sandbox' "$sandbox/stderr"
+unset CLAUDE_CUSTOM_HOOK_SANDBOX
+record_edit "$confined_js/src/app.ts"
+expect block 'unconfined verify fails'   run_hook "$confined_js"
+check 'no sandbox note when unconfined'  test -z "$(grep -F 'ran in the hook sandbox' "$sandbox/stderr")"
+unset CLAUDE_OLLAMA_SANDBOX_EXEC HOOK_SANDBOX_PLATFORM CLAUDE_SANDBOX_CACHE_DIR
 
 if [ "$failures" -eq 0 ]; then echo "all passed"; else echo "$failures failed"; exit 1; fi

@@ -25,6 +25,13 @@ has that tool installed. A failed check sends its output back to the model.
 Rules no tool can check live in `shared/preferences/PREFERENCES.md`, which every
 session loads through `~/.claude/CLAUDE.md`.
 
+In `claude-ollama` sessions (`CLAUDE_CUSTOM_HOOK_SANDBOX=1`) the project's code
+that `edit-check.py` and `stop-verify.py` run is confined on macOS by
+`shared/hooks/hook-sandbox.sb`: writes only to the project, temp and
+`~/.cache/claude-sandbox` (not the project's `.git/hooks`, `.git/config`,
+`.claude` or `.husky`), no network but localhost, no credential reads and a
+minimal environment without tokens. Fallow is never taken from the project.
+
 To measure what tool calls return and which guards fire, read the telemetry log.
 A `claude-ollama` session records to
 `~/.claude-ollama/telemetry/tool-calls.jsonl` by default: one line per tool

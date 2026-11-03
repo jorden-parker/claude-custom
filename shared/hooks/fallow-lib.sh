@@ -24,7 +24,6 @@ fallow_project_root() {
 
 fallow_runner() {
   if command -v fallow >/dev/null 2>&1; then echo "fallow"
-  elif [ -x ./node_modules/.bin/fallow ]; then echo "./node_modules/.bin/fallow"
   else echo "npx -y fallow"; fi
 }
 
@@ -42,9 +41,11 @@ JQ
 }
 
 fallow_audit_report() {
-  local path="${1:-}" json verdict runner
+  local path="${1:-}" json verdict runner root="$PWD" neutral_dir
   read -ra runner <<<"$(fallow_runner)"
-  json="$("${runner[@]}" audit --format json --quiet ${path:+"$path"} 2>/dev/null)"
+  neutral_dir="$(mktemp -d)" || return 2
+  json="$(cd "$neutral_dir" && "${runner[@]}" --root "$root" audit --format json --quiet ${path:+"$path"} 2>/dev/null)"
+  rmdir "$neutral_dir" 2>/dev/null
   verdict="$(jq -r '.verdict // empty' <<<"$json" 2>/dev/null)"
   [ -z "$verdict" ] && return 2
   jq -r "$(fallow_report_filter)" <<<"$json" | head -60

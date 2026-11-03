@@ -411,7 +411,16 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   Bash) records the dry run. `fallow-after-edit.sh` (PostToolUse on Edit/Write)
   adds the edited file's audit findings as context. Tests stub `fallow` on PATH
   through `fallow-test-lib.sh`; `.shellcheckrc` lets shellcheck follow the
-  sourced library.
+  sourced library. With `CLAUDE_CUSTOM_HOOK_SANDBOX=1` (set by the Ollama
+  profiles, never the personal overlay) `shared/hooks/hook_sandbox.py` runs the
+  subprocesses of `edit-check.py` and `stop-verify.py` under Seatbelt with
+  `shared/hooks/hook-sandbox.sb`: writes only to the project, temp and
+  `~/.cache/claude-sandbox` (never `.git/hooks`, `.git/config`, `.claude` or
+  `.husky` of the project), network only to localhost, and a minimal environment
+  (`PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, `TERM`, `LANG`, `LC_*`, `TMPDIR`,
+  `CLAUDE_CUSTOM_HOME`; no tokens). Fallow is never resolved from the project:
+  it runs from a neutral folder with `--root`. Tests:
+  `shared/hooks/hook_sandbox.test.sh`.
 - `shared/hooks/tool-telemetry.py` is a `PostToolUse` hook on every tool. With
   `CLAUDE_TOOL_TELEMETRY=<file>` set it appends one JSON line per call (time,
   session, tool, bytes, lines, over the trim limit; never the tool input).
