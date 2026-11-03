@@ -64,7 +64,7 @@ function LiveCellView({
 }) {
   const outline = specOutline(cell.spec);
   return (
-    <article className="flex flex-col gap-3 rounded-lg border border-ink bg-card p-4">
+    <article className="flex flex-col gap-3 rounded-lg border bg-card p-4">
       <header className="flex items-baseline justify-between gap-2 text-sm">
         <span className="font-medium">run {cell.label}</span>
         <span className="text-muted-foreground">

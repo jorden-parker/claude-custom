@@ -59,7 +59,7 @@ describe("CheckCards", () => {
     render(<CheckCards size="27b" />);
 
     const thinkingCard = (await screen.findByText("Thinking check")).closest(
-      "div.rounded-card",
+      '[data-slot="card"]',
     ) as HTMLElement;
     expect(await within(thinkingCard).findByText("done")).toBeTruthy();
     const link = within(thinkingCard).getByRole("link", { name: "View run" });
@@ -68,12 +68,12 @@ describe("CheckCards", () => {
     );
 
     const qwenCard = (await screen.findByText("Qwen doctor")).closest(
-      "div.rounded-card",
+      '[data-slot="card"]',
     ) as HTMLElement;
     expect(await within(qwenCard).findByText("failed")).toBeTruthy();
 
     const configCard = (await screen.findByText("Config check")).closest(
-      "div.rounded-card",
+      '[data-slot="card"]',
     ) as HTMLElement;
     expect(await within(configCard).findByText("Never run")).toBeTruthy();
   });

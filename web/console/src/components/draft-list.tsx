@@ -65,10 +65,7 @@ export function DraftList() {
 function DraftRowCard({ row }: { row: DraftRow }) {
   return (
     <Link href={`/drafts/${row.id}`} className="block">
-      <Card
-        size="sm"
-        className="rounded-card shadow-border transition-colors hover:bg-accent"
-      >
+      <Card size="sm" className="transition-colors hover:bg-accent">
         <CardContent className="flex flex-col gap-1">
           {row.draft === null ? (
             <InvalidRow id={row.id} reason={row.invalid ?? "invalid"} />

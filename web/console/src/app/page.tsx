@@ -13,9 +13,9 @@ export default function Home() {
           <li key={section.href}>
             <Link
               href={section.href}
-              className="block rounded-card outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="block rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
-              <Card className="cursor-pointer rounded-card shadow-border transition-colors hover:bg-accent">
+              <Card className="cursor-pointer transition-colors hover:bg-accent">
                 <CardContent className="flex flex-col gap-1">
                   <span className="flex items-center gap-2 font-medium">
                     <SectionIcon href={section.href} />

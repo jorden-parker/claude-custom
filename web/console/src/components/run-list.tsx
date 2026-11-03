@@ -56,9 +56,9 @@ function RunRow({ run, now }: { run: RunSummary; now: number }) {
   return (
     <Link
       href={`/runs/${encodeURIComponent(run.id)}`}
-      className="block rounded-card outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="block rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
-      <Card className="cursor-pointer rounded-card shadow-border transition-colors hover:bg-accent">
+      <Card className="cursor-pointer transition-colors hover:bg-accent">
         <CardContent className="flex flex-col gap-2">
           <div className="flex min-w-0 items-center gap-2">
             <span className={runStatusDotClass(run.status)} />
