@@ -6,7 +6,10 @@ import {
   screen,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { FakeRunEventSource, stubResizeObserver } from "./run-stream-test-support";
+import {
+  FakeRunEventSource,
+  stubResizeObserver,
+} from "./run-stream-test-support";
 import { WhyCard } from "./why-card";
 
 vi.mock("next/navigation", () => ({

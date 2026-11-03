@@ -1,6 +1,11 @@
 "use client";
 
-import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import Link from "next/link";
 import { emptyLineFor } from "@/lib/whimsy-copy";
 import { Badge } from "@/components/ui/badge";
@@ -8,7 +13,11 @@ import { Card, CardContent } from "@/components/ui/card";
 import { useRunSummaries } from "@/components/use-run-summaries";
 import { formatLocalTime, formatRelative } from "@/lib/format-time";
 import type { RunSummary } from "@/lib/run-log";
-import { runStatusDotClass, runStatusLabel, runStatusTextClass } from "@/lib/run-status-style";
+import {
+  runStatusDotClass,
+  runStatusLabel,
+  runStatusTextClass,
+} from "@/lib/run-status-style";
 
 const POLL_INTERVAL_MS = 2000;
 
@@ -23,7 +32,9 @@ export function RunList() {
       <Empty className="border">
         <EmptyHeader>
           <EmptyTitle>No runs yet. Start one above.</EmptyTitle>
-          <EmptyDescription className="italic">{emptyLineFor("runs")}</EmptyDescription>
+          <EmptyDescription className="italic">
+            {emptyLineFor("runs")}
+          </EmptyDescription>
         </EmptyHeader>
       </Empty>
     );
@@ -49,13 +60,17 @@ function RunRow({ run, now }: { run: RunSummary; now: number }) {
         <CardContent className="flex flex-col gap-2">
           <div className="flex min-w-0 items-center gap-2">
             <span className={runStatusDotClass(run.status)} />
-            <span className="min-w-0 break-words font-medium">{run.label || run.id}</span>
+            <span className="min-w-0 break-words font-medium">
+              {run.label || run.id}
+            </span>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <Badge variant="outline" className={runStatusTextClass(run.status)}>
               {runStatusLabel(run.status)}
             </Badge>
-            {run.seconds === null ? null : <span>{Math.round(run.seconds)}s</span>}
+            {run.seconds === null ? null : (
+              <span>{Math.round(run.seconds)}s</span>
+            )}
             <time dateTime={run.startedAt} title={run.startedAt}>
               {formatLocalTime(run.startedAt)}
               {now === 0 ? "" : ` · ${formatRelative(run.startedAt, now)}`}

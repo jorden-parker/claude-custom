@@ -4,7 +4,11 @@ import { Select } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { useEffect, useState } from "react";
 
-export function useSizePicker(): { sizes: string[]; size: string; select: (size: string) => void } {
+export function useSizePicker(): {
+  sizes: string[];
+  size: string;
+  select: (size: string) => void;
+} {
   const [sizes, setSizes] = useState<string[]>([]);
   const [picked, setPicked] = useState("");
   useEffect(() => {
@@ -16,10 +20,18 @@ export function useSizePicker(): { sizes: string[]; size: string; select: (size:
     };
     void load();
   }, []);
-  return { sizes, size: sizes.includes(picked) ? picked : (sizes[0] ?? ""), select: setPicked };
+  return {
+    sizes,
+    size: sizes.includes(picked) ? picked : (sizes[0] ?? ""),
+    select: setPicked,
+  };
 }
 
-type SizeSelectProps = { sizes: string[]; size: string; onChange: (size: string) => void };
+type SizeSelectProps = {
+  sizes: string[];
+  size: string;
+  onChange: (size: string) => void;
+};
 
 export function SizeSelect({ sizes, size, onChange }: SizeSelectProps) {
   return (

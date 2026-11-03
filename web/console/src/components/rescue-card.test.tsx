@@ -8,7 +8,10 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RescueCard } from "./rescue-card";
-import { FakeRunEventSource, stubResizeObserver } from "./run-stream-test-support";
+import {
+  FakeRunEventSource,
+  stubResizeObserver,
+} from "./run-stream-test-support";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: () => undefined }),

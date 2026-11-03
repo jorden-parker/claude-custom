@@ -1,6 +1,11 @@
 "use client";
 
-import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import Link from "next/link";
 import { emptyLineFor } from "@/lib/whimsy-copy";
 import { useEffect, useState } from "react";
@@ -9,7 +14,11 @@ import { Card, CardContent } from "@/components/ui/card";
 import { formatLocalTime, formatRelative } from "@/lib/format-time";
 import { findingCountText } from "@/lib/review-state";
 import type { ReviewSummary } from "@/lib/reviews";
-import { headerStatusLabel, statusDotClass, statusTextClass } from "@/lib/status-style";
+import {
+  headerStatusLabel,
+  statusDotClass,
+  statusTextClass,
+} from "@/lib/status-style";
 import { verdictBadgeClass } from "@/lib/verdict-style";
 
 const POLL_INTERVAL_MS = 2000;
@@ -39,9 +48,15 @@ export function ReviewList() {
       <Empty className="border">
         <EmptyHeader>
           <EmptyTitle>
-            No reviews yet. Run <code className="rounded bg-muted px-1 font-mono text-xs">claude-ollama review PR</code>.
+            No reviews yet. Run{" "}
+            <code className="rounded bg-muted px-1 font-mono text-xs">
+              claude-ollama review PR
+            </code>
+            .
           </EmptyTitle>
-          <EmptyDescription className="italic">{emptyLineFor("reviews")}</EmptyDescription>
+          <EmptyDescription className="italic">
+            {emptyLineFor("reviews")}
+          </EmptyDescription>
         </EmptyHeader>
       </Empty>
     );
@@ -67,13 +82,19 @@ function ReviewRow({ review, now }: { review: ReviewSummary; now: number }) {
         <CardContent className="flex flex-col gap-2">
           <div className="flex min-w-0 items-center gap-2">
             <span className={statusDotClass(review.status)} />
-            <span className="min-w-0 break-words font-medium">{review.name || review.id}</span>
+            <span className="min-w-0 break-words font-medium">
+              {review.name || review.id}
+            </span>
           </div>
-          <p className="break-words text-sm text-muted-foreground">{review.title}</p>
+          <p className="break-words text-sm text-muted-foreground">
+            {review.title}
+          </p>
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <VerdictBadge review={review} />
             <span>{findingCountText(review.findings)}</span>
-            {review.seconds === null ? null : <span>{Math.round(review.seconds)}s</span>}
+            {review.seconds === null ? null : (
+              <span>{Math.round(review.seconds)}s</span>
+            )}
             <time dateTime={review.started} title={review.started}>
               {formatLocalTime(review.started)}
               {now === 0 ? "" : ` · ${formatRelative(review.started, now)}`}
@@ -93,5 +114,9 @@ function VerdictBadge({ review }: { review: ReviewSummary }) {
       </Badge>
     );
   }
-  return <Badge variant="outline" className={verdictBadgeClass(review.verdict)}>{review.verdict}</Badge>;
+  return (
+    <Badge variant="outline" className={verdictBadgeClass(review.verdict)}>
+      {review.verdict}
+    </Badge>
+  );
 }

@@ -54,7 +54,14 @@ type NewReviewFieldsProps = {
   onPrChange: (pr: string) => void;
 };
 
-export function NewReviewFields({ sizes, size, pr, projectDir, onSizeChange, onPrChange }: NewReviewFieldsProps) {
+export function NewReviewFields({
+  sizes,
+  size,
+  pr,
+  projectDir,
+  onSizeChange,
+  onPrChange,
+}: NewReviewFieldsProps) {
   const prValid = PR_NUMBER_PATTERN.test(pr);
   const canStart = prValid && size !== "" && projectDir !== null;
 
@@ -67,7 +74,8 @@ export function NewReviewFields({ sizes, size, pr, projectDir, onSizeChange, onP
         </p>
       ) : (
         <p className="text-sm text-muted-foreground">
-          Reviews the pull requests of <code className="font-mono text-xs">{projectDir}</code>.
+          Reviews the pull requests of{" "}
+          <code className="font-mono text-xs">{projectDir}</code>.
         </p>
       )}
       <div className="flex flex-wrap items-end gap-3">
@@ -97,12 +105,18 @@ export function NewReviewFields({ sizes, size, pr, projectDir, onSizeChange, onP
             aria-invalid={pr !== "" && !prValid}
           />
         </Label>
-        <StartRunButton command="review" params={{ size, pr }} disabled={!canStart}>
+        <StartRunButton
+          command="review"
+          params={{ size, pr }}
+          disabled={!canStart}
+        >
           Start review
         </StartRunButton>
       </div>
       {pr === "" || prValid ? null : (
-        <p className="text-sm text-error-foreground">Enter a PR number, such as 12.</p>
+        <p className="text-sm text-error-foreground">
+          Enter a PR number, such as 12.
+        </p>
       )}
     </section>
   );

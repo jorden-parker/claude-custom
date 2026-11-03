@@ -2,9 +2,16 @@ import { ChevronDownIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import type { FileView, ReviewState } from "@/lib/review-state";
-import type { TranscriptAttempt, TranscriptEntry } from "@/lib/review-transcript";
+import type {
+  TranscriptAttempt,
+  TranscriptEntry,
+} from "@/lib/review-transcript";
 
 const EMPTY_MESSAGE =
   "This review has no transcript. It was recorded before transcripts were logged.";
@@ -18,16 +25,28 @@ export function ReviewTranscript({ state }: { state: ReviewState }) {
   return (
     <div className="flex min-w-0 flex-col gap-6">
       {state.transcript.map((entry) => (
-        <TranscriptSection key={`${entry.scope}:${entry.index ?? "summary"}`} entry={entry} files={state.files} />
+        <TranscriptSection
+          key={`${entry.scope}:${entry.index ?? "summary"}`}
+          entry={entry}
+          files={state.files}
+        />
       ))}
     </div>
   );
 }
 
-function TranscriptSection({ entry, files }: { entry: TranscriptEntry; files: FileView[] }) {
+function TranscriptSection({
+  entry,
+  files,
+}: {
+  entry: TranscriptEntry;
+  files: FileView[];
+}) {
   return (
     <section className="flex min-w-0 flex-col gap-3">
-      <h3 className="break-all text-sm font-medium">{headingOf(entry, files)}</h3>
+      <h3 className="break-all text-sm font-medium">
+        {headingOf(entry, files)}
+      </h3>
       {entry.attempts.map((attempt) => (
         <AttemptView key={attempt.attempt} attempt={attempt} />
       ))}
@@ -39,10 +58,17 @@ function AttemptView({ attempt }: { attempt: TranscriptAttempt }) {
   const isRetry = attempt.attempt > 1;
   return (
     <div className="flex min-w-0 flex-col gap-3">
-      {isRetry ? <Badge variant="outline" className="w-fit">retry</Badge> : null}
+      {isRetry ? (
+        <Badge variant="outline" className="w-fit">
+          retry
+        </Badge>
+      ) : null}
       <TranscriptBlock label="Sent to model">
         <PromptCollapsible label="System prompt" text={attempt.system} />
-        <PromptCollapsible label={`Prompt · ${formatCount(attempt.user.length)} chars`} text={attempt.user} />
+        <PromptCollapsible
+          label={`Prompt · ${formatCount(attempt.user.length)} chars`}
+          text={attempt.user}
+        />
       </TranscriptBlock>
       <TranscriptBlock label="Model reply">
         <div className="rounded-md border bg-muted/30 p-3">
@@ -53,7 +79,13 @@ function AttemptView({ attempt }: { attempt: TranscriptAttempt }) {
   );
 }
 
-function TranscriptBlock({ label, children }: { label: string; children: ReactNode }) {
+function TranscriptBlock({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
   return (
     <div className="flex min-w-0 flex-col gap-2">
       <p className="text-xs font-medium text-muted-foreground">{label}</p>

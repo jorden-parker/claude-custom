@@ -109,7 +109,9 @@ export function MachinePolicyEditor() {
     <div className="flex flex-col gap-6">
       <p className="text-sm text-muted-foreground">Folder: {state.dir}</p>
       {error ? <p className="text-sm text-error-foreground">{error}</p> : null}
-      {message ? <p className="text-sm text-success-foreground">{message}</p> : null}
+      {message ? (
+        <p className="text-sm text-success-foreground">{message}</p>
+      ) : null}
       {EDITABLE_FILES.map((file) => (
         <PolicyCard
           key={`${file}:${state.files[file].text ?? ""}`}

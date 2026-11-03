@@ -106,9 +106,7 @@ function SwitchRow({
       <TableCell>{field.label}</TableCell>
       <TableCell>{shownValue(field, field.defaultValue)}</TableCell>
       {profiles.map((profile) => (
-        <TableCell key={profile.id}>
-          {profileValue(field, profile)}
-        </TableCell>
+        <TableCell key={profile.id}>{profileValue(field, profile)}</TableCell>
       ))}
     </TableRow>
   );

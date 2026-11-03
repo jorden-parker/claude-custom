@@ -1,6 +1,11 @@
 "use client";
 
-import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import { Select } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { diffLines } from "diff";
@@ -153,7 +158,9 @@ function HistoryList({
                 <span className="text-muted-foreground">{entry.source}</span>
                 <span>{formatTime(entry.at)}</span>
                 {entry.id === highlightId ? (
-                  <span className="font-medium text-success-foreground">new</span>
+                  <span className="font-medium text-success-foreground">
+                    new
+                  </span>
                 ) : null}
               </span>
               <span className="break-all font-mono text-xs">{entry.path}</span>
@@ -260,7 +267,10 @@ function DiffView({ before, after }: { before: string | null; after: string }) {
     <ScrollArea className="rounded-md border" viewportClassName="max-h-96">
       <pre className="max-w-full p-3 font-mono text-xs">
         {lines.map((line, index) => (
-          <span key={index} className={`block whitespace-pre ${line.className}`}>
+          <span
+            key={index}
+            className={`block whitespace-pre ${line.className}`}
+          >
             {line.text || " "}
           </span>
         ))}
@@ -285,8 +295,8 @@ function EmptyHistory() {
       <EmptyHeader>
         <EmptyTitle>No changes recorded yet.</EmptyTitle>
         <EmptyDescription>
-          Changes made by claude-tools, ollama-agent and the console show up here.
-          Recording is on by default; set CLAUDE_CUSTOM_HISTORY=off in the
+          Changes made by claude-tools, ollama-agent and the console show up
+          here. Recording is on by default; set CLAUDE_CUSTOM_HISTORY=off in the
           environment to turn it off.
         </EmptyDescription>
       </EmptyHeader>

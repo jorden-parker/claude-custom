@@ -96,7 +96,9 @@ describe("LogView", () => {
   it("names the filter control", async () => {
     render(<LogView />);
     await screen.findByText("following /var/log/ollama.log");
-    expect(screen.getByRole("searchbox", { name: "Filter lines" })).toBeTruthy();
+    expect(
+      screen.getByRole("searchbox", { name: "Filter lines" }),
+    ).toBeTruthy();
   });
 
   it("switches to the launcher log and stops the server stream", async () => {

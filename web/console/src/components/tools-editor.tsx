@@ -53,7 +53,9 @@ export function ToolsEditor() {
       if (!response.ok) {
         return;
       }
-      const run = ((await response.json()) as RunSummary[]).find((item) => item.id === savingId);
+      const run = ((await response.json()) as RunSummary[]).find(
+        (item) => item.id === savingId,
+      );
       if (run !== undefined && run.status !== "running") {
         setSavingId(null);
         setReloads((count) => count + 1);
@@ -68,7 +70,8 @@ export function ToolsEditor() {
       <div className="flex flex-col gap-2 text-sm">
         <p className="text-error-foreground">{error}</p>
         <p className="text-muted-foreground">
-          Open claude-tools once in a terminal, sync the tool list, then reload this page.
+          Open claude-tools once in a terminal, sync the tool list, then reload
+          this page.
         </p>
       </div>
     );
@@ -78,25 +81,36 @@ export function ToolsEditor() {
   }
 
   const assignments = changedAssignments(report.tools, drafts);
-  const changeLabel = assignments.length === 1 ? "1 change" : `${assignments.length} changes`;
+  const changeLabel =
+    assignments.length === 1 ? "1 change" : `${assignments.length} changes`;
 
   const changePermission = (name: string, permission: Permission) =>
-    setDrafts((current) => ({ ...current, [name]: setPermission(current[name], permission) }));
+    setDrafts((current) => ({
+      ...current,
+      [name]: setPermission(current[name], permission),
+    }));
 
   const changeOff = (name: string, disabled: boolean) =>
-    setDrafts((current) => ({ ...current, [name]: { ...current[name], disabled } }));
+    setDrafts((current) => ({
+      ...current,
+      [name]: { ...current[name], disabled },
+    }));
 
   return (
     <section className="flex flex-col gap-4">
       <div className="flex flex-col gap-1 text-sm">
         <p className="font-mono break-all">{report.path}</p>
-        <p className="text-muted-foreground">Changes apply to new Claude Code sessions.</p>
+        <p className="text-muted-foreground">
+          Changes apply to new Claude Code sessions.
+        </p>
         <Link href="/history" className="underline">
           History
         </Link>
       </div>
       {report.tools.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No tools in the catalog.</p>
+        <p className="text-sm text-muted-foreground">
+          No tools in the catalog.
+        </p>
       ) : (
         <ToolStateTable
           rows={report.tools}
@@ -104,14 +118,22 @@ export function ToolsEditor() {
           options={PERMISSIONS}
           isChanged={(name) => isEdited(report.tools, drafts, name)}
           onChange={changePermission}
-          aside={(name) => keepOutOfContext(drafts[name], (disabled) => changeOff(name, disabled))}
+          aside={(name) =>
+            keepOutOfContext(drafts[name], (disabled) =>
+              changeOff(name, disabled),
+            )
+          }
         />
       )}
       {assignments.length === 0 ? null : (
         <div className="sticky bottom-0 flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-background p-3 shadow-sm">
           <span className="text-sm">{changeLabel}</span>
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => setDrafts(draftsFrom(report.tools))} disabled={savingId !== null}>
+            <Button
+              variant="outline"
+              onClick={() => setDrafts(draftsFrom(report.tools))}
+              disabled={savingId !== null}
+            >
               Discard
             </Button>
             {savingId === null ? (
@@ -133,18 +155,30 @@ export function ToolsEditor() {
   );
 }
 
-function permissionsOf(drafts: Record<string, ToolEdit>): Record<string, Permission> {
-  return Object.fromEntries(Object.entries(drafts).map(([name, edit]) => [name, edit.permission]));
+function permissionsOf(
+  drafts: Record<string, ToolEdit>,
+): Record<string, Permission> {
+  return Object.fromEntries(
+    Object.entries(drafts).map(([name, edit]) => [name, edit.permission]),
+  );
 }
 
-function isEdited(rows: readonly ToolRow[], drafts: Record<string, ToolEdit>, name: string): boolean {
+function isEdited(
+  rows: readonly ToolRow[],
+  drafts: Record<string, ToolEdit>,
+  name: string,
+): boolean {
   const row = rows.find((candidate) => candidate.name === name);
   const edit = drafts[name];
-  return row !== undefined && (edit.permission !== row.permission || edit.disabled !== row.disabled);
+  return (
+    row !== undefined &&
+    (edit.permission !== row.permission || edit.disabled !== row.disabled)
+  );
 }
 
 function keepOutOfContext(edit: ToolEdit, onOff: (disabled: boolean) => void) {
-  const keepsOffSwitch = edit.permission === "allow" || edit.permission === "ask";
+  const keepsOffSwitch =
+    edit.permission === "allow" || edit.permission === "ask";
   if (!keepsOffSwitch) {
     return null;
   }

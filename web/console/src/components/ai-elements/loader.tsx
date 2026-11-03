@@ -87,7 +87,7 @@ export const Loader = ({ className, size = 16, ...props }: LoaderProps) => (
   <div
     className={cn(
       "inline-flex animate-spin items-center justify-center motion-reduce:animate-none",
-      className
+      className,
     )}
     {...props}
   >

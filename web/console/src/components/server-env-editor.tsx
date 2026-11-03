@@ -44,13 +44,17 @@ export function ServerEnvEditor() {
     return <p className="text-sm text-error-foreground">{loadError}</p>;
   }
   if (snapshot === null) {
-    return <p className="text-sm text-muted-foreground">Reading the LaunchAgent…</p>;
+    return (
+      <p className="text-sm text-muted-foreground">Reading the LaunchAgent…</p>
+    );
   }
   return (
     <ServerEnvForm
       snapshot={snapshot}
       edits={edits}
-      onEdit={(name, value) => setEdits((previous) => ({ ...previous, [name]: value }))}
+      onEdit={(name, value) =>
+        setEdits((previous) => ({ ...previous, [name]: value }))
+      }
       runId={runId}
       onStarted={setRunId}
       onBack={reload}
@@ -67,11 +71,24 @@ type ServerEnvFormProps = {
   onBack: () => void;
 };
 
-function ServerEnvForm({ snapshot, edits, onEdit, runId, onStarted, onBack }: ServerEnvFormProps) {
+function ServerEnvForm({
+  snapshot,
+  edits,
+  onEdit,
+  runId,
+  onStarted,
+  onBack,
+}: ServerEnvFormProps) {
   const changes = changesOf(snapshot.variables, edits);
-  const hasInvalid = changes.some(({ name, value }) => !validServerValue(name, value));
-  const appRunning = snapshot.conflicts.some((text) => text.includes(APP_CONFLICT_MARKER));
-  const assignments = changes.map(({ name, value }) => `${name}=${value}`).join(",");
+  const hasInvalid = changes.some(
+    ({ name, value }) => !validServerValue(name, value),
+  );
+  const appRunning = snapshot.conflicts.some((text) =>
+    text.includes(APP_CONFLICT_MARKER),
+  );
+  const assignments = changes
+    .map(({ name, value }) => `${name}=${value}`)
+    .join(",");
 
   return (
     <div className="flex flex-col gap-4">
@@ -84,7 +101,9 @@ function ServerEnvForm({ snapshot, edits, onEdit, runId, onStarted, onBack }: Se
       </Link>
       {snapshot.conflicts.map((text) => (
         <Card key={text}>
-          <CardContent className="text-sm text-warning-foreground">{text}</CardContent>
+          <CardContent className="text-sm text-warning-foreground">
+            {text}
+          </CardContent>
         </Card>
       ))}
       <ul className="flex flex-col gap-3">
@@ -110,7 +129,13 @@ function ServerEnvForm({ snapshot, edits, onEdit, runId, onStarted, onBack }: Se
         >
           Save and reload
         </StartRunButton>
-        <StartRunButton command="server-apply" params={{}} stay disabled={appRunning} onStarted={onStarted}>
+        <StartRunButton
+          command="server-apply"
+          params={{}}
+          stay
+          disabled={appRunning}
+          onStarted={onStarted}
+        >
           Apply recommended
         </StartRunButton>
       </div>
@@ -132,7 +157,9 @@ function VariableRow({
   const changed = editable && value !== currentText(variable);
 
   return (
-    <li className={`flex flex-col gap-2 rounded-lg border p-3 ${changed ? "bg-muted/60" : ""}`}>
+    <li
+      className={`flex flex-col gap-2 rounded-lg border p-3 ${changed ? "bg-muted/60" : ""}`}
+    >
       <VariableHeader variable={variable} />
       <p className="text-sm text-muted-foreground">{variable.summary}</p>
       <dl className="grid grid-cols-2 gap-x-3 font-mono text-xs [&>dd]:min-w-0 [&>dd]:break-all">
@@ -142,7 +169,12 @@ function VariableRow({
         <dd>{variable.recommended || "none"}</dd>
       </dl>
       {editable ? (
-        <ValueInput name={variable.name} value={value} invalid={changed && !validServerValue(variable.name, value)} onEdit={onEdit} />
+        <ValueInput
+          name={variable.name}
+          value={value}
+          invalid={changed && !validServerValue(variable.name, value)}
+          onEdit={onEdit}
+        />
       ) : (
         <p className="flex items-center gap-2 text-xs text-muted-foreground">
           <Lock className="size-3" />
@@ -189,7 +221,10 @@ function ValueInput({
 }
 
 function isDifferent(variable: ServerVariable): boolean {
-  return variable.recommended !== "" && currentText(variable) !== variable.recommended;
+  return (
+    variable.recommended !== "" &&
+    currentText(variable) !== variable.recommended
+  );
 }
 
 function currentText(variable: ServerVariable): string {
@@ -199,7 +234,9 @@ function currentText(variable: ServerVariable): string {
 function changesOf(variables: ServerVariable[], edits: Edits): Change[] {
   return variables.flatMap((variable) => {
     const value = edits[variable.name];
-    return EDITABLE_VARIABLES.has(variable.name) && value !== undefined && value !== currentText(variable)
+    return EDITABLE_VARIABLES.has(variable.name) &&
+      value !== undefined &&
+      value !== currentText(variable)
       ? [{ name: variable.name, value }]
       : [];
   });

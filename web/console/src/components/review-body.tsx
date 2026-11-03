@@ -9,10 +9,25 @@ import {
   PauseCircleIcon,
 } from "lucide-react";
 import { useSyncExternalStore, type ReactNode } from "react";
-import { Task, TaskContent, TaskItem, TaskTrigger } from "@/components/ai-elements/task";
+import {
+  Task,
+  TaskContent,
+  TaskItem,
+  TaskTrigger,
+} from "@/components/ai-elements/task";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { Message, MessageContent } from "@/components/ui/message";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -47,7 +62,9 @@ export function ReviewBody({ state, elapsedSeconds }: ReviewBodyProps) {
     <div className="flex min-w-0 flex-col gap-6">
       <ReviewHeader state={state} seconds={shownSeconds} />
       {state.header.status === "stopped" ? (
-        <p className="text-sm text-muted-foreground">The review ended without a result.</p>
+        <p className="text-sm text-muted-foreground">
+          The review ended without a result.
+        </p>
       ) : null}
       {state.error ? <ErrorBanner message={state.error} /> : null}
       <ChangedFiles files={state.files} status={state.header.status} />
@@ -74,10 +91,16 @@ function ReviewTabs({ state }: { state: ReviewState }) {
         <ProgressTask stages={state.stages} />
         <div className="flex min-w-0 flex-col gap-3">
           {state.files.map((file) => (
-            <FileTask key={file.index} file={file} status={state.header.status} />
+            <FileTask
+              key={file.index}
+              file={file}
+              status={state.header.status}
+            />
           ))}
         </div>
-        {state.verdict ? <VerdictBanner verdict={state.verdict} summary={state.summary} /> : null}
+        {state.verdict ? (
+          <VerdictBanner verdict={state.verdict} summary={state.summary} />
+        ) : null}
         {state.report ? <ReportSection report={state.report} /> : null}
       </TabsContent>
       <TabsContent value="transcript">
@@ -100,18 +123,33 @@ function serverTab(): ReviewTab {
   return "findings";
 }
 
-function ReviewHeader({ state, seconds }: { state: ReviewState; seconds: number }) {
+function ReviewHeader({
+  state,
+  seconds,
+}: {
+  state: ReviewState;
+  seconds: number;
+}) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="break-words">{state.header.name || "Review"}</CardTitle>
-        <CardDescription className="break-words">{state.header.title}</CardDescription>
+        <CardTitle className="break-words">
+          {state.header.name || "Review"}
+        </CardTitle>
+        <CardDescription className="break-words">
+          {state.header.title}
+        </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-wrap items-center gap-2 text-sm">
-        <Badge variant="outline" className={statusTextClass(state.header.status)}>
+        <Badge
+          variant="outline"
+          className={statusTextClass(state.header.status)}
+        >
           {headerStatusLabel(state.header.status)}
         </Badge>
-        <span className="break-all text-muted-foreground">{state.header.model}</span>
+        <span className="break-all text-muted-foreground">
+          {state.header.model}
+        </span>
         <span className="text-muted-foreground">{formatSeconds(seconds)}</span>
       </CardContent>
     </Card>
@@ -120,13 +158,22 @@ function ReviewHeader({ state, seconds }: { state: ReviewState; seconds: number 
 
 function ErrorBanner({ message }: { message: string }) {
   return (
-    <div role="alert" className="break-words rounded-md border border-destructive p-4 text-sm text-destructive">
+    <div
+      role="alert"
+      className="break-words rounded-md border border-destructive p-4 text-sm text-destructive"
+    >
       {message}
     </div>
   );
 }
 
-function ChangedFiles({ files, status }: { files: FileView[]; status: ReviewState["header"]["status"] }) {
+function ChangedFiles({
+  files,
+  status,
+}: {
+  files: FileView[];
+  status: ReviewState["header"]["status"];
+}) {
   if (files.length === 0) {
     return null;
   }
@@ -140,7 +187,10 @@ function ChangedFiles({ files, status }: { files: FileView[]; status: ReviewStat
               <span className="min-w-0 truncate" title={file.path}>
                 {file.path}
               </span>
-              <Badge variant="secondary" className={`shrink-0 text-xs ${fileStateClass(displayFileState(file, status))}`}>
+              <Badge
+                variant="secondary"
+                className={`shrink-0 text-xs ${fileStateClass(displayFileState(file, status))}`}
+              >
                 {fileBadgeText(file, status)}
               </Badge>
             </span>
@@ -151,7 +201,10 @@ function ChangedFiles({ files, status }: { files: FileView[]; status: ReviewStat
   );
 }
 
-function fileBadgeText(file: FileView, status: ReviewState["header"]["status"]): string {
+function fileBadgeText(
+  file: FileView,
+  status: ReviewState["header"]["status"],
+): string {
   const state = displayFileState(file, status);
   const findings = fileFindingCount(file);
   return findings > 0 ? `${state} · ${findingCountText(findings)}` : state;
@@ -168,7 +221,10 @@ function ProgressTask({ stages }: { stages: StageView[] }) {
   return (
     <Task defaultOpen>
       <TaskTrigger title="Review progress">
-        <TaskHeading icon={<ListIcon className="size-4" />} title="Review progress" />
+        <TaskHeading
+          icon={<ListIcon className="size-4" />}
+          title="Review progress"
+        />
       </TaskTrigger>
       <TaskContent>
         {stages.map((stage, index) => (
@@ -181,12 +237,24 @@ function ProgressTask({ stages }: { stages: StageView[] }) {
   );
 }
 
-function FileTask({ file, status }: { file: FileView; status: ReviewState["header"]["status"] }) {
+function FileTask({
+  file,
+  status,
+}: {
+  file: FileView;
+  status: ReviewState["header"]["status"];
+}) {
   const title = `[${file.index}/${file.total}] ${file.path}`;
   return (
     <Task defaultOpen={isFileOpenByDefault(file)} className="min-w-0">
-      <TaskTrigger title={title} className="w-full min-w-0 justify-start text-left">
-        <TaskHeading icon={<FileStateIcon file={file} status={status} />} title={title} />
+      <TaskTrigger
+        title={title}
+        className="w-full min-w-0 justify-start text-left"
+      >
+        <TaskHeading
+          icon={<FileStateIcon file={file} status={status} />}
+          title={title}
+        />
       </TaskTrigger>
       <TaskContent>
         <FileStatusLine file={file} status={status} />
@@ -195,8 +263,13 @@ function FileTask({ file, status }: { file: FileView; status: ReviewState["heade
         ))}
         {file.retries.map((reply, index) => (
           <div key={index} className="flex flex-col gap-1">
-            <p className="text-xs text-muted-foreground">retried: the answer was not a JSON array</p>
-            <ScrollArea className="rounded bg-muted" viewportClassName="max-h-48">
+            <p className="text-xs text-muted-foreground">
+              retried: the answer was not a JSON array
+            </p>
+            <ScrollArea
+              className="rounded bg-muted"
+              viewportClassName="max-h-48"
+            >
               <pre className="max-w-full whitespace-pre-wrap break-words p-2 font-mono text-xs text-muted-foreground">
                 {reply}
               </pre>
@@ -211,7 +284,10 @@ function FileTask({ file, status }: { file: FileView; status: ReviewState["heade
 
 function CheckLine({ check }: { check: CheckView }) {
   const count = `${check.count} finding${check.count === 1 ? "" : "s"}`;
-  const text = check.kept === null ? `checked ${count}` : `checked ${count}, kept ${check.kept}`;
+  const text =
+    check.kept === null
+      ? `checked ${count}`
+      : `checked ${count}, kept ${check.kept}`;
   return <p className="text-xs text-muted-foreground">{text}</p>;
 }
 
@@ -225,18 +301,32 @@ function TaskHeading({ icon, title }: { icon: ReactNode; title: string }) {
   );
 }
 
-function FileStateIcon({ file, status }: { file: FileView; status: ReviewState["header"]["status"] }) {
+function FileStateIcon({
+  file,
+  status,
+}: {
+  file: FileView;
+  status: ReviewState["header"]["status"];
+}) {
   const state = displayFileState(file, status);
   if (state === "stopped") {
-    return <PauseCircleIcon className="size-4 shrink-0 text-muted-foreground" />;
+    return (
+      <PauseCircleIcon className="size-4 shrink-0 text-muted-foreground" />
+    );
   }
   if (state === "running") {
-    return <Loader2Icon className="size-4 shrink-0 animate-spin text-info-foreground" />;
+    return (
+      <Loader2Icon className="size-4 shrink-0 animate-spin text-info-foreground" />
+    );
   }
   if (/error|fail/i.test(file.outcome ?? "")) {
-    return <CircleAlertIcon className="size-4 shrink-0 text-error-foreground" />;
+    return (
+      <CircleAlertIcon className="size-4 shrink-0 text-error-foreground" />
+    );
   }
-  return <CircleCheckIcon className="size-4 shrink-0 text-success-foreground" />;
+  return (
+    <CircleCheckIcon className="size-4 shrink-0 text-success-foreground" />
+  );
 }
 
 const fileStatusText: Record<FileView["state"], (file: FileView) => string> = {
@@ -251,13 +341,25 @@ const fileStatusText: Record<FileView["state"], (file: FileView) => string> = {
       : `${fileOutcomeText(file)} · ${formatSeconds(file.seconds)}`,
 };
 
-function FileStatusLine({ file, status }: { file: FileView; status: ReviewState["header"]["status"] }) {
+function FileStatusLine({
+  file,
+  status,
+}: {
+  file: FileView;
+  status: ReviewState["header"]["status"];
+}) {
   const state = displayFileState(file, status);
   if (state === "stopped") {
-    return <p className="text-sm text-muted-foreground">stopped before a result</p>;
+    return (
+      <p className="text-sm text-muted-foreground">stopped before a result</p>
+    );
   }
   const pulse = state === "running" ? "animate-pulse " : "";
-  return <p className={`${pulse}text-sm text-muted-foreground`}>{fileStatusText[file.state](file)}</p>;
+  return (
+    <p className={`${pulse}text-sm text-muted-foreground`}>
+      {fileStatusText[file.state](file)}
+    </p>
+  );
 }
 
 function FindingMessage({ finding }: { finding: FindingView }) {
@@ -265,13 +367,20 @@ function FindingMessage({ finding }: { finding: FindingView }) {
     <Message>
       <MessageContent>
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant={labelVariant(finding)} className={labelClass(finding)}>
+          <Badge
+            variant={labelVariant(finding)}
+            className={labelClass(finding)}
+          >
             {finding.label}
             {finding.blocking ? " · blocking" : ""}
           </Badge>
-          <code className="break-all rounded bg-muted px-1.5 py-0.5 font-mono text-xs">{locationOf(finding)}</code>
+          <code className="break-all rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
+            {locationOf(finding)}
+          </code>
           {finding.confidence && finding.confidence !== "high" ? (
-            <span className="text-xs text-muted-foreground">confidence: {finding.confidence}</span>
+            <span className="text-xs text-muted-foreground">
+              confidence: {finding.confidence}
+            </span>
           ) : null}
         </div>
         <div className="mt-2 break-words text-sm font-medium">
@@ -287,11 +396,19 @@ function FindingMessage({ finding }: { finding: FindingView }) {
   );
 }
 
-function VerdictBanner({ verdict, summary }: { verdict: VerdictView; summary: string | null }) {
+function VerdictBanner({
+  verdict,
+  summary,
+}: {
+  verdict: VerdictView;
+  summary: string | null;
+}) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className={verdictClass(verdict.verdict)}>{verdict.verdict}</CardTitle>
+        <CardTitle className={verdictClass(verdict.verdict)}>
+          {verdict.verdict}
+        </CardTitle>
         {verdict.seconds === null ? null : (
           <CardDescription>{formatSeconds(verdict.seconds)}</CardDescription>
         )}
@@ -335,11 +452,15 @@ function labelClass(finding: FindingView): string {
 }
 
 function labelVariant(finding: FindingView): "default" | "outline" {
-  return !finding.blocking && finding.label === "nitpick" ? "outline" : "default";
+  return !finding.blocking && finding.label === "nitpick"
+    ? "outline"
+    : "default";
 }
 
 function locationOf(finding: FindingView): string {
-  return finding.line === null ? finding.path : `${finding.path}:${finding.line}`;
+  return finding.line === null
+    ? finding.path
+    : `${finding.path}:${finding.line}`;
 }
 
 function formatSeconds(seconds: number): string {

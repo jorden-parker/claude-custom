@@ -1,4 +1,10 @@
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ToolStateTable } from "./tool-state-table";
 
@@ -7,7 +13,8 @@ const ROWS = [
   { name: "WebFetch", description: "Fetch a web page", baseline: "deny" },
 ];
 
-const rowFor = (name: string) => within(screen.getByRole("row", { name: new RegExp(`^${name}\\b`) }));
+const rowFor = (name: string) =>
+  within(screen.getByRole("row", { name: new RegExp(`^${name}\\b`) }));
 
 describe("ToolStateTable", () => {
   afterEach(() => {
@@ -46,7 +53,11 @@ describe("ToolStateTable", () => {
     );
 
     expect(rowFor("Bash").queryByRole("button", { name: "allow" })).toBeNull();
-    expect(rowFor("WebFetch").getByRole("button", { name: "ask" }).getAttribute("aria-pressed")).toBe("true");
+    expect(
+      rowFor("WebFetch")
+        .getByRole("button", { name: "ask" })
+        .getAttribute("aria-pressed"),
+    ).toBe("true");
 
     fireEvent.click(rowFor("Bash").getByRole("button", { name: "off" }));
     expect(onChange).toHaveBeenCalledWith("Bash", "off");
@@ -66,7 +77,9 @@ describe("ToolStateTable", () => {
 
     expect(rowFor("Bash").getByText("keep aside")).toBeTruthy();
     expect(rowFor("WebFetch").queryByText("keep aside")).toBeNull();
-    expect(screen.getByRole("row", { name: /^Bash\b/ }).className).toContain("bg-warning");
+    expect(screen.getByRole("row", { name: /^Bash\b/ }).className).toContain(
+      "bg-warning",
+    );
   });
 
   it("omits the default column when no row has a baseline", () => {
