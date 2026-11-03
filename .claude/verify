@@ -20,7 +20,9 @@ tests_for() {
     shared/mcp/draft_store.py) printf '%s\n' shared/mcp/repo-tools.test.sh ;;
     shared/mcp/github_tools.py) printf '%s\n' shared/mcp/repo-tools.test.sh ;;
     shared/mcp/mcp_stdio.py) printf '%s\n' shared/mcp/code-search.test.sh shared/mcp/repo-tools.test.sh shared/mcp/dev-server.test.sh ;;
-    bin/claude-tools | bin/ollama-agent | ollama/*) printf '%s\n' bin/claude-ollama.test.sh ;;
+    bin/lib/*) printf '%s\n' bin/claude-ollama.test.sh bin/claude-ollama-doctor.test.sh bin/claude-ollama-qwen.test.sh ;;
+    bin/claude-tools | bin/ollama-agent) printf '%s\n' bin/claude-ollama.test.sh ;;
+    ollama/*) printf '%s\n' bin/claude-ollama.test.sh bin/claude-ollama-doctor.test.sh bin/claude-ollama-qwen.test.sh ;;
     personal/settings-path | personal/launch) printf '%s\n' personal/settings-path.test.sh personal/install.test.sh ;;
     personal/* | shared/settings/* | shared/agents/*) printf '%s\n' personal/install.test.sh ;;
     shared/hooks/fallow-lib.sh | shared/hooks/fallow-test-lib.sh) printf '%s\n' shared/hooks/fallow-*.test.sh ;;

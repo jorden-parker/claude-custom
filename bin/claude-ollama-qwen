@@ -1,0 +1,190 @@
+#!/bin/bash
+set -euo pipefail
+
+repo_dir="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+. "$repo_dir/bin/lib/size-profile.sh"
+. "$repo_dir/bin/lib/ollama-server.sh"
+. "$repo_dir/bin/lib/doctor-checks.sh"
+qwen_home="$session_config_dir/qwen"
+qwen_profile_name="claude-ollama"
+
+qwen_args() {
+  printf '%s\n' --auth-type openai --openai-base-url "$ollama_url/v1" --openai-api-key ollama -m "$model" --approval-mode auto-edit --mcp-config "$(mcp_config)"
+}
+
+qwen_command() {
+  printf 'qwen %s' "$(qwen_args | tr '\n' ' ' | sed 's/ $//')"
+}
+
+create_qwen_home() {
+  mkdir -p "$qwen_home/skills" "$qwen_home/agents" "$qwen_home/extensions" "$qwen_home/rules" "$qwen_home/commands" "$qwen_home/hooks"
+}
+
+write_qwen_settings() {
+  jq --arg model "$model" --arg base_url "$ollama_url/v1" --argjson context "$(modelfile_num_ctx)" '
+    .model.name = $model
+    | .modelProviders.openai[0].id = $model
+    | .modelProviders.openai[0].name = "\($model) (Ollama)"
+    | .modelProviders.openai[0].baseUrl = $base_url
+    | .modelProviders.openai[0].generationConfig.contextWindowSize = $context
+  ' "$profile_dir/qwen-settings.template.json" > "$qwen_home/settings.json"
+}
+
+write_qwen_context() {
+  cat "$repo_dir/shared/preferences/PREFERENCES.md" "$profile_dir/QWEN.local.md" > "$qwen_home/QWEN.md"
+}
+
+print_qwen_config() {
+  echo "harness: qwen"
+  echo "size: $size"
+  echo "model: $model"
+  echo "base: $(base_model)"
+  echo "num_ctx: $(modelfile_num_ctx)"
+  echo "context window: $(modelfile_num_ctx)"
+  echo "qwen home: $qwen_home"
+  echo "settings template: $profile_dir/qwen-settings.template.json"
+  echo "sandbox: $(qwen_sandbox_label)"
+  echo "command: $(qwen_command)"
+}
+
+check_qwen_on_path() {
+  if command -v qwen >/dev/null 2>&1; then
+    report ok "qwen on PATH ($(command -v qwen))"
+  else
+    report fail "qwen missing (brew install qwen-code)"
+    return 1
+  fi
+}
+
+check_qwen_template() {
+  if jq -e . "$profile_dir/qwen-settings.template.json" >/dev/null 2>&1; then
+    report ok "qwen settings template parses"
+  else
+    report fail "qwen settings template is not valid JSON"
+    return 1
+  fi
+}
+
+check_qwen_sandbox() {
+  local setting
+  setting="$(jq -r '.tools.sandbox' "$profile_dir/qwen-settings.template.json" 2>/dev/null)"
+  if [ "$setting" != sandbox-exec ]; then
+    report fail "qwen settings template does not set tools.sandbox to sandbox-exec"
+    return 1
+  fi
+  if [ ! -f "$profile_dir/qwen-sandbox.sb" ]; then
+    report fail "ollama/qwen-sandbox.sb missing"
+    return 1
+  fi
+  if [ -n "$(qwen_sandbox_exec)" ]; then
+    report ok "qwen sandbox: sandbox-exec with profile $qwen_profile_name"
+  else
+    report warn "qwen sandbox: sandbox-exec not found on this OS; Qwen Code runs as you"
+  fi
+}
+
+check_qwen_hooks() {
+  if jq -e '.hooks' "$profile_dir/qwen-settings.template.json" >/dev/null 2>&1; then
+    report ok "qwen hooks wired in the settings template"
+  else
+    report warn "qwen hooks: none wired (docs/ollama.md)"
+  fi
+}
+
+qwen_doctor() {
+  local status=0
+  report ok "jq on PATH"
+  check_qwen_on_path || status=1
+  check_model_present model "$model" "run claude-ollama qwen $size to pull and create it" || status=1
+  check_digests || status=1
+  check_context_sizes || status=1
+  check_qwen_template || status=1
+  check_qwen_sandbox || status=1
+  check_qwen_hooks
+  check_reachable || status=1
+  check_server_env || status=1
+  check_gh_login
+  exit "$status"
+}
+
+qwen_sandbox_exec() {
+  local candidate="${CLAUDE_OLLAMA_SANDBOX_EXEC:-$(command -v sandbox-exec 2>/dev/null || true)}"
+  [ -n "$candidate" ] && [ -x "$candidate" ] && printf '%s\n' "$candidate"
+}
+
+refuse_link() {
+  if [ -L "$1" ]; then
+    echo "claude-ollama: $1 is a symbolic link; a session could point it anywhere, so move it aside" >&2
+    return 1
+  fi
+}
+
+exclude_from_git() {
+  local exclude_file
+  exclude_file="$(git rev-parse --git-path info/exclude 2>/dev/null)" || return 0
+  [ -n "$exclude_file" ] || return 0
+  refuse_link "$(dirname "$exclude_file")" && refuse_link "$exclude_file" || return 1
+  mkdir -p "$(dirname "$exclude_file")"
+  grep -qxF "$1" "$exclude_file" 2>/dev/null || printf '%s\n' "$1" >> "$exclude_file"
+}
+
+write_qwen_seatbelt_profile() {
+  local target=".qwen/sandbox-macos-$qwen_profile_name.sb" staged
+  refuse_link .qwen || return 1
+  mkdir -p .qwen
+  staged="$(mktemp ".qwen/.sandbox-macos-$qwen_profile_name.XXXXXX")" || return 1
+  cp "$profile_dir/qwen-sandbox.sb" "$staged" && chmod 0644 "$staged" && mv -f "$staged" "$target" || return 1
+  exclude_from_git "/$target"
+}
+
+qwen_sandbox_label() {
+  if [ -n "$(qwen_sandbox_exec)" ]; then
+    echo "sandbox-exec (Seatbelt profile $qwen_profile_name, from ollama/qwen-sandbox.sb)"
+  else
+    echo "none (sandbox-exec not found: Qwen Code's commands run as you)"
+  fi
+}
+
+launch_qwen() {
+  local launch_args=()
+  while IFS= read -r arg; do launch_args+=("$arg"); done < <(qwen_args)
+  unset OPENAI_API_KEY OPENAI_BASE_URL OPENAI_MODEL QWEN_MODEL QWEN_SANDBOX QWEN_RUNTIME_DIR SANDBOX
+  unset GH_TOKEN GITHUB_TOKEN SHORTCUT_API_TOKEN
+  if [ -n "$(qwen_sandbox_exec)" ]; then
+    export QWEN_SANDBOX=sandbox-exec
+    export SEATBELT_PROFILE="$qwen_profile_name"
+    write_qwen_seatbelt_profile
+    echo "claude-ollama: qwen runs in macOS Seatbelt (profile $qwen_profile_name); gh and git push need your own terminal" >&2
+  else
+    echo "claude-ollama: qwen runs without a sandbox: its commands run as you (sandbox-exec not found)" >&2
+  fi
+  export QWEN_HOME="$qwen_home"
+  export QWEN_USAGE_STATISTICS_ENABLED=false
+  export QWEN_CODE_MODELS_DEV_REFRESH=off
+  create_qwen_home
+  write_qwen_settings
+  write_qwen_context
+  exec "$repo_dir/shared/sandbox-env" qwen "${launch_args[@]}" "$@"
+}
+
+usage() {
+  echo "usage: claude-ollama-qwen launch|--print-config|doctor SIZE [qwen args...]" >&2
+  exit 2
+}
+
+mode="${1:-}"
+case "$mode" in
+  launch|--print-config|doctor) shift ;;
+  *) usage ;;
+esac
+require_jq
+require_size "${1:-}" claude-ollama-qwen
+use_size "$1"
+model="$(size_model)"
+shift
+load_profile
+case "$mode" in
+  launch) launch_qwen "$@" ;;
+  --print-config) print_qwen_config ;;
+  doctor) qwen_doctor ;;
+esac

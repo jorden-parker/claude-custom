@@ -2,18 +2,21 @@
 set -euo pipefail
 
 repo_dir="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
-profile_dir="$repo_dir/ollama"
+. "$repo_dir/bin/lib/size-profile.sh"
+. "$repo_dir/bin/lib/ollama-server.sh"
+. "$repo_dir/bin/lib/memory-fit.sh"
+. "$repo_dir/bin/lib/nvm-node.sh"
+. "$repo_dir/bin/lib/session-logs.sh"
+. "$repo_dir/bin/lib/cmux-terminal.sh"
+doctor_bin="${CLAUDE_OLLAMA_DOCTOR_BIN:-$repo_dir/bin/claude-ollama-doctor}"
+qwen_bin="${CLAUDE_OLLAMA_QWEN_BIN:-$repo_dir/bin/claude-ollama-qwen}"
 go_dir="$repo_dir/go"
 picker_binary="$go_dir/cmd/model-picker/model-picker"
 default_size=27b
 tools="Bash,Read,Edit,Write,Skill,TaskStop"
-embedding_model="${CODE_SEARCH_MODEL:-qwen3-embedding:0.6b}"
-ollama_url="${OLLAMA_HOST:-http://127.0.0.1:11434}"
-case "$ollama_url" in http://*|https://*) ;; *) ollama_url="http://$ollama_url" ;; esac
 keep_alive="${CLAUDE_OLLAMA_KEEP_ALIVE:-30m}"
 ollama_agent="${CLAUDE_OLLAMA_AGENT:-$repo_dir/bin/ollama-agent}"
 gguf_inspect="${CLAUDE_OLLAMA_GGUF_INSPECT:-$repo_dir/bin/gguf-inspect}"
-session_config_dir="$HOME/.claude-ollama"
 drafts_dir="$session_config_dir/drafts"
 relaunch_root="$session_config_dir/relaunch"
 relaunch_dir="$relaunch_root/$$"
@@ -22,51 +25,22 @@ relaunch_args=()
 relaunch_note=""
 relaunch_prompt=""
 relaunch_percent=""
-lease_bin="${CLAUDE_OLLAMA_LEASE_BIN:-$repo_dir/bin/ollama-lease}"
 heartbeat_pid=""
 ladder_rung=""
 ladder_context=""
-node_choice=""
-node_spec_source=""
 ladder_reason=""
 session_rung=""
 fit_embed_off=""
-fit_summary=""
-fit_margin=""
-bytes_per_gib=1073741824
-qwen_home="$session_config_dir/qwen"
 append_prompt="$session_config_dir/append-prompt.md"
-fetch_domains_file="${XDG_CONFIG_HOME:-$HOME/.config}/claude-custom/fetch-domains"
-composed_settings="$session_config_dir/launch-settings.json"
 proxy_port_file="$session_config_dir/proxy.port"
 proxy_record_dir="$session_config_dir/proxy/record"
 proxy_url=""
-profiles_dir="${XDG_CONFIG_HOME:-$HOME/.config}/claude-custom/profiles"
-profile_overlay="$repo_dir/shared/profile-overlay"
-fetch_domain_pattern='^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z][a-z0-9-]*[a-z0-9]$'
 review_log_dir="${PR_REVIEW_LOG_DIR:-$HOME/.local/share/claude-custom/reviews}"
-console_state_dir="${CLAUDE_CONSOLE_STATE_DIR:-$HOME/.local/share/claude-custom/console}"
 console_port=8765
 launcher_log="$console_state_dir/launcher.log"
 launcher_log_max_bytes=1048576
 launcher_log_open=""
-telemetry_log="$session_config_dir/telemetry/tool-calls.jsonl"
 telemetry_log_max_bytes=1048576
-
-configured_sizes() {
-  local settings size
-  for settings in "$profile_dir"/settings.*.json; do
-    size="${settings##*/settings.}"
-    size="${size%.json}"
-    if is_configured_size "$size"; then
-      printf '%s\n' "$size"
-    fi
-  done
-}
-
-is_configured_size() {
-  [ -f "$profile_dir/settings.$1.json" ] && [ -f "$profile_dir/Modelfile.$1" ]
-}
 
 binary_is_current() {
   local dir="$1" binary="$2"
@@ -97,18 +71,6 @@ choose_size() {
   fi
 }
 
-base_model() {
-  sed -n 's/^FROM //p' "$profile_dir/Modelfile.$size"
-}
-
-modelfile_num_ctx() {
-  modelfile_parameters | sed -n 's/^num_ctx //p'
-}
-
-modelfile_parameters() {
-  sed -n 's/^PARAMETER //p' "$profile_dir/Modelfile.$size" | "$profile_overlay" parameters "$profile_file"
-}
-
 installed_parameters_match() {
   local installed key value
   installed="$(ollama show "$1" --parameters 2>/dev/null)"
@@ -127,40 +89,6 @@ refresh_parameters() {
   { printf 'FROM %s\n' "$name"; modelfile_parameters | sed 's/^/PARAMETER /'; } > "$modelfile"
   ollama create "$name" -f "$modelfile"
   rm -f "$modelfile"
-}
-
-profile_context_tokens() {
-  jq -r .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS "$launch_settings"
-}
-
-profile_output_tokens() {
-  jq -r .env.CLAUDE_CODE_MAX_OUTPUT_TOKENS "$launch_settings"
-}
-
-summary_reserve() {
-  jq -r .summary_reserve "$profile_dir/headroom.json"
-}
-
-context_headroom() {
-  echo $(( $(modelfile_num_ctx) - $(profile_context_tokens) - $(profile_output_tokens) ))
-}
-
-profile_summary() {
-  "$profile_overlay" summary "$profile_file"
-}
-
-load_profile() {
-  "$profile_overlay" check "$profile_file" || exit 1
-  eval "$("$profile_overlay" env "$profile_file")"
-}
-
-pinned_digest() {
-  jq -r --arg name "$1" '.[$name] // empty' "$profile_dir/model-digests.json"
-}
-
-installed_digest() {
-  curl -sf -m 5 "$ollama_url/api/tags" |
-    jq -r --arg name "$1" '.models[]? | select(.name == $name or .name == ($name + ":latest")) | .digest'
 }
 
 check_pin() {
@@ -183,7 +111,7 @@ verify_installed() {
 
 verify_installed_models() {
   local name
-  for name in "$(base_model)" "$embedding_model"; do
+  for name in $(pinned_models); do
     verify_installed "$name" || exit 1
   done
 }
@@ -261,33 +189,10 @@ prepare_embedding() {
   exec ollama pull "$embedding_model"
 }
 
-add_mcp_server() {
-  [ "$("$profile_overlay" mcp "$profile_file" "$1")" = true ] || return 0
-  servers="${servers:+$servers,}\"$1\":{\"command\":\"$2\",\"args\":[\"python3\",\"$3\"]}"
-}
-
-mcp_config() {
-  servers=""
-  add_mcp_server code-search "$repo_dir/shared/host-env" "$repo_dir/shared/mcp/code-search.py"
-  add_mcp_server repo "$repo_dir/shared/host-env" "$repo_dir/shared/mcp/repo-tools.py"
-  add_mcp_server dev "$repo_dir/shared/host-env" "$repo_dir/shared/mcp/dev-server.py"
-  printf '{"mcpServers":{%s}}' "$servers"
-}
-
 warm_model() {
   command -v curl >/dev/null 2>&1 || return 0
   curl -s -o /dev/null -m 2 -X POST "$ollama_url/api/generate" \
     -d "{\"model\":\"$model\",\"keep_alive\":\"$keep_alive\"}" >/dev/null 2>&1 &
-}
-
-server_max_loaded_models() {
-  running_server_env 2>/dev/null | sed -n 's/^OLLAMA_MAX_LOADED_MODELS=//p' | head -n 1
-}
-
-embedding_model_fits() {
-  local cap
-  cap="$(server_max_loaded_models)"
-  [ -n "$cap" ] && [ "$cap" -ge 2 ] 2>/dev/null
 }
 
 embeddings_wanted() {
@@ -308,10 +213,6 @@ warm_embedding_model() {
   command -v curl >/dev/null 2>&1 || return 0
   curl -s -o /dev/null -m 30 -X POST "$ollama_url/api/embed" \
     -d "{\"model\":\"$embedding_model\",\"input\":\"warm up\",\"keep_alive\":\"$keep_alive\"}" >/dev/null 2>&1
-}
-
-lease_on() {
-  [ "${CLAUDE_OLLAMA_LEASE:-}" != 0 ]
 }
 
 acquire_lease() {
@@ -336,37 +237,6 @@ claim_session() {
 
 record_session_rung() {
   acquire_lease session --model "$model" --num-ctx "$(session_num_ctx)" --rung "$session_rung" >/dev/null 2>&1 || true
-}
-
-fit_on() {
-  [ "${CLAUDE_OLLAMA_FIT:-}" != 0 ]
-}
-
-run_fit() {
-  if [ -n "$2" ]; then
-    "$lease_bin" fit --model "$model" --num-ctx "$1" --embedding "$2"
-  else
-    "$lease_bin" fit --model "$model" --num-ctx "$1"
-  fi
-}
-
-gib() {
-  awk -v bytes="$1" -v unit="$bytes_per_gib" 'BEGIN { printf "%.1f GiB", bytes / unit }'
-}
-
-read_fit() {
-  local model_bytes kv_bytes embedding_bytes total_bytes free_bytes
-  IFS=$'\t' read -r model_bytes kv_bytes embedding_bytes total_bytes free_bytes fit_margin < <(
-    jq -r '[.model_bytes, .kv_bytes, .embedding_bytes, .total_bytes, .free_bytes, .margin_bytes] | @tsv' <<< "$1")
-  fit_summary="model $(gib "$model_bytes") + kv $(gib "$kv_bytes") + embedding $(gib "$embedding_bytes") = $(gib "$total_bytes") of $(gib "$free_bytes") free"
-}
-
-fit_fits() {
-  [ "$(jq -r .fits <<< "$1")" = true ]
-}
-
-fit_shortfall() {
-  gib "${fit_margin#-}"
 }
 
 measure_fit() {
@@ -410,7 +280,7 @@ check_memory_fit() {
   fit_on || return 0
   ! embedding_model_fits || embedding="$embedding_model"
   measure_fit "$(modelfile_num_ctx)" "$embedding" || return 0
-  echo "claude-ollama: memory fit: $fit_summary" >&2
+  echo "claude-ollama: memory fit: $(fit_summary)" >&2
   fit_fits "$fit_result" && return 0
   if [ -n "$embedding" ]; then
     start_without_embeddings && return 0
@@ -478,11 +348,6 @@ rotate_launcher_log() {
   mv -f "$launcher_log" "$launcher_log.1"
 }
 
-telemetry_log_path() {
-  [ "${CLAUDE_OLLAMA_TELEMETRY:-1}" != 0 ] || return 0
-  printf '%s\n' "${CLAUDE_TOOL_TELEMETRY:-$telemetry_log}"
-}
-
 telemetry_unsafe_path() {
   local path="$1"
   if [ -L "${path%/*}" ]; then
@@ -538,13 +403,6 @@ stop_launcher_log() {
   exec 2>&3 3>&-
 }
 
-in_cmux_terminal() {
-  case "${CMUX_SOCKET_PATH:-}" in
-    /*) [ -S "$CMUX_SOCKET_PATH" ] && command -v cmux >/dev/null ;;
-    *) return 1 ;;
-  esac
-}
-
 prepare_drafts_dir() {
   (umask 077; mkdir -p "$drafts_dir")
   chmod 700 "$drafts_dir"
@@ -577,10 +435,6 @@ incident_log_args() {
   printf '%s\n' --log "$log"
 }
 
-incident_watcher() {
-  echo "${CLAUDE_OLLAMA_INCIDENT_WATCHER:-$profile_dir/incidents/watcher.py}"
-}
-
 start_incident_watcher() {
   [ "${CLAUDE_OLLAMA_INCIDENTS:-}" = 0 ] && return 0
   local incidents_dir="$console_state_dir/incidents" incidents_file log_args=()
@@ -595,29 +449,9 @@ start_incident_watcher() {
     --transcripts "$session_config_dir/projects" >/dev/null 2>&1 &
 }
 
-launch_beacon_file() {
-  echo "$console_state_dir/beacon/$(hostname -s).json"
-}
-
 start_beacon_writer() {
   [ "${CLAUDE_OLLAMA_BEACON:-}" = 0 ] && return 0
   nohup "$repo_dir/bin/sync-fingerprint" --out "$(launch_beacon_file)" >/dev/null 2>&1 &
-}
-
-fetch_domains() {
-  local line domain seen=" "
-  [ -r "$fetch_domains_file" ] || return 0
-  while IFS= read -r line || [ -n "$line" ]; do
-    domain="$(printf '%s' "$line" | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
-    [ -n "$domain" ] || continue
-    if [[ ! "$domain" =~ $fetch_domain_pattern ]]; then
-      echo "claude-ollama: ignoring fetch domain '$domain' (expected a hostname like docs.python.org)" >&2
-      continue
-    fi
-    case "$seen" in *" $domain "*) continue ;; esac
-    seen="$seen$domain "
-    printf '%s\n' "$domain"
-  done < "$fetch_domains_file"
 }
 
 fetch_domains_label() {
@@ -626,35 +460,8 @@ fetch_domains_label() {
   echo "${domains:-none}"
 }
 
-settings_layers() {
-  local domain
-  while IFS= read -r domain; do
-    [ -z "$domain" ] || printf -- '--fetch-domain\n%s\n' "$domain"
-  done <<< "${launch_fetch_domains:-}"
-  [ ! -e "$profile_file" ] || printf -- '--profile\n%s\n' "$profile_file"
-  [ -z "$ladder_context" ] || printf -- '--context\n%s\n' "$ladder_context"
-  [ -z "$proxy_url" ] || printf -- '--proxy-url\n%s\n' "$proxy_url"
-}
-
-compose_launch_settings() {
-  local layers=() layer
-  while IFS= read -r layer; do layers+=("$layer"); done < <(settings_layers)
-  mkdir -p "$session_config_dir"
-  rm -f "$composed_settings"
-  if [ ${#layers[@]} -eq 0 ]; then
-    launch_settings="$settings_file"
-    return 0
-  fi
-  "$profile_overlay" compose "$settings_file" "$composed_settings" "${layers[@]}"
-  launch_settings="$composed_settings"
-}
-
 messages_proxy() {
   echo "${CLAUDE_OLLAMA_PROXY_BIN:-$repo_dir/bin/messages-proxy}"
-}
-
-proxy_log_dir() {
-  echo "$console_state_dir/proxy"
 }
 
 wait_for_proxy_port() {
@@ -721,10 +528,6 @@ copy_vendored_skills() {
     target="$session_config_dir/skills/${skill_dir##*/}"
     [ -e "$target" ] || cp -R "$skill_dir" "$target"
   done
-}
-
-gh_login_token() {
-  gh auth token --hostname github.com 2>/dev/null
 }
 
 claude_command() {
@@ -915,106 +718,6 @@ prepare_relaunch() {
   honour_embed_off
 }
 
-nvm_dir() {
-  printf '%s' "${NVM_DIR:-$HOME/.nvm}"
-}
-
-nvmrc_file() {
-  local folder
-  folder="$(pwd -P)"
-  while :; do
-    if [ -f "$folder/.nvmrc" ]; then
-      printf '%s' "$folder/.nvmrc"
-      return 0
-    fi
-    [ "$folder" != / ] || return 1
-    folder="$(dirname "$folder")"
-  done
-}
-
-first_word_of() {
-  tr -d '\r' < "$1" | awk 'NF { print $1; exit }'
-}
-
-node_spec_source_file() {
-  local rc
-  if rc="$(nvmrc_file)"; then
-    printf '%s' "$rc"
-  elif [ -f "$(nvm_dir)/alias/default" ]; then
-    printf 'default'
-  else
-    return 1
-  fi
-}
-
-nvm_version_spec() {
-  if [ "$node_spec_source" = default ]; then
-    first_word_of "$(nvm_dir)/alias/default"
-  else
-    first_word_of "$node_spec_source"
-  fi
-}
-
-follow_nvm_alias() {
-  local spec="$1" hops=0
-  while [ -f "$(nvm_dir)/alias/$spec" ] && [ "$hops" -lt 5 ]; do
-    spec="$(first_word_of "$(nvm_dir)/alias/$spec")"
-    hops=$((hops + 1))
-  done
-  printf '%s' "$spec"
-}
-
-installed_nvm_version() {
-  local spec="$1" prefix folder version
-  case "$spec" in
-    node | stable | 'lts/*' | '') prefix= ;;
-    *) prefix="v${spec#v}" ;;
-  esac
-  for folder in "$(nvm_dir)/versions/node"/v*; do
-    version="${folder##*/}"
-    case "$version" in
-      "$prefix" | "$prefix".*) echo "$version" ;;
-      v*) [ -n "$prefix" ] || echo "$version" ;;
-    esac
-  done | sort -t. -k1.2,1n -k2,2n -k3,3n | tail -n 1
-}
-
-node_spec_label() {
-  if [ "$node_spec_source" = default ]; then
-    printf 'nvm default'
-  else
-    printf 'nvm %s from %s' "$1" "$node_spec_source"
-  fi
-}
-
-use_nvm_node() {
-  local spec version node_bin
-  node_spec_source=
-  [ -d "$(nvm_dir)/versions/node" ] || return 0
-  node_spec_source="$(node_spec_source_file)" || return 0
-  spec="$(nvm_version_spec)"
-  version="$(installed_nvm_version "$(follow_nvm_alias "$spec")")"
-  node_bin="$(nvm_dir)/versions/node/$version/bin"
-  if [ -z "$version" ] || [ ! -x "$node_bin/node" ]; then
-    echo "claude-ollama: node: nvm has no node $spec installed (from $node_spec_source); using $(command -v node || echo none)" >&2
-    return 0
-  fi
-  export PATH="$node_bin:$PATH"
-  node_choice="$node_bin/node ($(node_spec_label "$spec"))"
-  echo "claude-ollama: node: $node_choice" >&2
-}
-
-check_node() {
-  use_nvm_node 2>/dev/null
-  if [ -n "$node_choice" ]; then
-    report ok "node $node_choice"
-  elif command -v node >/dev/null; then
-    report ok "node $(command -v node) (no nvm)"
-  else
-    report warn "node: none on PATH"
-  fi
-}
-
 launch_claude() {
   if [ "${CLAUDE_OLLAMA_RELAUNCH:-}" = 0 ]; then
     exec "$repo_dir/shared/sandbox-env" claude "${claude_args[@]}" "$@"
@@ -1059,272 +762,6 @@ require_qwen() {
   exit 1
 }
 
-qwen_args() {
-  printf '%s\n' --auth-type openai --openai-base-url "$ollama_url/v1" --openai-api-key ollama -m "$model" --approval-mode auto-edit --mcp-config "$(mcp_config)"
-}
-
-qwen_command() {
-  printf 'qwen %s' "$(qwen_args | tr '\n' ' ' | sed 's/ $//')"
-}
-
-create_qwen_home() {
-  mkdir -p "$qwen_home/skills" "$qwen_home/agents" "$qwen_home/extensions" "$qwen_home/rules" "$qwen_home/commands" "$qwen_home/hooks"
-}
-
-write_qwen_settings() {
-  jq --arg model "$model" --arg base_url "$ollama_url/v1" --argjson context "$(modelfile_num_ctx)" '
-    .model.name = $model
-    | .modelProviders.openai[0].id = $model
-    | .modelProviders.openai[0].name = "\($model) (Ollama)"
-    | .modelProviders.openai[0].baseUrl = $base_url
-    | .modelProviders.openai[0].generationConfig.contextWindowSize = $context
-  ' "$profile_dir/qwen-settings.template.json" > "$qwen_home/settings.json"
-}
-
-write_qwen_context() {
-  cat "$repo_dir/shared/preferences/PREFERENCES.md" "$profile_dir/QWEN.local.md" > "$qwen_home/QWEN.md"
-}
-
-print_qwen_config() {
-  echo "harness: qwen"
-  echo "size: $size"
-  echo "model: $model"
-  echo "base: $(base_model)"
-  echo "num_ctx: $(modelfile_num_ctx)"
-  echo "context window: $(modelfile_num_ctx)"
-  echo "qwen home: $qwen_home"
-  echo "settings template: $profile_dir/qwen-settings.template.json"
-  echo "sandbox: $(qwen_sandbox_label)"
-  echo "command: $(qwen_command)"
-}
-
-check_qwen_on_path() {
-  if command -v qwen >/dev/null 2>&1; then
-    report ok "qwen on PATH ($(command -v qwen))"
-  else
-    report fail "qwen missing (brew install qwen-code)"
-    return 1
-  fi
-}
-
-check_qwen_template() {
-  if jq -e . "$profile_dir/qwen-settings.template.json" >/dev/null 2>&1; then
-    report ok "qwen settings template parses"
-  else
-    report fail "qwen settings template is not valid JSON"
-    return 1
-  fi
-}
-
-check_qwen_sandbox() {
-  local setting
-  setting="$(jq -r '.tools.sandbox' "$profile_dir/qwen-settings.template.json" 2>/dev/null)"
-  if [ "$setting" != sandbox-exec ]; then
-    report fail "qwen settings template does not set tools.sandbox to sandbox-exec"
-    return 1
-  fi
-  if [ ! -f "$profile_dir/qwen-sandbox.sb" ]; then
-    report fail "ollama/qwen-sandbox.sb missing"
-    return 1
-  fi
-  if [ -n "$(qwen_sandbox_exec)" ]; then
-    report ok "qwen sandbox: sandbox-exec with profile $qwen_profile_name"
-  else
-    report warn "qwen sandbox: sandbox-exec not found on this OS; Qwen Code runs as you"
-  fi
-}
-
-check_qwen_hooks() {
-  if jq -e '.hooks' "$profile_dir/qwen-settings.template.json" >/dev/null 2>&1; then
-    report ok "qwen hooks wired in the settings template"
-  else
-    report warn "qwen hooks: none wired (docs/ollama.md)"
-  fi
-}
-
-qwen_doctor() {
-  local status=0
-  report ok "jq on PATH"
-  check_qwen_on_path || status=1
-  check_model_present model "$model" "run claude-ollama qwen $size to pull and create it" || status=1
-  check_digests || status=1
-  check_context_sizes || status=1
-  check_qwen_template || status=1
-  check_qwen_sandbox || status=1
-  check_qwen_hooks
-  check_reachable || status=1
-  check_server_env || status=1
-  check_gh_login
-  exit "$status"
-}
-
-qwen_profile_name="claude-ollama"
-
-qwen_sandbox_exec() {
-  local candidate="${CLAUDE_OLLAMA_SANDBOX_EXEC:-$(command -v sandbox-exec 2>/dev/null || true)}"
-  [ -n "$candidate" ] && [ -x "$candidate" ] && printf '%s\n' "$candidate"
-}
-
-refuse_link() {
-  if [ -L "$1" ]; then
-    echo "claude-ollama: $1 is a symbolic link; a session could point it anywhere, so move it aside" >&2
-    return 1
-  fi
-}
-
-exclude_from_git() {
-  local exclude_file
-  exclude_file="$(git rev-parse --git-path info/exclude 2>/dev/null)" || return 0
-  [ -n "$exclude_file" ] || return 0
-  refuse_link "$(dirname "$exclude_file")" && refuse_link "$exclude_file" || return 1
-  mkdir -p "$(dirname "$exclude_file")"
-  grep -qxF "$1" "$exclude_file" 2>/dev/null || printf '%s\n' "$1" >> "$exclude_file"
-}
-
-write_qwen_seatbelt_profile() {
-  local target=".qwen/sandbox-macos-$qwen_profile_name.sb" staged
-  refuse_link .qwen || return 1
-  mkdir -p .qwen
-  staged="$(mktemp ".qwen/.sandbox-macos-$qwen_profile_name.XXXXXX")" || return 1
-  cp "$profile_dir/qwen-sandbox.sb" "$staged" && chmod 0644 "$staged" && mv -f "$staged" "$target" || return 1
-  exclude_from_git "/$target"
-}
-
-qwen_sandbox_label() {
-  if [ -n "$(qwen_sandbox_exec)" ]; then
-    echo "sandbox-exec (Seatbelt profile $qwen_profile_name, from ollama/qwen-sandbox.sb)"
-  else
-    echo "none (sandbox-exec not found: Qwen Code's commands run as you)"
-  fi
-}
-
-launch_qwen() {
-  local launch_args=()
-  while IFS= read -r arg; do launch_args+=("$arg"); done < <(qwen_args)
-  unset OPENAI_API_KEY OPENAI_BASE_URL OPENAI_MODEL QWEN_MODEL QWEN_SANDBOX QWEN_RUNTIME_DIR SANDBOX
-  unset GH_TOKEN GITHUB_TOKEN SHORTCUT_API_TOKEN
-  if [ -n "$(qwen_sandbox_exec)" ]; then
-    export QWEN_SANDBOX=sandbox-exec
-    export SEATBELT_PROFILE="$qwen_profile_name"
-    write_qwen_seatbelt_profile
-    echo "claude-ollama: qwen runs in macOS Seatbelt (profile $qwen_profile_name); gh and git push need your own terminal" >&2
-  else
-    echo "claude-ollama: qwen runs without a sandbox: its commands run as you (sandbox-exec not found)" >&2
-  fi
-  export QWEN_HOME="$qwen_home"
-  export QWEN_USAGE_STATISTICS_ENABLED=false
-  export QWEN_CODE_MODELS_DEV_REFRESH=off
-  create_qwen_home
-  write_qwen_settings
-  write_qwen_context
-  stop_launcher_log qwen
-  exec "$repo_dir/shared/sandbox-env" qwen "${launch_args[@]}" "$@"
-}
-
-report() {
-  printf '%-4s %s\n' "$1" "$2"
-  [ "$1" != fail ]
-}
-
-check_model_present() {
-  local label="$1" name="$2" fix="$3" level="${4:-fail}"
-  if ollama show "$name" >/dev/null 2>&1; then
-    report ok "$label $name"
-  else
-    report "$level" "$label $name missing ($fix)"
-  fi
-}
-
-check_digest() {
-  local name="$1" actual pin
-  actual="$(installed_digest "$name")"
-  pin="$(pinned_digest "$name")"
-  [ -n "$actual" ] && [ -n "$pin" ] || return 0
-  if [ "$actual" = "$pin" ]; then
-    report ok "digest $name matches its pin"
-  else
-    report fail "digest $name is $actual, not the pinned $pin (ollama rm $name, then relaunch)"
-  fi
-}
-
-check_digests() {
-  local name status=0
-  for name in "$(base_model)" "$embedding_model"; do
-    check_digest "$name" || status=1
-  done
-  return "$status"
-}
-
-check_context_sizes() {
-  local ctx tokens output reserve headroom
-  ctx="$(modelfile_num_ctx)"
-  tokens="$(profile_context_tokens)"
-  output="$(profile_output_tokens)"
-  reserve="$(summary_reserve)"
-  headroom="$(context_headroom)"
-  if [ "$headroom" -ge "$reserve" ]; then
-    report ok "num_ctx $ctx leaves $headroom tokens over CLAUDE_CODE_MAX_CONTEXT_TOKENS $tokens plus output $output (reserve $reserve)"
-  else
-    report fail "num_ctx $ctx leaves $headroom tokens over CLAUDE_CODE_MAX_CONTEXT_TOKENS $tokens plus output $output, below the reserve $reserve (run bin/ollama-profiles)"
-  fi
-}
-
-hook_names() {
-  jq -r '.hooks[]?[]?.hooks[]?.command' "$profile_dir/settings.$size.json" |
-    sed -n 's#.*/shared/hooks/##p' | sort -u
-}
-
-check_hooks_present() {
-  local hook status=0
-  while IFS= read -r hook; do
-    if [ -x "$repo_dir/shared/hooks/$hook" ]; then
-      report ok "hook $hook present"
-    else
-      report fail "hook $hook missing or not executable in shared/hooks"
-      status=1
-    fi
-  done < <(hook_names)
-  return "$status"
-}
-
-check_reachable() {
-  if curl -sf -m 2 "$ollama_url/api/version" >/dev/null 2>&1; then
-    report ok "ollama reachable at $ollama_url"
-  else
-    report fail "ollama not reachable at $ollama_url (brew services start ollama)"
-  fi
-}
-
-running_server_env() {
-  local pid
-  pid="$(pgrep -x ollama | head -n 1)" || true
-  [ -n "$pid" ] || return 1
-  if [ -r "/proc/$pid/environ" ]; then
-    tr '\0' '\n' < "/proc/$pid/environ"
-  else
-    ps -Eo command -p "$pid" | tr ' ' '\n'
-  fi
-}
-
-check_server_env() {
-  local env_lines wanted status=0
-  if ! env_lines="$(running_server_env)"; then
-    report fail "ollama server not running (brew services start ollama)"
-    return 1
-  fi
-  while IFS= read -r wanted; do
-    [ -n "$wanted" ] || continue
-    if printf '%s\n' "$env_lines" | grep -qxF "$wanted"; then
-      report ok "server env $wanted"
-    else
-      report fail "server env $wanted not set on the running server"
-      status=1
-    fi
-  done < "$profile_dir/server.env"
-  [ "$status" -eq 0 ] || echo "     fix: claude-custom agent -apply"
-  return "$status"
-}
-
 wait_for_server() {
   local tries=50
   while [ "$tries" -gt 0 ]; do
@@ -1336,235 +773,14 @@ wait_for_server() {
 }
 
 apply_server_env() {
-  check_server_env >/dev/null 2>&1 && return 0
+  local missing
+  missing="$(missing_server_env 2>/dev/null)" && [ -z "$missing" ] && return 0
   echo "claude-ollama: the Ollama server lacks ollama/server.env values; applying them" >&2
   if "$ollama_agent" -apply >&2; then
     wait_for_server
   else
     echo "claude-ollama: could not apply server.env; set it up with: claude-custom agent" >&2
   fi
-}
-
-managed_settings="${CLAUDE_OLLAMA_MANAGED_SETTINGS:-/Library/Application Support/ClaudeCode/managed-settings.json}"
-
-check_model_allowed() {
-  if ! [ -r "$managed_settings" ] || ! jq -e 'has("availableModels")' "$managed_settings" >/dev/null 2>&1; then
-    report ok "no managed availableModels restricts $model"
-  elif jq -e --arg model "$model" '.availableModels | index($model) != null' "$managed_settings" >/dev/null; then
-    report ok "managed availableModels allows $model"
-  else
-    report warn "managed availableModels lacks $model (ask your admin to add it; Claude Code substitutes a [1m] variant)"
-  fi
-}
-
-check_fetch_domains() {
-  local domains
-  domains="$(fetch_domains | paste -sd' ' -)"
-  if [ -n "$domains" ]; then
-    report ok "web fetch on for: $domains"
-  else
-    report ok "web fetch off (no domains in $fetch_domains_file)"
-  fi
-}
-
-check_gh_login() {
-  if command -v gh >/dev/null && gh_login_token >/dev/null; then
-    report ok "gh logged in to github.com (the session's GitHub tools run your gh)"
-  else
-    report warn "gh is not logged in to github.com (the session's GitHub tools will fail; run gh auth login)"
-  fi
-}
-
-check_beacon() {
-  local beacon commit head
-  beacon="$(launch_beacon_file)"
-  if [ ! -f "$beacon" ]; then
-    report warn "beacon: none yet (written at the next launch)"
-    return 0
-  fi
-  commit="$(jq -r '.commit // "none"' "$beacon")"
-  head="$(git -C "$repo_dir" rev-parse HEAD 2>/dev/null || echo none)"
-  if [ "$commit" = "$head" ]; then
-    report ok "beacon: $("$repo_dir/bin/sync-fingerprint" --age "$beacon") ago, commit matches"
-  else
-    report warn "beacon: stale, commit ${commit:0:7} vs HEAD ${head:0:7}: run claude-custom update"
-  fi
-}
-
-check_browser() {
-  if [ "${CLAUDE_OLLAMA_CMUX:-}" = 0 ]; then
-    report ok "browser tools off (CLAUDE_OLLAMA_CMUX=0)"
-  elif in_cmux_terminal; then
-    report ok "browser tools on (cmux terminal; the dev MCP server runs cmux browser repl)"
-  else
-    report warn "browser tools off: not a cmux terminal (CMUX_SOCKET_PATH unset or cmux missing); page_check will say so"
-  fi
-}
-
-matched_rule_count() {
-  awk 'NF == 2 && $2 > 0 { matched++ } END { print matched + 0 }'
-}
-
-check_classifier() {
-  local log hits
-  if ! log="$(server_log_path)"; then
-    report ok "incident classifier not checked (no server log)"
-    return 0
-  fi
-  if hits="$("$(incident_watcher)" --check-rules --log "$log" --model "$model" 2>/dev/null)"; then
-    report ok "incident classifier matches the server log (rules: $(printf '%s\n' "$hits" | matched_rule_count))"
-  else
-    report fail "incident classifier is blind to the server log format (update ollama/incidents/watcher.py rules)"
-  fi
-}
-
-check_tool_budget() {
-  local suggest
-  if ! suggest="$(run_tool_budget 2>/dev/null | sed -n 's/^suggest: //p')" || [ -z "$suggest" ]; then
-    report warn "tool budget: not checked (bin/tool-budget failed)"
-    return 0
-  fi
-  if [ "$suggest" = "nothing to drop" ]; then
-    report ok "tool budget: nothing to drop"
-    return 0
-  fi
-  report warn "tool budget: ${suggest/drop: /drop }: claude-ollama tool-budget"
-}
-
-check_guards() {
-  local log lint
-  log="$(telemetry_log_path)"
-  if [ -z "$log" ] || [ ! -f "$log" ]; then
-    report ok "guards: not checked (no telemetry log)"
-    return 0
-  fi
-  if ! lint="$("$repo_dir/bin/tool-telemetry-report" "$log" 2>/dev/null | sed -n 's/^lint: //p')" || [ -z "$lint" ]; then
-    report warn "guards: not checked (tool-telemetry-report failed on $log)"
-    return 0
-  fi
-  if [ "$lint" = "none flagged" ]; then
-    report ok "guards: none flagged"
-    return 0
-  fi
-  while IFS= read -r line; do
-    report warn "guards: $line"
-  done <<< "$lint"
-}
-
-check_rule_cards() {
-  local lister="$repo_dir/shared/hooks/rule-cards.py" problems count
-  count="$("$lister" --list 2>/dev/null | grep -c . || true)"
-  problems="$("$lister" --list 2>&1 >/dev/null | sed 's/^rule-cards: //' | paste -sd ';' - | sed 's/;/; /g' || true)"
-  if [ -z "$problems" ]; then
-    report ok "rule cards: $count"
-  else
-    report warn "rule cards: $count ok, $problems"
-  fi
-}
-
-fit_report() {
-  local embedding="" fit_result
-  fit_on || return 0
-  ! embedding_model_fits || embedding="$embedding_model"
-  if ! fit_result="$(run_fit "$(modelfile_num_ctx)" "$embedding" 2>&1)"; then
-    report warn "memory fit: $fit_result"
-    return 0
-  fi
-  read_fit "$fit_result"
-  if fit_fits "$fit_result"; then
-    report ok "memory fit: $fit_summary"
-  else
-    report warn "memory fit: $fit_summary ($(fit_shortfall) short)"
-  fi
-}
-
-report_lease() {
-  local state holder_name holder_pid holder_model
-  read -r state holder_name _ holder_pid _ holder_model _ <<< "$1"
-  case "$state" in
-    live) report ok "lease held by $holder_name (pid $holder_pid, model $holder_model)" ;;
-    stale) report warn "stale lease $holder_name (pid $holder_pid) removed" ;;
-  esac
-}
-
-check_leases() {
-  local line count=0
-  lease_on || return 0
-  while IFS= read -r line; do
-    [ -n "$line" ] || continue
-    count=$((count + 1))
-    report_lease "$line"
-  done < <("$lease_bin" holders 2>/dev/null)
-  [ "$count" -gt 0 ] || report ok "no lease holders"
-}
-
-doctor() {
-  local status=0
-  compose_launch_settings
-  report ok "jq on PATH"
-  check_node
-  check_leases
-  fit_report
-  check_model_present model "$model" "run claude-ollama $size to pull and create it" || status=1
-  check_model_present "embedding model" "$embedding_model" "pick 'Set up embedding model' in claude-ollama" || status=1
-  check_digests || status=1
-  check_context_sizes || status=1
-  check_hooks_present || status=1
-  check_reachable || status=1
-  check_server_env || status=1
-  check_classifier || status=1
-  check_guards
-  check_tool_budget
-  check_rule_cards
-  check_beacon
-  check_fetch_domains
-  report ok "profile $profile_file: $(profile_summary)"
-  check_gh_login
-  check_browser
-  check_model_allowed
-  exit "$status"
-}
-
-plist_log_path() {
-  local plist="$HOME/Library/LaunchAgents/$1.plist"
-  [ -f "$plist" ] || return 0
-  sed -n 's|.*<key>StandardOutPath</key><string>\(.*\)</string>.*|\1|p' "$plist" | head -n 1
-}
-
-brew_log_path() {
-  echo "${HOMEBREW_PREFIX:-/opt/homebrew}/var/log/ollama.log"
-}
-
-running_ollama_label() {
-  command -v launchctl >/dev/null 2>&1 || return 0
-  launchctl list 2>/dev/null | awk '$1 ~ /^[0-9]+$/ && ($3 == "local.ollama" || $3 == "sh.brew.ollama" || $3 == "homebrew.mxcl.ollama") { print $3; exit }'
-}
-
-running_log_path() {
-  local label path
-  label="$(running_ollama_label)"
-  [ -n "$label" ] || return 0
-  path="$(plist_log_path "$label")"
-  if [ -z "$path" ] && [ "$label" != local.ollama ]; then
-    path="$(brew_log_path)"
-  fi
-  echo "$path"
-}
-
-server_log_path() {
-  local candidate
-  for candidate in "$(running_log_path)" "$(plist_log_path local.ollama)" "$(brew_log_path)" "$HOME/.ollama/logs/server.log"; do
-    if [ -n "$candidate" ] && [ -f "$candidate" ]; then
-      echo "$candidate"
-      return 0
-    fi
-  done
-  return 1
-}
-
-run_tool_budget() {
-  "${CLAUDE_OLLAMA_TOOL_BUDGET_BIN:-$repo_dir/bin/tool-budget}" \
-    --proxy-log "$(proxy_log_dir)/requests.jsonl" --telemetry "${CLAUDE_TOOL_TELEMETRY:-$telemetry_log}" "$@"
 }
 
 report_tool_budget() {
@@ -1825,23 +1041,18 @@ else
   size="$(choose_size)"
 fi
 
-model="$(jq -r .model "$profile_dir/settings.$size.json")"
-settings_file="$profile_dir/settings.$size.json"
-launch_settings="$settings_file"
-profile_file="$profiles_dir/ollama-$size.json"
+use_size "$size"
+model="$(size_model)"
 load_profile
 
 case "$mode" in
   print-config)
-    if [ "$harness" = qwen ]; then
-      print_qwen_config
-    else
-      launch_fetch_domains="$(fetch_domains)"
-      compose_launch_settings
-      print_config
-    fi
+    [ "$harness" != qwen ] || exec "$qwen_bin" --print-config "$size"
+    launch_fetch_domains="$(fetch_domains)"
+    compose_launch_settings
+    print_config
     exit 0 ;;
-  doctor) if [ "$harness" = qwen ]; then qwen_doctor; else doctor; fi ;;
+  doctor) if [ "$harness" = qwen ]; then exec "$qwen_bin" doctor "$size"; else exec "$doctor_bin" "$size"; fi ;;
   rescue) run_rescue "$@" ;;
   review) run_review "$review_target" "$@" ;;
   mock-spike) run_mock_spike "$@" ;;
@@ -1882,7 +1093,8 @@ start_beacon_writer
 export CLAUDE_CONFIG_DIR="$session_config_dir"
 export CLAUDE_CODE_TMPDIR="$session_config_dir/tmp"
 if [ "$harness" = qwen ]; then
-  launch_qwen "$@"
+  stop_launcher_log qwen
+  exec "$qwen_bin" launch "$size" "$@"
 fi
 launch_fetch_domains="$(fetch_domains)"
 compose_launch_settings

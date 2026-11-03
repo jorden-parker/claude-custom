@@ -183,16 +183,18 @@ service itself.
 ### Checking the setup
 
 `claude-ollama doctor [size]` checks the environment without pulling or
-launching anything. It needs `jq` on PATH (`brew install jq`); without it the
-launcher exits with an error. It reports each model (main, embedding), whether
-`num_ctx` in the Modelfile leaves `CLAUDE_CODE_MAX_CONTEXT_TOKENS` plus
-`CLAUDE_CODE_MAX_OUTPUT_TOKENS` at least the `summary_reserve` from
-`ollama/headroom.json` (so a compaction at 88% still fits with its summary),
-whether each hook named in `ollama/settings.<size>.json` exists and is
-executable under `shared/hooks/`, whether Ollama answers at `OLLAMA_HOST`, and
-whether the running server has every variable from `ollama/server.env`. Anything
-missing exits 1. The server-env check is how to confirm `server.env` is applied.
-The server's environment is read with `pgrep`/`ps` (or `/proc` on Linux).
+launching anything (the checks live in `bin/claude-ollama-doctor`, which the
+launcher runs with the resolved size). It needs `jq` on PATH
+(`brew install jq`); without it the launcher exits with an error. It reports
+each model (main, embedding), whether `num_ctx` in the Modelfile leaves
+`CLAUDE_CODE_MAX_CONTEXT_TOKENS` plus `CLAUDE_CODE_MAX_OUTPUT_TOKENS` at least
+the `summary_reserve` from `ollama/headroom.json` (so a compaction at 88% still
+fits with its summary), whether each hook named in `ollama/settings.<size>.json`
+exists and is executable under `shared/hooks/`, whether Ollama answers at
+`OLLAMA_HOST`, and whether the running server has every variable from
+`ollama/server.env`. Anything missing exits 1. The server-env check is how to
+confirm `server.env` is applied. The server's environment is read with
+`pgrep`/`ps` (or `/proc` on Linux).
 
 `claude-ollama --print-config [size]` prints the resolved values (model, base
 model, embedding model, context sizes, settings path, tools) and the exact
@@ -382,11 +384,13 @@ the session.
 Not yet wired for Qwen Code: the hooks (Qwen Code's hook contract matches Claude
 Code's, but the hooks match Claude tool names), the picker and the console.
 `claude-ollama qwen doctor [size]` checks qwen, the model, context sizes, the
-settings template and Ollama, and warns while no hooks are wired. Qwen Code runs
-as a whole inside macOS Seatbelt (`tools.sandbox: "sandbox-exec"` in the
-template and `QWEN_SANDBOX=sandbox-exec` from the launcher; `SANDBOX` is never
-exported, since Qwen Code turns its sandbox off when it is set). The profile is
-`ollama/qwen-sandbox.sb`; Qwen Code looks a custom profile up only at
+settings template and Ollama, and warns while no hooks are wired. The Qwen
+staging, `qwen doctor` and `qwen --print-config` live in
+`bin/claude-ollama-qwen`; the launcher runs its usual pre-launch steps first.
+Qwen Code runs as a whole inside macOS Seatbelt (`tools.sandbox: "sandbox-exec"`
+in the template and `QWEN_SANDBOX=sandbox-exec` from the launcher; `SANDBOX` is
+never exported, since Qwen Code turns its sandbox off when it is set). The
+profile is `ollama/qwen-sandbox.sb`; Qwen Code looks a custom profile up only at
 `.qwen/sandbox-macos-<name>.sb` under the current folder, so each launch copies
 it to `.qwen/sandbox-macos-claude-ollama.sb` in the project and lists that path
 in `.git/info/exclude`. Inside: the project, the temp dir, `QWEN_HOME` and

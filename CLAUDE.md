@@ -18,15 +18,21 @@ four parts:
 - **Preference enforcement** (`shared/hooks/`, `shared/preferences/`): hooks and
   a short rules file that both the personal setup and the work harness load, so
   the same checks run whichever model is driving.
-- **Work harness** (`bin/claude-ollama`, `ollama/`, `go/cmd/model-picker/`):
+- **Work harness** (`bin/claude-ollama`, `bin/claude-ollama-doctor`,
+  `bin/claude-ollama-qwen`, `bin/lib/`, `ollama/`, `go/cmd/model-picker/`):
   starts `claude` against a local Ollama server (`localhost:11434`) running Qwen
   3.8 27b or Qwen 3.6 35b. The overlay only applies to that launch.
   `claude-ollama qwen [size]` runs Qwen Code on the same model and MCP servers
   inside macOS Seatbelt (`ollama/qwen-sandbox.sb`, copied to the project's
   `.qwen/sandbox-macos-claude-ollama.sb` and excluded from git at each launch;
   `QWEN_SANDBOX=sandbox-exec`, never `SANDBOX`), with `~/.claude-ollama/qwen` as
-  its `QWEN_HOME`; `qwen doctor [size]` checks that setup. Its settings come
-  from `ollama/qwen-settings.template.json` and `ollama/QWEN.local.md` (see
+  its `QWEN_HOME`; `qwen doctor [size]` checks that setup. The launcher runs its
+  usual pre-launch steps (pull, lease, fit, indexer, warm-up), then hands off to
+  `bin/claude-ollama-qwen launch SIZE [args]`, which stages the Qwen home and
+  the Seatbelt profile and execs `qwen`; `qwen doctor` and `qwen --print-config`
+  dispatch to its `doctor` and `--print-config` modes (`CLAUDE_OLLAMA_QWEN_BIN`
+  overrides the script in tests). Its settings come from
+  `ollama/qwen-settings.template.json` and `ollama/QWEN.local.md` (see
   `docs/ollama.md`). `go/cmd/model-picker/` is a Go/Bubble Tea menu for choosing
   the size.
 - **Tools TUI** (`go/cmd/claude-tools/`): a Go/Bubble Tea app that edits the
@@ -109,7 +115,22 @@ before changing how any file gets applied.
 - Run log tests: `bin/console-run.test.sh` (prints `all passed`;
   `make test-console`)
 - Launcher tests: `bin/claude-ollama.test.sh` (prints `all passed`; covers
-  `bin/claude-ollama` and the `claude-custom ollama|qwen|tools` subcommands)
+  `bin/claude-ollama` and the `claude-custom ollama|qwen|tools` subcommands; one
+  dispatch case each for `doctor` and `qwen`). Doctor tests:
+  `bin/claude-ollama-doctor.test.sh` (`make test-doctor`; stub `ollama`, `curl`,
+  `pgrep`, `ps`, `sysctl`, `vm_stat`, watcher). Qwen tests:
+  `bin/claude-ollama-qwen.test.sh` (`make test-qwen`; stub `qwen`, `ollama`,
+  `curl`, `pgrep`, `ps`).
+- Launcher libraries (`bin/lib/`, sourced, never run): `size-profile.sh` (sizes,
+  `use_size`, model, Modelfile parameters, headroom, profile overlay, pins, the
+  launch settings composition, fetch domains, MCP config), `ollama-server.sh`
+  (`ollama_url`, installed digests, the running server's env and log path),
+  `memory-fit.sh` (lease switch, `ollama-lease fit` reading), `nvm-node.sh`
+  (nvm's Node), `session-logs.sh` (console state dir, telemetry, proxy log,
+  beacon, watcher, tool budget paths), `cmux-terminal.sh` and `doctor-checks.sh`
+  (`report` and the checks both doctors share). Each lib sources the libs it
+  reads from, so `shellcheck` sees every name; `.claude/verify` runs the
+  launcher, doctor and qwen tests for any `bin/lib/` edit.
 - Model manager:
   `bin/ollama-models list|outdated [NAME...]|prune [--yes]|pin NAME[:TAG]` marks
   installed models (pinned, mismatch, profile, orphan, third-party, other),
@@ -224,7 +245,9 @@ before changing how any file gets applied.
   runs `claude` on the profile in `ollama/settings.<size>.json` (27b is the
   default size; `--help` lists sizes)
 - Check the work harness: `claude-ollama doctor [size]` (exit 1 on a missing
-  model, hook, context mismatch or server env var; needs `jq`) and
+  model, hook, context mismatch or server env var; needs `jq`; the launcher
+  resolves the size and execs `bin/claude-ollama-doctor SIZE`, which
+  `CLAUDE_OLLAMA_DOCTOR_BIN` overrides in tests) and
   `claude-ollama --print-config [size]` (resolved values, no launch). Follow the
   server log: `claude-ollama logs [-n LINES]` (the running launchd job's log,
   else the LaunchAgent plist path, else the Homebrew log, else the app log);
@@ -302,7 +325,8 @@ before changing how any file gets applied.
 - Launch the tools TUI: `claude-tools [user|project|local|FILE]`. Launch the
   agent TUI: `ollama-agent [-file PLIST] [-ollama BIN]`. All three are also
   `claude-custom ollama|qwen|tools|agent [...]`.
-- `bin/claude-custom`, `bin/claude-ollama`, `bin/claude-tools` and
+- `bin/claude-custom`, `bin/claude-ollama`, `bin/claude-ollama-doctor`,
+  `bin/claude-ollama-qwen`, `bin/lib/*.sh`, `bin/claude-tools` and
   `bin/ollama-agent` must stay bash-3.2 compatible (macOS `/bin/bash`).
   `bin/claude-custom` must never write `~/.zshenv` or `~/.local/bin/claude`, and
   derives Ollama model names from `ollama/settings.<size>.json` and
@@ -862,8 +886,8 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   model's `num_ctx` or a sampling parameter differs from its Modelfile, it
   recreates that model `FROM` itself with every Modelfile `PARAMETER` (no pull).
   `doctor` and `--print-config` are dispatched before any pull or launch;
-  `doctor` reads hook names from the profile's settings file, not from
-  `~/.claude/hooks`.
+  `doctor` (`bin/claude-ollama-doctor`) reads hook names from the profile's
+  settings file, not from `~/.claude/hooks`.
 - The session config dir `~/.claude-ollama` is `CLAUDE_CONFIG_DIR`:
   `prepare_session_config` seeds `.claude.json` with `hasCompletedOnboarding`
   (an existing file is kept), copies `~/.claude/CLAUDE.md` and
@@ -1312,7 +1336,7 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   the vectors it made when it stops early. `bin/claude-ollama` pulls its model
   (`CODE_SEARCH_MODEL`, default `qwen3-embedding:0.6b`); the model picker's "Set
   up embedding model" row pulls it too. The default name appears once in each of
-  `bin/claude-ollama`, `code-search.py` and
+  `bin/lib/size-profile.sh`, `code-search.py` and
   `go/internal/picker/profiles/embedding.go`, and `bin/check-config` checks they
   agree. The Ollama profiles allow the tool in `permissions.allow`.
 - `ollama/server.env` documents the Ollama server env the profiles expect,
