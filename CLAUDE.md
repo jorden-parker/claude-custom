@@ -102,9 +102,11 @@ before changing how any file gets applied.
 - Hook tests: `shared/hooks/*.test.sh` (each prints `all passed`, or `FAIL:`
   lines and exits 1)
 - Everything at once: `make test` (`.claude/verify` with no arguments runs it).
-  `make test` runs the targets in parallel (`$(MAKE) -j$(NPROC) test-all`);
-  `make test-all` runs them one after another when interleaved output gets in
-  the way. The Stop hook runs `.claude/verify FILE...` with the files the agent
+  `make test` runs the targets in parallel and keeps going past a failure
+  (`$(MAKE) -k -j$(NPROC) test-all`); `make test-all` runs them one after
+  another when interleaved output gets in the way. `check-tests-wired` fails
+  when a `*.test.sh` outside `eval/` and `shared/hooks/` is named in no make
+  target. The Stop hook runs `.claude/verify FILE...` with the files the agent
   edited, which runs `check-json`, `check-config`, `check-profiles` plus each
   file's tests (`X.test.sh` beside `X`, mappings in the script; a `go/` file
   adds `test-go`, a `web/console/` file adds `test-web`; a `Makefile` edit runs

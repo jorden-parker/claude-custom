@@ -83,8 +83,8 @@ check_eq "a variable already set in the environment wins" "" "$(CLAUDE_OLLAMA_TE
 printf '%s' '{"env":{"CLAUDE_OLLAMA_HANDOFF_PCT":"60","CLAUDE_OLLAMA_RELAUNCH":"0","CLAUDE_OLLAMA_INCIDENTS":"0","HANDOFF_UNKNOWN":"1"}}' > "$tmp/profiles/handoff.json"
 handoff_out="$(env -u CLAUDE_OLLAMA_HANDOFF_PCT -u CLAUDE_OLLAMA_RELAUNCH -u CLAUDE_OLLAMA_INCIDENTS "$script" env "$tmp/profiles/handoff.json")"
 check_eq "env exports the handoff threshold" "export CLAUDE_OLLAMA_HANDOFF_PCT='60'" "$(printf '%s\n' "$handoff_out" | grep CLAUDE_OLLAMA_HANDOFF_PCT)"
-check_eq "env exports the relaunch and incident switches" "export CLAUDE_OLLAMA_RELAUNCH='0'
-export CLAUDE_OLLAMA_INCIDENTS='0'" "$(printf '%s\n' "$handoff_out" | grep -E 'RELAUNCH|INCIDENTS')"
+check_eq "env exports the relaunch and incident switches" "export CLAUDE_OLLAMA_INCIDENTS='0'
+export CLAUDE_OLLAMA_RELAUNCH='0'" "$(printf '%s\n' "$handoff_out" | grep -E 'RELAUNCH|INCIDENTS')"
 check_eq "env still drops a key outside the allowlist" "" "$(printf '%s\n' "$handoff_out" | grep HANDOFF_UNKNOWN)"
 printf '%s' '{"env":{"CLAUDE_OLLAMA_PROXY":"0","CLAUDE_OLLAMA_PROXY_RECORD":"1","CLAUDE_OLLAMA_PROXY_STABILIZE":"1","CLAUDE_CUSTOM_FRICTION":"0","CLAUDE_OLLAMA_LEASE":"0","CLAUDE_OLLAMA_LEASE_HEARTBEAT":"60","CLAUDE_OLLAMA_LADDER":"0","CLAUDE_OLLAMA_FIT":"0","CLAUDE_OLLAMA_BEACON":"0","CLAUDE_OLLAMA_RULE_CARDS":"0","CLAUDE_OLLAMA_TEST_AFTER_EDIT":"run","CLAUDE_OLLAMA_EDIT_NUDGE":"0","CLAUDE_CODE_EFFORT_LEVEL":"low","CLAUDE_OLLAMA_PROXY_BIN":"/tmp/x"}}' > "$tmp/profiles/switches.json"
 switches_out="$(env -u CLAUDE_OLLAMA_PROXY -u CLAUDE_OLLAMA_PROXY_RECORD -u CLAUDE_OLLAMA_PROXY_STABILIZE -u CLAUDE_CUSTOM_FRICTION -u CLAUDE_OLLAMA_LEASE -u CLAUDE_OLLAMA_LEASE_HEARTBEAT -u CLAUDE_OLLAMA_LADDER -u CLAUDE_OLLAMA_FIT -u CLAUDE_OLLAMA_BEACON -u CLAUDE_OLLAMA_RULE_CARDS -u CLAUDE_OLLAMA_TEST_AFTER_EDIT -u CLAUDE_OLLAMA_EDIT_NUDGE -u CLAUDE_CODE_EFFORT_LEVEL "$script" env "$tmp/profiles/switches.json")"
@@ -100,7 +100,7 @@ export CLAUDE_OLLAMA_PROXY='0'
 export CLAUDE_OLLAMA_PROXY_RECORD='1'
 export CLAUDE_OLLAMA_PROXY_STABILIZE='1'
 export CLAUDE_OLLAMA_RULE_CARDS='0'
-export CLAUDE_OLLAMA_TEST_AFTER_EDIT='run'" "$(printf '%s\n' "$switches_out" | sort)"
+export CLAUDE_OLLAMA_TEST_AFTER_EDIT='run'" "$switches_out"
 check_eq "env never exports a script override" "" "$(printf '%s\n' "$switches_out" | grep PROXY_BIN)"
 payload="x'; touch $tmp/pwned; '"
 jq -n --arg value "$payload" '{env: {CLAUDE_OLLAMA_CMUX: $value}}' > "$tmp/profiles/hostile.json"

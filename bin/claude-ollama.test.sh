@@ -65,12 +65,13 @@ new_sandbox() {
   sandboxes="$sandboxes $sandbox"
   export HOME="$sandbox/home"
   mkdir -p "$HOME" "$sandbox/stubbin"
-  unset ZDOTDIR XDG_CONFIG_HOME CLAUDE_CONFIG_DIR STUB_OLLAMA_SHOW_EXIT STUB_OLLAMA_PULL_EXIT
+  unset NVM_DIR ZDOTDIR XDG_CONFIG_HOME CLAUDE_CONFIG_DIRSTUB_OLLAMA_SHOW_EXIT STUB_OLLAMA_PULL_EXIT
   unset STUB_OLLAMA_PID STUB_OLLAMA_ENV STUB_CURL_EXIT STUB_OLLAMA_NUM_CTX STUB_AGENT_EXIT CMUX_SOCKET_PATH CLAUDE_OLLAMA_CMUX
   unset STUB_SHASUM_DIGEST STUB_INSPECT_EXIT STUB_CLAUDE_STDERR CLAUDE_CONSOLE_STATE_DIR
   unset CLAUDE_TOOL_TELEMETRY CLAUDE_OLLAMA_TELEMETRY STUB_CLAUDE_RELAUNCH_ONCE STUB_CLAUDE_RELAUNCH_PROMPT STUB_CLAUDE_EXIT CLAUDE_OLLAMA_RELAUNCH
   unset STUB_CLAUDE_LADDER_ONCE STUB_CLAUDE_EMBED_OFF STUB_CLAUDE_SLEEP CLAUDE_OLLAMA_LEASE CLAUDE_OLLAMA_LADDER CLAUDE_OLLAMA_LEASE_HEARTBEAT
   unset STUB_CLAUDE_LADDER_UP STUB_CLAUDE_LADDER_UP_AFTER_LADDER STUB_CLAUDE_LADDER_UP_NO_HANDOFF STUB_MEMSIZE CLAUDE_OLLAMA_FIT
+  export CLAUDE_OLLAMA_MEMINFO="$sandbox/no-meminfo"
   export SHELL=/bin/zsh
   record_installed_parameters
   export CLAUDE_OLLAMA_MANAGED_SETTINGS="$sandbox/managed-settings.json"
@@ -226,7 +227,7 @@ EOF
 }
 
 file_mode() {
-  stat -f %Lp "$1" 2>/dev/null || stat -c %a "$1"
+  stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"
 }
 
 wait_for_file() {
@@ -996,7 +997,7 @@ session_env() {
   grep -x "$1=.*" "$sandbox/claude-env" | cut -d= -f2-
 }
 check_eq "the session saves drafts in its own config" "$session_config/drafts" "$(session_env CLAUDE_OLLAMA_DRAFTS_DIR)"
-check_eq "the drafts folder is private" 700 "$(stat -f %Lp "$session_config/drafts" 2>/dev/null || stat -c %a "$session_config/drafts")"
+check_eq "the drafts folder is private" 700 "$(stat -c %a "$session_config/drafts" 2>/dev/null || stat -f %Lp "$session_config/drafts")"
 draft_opener_args="$(for _ in $(seq 25); do [ -s "$sandbox/opener-args" ] && break; sleep 0.2; done; cat "$sandbox/opener-args" 2>/dev/null)"
 check_that "outside cmux each new draft opens with open" contains "$draft_opener_args" "--open /usr/bin/open"
 check_that "the opener watches the session's drafts" contains "$draft_opener_args" "--drafts $session_config/drafts"
@@ -1012,7 +1013,7 @@ check_that "the incident watcher stops with the launch" contains "$incident_watc
 check_that "the incident watcher writes a per-session file in the console state" contains "$incident_watcher_args" "--out $incidents_dir/"
 check_eq "incidents/current names the session's incidents file" "$(cat "$incidents_dir/current")" "$(sed -n 's/.*--out \([^ ]*\).*/\1/p' "$sandbox/watcher-args")"
 check_eq "the session is told where its incidents are" "$(cat "$incidents_dir/current")" "$(session_env CLAUDE_OLLAMA_INCIDENTS_FILE)"
-check_eq "the incidents folder is private" 700 "$(stat -f %Lp "$incidents_dir" 2>/dev/null || stat -c %a "$incidents_dir")"
+check_eq "the incidents folder is private" 700 "$(stat -c %a "$incidents_dir" 2>/dev/null || stat -f %Lp "$incidents_dir")"
 rm -f "$sandbox/watcher-args"
 run_capture env CLAUDE_OLLAMA_INCIDENTS=0 "$repo/bin/claude-ollama" 27b -p hi
 sleep 1
@@ -1315,7 +1316,7 @@ check_that "the relaunch names the percent and the prompt on stderr" grep -qxF '
 check_eq "the pid file holds claude's pid" "$(cat "$sandbox/claude-pid")" "$(cat "$sandbox/pid-file-seen")"
 check_eq "claude is told a relaunch dir named after the launcher's pid" "$relaunch_dir" "$(cat "$sandbox/relaunch-dir-env")"
 check_not "the launcher removes its relaunch dir on exit" test -e "$relaunch_dir"
-check_eq "the relaunch root is private" 700 "$(stat -f %Lp "$relaunch_root")"
+check_eq "the relaunch root is private" 700 "$(stat -c %a "$relaunch_root" 2>/dev/null || stat -f %Lp "$relaunch_root")"
 check_not "a sibling dir whose pid is dead is removed" test -e "$relaunch_root/$stale_pid"
 check_that "a sibling dir whose pid runs is kept" test -d "$relaunch_root/$live_pid"
 check_that "a sibling that is not a pid is kept" test -d "$relaunch_root/notes"
@@ -1326,7 +1327,7 @@ check_eq "the incident names the note" note.md "$(printf '%s\n' "$relaunch_incid
 check_eq "the incident derives the tokens from the percent" "$(( 71 * $(jq -r .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS "$repo/ollama/settings.27b.json") / 100 ))" "$(printf '%s\n' "$relaunch_incident" | jq -r .tokens)"
 check_that "the incident has a UTC timestamp" grep -qE '^20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$' <<< "$(printf '%s\n' "$relaunch_incident" | jq -r .ts)"
 check_eq "the relaunch is also the latest incident" relaunched "$(jq -r .cause "$(cat "$incidents_dir/current").latest")"
-check_eq "the incidents file is private" 600 "$(stat -f %Lp "$(cat "$incidents_dir/current")")"
+check_eq "the incidents file is private" 600 "$(stat -c %a "$(cat "$incidents_dir/current")" 2>/dev/null || stat -f %Lp "$(cat "$incidents_dir/current")")"
 rm -f "$sandbox/relaunched"
 run_capture env STUB_CLAUDE_RELAUNCH_ONCE=1 "$repo/bin/claude-ollama" 27b --continue
 check_that "flags stay and /handoff is appended when there was no prompt" grep -qF -- "--tools Bash,Read,Edit,Write,Skill,TaskStop --continue /handoff" "$sandbox/out"

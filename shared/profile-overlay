@@ -171,7 +171,7 @@ print_env() {
   profile="$(read_profile "$1")" || exit 1
   printf '%s\n' "$profile" | jq -r --slurpfile catalogue "$env_catalogue" '
     ($catalogue[0] | map(.key)) as $allowed
-    | (.env // {}) | to_entries[]
+    | (.env // {}) | to_entries | sort_by(.key)[]
     | select(.key as $key | $allowed | index($key) != null)
     | "\(.key)=\(.value | tostring | @sh)"
   ' | while IFS= read -r assignment; do
