@@ -222,6 +222,31 @@ cat "$tmp/embed.jsonl" > "$tmp/incidents.jsonl"
 STUB_FIT=false run_once
 check "a failing fit writes no ladder-up" test ! -e "$tmp/relaunch/ladder-up"
 
+for zone in America/Los_Angeles Asia/Tokyo; do
+  new_session
+  cat "$tmp/embed.jsonl" > "$tmp/incidents.jsonl"
+  TZ=$zone run_once
+  check "old rows are recovered under TZ=$zone" test -e "$tmp/relaunch/ladder-up"
+
+  new_session
+  {
+    recent_row reprefilled 0 embed
+    recent_row reprefilled 1 embed
+    recent_row reprefilled 2 embed
+  } > "$tmp/incidents.jsonl"
+  TZ=$zone run_once
+  check "fresh rows are not recovered under TZ=$zone" test ! -e "$tmp/relaunch/ladder-up"
+done
+
+new_session
+{
+  row reprefilled 2026-05-01T10:00:00.123Z embed
+  row reprefilled 2026-05-01T10:04:00.456Z embed
+  row reprefilled 2026-05-01T10:09:00.789Z embed
+} > "$tmp/incidents.jsonl"
+run_once
+check "rows with milliseconds are read at their own time, not as now" test -e "$tmp/relaunch/ladder-up"
+
 new_session
 rm -f "$tmp/fit-args"
 {
