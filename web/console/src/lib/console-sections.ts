@@ -90,3 +90,7 @@ export const CONSOLE_SECTIONS: readonly ConsoleSection[] = [
     summary: "Every settings change, with diffs and restore",
   },
 ];
+
+export function sectionSummaryForTitle(title: string): string | undefined {
+  return CONSOLE_SECTIONS.find((section) => section.title === title)?.summary;
+}

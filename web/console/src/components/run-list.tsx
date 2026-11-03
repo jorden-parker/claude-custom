@@ -4,10 +4,11 @@ import {
   Empty,
   EmptyDescription,
   EmptyHeader,
+  EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
 import Link from "next/link";
-import { emptyLineFor } from "@/lib/whimsy-copy";
+import { SectionIcon } from "@/components/section-icon";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { useRunSummaries } from "@/components/use-run-summaries";
@@ -31,10 +32,11 @@ export function RunList() {
     return (
       <Empty className="border">
         <EmptyHeader>
-          <EmptyTitle>No runs yet. Start one above.</EmptyTitle>
-          <EmptyDescription className="italic">
-            {emptyLineFor("runs")}
-          </EmptyDescription>
+          <EmptyMedia variant="icon">
+            <SectionIcon href="/runs" />
+          </EmptyMedia>
+          <EmptyTitle>No Runs Yet</EmptyTitle>
+          <EmptyDescription>Start one above.</EmptyDescription>
         </EmptyHeader>
       </Empty>
     );

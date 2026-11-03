@@ -4,10 +4,11 @@ import {
   Empty,
   EmptyDescription,
   EmptyHeader,
+  EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
 import Link from "next/link";
-import { emptyLineFor } from "@/lib/whimsy-copy";
+import { SectionIcon } from "@/components/section-icon";
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -47,15 +48,16 @@ export function ReviewList() {
     return (
       <Empty className="border">
         <EmptyHeader>
-          <EmptyTitle>
-            No reviews yet. Run{" "}
+          <EmptyMedia variant="icon">
+            <SectionIcon href="/reviews" />
+          </EmptyMedia>
+          <EmptyTitle>No Reviews Yet</EmptyTitle>
+          <EmptyDescription>
+            Run{" "}
             <code className="rounded bg-muted px-1 font-mono text-xs">
               claude-ollama review PR
-            </code>
-            .
-          </EmptyTitle>
-          <EmptyDescription className="italic">
-            {emptyLineFor("reviews")}
+            </code>{" "}
+            to start one.
           </EmptyDescription>
         </EmptyHeader>
       </Empty>

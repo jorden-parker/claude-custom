@@ -4,10 +4,11 @@ import {
   Empty,
   EmptyDescription,
   EmptyHeader,
+  EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
 import Link from "next/link";
-import { emptyLineFor } from "@/lib/whimsy-copy";
+import { SectionIcon } from "@/components/section-icon";
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -39,11 +40,12 @@ export function DraftList() {
     return (
       <Empty className="border">
         <EmptyHeader>
-          <EmptyTitle>
-            No drafts yet. /pr-draft and /pr-review-draft write them here.
-          </EmptyTitle>
-          <EmptyDescription className="italic">
-            {emptyLineFor("drafts")}
+          <EmptyMedia variant="icon">
+            <SectionIcon href="/drafts" />
+          </EmptyMedia>
+          <EmptyTitle>No Drafts Yet</EmptyTitle>
+          <EmptyDescription>
+            /pr-draft and /pr-review-draft write them here.
           </EmptyDescription>
         </EmptyHeader>
       </Empty>

@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { CONSOLE_SECTIONS } from "./console-sections";
+import { CONSOLE_SECTIONS, sectionSummaryForTitle } from "./console-sections";
+
+describe("sectionSummaryForTitle", () => {
+  it("returns the summary of the section with that title", () => {
+    expect(sectionSummaryForTitle("Runs")).toBe(
+      "Every job the console started, live and past",
+    );
+  });
+
+  it("returns undefined for an unknown title", () => {
+    expect(sectionSummaryForTitle("No such page")).toBeUndefined();
+  });
+});
 
 describe("CONSOLE_SECTIONS", () => {
   it("lists at least one section", () => {

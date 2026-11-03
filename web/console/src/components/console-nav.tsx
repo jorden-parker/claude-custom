@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { GardenSprite } from "@/components/garden-sprite";
+import { BrandMark } from "@/components/brand-mark";
 import { SectionIcon } from "@/components/section-icon";
 import {
   SidebarContent,
@@ -28,9 +28,9 @@ export function ConsoleNav() {
       <SidebarHeader>
         <Link
           href="/"
-          className="flex items-center gap-2 px-2 py-1.5 font-heading text-lg font-semibold tracking-heading"
+          className="flex items-center gap-2 px-2 py-1.5 text-sm font-semibold"
         >
-          <GardenSprite />
+          <BrandMark />
           claude-ollama
         </Link>
       </SidebarHeader>
