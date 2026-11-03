@@ -818,21 +818,25 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `~/.cache/claude-sandbox`, reach loopback addresses, `github.com`, the npm, Go
   and PyPI registries and GitHub downloads, and cannot read credentials or
   `~/.claude`. The launcher execs `claude` and `qwen` through
-  `shared/sandbox-env`, which points Go, npm, pnpm, pip, uv, yarn and bun at
-  caches under that one folder, so no cache an unsandboxed process executes from
-  (`~/.npm/_npx`, `~/Library/pnpm`, `~/go/pkg/mod`, `~/.cache/claude-custom`) is
-  writable. It also sets `NODE_USE_ENV_PROXY=1`, since Node's `fetch` (a
-  sandboxed `npx`, for one) otherwise ignores the sandbox's `HTTPS_PROXY` and
-  every request fails. `bin/check-config` asserts the block's exact values, and
-  a misspelled key is silently ignored, so the check must change with the block.
-  The profiles set `sandbox.enabled` and `autoAllowBashIfSandboxed: true`, so
-  sandboxed commands run without a prompt (a skill's `!` commands included);
-  `excludedCommands` (`cmux`, `gh`, `short`, `git push`, `claude-custom ctx7`)
-  run outside the sandbox, each after the `Bash` prompt except the allowed
-  `ctx7`, and `permissions.ask` holds only `Bash(git commit *)`,
-  `Bash(git push *)` and `Bash(dangerouslyDisableSandbox:true)`;
-  `bin/check-config` checks both. The profiles also set `CLAUDE_CODE_EXTRA_BODY`
-  to `{"thinking":{"type":"disabled"}}` so Ollama skips reasoning;
+  `shared/sandbox-env`, which points Go, npm, pip, uv, yarn, bun and pnpm's
+  metadata caches at caches under that one folder, so no cache an unsandboxed
+  process executes from (`~/.npm/_npx`, `~/go/pkg/mod`,
+  `~/.cache/claude-custom`) is writable. pnpm's content store is never moved: a
+  `node_modules` remembers the store it was linked from, and pnpm pointed at
+  another one asks to wipe and reinstall it, a prompt a Bash tool never answers.
+  It also sets `NODE_USE_ENV_PROXY=1`, since Node's `fetch` (a sandboxed `npx`,
+  for one) otherwise ignores the sandbox's `HTTPS_PROXY` and every request
+  fails. `bin/check-config` asserts the block's exact values, and a misspelled
+  key is silently ignored, so the check must change with the block. The profiles
+  set `sandbox.enabled` and `autoAllowBashIfSandboxed: true`, so sandboxed
+  commands run without a prompt (a skill's `!` commands included);
+  `excludedCommands` (`cmux`, `gh`, `short`, `git push`, `git commit`,
+  `claude-custom ctx7`, `pnpm`) run outside the sandbox, each after the `Bash`
+  prompt except the allowed `ctx7`, and `permissions.ask` holds only
+  `Bash(git commit *)`, `Bash(git push *)` and
+  `Bash(dangerouslyDisableSandbox:true)`; `bin/check-config` checks both. The
+  profiles also set `CLAUDE_CODE_EXTRA_BODY` to
+  `{"thinking":{"type":"disabled"}}` so Ollama skips reasoning;
   `bin/check-config` checks it. `shared/hooks/git-push-guard.py` (Ollama-only,
   PreToolUse on Bash) denies force pushes, remote deletes, `--mirror`,
   `--prune`, `-c alias.*`, pushes to `main` or `master`, and any push not
@@ -980,8 +984,11 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   denies `open` on a loopback URL and points it at `page_check`, and denies a
   `pnpm` that shares its line with `cd &&`, a pipe or `;`, since `pnpm *` is an
   `excludedCommands` entry and only a one-segment line leaves the sandbox.
-  Inside the sandbox pnpm's hardlinks hit EPERM and corrupt the virtual store,
-  so Bash `pnpm -C DIR install|add|test` runs outside it after the Bash prompt;
+  Inside the sandbox pnpm cannot hardlink from the user's store, so it falls
+  back to a store under the temp dir, decides every existing `node_modules`
+  belongs to another store and prompts to wipe it, which hangs the tool; so Bash
+  `pnpm -C DIR install|add|test` runs outside it, and so does `git commit`,
+  whose lefthook or husky hooks run pnpm (the commit still asks first);
   `dev_install` stays as the tool form, and `pnpm exec`, `dlx`, `x` and `create`
   are denied so no arbitrary package runs unsandboxed.
 - `shared/mcp/repo-tools.py` is the `repo` MCP server the Ollama profiles start

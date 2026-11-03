@@ -290,20 +290,25 @@ launcher reads the nearest `.nvmrc` above the working folder, else nvm's
 `claude-ollama: node: <path> (nvm 20 from /path/.nvmrc)`; `claude-ollama doctor`
 reports the same `node` line.
 
-Six command families run outside the sandbox through `excludedCommands`: `cmux`,
-`gh`, `short`, `git push`, `claude-custom ctx7` (the `/find-docs` CLI, which
-then uses your own network, proxy and certificates, and runs the ctx7 CLI that
-claude-custom install put in `~/.cache/claude-custom` from the lockfile in
-`shared/ctx7`, which the sandbox cannot write; a session never runs npm) and
-`pnpm` (inside the sandbox its hardlinks from the store fail with EPERM and
-corrupt `node_modules/.pnpm`, so installs and tests kept breaking). All but
-`ctx7` still prompt. An exclusion applies only when every segment of the command
-line matches, so a piped `claude-custom ctx7 ... | head` runs inside the
-sandbox; `shared/hooks/dev-server-guard.py` therefore denies a `pnpm` that
-shares its line with `cd &&`, a pipe or `;` and asks for `pnpm -C DIR SCRIPT`,
-and denies `pnpm exec`, `dlx`, `x` and `create`, which would run any package
-unsandboxed (`npx` inside the sandbox covers those). MCP servers and hooks run
-outside the sandbox too, as they do in the personal overlay.
+Seven command families run outside the sandbox through `excludedCommands`:
+`cmux`, `gh`, `short`, `git push`, `git commit`, `claude-custom ctx7` (the
+`/find-docs` CLI, which then uses your own network, proxy and certificates, and
+runs the ctx7 CLI that claude-custom install put in `~/.cache/claude-custom`
+from the lockfile in `shared/ctx7`, which the sandbox cannot write; a session
+never runs npm) and `pnpm` (inside the sandbox it cannot hardlink from your
+store, so it picks another one and asks to wipe every `node_modules` linked from
+yours, a prompt no tool answers; `git commit` is out for the same reason, since
+lefthook and husky hooks run pnpm). All but `ctx7` still prompt.
+`shared/sandbox-env` moves every package cache but pnpm's content store into the
+sandbox cache folder, so pnpm outside the sandbox keeps linking from the store
+your `node_modules` already uses. An exclusion applies only when every segment
+of the command line matches, so a piped `claude-custom ctx7 ... | head` runs
+inside the sandbox; `shared/hooks/dev-server-guard.py` therefore denies a `pnpm`
+that shares its line with `cd &&`, a pipe or `;` and asks for
+`pnpm -C DIR SCRIPT`, and denies `pnpm exec`, `dlx`, `x` and `create`, which
+would run any package unsandboxed (`npx` inside the sandbox covers those). MCP
+servers and hooks run outside the sandbox too, as they do in the personal
+overlay.
 
 What this gives up, compared with the older session sandbox:
 

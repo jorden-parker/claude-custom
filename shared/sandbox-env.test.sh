@@ -19,10 +19,11 @@ mkdir -p "$HOME"
 unset CLAUDE_SANDBOX_CACHE_DIR
 root="$HOME/.cache/claude-sandbox"
 
-for pair in GOMODCACHE=go/mod GOCACHE=go/build npm_config_cache=npm npm_config_store_dir=pnpm/store npm_config_cache_dir=pnpm/cache npm_config_state_dir=pnpm/state PIP_CACHE_DIR=pip UV_CACHE_DIR=uv YARN_CACHE_FOLDER=yarn BUN_INSTALL_CACHE_DIR=bun; do
+for pair in GOMODCACHE=go/mod GOCACHE=go/build npm_config_cache=npm npm_config_cache_dir=pnpm/cache npm_config_state_dir=pnpm/state PIP_CACHE_DIR=pip UV_CACHE_DIR=uv YARN_CACHE_FOLDER=yarn BUN_INSTALL_CACHE_DIR=bun; do
   check_eq "${pair%%=*} points into the sandbox cache folder" "$root/${pair#*=}" "$("$script" printenv "${pair%%=*}")"
 done
-check_eq "and no other cache variable is exported" 10 "$("$script" env | grep -c "=$root/")"
+check_eq "and no other cache variable is exported" 9 "$("$script" env | grep -c "=$root/")"
+check_eq "the pnpm store stays where pnpm put it, since a relocated store makes pnpm purge every node_modules it linked from the old one" "" "$("$script" printenv npm_config_store_dir)"
 check_eq "the folder is created, since the sandbox cannot create it" directory "$([ -d "$root" ] && echo directory)"
 check_eq "the command sees the folder in CLAUDE_SANDBOX_CACHE_DIR" "$root" "$("$script" printenv CLAUDE_SANDBOX_CACHE_DIR)"
 check_eq "CLAUDE_SANDBOX_CACHE_DIR moves every cache" "$tmp/other/go/build" \

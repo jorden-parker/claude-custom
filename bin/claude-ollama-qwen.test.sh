@@ -113,8 +113,10 @@ check_that "qwen launch passes the MCP servers" grep -qF -- 'repo-tools.py"]}' "
 check_that "and the user's args last" grep -q -- '-p hi$' "$sandbox/out"
 check_eq "qwen launch gives Qwen Code its own home under the session folder" "QWEN_HOME=$qwen_home" "$(grep '^QWEN_HOME=' "$sandbox/qwen-env")"
 check_that "and turns usage statistics off" grep -qx 'QWEN_USAGE_STATISTICS_ENABLED=false' "$sandbox/qwen-env"
-check_eq "and points its package caches at the sandbox cache folder" "$HOME/.cache/claude-sandbox/pnpm/store" \
-  "$(grep '^npm_config_store_dir=' "$sandbox/qwen-env" | cut -d= -f2-)"
+check_eq "and points its package caches at the sandbox cache folder" "$HOME/.cache/claude-sandbox/pnpm/cache" \
+  "$(grep '^npm_config_cache_dir=' "$sandbox/qwen-env" | cut -d= -f2-)"
+check_eq "but leaves pnpm's content store alone, so node_modules linked from it still match" "" \
+  "$(grep '^npm_config_store_dir=' "$sandbox/qwen-env")"
 check_that "and the models.dev download" grep -qx 'QWEN_CODE_MODELS_DEV_REFRESH=off' "$sandbox/qwen-env"
 for folder in skills agents extensions rules commands hooks; do
   check_that "qwen launch creates $folder under its home before the launch, since Qwen Code's startup mkdir is denied inside the sandbox" test -d "$qwen_home/$folder"

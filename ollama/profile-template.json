@@ -94,6 +94,7 @@
       "gh *",
       "short *",
       "git push *",
+      "git commit *",
       "claude-custom ctx7 *",
       "pnpm *"
     ],

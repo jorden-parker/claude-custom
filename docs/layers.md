@@ -39,16 +39,17 @@ permission mode. Both overlays let sandboxed commands write
 `~/.cache/claude-sandbox` and reach loopback addresses (the personal overlay
 also `registry.npmjs.org` and `context7.com`, for the `/find-docs` skill), and
 both the `claude` function (`personal/launch`) and `claude-ollama` run Claude
-through `shared/sandbox-env`, which points Go, npm, pnpm, pip, uv, yarn and bun
-at caches under that folder; `claude-ollama` adds its own `excludedCommands`,
-registry list; both hide the same credentials (`~/.ssh`, `~/.aws`,
-`~/.config/gh`, `~/.config/context7`, `~/.npmrc`, the keychain) and the console
-state folder, unset `GH_TOKEN`, `GITHUB_TOKEN` and `SHORTCUT_API_TOKEN`, and run
-`gh` and `git push` outside the sandbox after a prompt (`permissions.ask`),
-since the gh credential helper needs `~/.config/gh`, and run
-`claude-custom ctx7` (the `/find-docs` CLI) outside it without a prompt, so it
-uses your own network, proxy and certificates; `git fetch` and `git pull` stay
-inside, so a private remote needs a fetch by hand.
+through `shared/sandbox-env`, which points Go, npm, pip, uv, yarn, bun and
+pnpm's metadata caches (never its content store) at caches under that folder;
+`claude-ollama` adds its own `excludedCommands`, registry list; both hide the
+same credentials (`~/.ssh`, `~/.aws`, `~/.config/gh`, `~/.config/context7`,
+`~/.npmrc`, the keychain) and the console state folder, unset `GH_TOKEN`,
+`GITHUB_TOKEN` and `SHORTCUT_API_TOKEN`, and run `gh` and `git push` outside the
+sandbox after a prompt (`permissions.ask`), since the gh credential helper needs
+`~/.config/gh`, and run `claude-custom ctx7` (the `/find-docs` CLI) outside it
+without a prompt, so it uses your own network, proxy and certificates;
+`git fetch` and `git pull` stay inside, so a private remote needs a fetch by
+hand.
 
 To get a tool back on one machine only, list its name (one per line) in
 `~/.config/claude-custom/enabled-tools`. `personal/settings-path` then writes a
