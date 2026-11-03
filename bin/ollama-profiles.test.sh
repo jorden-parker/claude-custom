@@ -36,6 +36,9 @@ cp -R "$repo/ollama" "$profiles"
 cp -R "$repo/shared" "$sandbox/shared"
 mkdir "$sandbox/personal"
 cp "$repo/personal/settings.tokens.template.json" "$repo/personal/settings.tokens.json" "$sandbox/personal/"
+mkdir -p "$sandbox/docs" "$sandbox/web/console/src/lib"
+cp "$repo/docs/ollama.md" "$sandbox/docs/"
+cp "$repo/web/console/src/lib/profile-env.generated.json" "$sandbox/web/console/src/lib/"
 
 generate() {
   CLAUDE_CUSTOM_REPO="$sandbox" "$gen" "$@"
@@ -75,6 +78,26 @@ check_that "no placeholder survives" sh -c "! grep -q '{{' '$sandbox/ollama/sett
 
 sed 's/"timeout": 600/"timeout": 5/' "$sandbox/personal/settings.tokens.json" > "$sandbox/stale.json" && mv "$sandbox/stale.json" "$sandbox/personal/settings.tokens.json"
 check_eq "check fails on a stale personal overlay" 1 "$(exit_status_of --check)"
+generate >/dev/null
+
+catalogue="$sandbox/shared/profile-env.json"
+console_catalogue="$sandbox/web/console/src/lib/profile-env.generated.json"
+env_docs="$sandbox/docs/ollama.md"
+check_eq "the console's copy of the env catalogue has the catalogue's content" "$(jq -S . "$repo/shared/profile-env.json")" "$(jq -S . "$repo/web/console/src/lib/profile-env.generated.json")"
+check_that "the docs table has a row per catalogue key" sh -c "grep -c '^| \`CLAUDE_' '$repo/docs/ollama.md' | grep -qx \"\$(jq length '$repo/shared/profile-env.json')\""
+check_that "the docs table names an integer's range" grep -qF '| Hand off at (% of context), 30 to 85' "$repo/docs/ollama.md"
+check_that "the docs table names a choice's values" grep -qF '| After each edit: suggest the test, or run it (`0`, `suggest`, `run`)' "$repo/docs/ollama.md"
+jq '(.[] | select(.key == "CLAUDE_OLLAMA_CMUX") | .label) = "Drive the cmux browser"' "$repo/shared/profile-env.json" > "$catalogue"
+check_eq "check fails when the env catalogue changed" 1 "$(exit_status_of --check)"
+check_that "check names the console's stale copy" sh -c "CLAUDE_CUSTOM_REPO='$sandbox' '$gen' --check 2>&1 | grep -q 'profile-env.generated.json'"
+check_that "check names the stale docs table" sh -c "CLAUDE_CUSTOM_REPO='$sandbox' '$gen' --check 2>&1 | grep -q 'docs/ollama.md'"
+generate >/dev/null
+check_eq "render copies the catalogue to the console" "Drive the cmux browser" "$(jq -r '.[] | select(.key == "CLAUDE_OLLAMA_CMUX") | .label' "$console_catalogue")"
+check_that "render writes the new label into the docs table" grep -qF '| `CLAUDE_OLLAMA_CMUX`' "$env_docs"
+check_that "the docs row carries the new label" sh -c "grep '^| \`CLAUDE_OLLAMA_CMUX\`' '$env_docs' | grep -qF 'Drive the cmux browser'"
+check_eq "render leaves the docs outside the table alone" "$(sed '/profile-env:start/,/profile-env:end/d' "$repo/docs/ollama.md")" "$(sed '/profile-env:start/,/profile-env:end/d' "$env_docs")"
+check_eq "check passes after the render" 0 "$(exit_status_of --check)"
+cp "$repo/shared/profile-env.json" "$catalogue"
 generate >/dev/null
 
 printf '{"27b":{"base":"qwen3.8:27b-mlx","model":"qwen3.8-27b-cc","context":65536},"9b":{"base":"qwen3.5:9b-mlx","model":"qwen3.5-9b-cc","context":16384},"9b-jinja":{"base":"hf.co/example/Qwen3.5-9B-GGUF:Q4_K_M","model":"qwen3.5-9b-jinja-cc","context":16384,"renderer":"qwen3.5"},"9b-parser":{"base":"./weights/qwen3.5-9b.gguf","model":"qwen3.5-9b-parser-cc","context":16384,"renderer":"qwen3.8","parser":"qwen3.5"},"9b-tuned":{"base":"qwen3.5:9b-mlx","model":"qwen3.5-9b-tuned-cc","context":16384,"renderer":"qwen3.5","parameters":{"top_k":20,"temperature":1}},"9b-short":{"base":"qwen3.5:9b-mlx","model":"qwen3.5-9b-short-cc","context":16384,"output_tokens":4096}}\n' > "$profiles/sizes.json"

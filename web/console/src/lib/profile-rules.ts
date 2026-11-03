@@ -1,3 +1,4 @@
+import profileEnvCatalogue from "./profile-env.generated.json";
 import { TOOL_STATES, type ToolState } from "./tool-states";
 
 export type ProfileKind = "claude-code" | "ollama";
@@ -32,31 +33,6 @@ export const OUTPUT_TOKENS_RANGE: NumberRange = {
   step: 1024,
 };
 export const OLLAMA_MCP_SERVERS = ["code-search", "repo", "dev"] as const;
-export const PROFILE_ENV_KEYS = [
-  "CLAUDE_OLLAMA_PROXY",
-  "CLAUDE_OLLAMA_PROXY_STABILIZE",
-  "CLAUDE_OLLAMA_RULE_CARDS",
-  "CLAUDE_CODE_EFFORT_LEVEL",
-  "CLAUDE_OLLAMA_RELAUNCH",
-  "CLAUDE_OLLAMA_HANDOFF_PCT",
-  "CLAUDE_OLLAMA_NO_INDEX",
-  "CLAUDE_CUSTOM_FRICTION",
-  "CLAUDE_OLLAMA_LADDER",
-  "CLAUDE_OLLAMA_TEST_AFTER_EDIT",
-  "CLAUDE_OLLAMA_EDIT_NUDGE",
-  "CLAUDE_OLLAMA_LEASE",
-  "CLAUDE_OLLAMA_LEASE_HEARTBEAT",
-  "CLAUDE_OLLAMA_FIT",
-  "CLAUDE_OLLAMA_TELEMETRY",
-  "CLAUDE_OLLAMA_INCIDENTS",
-  "CLAUDE_OLLAMA_PROXY_RECORD",
-  "CLAUDE_OLLAMA_BEACON",
-  "CLAUDE_OLLAMA_OPEN_DRAFTS",
-  "CLAUDE_OLLAMA_CMUX",
-] as const;
-
-type ProfileEnvKey = (typeof PROFILE_ENV_KEYS)[number];
-
 export const PROFILE_ENV_GROUPS = [
   "Prompt and context",
   "Guards",
@@ -71,7 +47,7 @@ export type NumberRange = { min: number; max: number; step: number };
 export type EnvChoice = { value: string; word: string };
 
 type ProfileEnvFieldBase = {
-  key: ProfileEnvKey;
+  key: string;
   label: string;
   help: string;
   group: ProfileEnvGroup;
@@ -89,211 +65,59 @@ export type GroupedEnvFields = {
   fields: ProfileEnvField[];
 };
 
-const HANDOFF_PERCENT_RANGE: NumberRange = { min: 30, max: 85, step: 5 };
-export const LEASE_HEARTBEAT_RANGE: NumberRange = {
-  min: 30,
-  max: 600,
-  step: 10,
-};
+type ProfileEnvEntry = (typeof profileEnvCatalogue)[number];
 
-export const TEST_AFTER_EDIT_CHOICES: readonly EnvChoice[] = [
-  { value: "0", word: "off" },
-  { value: "suggest", word: "suggest" },
-  { value: "run", word: "run" },
-];
+function envGroupOf(entry: ProfileEnvEntry): ProfileEnvGroup {
+  const group = PROFILE_ENV_GROUPS.find(
+    (candidate) => candidate === entry.group,
+  );
+  if (group === undefined) {
+    throw new Error(`${entry.key} names an unknown group ${entry.group}`);
+  }
+  return group;
+}
 
-export const THINKING_EFFORT_CHOICES: readonly EnvChoice[] = [
-  { value: "low", word: "low" },
-  { value: "medium", word: "medium" },
-  { value: "xhigh", word: "xhigh" },
-];
+function envFieldOf(entry: ProfileEnvEntry): ProfileEnvField {
+  const base: ProfileEnvFieldBase = {
+    key: entry.key,
+    label: entry.label,
+    help: entry.help,
+    group: envGroupOf(entry),
+    defaultValue: entry.default,
+    ollamaOnly: entry.ollamaOnly,
+  };
+  if (entry.kind === "choice") {
+    return { ...base, kind: "choice", choices: envChoicesOf(entry) };
+  }
+  if (entry.kind === "integer") {
+    return { ...base, kind: "number", range: envRangeOf(entry) };
+  }
+  if (entry.kind === "switch") {
+    return { ...base, kind: "switch" };
+  }
+  throw new Error(`${entry.key} has an unknown kind ${entry.kind}`);
+}
 
-export const PROFILE_ENV_FIELDS: readonly ProfileEnvField[] = [
-  {
-    key: "CLAUDE_OLLAMA_PROXY",
-    label: "Observe prompt drift through the messages proxy",
-    help: "A proxy between claude and Ollama logs where each request's prompt diverged from the last one, so a cache miss has a cause.",
-    group: "Prompt and context",
-    kind: "switch",
-    defaultValue: "1",
-    ollamaOnly: true,
-  },
-  {
-    key: "CLAUDE_OLLAMA_PROXY_STABILIZE",
-    label: "Move volatile prompt lines after the stable prefix",
-    help: "The proxy learns which system lines change between requests (a date, a reminder) and moves them to the end of the system text, so the prompt cache keeps the prefix before them; off forwards every body untouched.",
-    group: "Prompt and context",
-    kind: "switch",
-    defaultValue: "0",
-    ollamaOnly: true,
-  },
-  {
-    key: "CLAUDE_OLLAMA_RULE_CARDS",
-    label: "Deliver rule cards just in time",
-    help: "A rule reaches the model when the tool call it governs comes up, instead of filling the system prompt up front.",
-    group: "Prompt and context",
-    kind: "switch",
-    defaultValue: "1",
-    ollamaOnly: true,
-  },
-  {
-    key: "CLAUDE_CODE_EFFORT_LEVEL",
-    label: "Thinking effort when thinking is on",
-    help: "Qwen 3.8 reads this level from the request and thinks briefly on low or at length on xhigh; it has no high, so Claude Code's default falls back to xhigh. Only counts with the Model thinking switch on, and Qwen 3.6 (the 35b) ignores it.",
-    group: "Prompt and context",
-    kind: "choice",
-    choices: THINKING_EFFORT_CHOICES,
-    defaultValue: "xhigh",
-    ollamaOnly: true,
-  },
-  {
-    key: "CLAUDE_OLLAMA_RELAUNCH",
-    label: "Hand off before the context fills",
-    help: "At the threshold the model saves a /handoff note and a fresh session resumes it; off means Claude Code compacts at 88% instead.",
-    group: "Prompt and context",
-    kind: "switch",
-    defaultValue: "1",
-    ollamaOnly: true,
-  },
-  {
-    key: "CLAUDE_OLLAMA_HANDOFF_PCT",
-    label: "Hand off at (% of context)",
-    help: `A whole percent from ${HANDOFF_PERCENT_RANGE.min} to ${HANDOFF_PERCENT_RANGE.max}; empty keeps 70.`,
-    group: "Prompt and context",
-    kind: "number",
-    range: HANDOFF_PERCENT_RANGE,
-    defaultValue: "70",
-    ollamaOnly: true,
-  },
-  {
-    key: "CLAUDE_OLLAMA_NO_INDEX",
-    label: "Skip the code search index",
-    help: "Off indexes the project in the background at launch; on leaves semantic_search ranking by words only.",
-    group: "Prompt and context",
-    kind: "switch",
-    defaultValue: "0",
-    ollamaOnly: false,
-  },
-  {
-    key: "CLAUDE_CUSTOM_FRICTION",
-    label: "Reset a looping guard after three identical denials",
-    help: "The fourth identical denial in a turn replaces the hook's reason with a plan reset, so the model stops retrying the same command.",
-    group: "Guards",
-    kind: "switch",
-    defaultValue: "1",
-    ollamaOnly: false,
-  },
-  {
-    key: "CLAUDE_OLLAMA_LADDER",
-    label: "Degrade rung by rung on incident evidence",
-    help: "Three incidents of one kind fire one rung (embeddings off, a faster heartbeat, a smaller context) instead of the whole session failing at once.",
-    group: "Guards",
-    kind: "switch",
-    defaultValue: "1",
-    ollamaOnly: true,
-  },
-  {
-    key: "CLAUDE_OLLAMA_TEST_AFTER_EDIT",
-    label: "After each edit: suggest the test, or run it",
-    help: "Suggest names the test to run after an edit; run executes it under macOS Seatbelt with the same profile as claude-ollama qwen and reports pass or the first failing lines, and only suggests on other platforms. Run is enabled only here, in the profile file the sandboxed session cannot write, so leave it on suggest for repos you do not trust.",
-    group: "Guards",
-    kind: "choice",
-    choices: TEST_AFTER_EDIT_CHOICES,
-    defaultValue: "suggest",
-    ollamaOnly: true,
-  },
-  {
-    key: "CLAUDE_OLLAMA_EDIT_NUDGE",
-    label: "Nudge wasteful edits",
-    help: "One line of context when an Edit echoes a long old_string to change a few lines, a Write rewrites a long file, or a MultiEdit carries over 8 edits; decode is the slow path on a laptop.",
-    group: "Guards",
-    kind: "switch",
-    defaultValue: "1",
-    ollamaOnly: true,
-  },
-  {
-    key: "CLAUDE_OLLAMA_LEASE",
-    label: "Hold an Ollama residency lease and heartbeat",
-    help: "A second session or bench waits instead of evicting this one's model, and a keep-alive request keeps it loaded.",
-    group: "Ollama residency",
-    kind: "switch",
-    defaultValue: "1",
-    ollamaOnly: true,
-  },
-  {
-    key: "CLAUDE_OLLAMA_LEASE_HEARTBEAT",
-    label: "Seconds between keep-alive heartbeats",
-    help: `Whole seconds from ${LEASE_HEARTBEAT_RANGE.min} to ${LEASE_HEARTBEAT_RANGE.max}; empty keeps 120, halved while the ladder asks for a faster one.`,
-    group: "Ollama residency",
-    kind: "number",
-    range: LEASE_HEARTBEAT_RANGE,
-    defaultValue: "120",
-    ollamaOnly: true,
-  },
-  {
-    key: "CLAUDE_OLLAMA_FIT",
-    label: "Check memory fit before launch",
-    help: "The launch stops with a reason when the model plus its context will not fit in memory, instead of Ollama swapping mid-session.",
-    group: "Ollama residency",
-    kind: "switch",
-    defaultValue: "1",
-    ollamaOnly: true,
-  },
-  {
-    key: "CLAUDE_OLLAMA_TELEMETRY",
-    label: "Session telemetry",
-    help: "One JSON line per tool call in ~/.claude-ollama/telemetry; never the tool input.",
-    group: "Diagnostics",
-    kind: "switch",
-    defaultValue: "1",
-    ollamaOnly: false,
-  },
-  {
-    key: "CLAUDE_OLLAMA_INCIDENTS",
-    label: "Record Ollama incidents",
-    help: "Logs page, Incidents tab.",
-    group: "Diagnostics",
-    kind: "switch",
-    defaultValue: "1",
-    ollamaOnly: true,
-  },
-  {
-    key: "CLAUDE_OLLAMA_PROXY_RECORD",
-    label: "Record every request body for replay benches",
-    help: "The proxy keeps each full request so a bench can replay the session's prompts; off logs only the drift summary.",
-    group: "Diagnostics",
-    kind: "switch",
-    defaultValue: "0",
-    ollamaOnly: true,
-  },
-  {
-    key: "CLAUDE_OLLAMA_BEACON",
-    label: "Write a machine beacon at launch",
-    help: "A fingerprint of this checkout, models and hooks, so claude-custom sync-check can tell two machines apart.",
-    group: "Diagnostics",
-    kind: "switch",
-    defaultValue: "1",
-    ollamaOnly: true,
-  },
-  {
-    key: "CLAUDE_OLLAMA_OPEN_DRAFTS",
-    label: "Open drafts in the browser",
-    help: "A saved PR or review draft opens on the console's Drafts page.",
-    group: "Browser",
-    kind: "switch",
-    defaultValue: "1",
-    ollamaOnly: false,
-  },
-  {
-    key: "CLAUDE_OLLAMA_CMUX",
-    label: "cmux browser tools",
-    help: "The dev server's page tools drive a cmux browser split when the session runs in a cmux terminal.",
-    group: "Browser",
-    kind: "switch",
-    defaultValue: "1",
-    ollamaOnly: false,
-  },
-];
+function envChoicesOf({ key, choices }: ProfileEnvEntry): readonly EnvChoice[] {
+  if (choices === undefined) {
+    throw new Error(`${key} is a choice without choices`);
+  }
+  return choices;
+}
+
+function envRangeOf({ key, min, max, step }: ProfileEnvEntry): NumberRange {
+  if (min === undefined || max === undefined || step === undefined) {
+    throw new Error(`${key} is an integer without min, max and step`);
+  }
+  return { min, max, step };
+}
+
+export const PROFILE_ENV_FIELDS: readonly ProfileEnvField[] =
+  profileEnvCatalogue.map(envFieldOf);
+
+export const PROFILE_ENV_KEYS: readonly string[] = PROFILE_ENV_FIELDS.map(
+  (field) => field.key,
+);
 
 export function envFieldsByGroup(
   fields: readonly ProfileEnvField[],

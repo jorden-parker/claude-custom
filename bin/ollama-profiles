@@ -13,6 +13,11 @@ extra_hooks_file="$profile_dir/hooks.extra.json"
 headroom_file="$profile_dir/headroom.json"
 personal_template="$personal_dir/settings.tokens.template.json"
 personal_settings="$personal_dir/settings.tokens.json"
+env_catalogue="$data_dir/shared/profile-env.json"
+console_env_catalogue="$data_dir/web/console/src/lib/profile-env.generated.json"
+env_docs="$data_dir/docs/ollama.md"
+env_table_start="<!-- profile-env:start -->"
+env_table_end="<!-- profile-env:end -->"
 
 sizes() {
   jq -r 'keys[]' "$sizes_file"
@@ -88,6 +93,36 @@ render_modelfile() {
   render_parameters "$1"
 }
 
+env_table() {
+  jq -r '
+    def meaning:
+      if .kind == "integer" then "\(.label), \(.min) to \(.max)"
+      elif .kind == "choice" then "\(.label) (\(.choices | map("`\(.value)`") | join(", ")))"
+      else .label end;
+    def padded($width): if $width > length then . + (" " * ($width - length)) else . end;
+    def dashes($width): reduce range($width) as $dash (""; . + "-");
+    (map(["`\(.key)`", .default, meaning])) as $rows
+    | (["Key", "Default", "Meaning"]) as $header
+    | ([range(3) as $column | ([$header[$column]] + ($rows | map(.[$column])) | map(length) | max)]) as $widths
+    | def row: [range(3) as $column | .[$column] | padded($widths[$column])] | "| \(join(" | ")) |";
+      ($header | row),
+      ([range(3) as $column | dashes($widths[$column])] | "| \(join(" | ")) |"),
+      ($rows[] | row)
+  ' "$env_catalogue"
+}
+
+render_env_docs() {
+  if ! grep -qxF "$env_table_start" "$env_docs" || ! grep -qxF "$env_table_end" "$env_docs"; then
+    echo "ollama-profiles: $env_docs lacks the $env_table_start and $env_table_end lines" >&2
+    return 1
+  fi
+  env_table="$(env_table)" awk -v start="$env_table_start" -v end="$env_table_end" '
+    $0 == start { print; print ""; print ENVIRON["env_table"]; print ""; skipping = 1; next }
+    $0 == end { skipping = 0 }
+    !skipping { print }
+  ' "$env_docs"
+}
+
 render_all() {
   local size
   for size in $(sizes); do
@@ -95,6 +130,8 @@ render_all() {
     render_modelfile "$size" > "$1/Modelfile.$size"
   done
   render_personal > "$1/settings.tokens.json"
+  cp "$env_catalogue" "$1/profile-env.generated.json"
+  render_env_docs > "$1/ollama.md"
 }
 
 same_content() {
@@ -134,6 +171,8 @@ check_profiles() {
   done
   check_unlisted || status=1
   rendered_matches "$1/settings.tokens.json" "$personal_settings" || status=1
+  rendered_matches "$1/profile-env.generated.json" "$console_env_catalogue" || status=1
+  rendered_matches "$1/ollama.md" "$env_docs" || status=1
   return "$status"
 }
 
@@ -158,6 +197,8 @@ write_profiles() {
   done
   remove_unlisted
   cp "$1/settings.tokens.json" "$personal_settings"
+  cp "$1/profile-env.generated.json" "$console_env_catalogue"
+  cp "$1/ollama.md" "$env_docs"
 }
 
 with_rendered() {

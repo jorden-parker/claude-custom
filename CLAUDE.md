@@ -163,8 +163,12 @@ before changing how any file gets applied.
 - Profile generator: `bin/ollama-profiles` renders `ollama/settings.<size>.json`
   and `ollama/Modelfile.<size>` from `ollama/sizes.json` and the two
   `profile-template` files, and `personal/settings.tokens.json` from
-  `personal/settings.tokens.template.json`; `bin/ollama-profiles --check`
-  (`make check-profiles`) fails when they are stale (it compares JSON by
+  `personal/settings.tokens.template.json`; it also copies the profile env
+  catalogue `shared/profile-env.json` to
+  `web/console/src/lib/profile-env.generated.json` and renders its table in
+  `docs/ollama.md` between the `<!-- profile-env:start -->` and
+  `<!-- profile-env:end -->` lines; `bin/ollama-profiles --check`
+  (`make check-profiles`) fails when any of them is stale (it compares JSON by
   content, so it needs no Prettier; writing the files needs `pnpm install`);
   tests: `bin/ollama-profiles.test.sh`
 - GGUF inspector: `bin/gguf-inspect FILE [--file-size N] [--template-out PATH]`
@@ -1347,8 +1351,11 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `thinking:true` (Ollama only; it drops the `CLAUDE_CODE_EXTRA_BODY` that turns
   thinking off, so Claude Code's own adaptive request reaches Ollama); `tools`,
   `env`, `mcp`, `parameters`, `summary` and `check` serve `bin/claude-ollama`.
-  `env` exports only its `env_allowlist`: the 0/1 switches
-  `CLAUDE_OLLAMA_TELEMETRY`, `CLAUDE_OLLAMA_NO_INDEX`,
+  `env` exports only the keys of the profile env catalogue
+  `shared/profile-env.json` (an ordered list of
+  `{key, group, kind, default, min, max, step | choices, label, help, ollamaOnly}`,
+  `kind` one of `switch`, `integer`, `choice`; values are not checked there):
+  the 0/1 switches `CLAUDE_OLLAMA_TELEMETRY`, `CLAUDE_OLLAMA_NO_INDEX`,
   `CLAUDE_OLLAMA_OPEN_DRAFTS`, `CLAUDE_OLLAMA_CMUX`, `CLAUDE_OLLAMA_RELAUNCH`,
   `CLAUDE_OLLAMA_INCIDENTS`, `CLAUDE_OLLAMA_PROXY` (default on),
   `CLAUDE_OLLAMA_PROXY_RECORD` (default off), `CLAUDE_OLLAMA_PROXY_STABILIZE`
@@ -1360,15 +1367,21 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `CLAUDE_OLLAMA_TEST_AFTER_EDIT` (`0`, `suggest` or `run`, default `suggest`)
   and `CLAUDE_CODE_EFFORT_LEVEL` (`low`, `medium` or `xhigh`, default `xhigh`;
   Claude Code's own variable, read by Qwen 3.8's chat template through Ollama
-  when the profile's thinking is on, ignored by Qwen 3.6). That list must equal
-  `PROFILE_ENV_KEYS` in `web/console/src/lib/profile-rules.ts`, and this file
-  and `docs/ollama.md` must name every key (`bin/check-config` checks both); the
-  console's Profiles page shows each key by the plain label, default and help
-  sentence in `PROFILE_ENV_FIELDS`, never the variable name, grouped under the
-  field's `group`, and hides every Ollama-only field from the `claude-code`
-  profile, which of the harness switches sees only `CLAUDE_CUSTOM_FRICTION`. It
-  refuses a symlinked profile, and `Agent` never reaches an Ollama profile. The
-  overlay sets `sandbox.enabled` and the ask rule
+  when the profile's thinking is on, ignored by Qwen 3.6). Adding a switch is
+  one catalogue entry, then `bin/ollama-profiles` (which renders the console's
+  copy and the `docs/ollama.md` table) and a mention here (`bin/check-config`
+  fails when this file lacks a key). `context-budget.py` and
+  `test-after-edit.py` read their defaults from the catalogue through
+  `shared/hooks/profile_env.py` (`catalogue_default`); the bash launchers keep
+  their own `${VAR:-1}` defaults. `web/console/src/lib/profile-rules.ts` builds
+  `PROFILE_ENV_KEYS` and `PROFILE_ENV_FIELDS` from the rendered copy (an
+  `integer` becomes a `number` field with a `range`) and throws on an unknown
+  group or kind. The console's Profiles page shows each key by the plain label,
+  default and help sentence in `PROFILE_ENV_FIELDS`, never the variable name,
+  grouped under the field's `group`, and hides every Ollama-only field from the
+  `claude-code` profile, which of the harness switches sees only
+  `CLAUDE_CUSTOM_FRICTION`. It refuses a symlinked profile, and `Agent` never
+  reaches an Ollama profile. The overlay sets `sandbox.enabled` and the ask rule
   `Bash(dangerouslyDisableSandbox:true)`, so every personal session (subagents
   and `--agent pr-review` included) runs Claude's shell commands inside Claude
   Code's sandbox and asks before one runs outside it; `bin/check-config` checks

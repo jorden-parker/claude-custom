@@ -1,0 +1,216 @@
+[
+  {
+    "key": "CLAUDE_OLLAMA_PROXY",
+    "group": "Prompt and context",
+    "kind": "switch",
+    "default": "1",
+    "label": "Observe prompt drift through the messages proxy",
+    "help": "A proxy between claude and Ollama logs where each request's prompt diverged from the last one, so a cache miss has a cause.",
+    "ollamaOnly": true
+  },
+  {
+    "key": "CLAUDE_OLLAMA_PROXY_STABILIZE",
+    "group": "Prompt and context",
+    "kind": "switch",
+    "default": "0",
+    "label": "Move volatile prompt lines after the stable prefix",
+    "help": "The proxy learns which system lines change between requests (a date, a reminder) and moves them to the end of the system text, so the prompt cache keeps the prefix before them; off forwards every body untouched.",
+    "ollamaOnly": true
+  },
+  {
+    "key": "CLAUDE_OLLAMA_RULE_CARDS",
+    "group": "Prompt and context",
+    "kind": "switch",
+    "default": "1",
+    "label": "Deliver rule cards just in time",
+    "help": "A rule reaches the model when the tool call it governs comes up, instead of filling the system prompt up front.",
+    "ollamaOnly": true
+  },
+  {
+    "key": "CLAUDE_CODE_EFFORT_LEVEL",
+    "group": "Prompt and context",
+    "kind": "choice",
+    "default": "xhigh",
+    "choices": [
+      {
+        "value": "low",
+        "word": "low"
+      },
+      {
+        "value": "medium",
+        "word": "medium"
+      },
+      {
+        "value": "xhigh",
+        "word": "xhigh"
+      }
+    ],
+    "label": "Thinking effort when thinking is on",
+    "help": "Qwen 3.8 reads this level from the request and thinks briefly on low or at length on xhigh; it has no high, so Claude Code's default falls back to xhigh. Only counts with the Model thinking switch on, and Qwen 3.6 (the 35b) ignores it.",
+    "ollamaOnly": true
+  },
+  {
+    "key": "CLAUDE_OLLAMA_RELAUNCH",
+    "group": "Prompt and context",
+    "kind": "switch",
+    "default": "1",
+    "label": "Hand off before the context fills",
+    "help": "At the threshold the model saves a /handoff note and a fresh session resumes it; off means Claude Code compacts at 88% instead.",
+    "ollamaOnly": true
+  },
+  {
+    "key": "CLAUDE_OLLAMA_HANDOFF_PCT",
+    "group": "Prompt and context",
+    "kind": "integer",
+    "default": "70",
+    "min": 30,
+    "max": 85,
+    "step": 5,
+    "label": "Hand off at (% of context)",
+    "help": "A whole percent from 30 to 85; empty keeps 70.",
+    "ollamaOnly": true
+  },
+  {
+    "key": "CLAUDE_OLLAMA_NO_INDEX",
+    "group": "Prompt and context",
+    "kind": "switch",
+    "default": "0",
+    "label": "Skip the code search index",
+    "help": "Off indexes the project in the background at launch; on leaves semantic_search ranking by words only.",
+    "ollamaOnly": false
+  },
+  {
+    "key": "CLAUDE_CUSTOM_FRICTION",
+    "group": "Guards",
+    "kind": "switch",
+    "default": "1",
+    "label": "Reset a looping guard after three identical denials",
+    "help": "The fourth identical denial in a turn replaces the hook's reason with a plan reset, so the model stops retrying the same command.",
+    "ollamaOnly": false
+  },
+  {
+    "key": "CLAUDE_OLLAMA_LADDER",
+    "group": "Guards",
+    "kind": "switch",
+    "default": "1",
+    "label": "Degrade rung by rung on incident evidence",
+    "help": "Three incidents of one kind fire one rung (embeddings off, a faster heartbeat, a smaller context) instead of the whole session failing at once.",
+    "ollamaOnly": true
+  },
+  {
+    "key": "CLAUDE_OLLAMA_TEST_AFTER_EDIT",
+    "group": "Guards",
+    "kind": "choice",
+    "default": "suggest",
+    "choices": [
+      {
+        "value": "0",
+        "word": "off"
+      },
+      {
+        "value": "suggest",
+        "word": "suggest"
+      },
+      {
+        "value": "run",
+        "word": "run"
+      }
+    ],
+    "label": "After each edit: suggest the test, or run it",
+    "help": "Suggest names the test to run after an edit; run executes it under macOS Seatbelt with the same profile as claude-ollama qwen and reports pass or the first failing lines, and only suggests on other platforms. Run is enabled only here, in the profile file the sandboxed session cannot write, so leave it on suggest for repos you do not trust.",
+    "ollamaOnly": true
+  },
+  {
+    "key": "CLAUDE_OLLAMA_EDIT_NUDGE",
+    "group": "Guards",
+    "kind": "switch",
+    "default": "1",
+    "label": "Nudge wasteful edits",
+    "help": "One line of context when an Edit echoes a long old_string to change a few lines, a Write rewrites a long file, or a MultiEdit carries over 8 edits; decode is the slow path on a laptop.",
+    "ollamaOnly": true
+  },
+  {
+    "key": "CLAUDE_OLLAMA_LEASE",
+    "group": "Ollama residency",
+    "kind": "switch",
+    "default": "1",
+    "label": "Hold an Ollama residency lease and heartbeat",
+    "help": "A second session or bench waits instead of evicting this one's model, and a keep-alive request keeps it loaded.",
+    "ollamaOnly": true
+  },
+  {
+    "key": "CLAUDE_OLLAMA_LEASE_HEARTBEAT",
+    "group": "Ollama residency",
+    "kind": "integer",
+    "default": "120",
+    "min": 30,
+    "max": 600,
+    "step": 10,
+    "label": "Seconds between keep-alive heartbeats",
+    "help": "Whole seconds from 30 to 600; empty keeps 120, halved while the ladder asks for a faster one.",
+    "ollamaOnly": true
+  },
+  {
+    "key": "CLAUDE_OLLAMA_FIT",
+    "group": "Ollama residency",
+    "kind": "switch",
+    "default": "1",
+    "label": "Check memory fit before launch",
+    "help": "The launch stops with a reason when the model plus its context will not fit in memory, instead of Ollama swapping mid-session.",
+    "ollamaOnly": true
+  },
+  {
+    "key": "CLAUDE_OLLAMA_TELEMETRY",
+    "group": "Diagnostics",
+    "kind": "switch",
+    "default": "1",
+    "label": "Session telemetry",
+    "help": "One JSON line per tool call in ~/.claude-ollama/telemetry; never the tool input.",
+    "ollamaOnly": false
+  },
+  {
+    "key": "CLAUDE_OLLAMA_INCIDENTS",
+    "group": "Diagnostics",
+    "kind": "switch",
+    "default": "1",
+    "label": "Record Ollama incidents",
+    "help": "Logs page, Incidents tab.",
+    "ollamaOnly": true
+  },
+  {
+    "key": "CLAUDE_OLLAMA_PROXY_RECORD",
+    "group": "Diagnostics",
+    "kind": "switch",
+    "default": "0",
+    "label": "Record every request body for replay benches",
+    "help": "The proxy keeps each full request so a bench can replay the session's prompts; off logs only the drift summary.",
+    "ollamaOnly": true
+  },
+  {
+    "key": "CLAUDE_OLLAMA_BEACON",
+    "group": "Diagnostics",
+    "kind": "switch",
+    "default": "1",
+    "label": "Write a machine beacon at launch",
+    "help": "A fingerprint of this checkout, models and hooks, so claude-custom sync-check can tell two machines apart.",
+    "ollamaOnly": true
+  },
+  {
+    "key": "CLAUDE_OLLAMA_OPEN_DRAFTS",
+    "group": "Browser",
+    "kind": "switch",
+    "default": "1",
+    "label": "Open drafts in the browser",
+    "help": "A saved PR or review draft opens on the console's Drafts page.",
+    "ollamaOnly": false
+  },
+  {
+    "key": "CLAUDE_OLLAMA_CMUX",
+    "group": "Browser",
+    "kind": "switch",
+    "default": "1",
+    "label": "cmux browser tools",
+    "help": "The dev server's page tools drive a cmux browser split when the session runs in a cmux terminal.",
+    "ollamaOnly": false
+  }
+]

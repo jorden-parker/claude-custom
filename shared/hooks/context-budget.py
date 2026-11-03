@@ -6,8 +6,8 @@ import time
 from pathlib import Path
 
 from hook_telemetry import record_hook_event
+from profile_env import catalogue_default
 
-DEFAULT_THRESHOLD_PCT = 70
 CONTEXT_TOKEN_KEYS = ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
 HANDOFF_NUDGE = (
     "Context budget: {percent}% of the {max_tokens}-token window is used. Finish the current edit, "
@@ -85,7 +85,7 @@ def main():
     if path.exists():
         return
     percent, max_tokens = percent_used(event)
-    threshold = positive_int(os.environ.get("CLAUDE_OLLAMA_HANDOFF_PCT")) or DEFAULT_THRESHOLD_PCT
+    threshold = positive_int(os.environ.get("CLAUDE_OLLAMA_HANDOFF_PCT")) or int(catalogue_default("CLAUDE_OLLAMA_HANDOFF_PCT"))
     if percent is None or percent < threshold:
         return
     record_nudge(path, percent)
