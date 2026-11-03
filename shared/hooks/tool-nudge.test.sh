@@ -38,34 +38,19 @@ mentions() { grep -q "$2" <<<"$1" && echo yes || echo no; }
 denied() { mentions "$(pre Bash "$1")" '^deny: '; }
 
 event UserPromptSubmit >/dev/null
-first_deny="$(pre Bash 'grep -n foo src/a.py')"
-expect_eq "first text search of a turn is denied" yes "$(mentions "$first_deny" '^deny: ')"
-expect_eq "deny reason names the full tool name" yes "$(mentions "$first_deny" 'mcp__code-search__semantic_search')"
-expect_eq "second text search is still denied" yes "$(denied 'rg foo')"
-expect_eq "every later text search stays denied until semantic_search runs" yes "$(denied 'git grep -n foo')"
-expect_eq "and the fourth" yes "$(denied 'ag foo')"
-
-event UserPromptSubmit >/dev/null
-expect_eq "git grep leading a pipe is denied" yes "$(denied 'git grep -n foo | head -30')"
-expect_eq "a search after cd && is denied" yes "$(denied 'cd src && grep -rn foo .')"
-expect_eq "a search after ; is denied" yes "$(denied 'ls; ack foo')"
-expect_eq "find by name is a search" yes "$(denied 'find . -name "*.py"')"
-expect_eq "find by path is a search" yes "$(denied 'find src -ipath "*auth*"')"
-expect_eq "grep after a pipe is a filter, not a search" "" "$(pre Bash 'go test ./... | grep FAIL')"
-expect_eq "find without a name filter is not a search" "" "$(pre Bash 'find . -type f -newer x')"
+expect_eq "a text search passes without a semantic search first" "" "$(pre Bash 'grep -n foo src/a.py')"
+expect_eq "rg passes" "" "$(pre Bash 'rg foo')"
+expect_eq "git grep passes" "" "$(pre Bash 'git grep -n foo | head -30')"
+expect_eq "a search after cd && passes" "" "$(pre Bash 'cd src && grep -rn foo .')"
+expect_eq "find by name passes" "" "$(pre Bash 'find . -name "*.py"')"
+expect_eq "find by path passes" "" "$(pre Bash 'find src -ipath "*auth*"')"
+expect_eq "a recursive ls passes" "" "$(pre Bash 'ls -R src')"
 expect_eq "non-search bash is never gated" "" "$(pre Bash 'ls -la')"
 expect_eq "Read is never gated" "" "$(pre Read)"
-
-event UserPromptSubmit >/dev/null
 expect_eq "semantic_search itself is allowed" "" "$(pre mcp__code-search__semantic_search)"
-expect_eq "semantic_search unlocks text search for the turn, even when the server failed" "" "$(pre Bash 'grep foo')"
-expect_eq "and keeps it unlocked" "" "$(pre Bash 'rg bar')"
 
 event UserPromptSubmit >/dev/null
-expect_eq "a new prompt locks text search again" yes "$(denied 'grep foo')"
-
-event UserPromptSubmit >/dev/null
-expect_eq "PostToolUse never answers" "" "$(post Bash 'grep foo')"
+expect_eq "PostToolUse never answers" "" "$(post Bash 'cat node_modules/next/dist/docs/index.md')"
 expect_eq "reads never nudge toward Agent" "" "$(post Read)"
 
 expect_eq "prompt submit prints nothing" "" "$(event UserPromptSubmit)"
@@ -78,7 +63,6 @@ tool_event() {
 tool_denied() { mentions "$(tool_event "$1" "$2")" '"permissionDecision": "deny"'; }
 
 event UserPromptSubmit >/dev/null
-pre mcp__code-search__semantic_search >/dev/null
 node_modules_deny="$(pre Bash 'grep -rn useActionState node_modules/next/dist')"
 expect_eq "a search inside node_modules is denied before find-docs" yes "$(mentions "$node_modules_deny" '^deny: ')"
 expect_eq "the node_modules deny names find-docs" yes "$(mentions "$node_modules_deny" 'find-docs')"
@@ -108,10 +92,11 @@ expect_eq "a wrapped ctx7 lookup passes" "" "$(pre Bash 'claude-custom ctx7 libr
 expect_eq "a ctx7 lookup unlocks node_modules" "" "$(pre Bash 'ls node_modules/next/dist/docs')"
 
 export CLAUDE_CONFIG_DIR="$sandbox/session-config"
-pre Bash 'grep a' >/dev/null
+pre Bash 'cat node_modules/next/dist/docs/index.md' >/dev/null
 expect_eq "state follows CLAUDE_CONFIG_DIR" yes \
   "$([ -f "$CLAUDE_CONFIG_DIR/cache/tool-nudge/s1.json" ] && echo yes || echo no)"
 unset CLAUDE_CONFIG_DIR
+event UserPromptSubmit >/dev/null
 
 telemetry_log="$sandbox/telemetry.jsonl"
 
@@ -132,22 +117,22 @@ expect_recorded_lines() {
   expect_eq "telemetry lines for: $command" "$want" "$(recorded_lines)"
 }
 
-expect_recorded_lines 1 'grep -rn foo src'
+expect_recorded_lines 1 'cat node_modules/next/dist/docs/index.md'
 expect_recorded_lines 0 'ls -la'
 rm -f "$telemetry_log"
-telemetry_for 'grep -rn foo src'
+telemetry_for 'cat node_modules/next/dist/docs/index.md'
 expect_eq "denial line names the kind and hook" yes "$(mentions "$(cat "$telemetry_log")" '"kind": "deny", "hook": "tool-nudge"')"
 rm -f "$telemetry_log"
-printf '{"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"grep -rn foo src"}}' \
+printf '{"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"cat node_modules/next/dist/docs/index.md"}}' \
   | env -u CLAUDE_TOOL_TELEMETRY python3 "$hook" >/dev/null
 expect_eq "nothing is recorded when CLAUDE_TOOL_TELEMETRY is unset" no "$([ -e "$telemetry_log" ] && echo yes || echo no)"
 
 printf '{"session_id":"s1","hook_event_name":"UserPromptSubmit"}' | python3 "$(dirname "$0")/friction_budget.py"
 event UserPromptSubmit >/dev/null
 rm -f "$telemetry_log"
-for _ in 1 2 3; do telemetry_for 'grep -n foo src/a.py'; done
-fourth_strike="$(printf '{"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"grep -n foo src/b.py"}}' | CLAUDE_TOOL_TELEMETRY="$telemetry_log" python3 "$hook")"
-if ! grep -qF '"permissionDecision": "deny"' <<<"$fourth_strike" || ! grep -qF 'call semantic_search once, then grep' <<<"$fourth_strike"; then
+for _ in 1 2 3; do telemetry_for 'cat node_modules/next/dist/docs/a.md'; done
+fourth_strike="$(printf '{"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"cat node_modules/next/dist/docs/b.md"}}' | CLAUDE_TOOL_TELEMETRY="$telemetry_log" python3 "$hook")"
+if ! grep -qF '"permissionDecision": "deny"' <<<"$fourth_strike" || ! grep -qF 'call Skill find-docs once, then open node_modules' <<<"$fourth_strike"; then
   echo "FAIL: the fourth near-identical denial is a plan reset naming the alternative"
   failures=$((failures + 1))
 fi
@@ -157,7 +142,7 @@ if ! grep -qF '"kind": "friction", "hook": "tool-nudge"' "$telemetry_log"; then
 fi
 
 mkdir -p "$sandbox/as-directory"
-blocked_output="$(printf '%s' '{"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"grep -rn foo src"}}' | CLAUDE_TOOL_TELEMETRY="$sandbox/as-directory" python3 "$hook")"
+blocked_output="$(printf '%s' '{"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"cat node_modules/next/dist/docs/index.md"}}' | CLAUDE_TOOL_TELEMETRY="$sandbox/as-directory" python3 "$hook")"
 blocked_status=$?
 if ! grep -qF '"permissionDecision": "deny"' <<<"$blocked_output" || [ "$blocked_status" -ne 0 ]; then
   echo "FAIL: a telemetry path that cannot be written still denies, with exit 0"

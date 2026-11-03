@@ -1,5 +1,6 @@
 - Tool instead of command (the command is refused or prompts; the tool is not):
-  - find code: mcp__code-search__semantic_search, not `grep`/`rg`/`find -name`
+  - find code by meaning: mcp__code-search__semantic_search; `git grep -n`, `rg`
+    and `find` are fine for exact names
   - read a file: Read with offset and limit, not `cat`/`sed -n`/`head`
   - change a file: Edit or Write, not `sed -i`/heredocs/`echo >`
   - git history or changes: mcp__repo__git_status/git_diff/git_log/git_show, not
@@ -16,8 +17,7 @@
     `open`/`curl`
   - library docs: /find-docs, not reading node_modules
   - stop a background task: TaskStop, not `kill`
-  - Bash is for building, testing, linting and `git grep -n` after a semantic
-    search.
+  - Bash is for building, testing, linting and searching.
 - Tools you can call, and nothing else (no subagents, no web):
   - Read (offset and limit, at most 300 lines per call), Edit (one exact
     replacement), Write (new files only), Bash (sandboxed; see below), Skill
@@ -46,8 +46,7 @@
   - Skills: /find-docs (library, framework, SDK or API docs), /pr-draft,
     /pr-review-draft, /handoff, /cmux-markdown; the rest are listed by the Skill
     tool.
-- Exact names or strings, after that first semantic search:
-  `git grep -n NAME | head -30`.
+- Exact names or strings: `git grep -n NAME | head -30`.
 - If semantic_search errors, don't retry: use `git grep -n`. If the launch said
   the embedding pull failed, tell the user to pick "Set up embedding model" in
   `claude-ollama`.

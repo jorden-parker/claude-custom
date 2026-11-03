@@ -85,7 +85,7 @@ strict_log="$sandbox/strict.log"
   for _ in $(seq 25); do echo '{"time":1781870400,"session":"c","kind":"deny","hook":"read-range-guard","tool":"Read","reason":"a.py has 900 lines"}'; done
   for _ in $(seq 10); do echo '{"time":1781870400,"session":"c","kind":"deny","hook":"read-range-guard","tool":"Read","reason":"b.py has 500 lines"}'; done
   for _ in $(seq 8); do echo '{"time":1781870400,"session":"c","kind":"friction","hook":"read-range-guard","tool":"Read","reason":"plan reset after 4 near-identical Read denials","fingerprint":"aa"}'; done
-  for _ in $(seq 40); do echo '{"time":1781870400,"session":"c","kind":"deny","hook":"tool-nudge","tool":"Bash","reason":"Text search refused"}'; done
+  for _ in $(seq 40); do echo '{"time":1781870400,"session":"c","kind":"deny","hook":"tool-nudge","tool":"Bash","reason":"node_modules refused"}'; done
   for _ in $(seq 5); do echo '{"time":1781870400,"session":"c","kind":"friction","hook":"tool-nudge","tool":"Bash","reason":"plan reset after 4 near-identical Bash denials","fingerprint":"bb"}'; done
 } >"$strict_log"
 strict_output="$("$report" "$strict_log")"

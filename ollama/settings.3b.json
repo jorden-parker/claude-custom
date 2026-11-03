@@ -217,7 +217,7 @@
         ]
       },
       {
-        "matcher": "Bash|Read|Skill|mcp__code-search__semantic_search",
+        "matcher": "Bash|Read|Skill",
         "hooks": [
           {
             "type": "command",

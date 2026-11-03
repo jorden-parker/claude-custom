@@ -339,11 +339,10 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
 
 - `shared/hooks/bash-output-guard.py` is a `PreToolUse` hook on Bash. It denies
   commands that would flood the context (unbounded `git log`, `cat` on a
-  lockfile, recursive `ls`). Each rule in `UNBOUNDED_COMMANDS` is built by
-  `needs_bounding_flag`, `must_not_open` or `must_not_use_flag`, which prepend
-  `COMMAND_START` so a rule only matches at the start of a command segment and
-  ignores text inside arguments. A new rule needs both `expect deny` and
-  `expect allow` cases in the test script.
+  lockfile). Each rule in `UNBOUNDED_COMMANDS` is built by `needs_bounding_flag`
+  or `must_not_open`, which prepend `COMMAND_START` so a rule only matches at
+  the start of a command segment and ignores text inside arguments. A new rule
+  needs both `expect deny` and `expect allow` cases in the test script.
 - `shared/hooks/bash-output-trim.py` is a `PostToolUse` hook on Bash. It
   shortens long stdout/stderr through `updatedToolOutput`, keeping head, tail
   and error/fail lines plus a marker naming the hidden line range. The reply
@@ -518,19 +517,14 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   Mockups run card has a Preset select.
 - `shared/hooks/tool-nudge.py` is wired only in the Ollama profiles
   (UserPromptSubmit resets its per-session state under
-  `${CLAUDE_CONFIG_DIR:-~/.claude}/cache/tool-nudge/`). As PreToolUse on Bash
-  and `mcp__code-search__semantic_search` it denies every Bash command that runs
-  a text search (`grep`, `rg`, `ag`, `ack`, `git grep`, or `find` with a name or
-  path filter) at the head of any command in it, until the MCP tool has been
-  called in the turn. A search after a pipe is a filter and passes. Calling the
-  tool unlocks text search for the turn even when it errors, so a dead server
-  can't lock the model out. As PreToolUse on Read, Skill and Bash it also denies
-  reading, listing or searching inside `node_modules` until the `find-docs`
-  skill or a `ctx7` command ran in the turn (Next's generated `AGENTS.md` sends
-  models to `node_modules/next/dist/docs` otherwise); a package's own
-  `node_modules/<name>/package.json` is an install check, not docs, and always
-  passes. The profiles allow `Skill(find-docs)` without a prompt;
-  `bin/check-config` checks it.
+  `${CLAUDE_CONFIG_DIR:-~/.claude}/cache/tool-nudge/`). Text searches (`grep`,
+  `rg`, `find`, `git grep`) are never gated. As PreToolUse on Read, Skill and
+  Bash it denies reading, listing or searching inside `node_modules` until the
+  `find-docs` skill or a `ctx7` command ran in the turn (Next's generated
+  `AGENTS.md` sends models to `node_modules/next/dist/docs` otherwise); a
+  package's own `node_modules/<name>/package.json` is an install check, not
+  docs, and always passes. The profiles allow `Skill(find-docs)` without a
+  prompt; `bin/check-config` checks it.
 - `shared/hooks/tdd-guard.py` enforces the TDD rule in both overlays. As
   PreToolUse on Edit, Write and MultiEdit it denies an edit to a code file (by
   suffix, or a shebang) that is not itself a test until, in this session, a test

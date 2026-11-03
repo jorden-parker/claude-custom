@@ -12,12 +12,6 @@ from hook_telemetry import record_denial
 TEXT_SEARCH_COMMANDS = {"grep", "rg", "ag", "ack"}
 FIND_NAME_FILTERS = {"-name", "-iname", "-path", "-ipath", "-regex", "-iregex", "-wholename", "-iwholename"}
 COMMAND_SEPARATOR = re.compile(r"&&|\|\||[;&\n()]")
-SEMANTIC_SEARCH_TOOL = "mcp__code-search__semantic_search"
-SEARCH_FIRST_DENY = (
-    f"Text search refused: call {SEMANTIC_SEARCH_TOOL} first this turn with a plain-words "
-    "query, Read only the ranges it returns, then use git grep -n for exact names if still needed. "
-    "If it errors, text search is allowed for the rest of the turn."
-)
 DOCS_SKILL = "find-docs"
 FILE_LOOKUP_COMMANDS = {"cat", "head", "tail", "less", "more", "sed", "awk", "ls", "tree", "find", "jq"}
 DOCS_FIRST_DENY = (
@@ -28,10 +22,9 @@ DOCS_FIRST_DENY = (
     "After one lookup this turn, node_modules opens for checking details."
 )
 ALTERNATIVES = {
-    SEARCH_FIRST_DENY: "call semantic_search once, then grep",
     DOCS_FIRST_DENY: "call Skill find-docs once, then open node_modules",
 }
-EMPTY_STATE = {"semantic_searched": False, "docs_looked_up": False}
+EMPTY_STATE = {"docs_looked_up": False}
 
 
 def claude_config_dir():
@@ -73,10 +66,6 @@ def is_search_words(words):
     if not words:
         return False
     return words[0] in TEXT_SEARCH_COMMANDS or words[:2] == ["git", "grep"] or is_find_by_name(words)
-
-
-def runs_text_search(command):
-    return any(is_search_words(words) for words in pipeline_heads(command))
 
 
 def runs_docs_lookup(command):
@@ -125,17 +114,6 @@ def docs_gate(state, tool_name, tool_input):
     return None
 
 
-def search_gate(state, tool_name, tool_input):
-    if tool_name == SEMANTIC_SEARCH_TOOL:
-        state["semantic_searched"] = True
-        return None
-    if state["semantic_searched"]:
-        return None
-    if tool_name == "Bash" and runs_text_search(tool_input.get("command", "")):
-        return SEARCH_FIRST_DENY
-    return None
-
-
 def deny(reason):
     return {
         "hookSpecificOutput": {
@@ -151,7 +129,7 @@ def handle(event, state):
         return None
     tool_name = event.get("tool_name", "")
     tool_input = event.get("tool_input") or {}
-    advice = docs_gate(state, tool_name, tool_input) or search_gate(state, tool_name, tool_input)
+    advice = docs_gate(state, tool_name, tool_input)
     if not advice:
         return None
     return deny(deny_reason("tool-nudge", event, advice, ALTERNATIVES[advice]))

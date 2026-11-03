@@ -44,14 +44,6 @@ def must_not_open(commands, files, advice):
     return pattern, advice
 
 
-def must_not_use_flag(command, flags, advice):
-    alternatives = "|".join(flags)
-    pattern = re.compile(
-        COMMAND_START + command + r"\b" + SEGMENT_BODY + "(?:" + alternatives + r")\b" + NOT_PIPED_TO_BOUNDED_FILTER
-    )
-    return pattern, advice
-
-
 UNBOUNDED_COMMANDS = [
     needs_bounding_flag(
         r"git\s+" + GIT_GLOBAL_OPTIONS + r"log",
@@ -62,11 +54,6 @@ UNBOUNDED_COMMANDS = [
         ("cat", "less", "more", "bat"),
         LOCKFILES,
         "Lockfiles are huge. Grep for the package you need instead.",
-    ),
-    must_not_use_flag(
-        "ls",
-        (r"\s-\w*R\w*", r"\s--recursive"),
-        "Recursive ls floods context. Use Glob or: find . -maxdepth 2",
     ),
 ]
 

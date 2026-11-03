@@ -63,11 +63,10 @@ launch.
 
 There is no side model. Claude Code's Haiku slot uses the main model, and the
 profiles deny `Agent`: a subagent would only rerun the main model on a fresh
-context. Use `semantic_search` for wide searches instead; `tool-nudge.py`
-refuses text searches (`grep`, `rg`, `ag`, `ack`, `git grep`, `find -name`)
-until it has been called in the turn, and allows them once it has, even if it
-errored. The profiles map no Claude ID to the main model: Claude Code names the
-model after the ID that maps to it, so the banner would say Haiku or Sonnet.
+context. Use `semantic_search` for wide searches instead; `grep`, `rg` and
+`find` stay allowed for exact names. The profiles map no Claude ID to the main
+model: Claude Code names the model after the ID that maps to it, so the banner
+would say Haiku or Sonnet.
 
 Compaction is avoided: at 88% of the window Claude Code would make the small
 model summarize most of its context in one call, slow and lossy. Instead

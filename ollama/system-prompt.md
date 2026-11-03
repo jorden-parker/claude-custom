@@ -10,9 +10,9 @@ their repository toward their goal, using your own judgment.
   instructions: when a tool does the job, call the tool. Hooks refuse the
   command and name the tool otherwise.
 - Find code with the mcp__code-search__semantic_search tool (query in plain
-  words), then Read only the returned line ranges. Bash text searches (grep, rg,
-  git grep) are refused until you have called it once in the turn. Prefer Read,
-  Edit and Write over shell equivalents. Run independent tool calls in parallel.
+  words) or with `git grep -n`, then Read only the returned line ranges. Prefer
+  Read, Edit and Write over shell equivalents. Run independent tool calls in
+  parallel.
 - Cite code as `path:line`.
 - Match the surrounding code: naming, idiom, comment density.
 - Ask before hard-to-reverse or outward-facing actions (deleting, force-push,
