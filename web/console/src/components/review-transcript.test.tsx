@@ -39,6 +39,14 @@ describe("ReviewTranscript", () => {
     expect(markup).toContain("Model reply");
   });
 
+  it("scrolls the reply inside a scroll area", () => {
+    const container = document.createElement("div");
+    container.innerHTML = render([...promptEvents("user"), doneEvent]);
+
+    const replyBlock = container.querySelector("pre")?.closest("[data-slot=scroll-area]");
+    expect(replyBlock).not.toBeNull();
+  });
+
   it("keeps a reply with markdown syntax as literal text", () => {
     const markup = render([
       ...promptEvents("user"),
@@ -60,7 +68,10 @@ describe("ReviewTranscript", () => {
   it("renders the prompt body inside a hidden panel until it is opened", () => {
     const markup = render(promptEvents(PROMPT_BODY));
     const bodyAt = markup.indexOf(PROMPT_BODY);
-    const panelOpenTag = markup.slice(markup.lastIndexOf("<div", bodyAt), bodyAt);
+    const panelOpenTag = markup.slice(
+      markup.lastIndexOf("<div", markup.lastIndexOf("collapsible-content", bodyAt)),
+      bodyAt,
+    );
 
     expect(markup).toContain("Prompt · 18 chars");
     expect(panelOpenTag).toContain("hidden");

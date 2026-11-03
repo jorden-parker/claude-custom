@@ -1,5 +1,6 @@
 import { ChevronDownIcon } from "lucide-react";
 import type { ReactNode } from "react";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import type { FileView, ReviewState } from "@/lib/review-state";
@@ -8,7 +9,7 @@ import type { TranscriptAttempt, TranscriptEntry } from "@/lib/review-transcript
 const EMPTY_MESSAGE =
   "This review has no transcript. It was recorded before transcripts were logged.";
 const PLAIN_TEXT_CLASSES =
-  "max-h-96 overflow-auto whitespace-pre-wrap font-mono text-xs [overflow-wrap:anywhere]";
+  "max-w-full whitespace-pre-wrap font-mono text-xs [overflow-wrap:anywhere]";
 
 export function ReviewTranscript({ state }: { state: ReviewState }) {
   if (state.transcript.length === 0) {
@@ -69,7 +70,9 @@ function PromptCollapsible({ label, text }: { label: string; text: string }) {
         {label}
       </CollapsibleTrigger>
       <CollapsibleContent className="pt-2" keepMounted>
-        <pre className={PLAIN_TEXT_CLASSES}>{text}</pre>
+        <ScrollArea viewportClassName="max-h-96">
+          <pre className={PLAIN_TEXT_CLASSES}>{text}</pre>
+        </ScrollArea>
       </CollapsibleContent>
     </Collapsible>
   );
@@ -85,10 +88,12 @@ function ReplyText({ attempt }: { attempt: TranscriptAttempt }) {
     );
   }
   return (
-    <pre className={PLAIN_TEXT_CLASSES}>
-      {attempt.reply}
-      {attempt.done ? null : <Caret />}
-    </pre>
+    <ScrollArea viewportClassName="max-h-96">
+      <pre className={PLAIN_TEXT_CLASSES}>
+        {attempt.reply}
+        {attempt.done ? null : <Caret />}
+      </pre>
+    </ScrollArea>
   );
 }
 

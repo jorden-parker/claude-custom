@@ -9,6 +9,7 @@ import {
 } from "@/lib/mock-spike/live.ts";
 import { specOutline } from "@/lib/mock-spike/outline.ts";
 import { MockFrame } from "@/lib/mock-spike/registry.tsx";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 export function LiveMockSheet({
   lines,
@@ -71,9 +72,11 @@ function LiveCellView({
         </span>
       </header>
       {cell.spec.root ? <MockFrame spec={cell.spec} preset={preset} /> : null}
-      <pre className="overflow-x-auto rounded-md bg-muted p-2 text-xs">
-        {outline.join("\n") || "no elements yet"}
-      </pre>
+      <ScrollArea className="rounded-md bg-muted">
+        <pre className="max-w-full p-2 text-xs">
+          {outline.join("\n") || "no elements yet"}
+        </pre>
+      </ScrollArea>
     </article>
   );
 }

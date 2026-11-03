@@ -3,6 +3,7 @@
 import { MockFrame } from "@/lib/mock-spike/registry.tsx";
 import { specOutline } from "@/lib/mock-spike/outline.ts";
 import type { MockRun, MockSpikeReport } from "@/lib/mock-spike/reports.ts";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 export function MockSheet({ report }: { report: MockSpikeReport }) {
   return (
@@ -52,9 +53,11 @@ function MockCell({ run, preset }: { run: MockRun; preset: string | null }) {
         <summary className="cursor-pointer text-muted-foreground">
           Elements the model produced
         </summary>
-        <pre className="mt-2 overflow-x-auto rounded-md bg-muted p-2">
-          {specOutline(run.spec).join("\n") || "none"}
-        </pre>
+        <ScrollArea className="mt-2 rounded-md bg-muted">
+          <pre className="max-w-full p-2">
+            {specOutline(run.spec).join("\n") || "none"}
+          </pre>
+        </ScrollArea>
       </details>
     </article>
   );

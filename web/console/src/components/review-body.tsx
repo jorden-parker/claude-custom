@@ -34,6 +34,7 @@ import { tabFromHash, tabFromValue, type ReviewTab } from "@/lib/review-tab";
 import { verdictClass } from "@/lib/verdict-style";
 import { InlineMarkdown, MarkdownText } from "./markdown-text";
 import { ReviewTranscript } from "./review-transcript";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 type ReviewBodyProps = {
   state: ReviewState;
@@ -195,9 +196,11 @@ function FileTask({ file, status }: { file: FileView; status: ReviewState["heade
         {file.retries.map((reply, index) => (
           <div key={index} className="flex flex-col gap-1">
             <p className="text-xs text-muted-foreground">retried: the answer was not a JSON array</p>
-            <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-muted p-2 font-mono text-xs text-muted-foreground">
-              {reply}
-            </pre>
+            <ScrollArea className="rounded bg-muted" viewportClassName="max-h-48">
+              <pre className="max-w-full whitespace-pre-wrap break-words p-2 font-mono text-xs text-muted-foreground">
+                {reply}
+              </pre>
+            </ScrollArea>
           </div>
         ))}
         {file.check ? <CheckLine check={file.check} /> : null}
