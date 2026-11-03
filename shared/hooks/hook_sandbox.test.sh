@@ -77,6 +77,22 @@ check "home target is refused" "refused" "$(HOME="$fake_home" refusal_probe "$fa
 check "ancestor of home is refused" "refused" "$(HOME="$fake_home" refusal_probe "$scratch")"
 check "root is refused" "refused" "$(HOME="$fake_home" refusal_probe "/")"
 check "folder under home is confined" "confined" "$(HOME="$fake_home" refusal_probe "$fake_home/work")"
+for sensitive in "$fake_home/.ssh" "$fake_home/.config/x" "$fake_home/Library/Keychains" /System/x /Library/x /usr/local/x /bin /sbin /etc /private/etc/x /Applications/x /opt/homebrew/x; do
+  check "sensitive $sensitive is refused" "refused" "$(HOME="$fake_home" refusal_probe "$sensitive")"
+done
+mkdir -p "$fake_home/src/x"
+check "home src folder is confined" "confined" "$(HOME="$fake_home" refusal_probe "$fake_home/src/x")"
+check "temp folder is confined" "confined" "$(HOME="$fake_home" refusal_probe "$scratch/tempproj")"
+check "tmp folder is confined" "confined" "$(HOME="$fake_home" refusal_probe "/tmp/x")"
+check "work outside the target is refused" "refused" "$(CLAUDE_CUSTOM_HOOK_SANDBOX=1 HOOK_SANDBOX_PLATFORM=darwin CLAUDE_OLLAMA_SANDBOX_EXEC="$scratch/sandbox-exec" HOME="$fake_home" PYTHONPATH="$hooks_dir" python3 -c '
+import hook_sandbox
+try:
+    with hook_sandbox.confined(["echo"], "'"$fake_home"'/src/x", within="'"$fake_home"'/work") as (argv, env): print("confined")
+except hook_sandbox.RefusedTarget:
+    print("refused")')"
+check "work inside the target is confined" "confined" "$(CLAUDE_CUSTOM_HOOK_SANDBOX=1 HOOK_SANDBOX_PLATFORM=darwin CLAUDE_OLLAMA_SANDBOX_EXEC="$scratch/sandbox-exec" HOME="$fake_home" PYTHONPATH="$hooks_dir" python3 -c '
+import hook_sandbox
+with hook_sandbox.confined(["echo"], "'"$fake_home"'/src/x", within="'"$fake_home"'/src/x/sub") as (argv, env): print("confined")')"
 check "refusal is inactive without the switch" "confined" "$(CLAUDE_CUSTOM_HOOK_SANDBOX=0 HOME="$fake_home" PYTHONPATH="$hooks_dir" python3 -c 'import hook_sandbox
 with hook_sandbox.confined(["echo"], "/") as (argv, env): print("confined")')"
 

@@ -172,7 +172,28 @@ mkdir -p "$home_project/node_modules/.bin" "$home_project/src"
 printf '{}' > "$home_project/package.json"
 printf '#!/bin/sh\necho prettier-ran >> "%s/home-prettier.log"\nexit 1\n' "$sandbox" > "$home_project/node_modules/.bin/prettier"
 chmod +x "$home_project/node_modules/.bin/prettier"
-HOME="$home_project" expect allow 'package root at home is not checked' run_write "$home_project/src/broad.ts" $'export const broad = 1;\n'
+HOME="$home_project" expect deny 'package root at home is refused visibly' run_write "$home_project/src/broad.ts" $'export const broad = 1;\n'
+expect_stderr_has 'home-dir root names the refusal' "prettier not run: the project root $home_project is too broad for the hook sandbox"
+HOME="$home_project" expect deny 'refusal is not cached' run_write "$home_project/src/broad.ts" $'export const broad = 1;\n'
+ssh_project="$home_project/.ssh/app"
+mkdir -p "$ssh_project/node_modules/.bin" "$ssh_project/src"
+printf '{}' > "$ssh_project/package.json"
+cp "$home_project/node_modules/.bin/prettier" "$ssh_project/node_modules/.bin/prettier"
+HOME="$home_project" expect deny 'dot folder under home is refused' run_write "$ssh_project/src/a.ts" $'export const a = 1;\n'
+expect_stderr_has 'dot folder root names the refusal' "is too broad for the hook sandbox"
+rm -rf "$sandbox/cache" "$sandbox/sandbox-exec.log"
+planted="$sandbox/plant/app"
+other="$sandbox/plant/other"
+mkdir -p "$planted/node_modules/.bin" "$planted/src" "$planted/.git" "$other"
+printf '{}' > "$planted/package.json"
+printf '[core]\n\tworktree = %s\n' "$other" > "$planted/.git/config"
+printf 'ref: refs/heads/main\n' > "$planted/.git/HEAD"
+printf '#!/bin/sh\nexit 0\n' > "$planted/node_modules/.bin/prettier"
+chmod +x "$planted/node_modules/.bin/prettier"
+expect allow 'planted config write' run_write "$planted/src/a.ts" $'export const planted = 1;\n'
+grep -qF "TARGET_DIR=$planted " "$sandbox/sandbox-exec.log" 2>/dev/null || { echo "FAIL: planted repo not the sandbox target"; failures=$((failures + 1)); }
+if grep -qF "TARGET_DIR=$other" "$sandbox/sandbox-exec.log" 2>/dev/null; then echo "FAIL: planted core.worktree became the sandbox target"; failures=$((failures + 1)); fi
+rm -rf "$sandbox/cache" "$sandbox/sandbox-exec.log"
 [ ! -e "$sandbox/sandbox-exec.log" ] || { echo "FAIL: home-dir root ran through the sandbox"; failures=$((failures + 1)); }
 [ ! -e "$sandbox/home-prettier.log" ] || { echo "FAIL: home-dir root ran unconfined"; failures=$((failures + 1)); }
 git -C "$js_project" init -q

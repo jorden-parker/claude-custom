@@ -417,14 +417,20 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `shared/hooks/hook-sandbox.sb`: writes only to the project, temp and
   `~/.cache/claude-sandbox` (never the project's `.git` file or folder, the real
   git common dir, `.envrc`, `.vscode`, `.idea`, `.claude` or `.husky`; a project
-  root that is `/`, the home folder or an ancestor of it is refused:
-  `edit-check.py` skips the check and `stop-verify.py` reports
-  `verify not run: the project root <dir> is too broad for the hook sandbox`;
-  `edit-check.py` confines the git toplevel of the edited file), network only to
-  localhost, and a minimal environment (`PATH`, `HOME`, `USER`, `LOGNAME`,
-  `SHELL`, `TERM`, `LANG`, `LC_*`, `TMPDIR`, `CLAUDE_CUSTOM_HOME`; no tokens).
-  Fallow is never resolved from the project: it runs from a neutral folder with
-  `--root`. Tests: `shared/hooks/hook_sandbox.test.sh`.
+  root that is `/`, the home folder or an ancestor of it, a hidden folder or
+  `Library` directly under home, or under `/System`, `/Library`, `/usr`, `/bin`,
+  `/sbin`, `/etc`, `/private/etc`, `/Applications` or `/opt/homebrew`, or that
+  does not contain the working folder, is refused and reported, never skipped:
+  `edit-check.py` fails with
+  `<tool> not run: the project root <dir> is too broad for the hook sandbox`
+  (and caches nothing), `stop-verify.py` with `verify not run: ...` or
+  `fallow not run: ...`; `edit-check.py` picks the root by walking up from its
+  working folder to the first folder with a `.git` entry, stopping below the
+  home folder and never asking git, so a planted `.git/config` cannot move it),
+  network only to localhost, and a minimal environment (`PATH`, `HOME`, `USER`,
+  `LOGNAME`, `SHELL`, `TERM`, `LANG`, `LC_*`, `TMPDIR`, `CLAUDE_CUSTOM_HOME`; no
+  tokens). Fallow is never resolved from the project: it runs from a neutral
+  folder with `--root`. Tests: `shared/hooks/hook_sandbox.test.sh`.
 - `shared/hooks/tool-telemetry.py` is a `PostToolUse` hook on every tool. With
   `CLAUDE_TOOL_TELEMETRY=<file>` set it appends one JSON line per call (time,
   session, tool, bytes, lines, over the trim limit; never the tool input).

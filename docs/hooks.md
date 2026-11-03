@@ -30,10 +30,13 @@ that `edit-check.py` and `stop-verify.py` run is confined on macOS by
 `shared/hooks/hook-sandbox.sb`: writes only to the project, temp and
 `~/.cache/claude-sandbox` (not the project's `.git`, the real git common dir,
 `.envrc`, `.vscode`, `.idea`, `.claude` or `.husky`; a root that is `/`, the
-home folder or an ancestor of it is refused, so `edit-check.py` skips the check
-and `stop-verify.py` reports `verify not run`), no network but localhost, no
-credential reads and a minimal environment without tokens. Fallow is never taken
-from the project.
+home folder or an ancestor of it, a hidden folder or `Library` under home, a
+system folder (`/System`, `/Library`, `/usr`, `/bin`, `/sbin`, `/etc`,
+`/Applications`, `/opt/homebrew`) or does not contain the working folder is
+refused and reported as a failure, never skipped; `edit-check.py` takes the
+nearest folder with a `.git` entry above the file, without running git), no
+network but localhost, no credential reads and a minimal environment without
+tokens. Fallow is never taken from the project.
 
 To measure what tool calls return and which guards fire, read the telemetry log.
 A `claude-ollama` session records to

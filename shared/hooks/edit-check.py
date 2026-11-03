@@ -15,7 +15,6 @@ import hook_sandbox
 
 OUTPUT_LINE_LIMIT = 40
 CACHE_DIR = Path(os.environ.get("EDIT_CHECK_CACHE_DIR") or Path.home() / ".cache" / "claude-custom" / "edit-check")
-GIT_QUERY_TIMEOUT_SECONDS = 5
 CACHE_MAX_FILES = 500
 CACHE_MAX_AGE_SECONDS = 7 * 24 * 60 * 60
 EXTENSION_LANGUAGES = {
@@ -140,22 +139,23 @@ def remember_pass(path):
 
 
 def sandbox_target(cwd):
-    try:
-        result = subprocess.run(
-            ["git", "-C", str(cwd), "rev-parse", "--show-toplevel"],
-            capture_output=True, text=True, timeout=GIT_QUERY_TIMEOUT_SECONDS,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return cwd
-    return result.stdout.strip() if result.returncode == 0 and result.stdout.strip() else cwd
+    start = Path(os.path.realpath(cwd))
+    home = Path(os.path.realpath(Path.home()))
+    for directory in (start, *start.parents):
+        if directory == home:
+            break
+        if (directory / ".git").exists():
+            return directory
+    return start
 
 
 def run_check(command, cwd, output_means_failure, keep_line=None):
+    tool = Path(command[0]).name
     try:
-        with hook_sandbox.confined(command, sandbox_target(cwd)) as (argv, env):
+        with hook_sandbox.confined(command, sandbox_target(cwd), within=cwd) as (argv, env):
             result = subprocess.run(argv, cwd=cwd, env=env, capture_output=True, text=True)
-    except hook_sandbox.RefusedTarget:
-        return None
+    except hook_sandbox.RefusedTarget as refused:
+        return f"{tool} not run: {refused}"
     output = (result.stdout + result.stderr).strip()
     if keep_line:
         output = "\n".join(line for line in output.splitlines() if keep_line(line))
@@ -164,7 +164,6 @@ def run_check(command, cwd, output_means_failure, keep_line=None):
         failed = result.returncode != 0 or (output_means_failure and output)
     if not failed:
         return None
-    tool = Path(command[0]).name
     note = f"\n{hook_sandbox.NOTE}" if hook_sandbox.active() else ""
     return f"{tool}: $ {' '.join(command)}\n{first_lines(output)}{note}"
 

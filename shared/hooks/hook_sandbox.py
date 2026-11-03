@@ -40,10 +40,32 @@ def active():
     return enabled() and available()
 
 
+SYSTEM_PREFIXES = tuple(
+    Path(prefix)
+    for prefix in ("/System", "/Library", "/usr", "/bin", "/sbin", "/etc", "/private/etc", "/Applications", "/opt/homebrew")
+)
+SENSITIVE_HOME_FOLDERS = ("Library",)
+
+
+def is_within(path, ancestor):
+    return path == ancestor or ancestor in path.parents
+
+
 def is_too_broad(project_dir):
     target = Path(os.path.realpath(project_dir))
     home = Path(os.path.realpath(Path.home()))
-    return target == home or target in home.parents
+    if target == target.parent or is_within(home, target):
+        return True
+    if any(is_within(target, prefix) for prefix in SYSTEM_PREFIXES):
+        return True
+    if not is_within(target, home):
+        return False
+    first_folder = target.relative_to(home).parts[0]
+    return first_folder.startswith(".") or first_folder in SENSITIVE_HOME_FOLDERS
+
+
+def encloses(project_dir, work_path):
+    return is_within(Path(os.path.realpath(work_path)), Path(os.path.realpath(project_dir)))
 
 
 def real_git_dir(project_dir):
@@ -85,11 +107,11 @@ def confined_env(temp_dir):
 
 
 @contextlib.contextmanager
-def confined(argv, project_dir):
+def confined(argv, project_dir, within=None):
     if not active():
         yield list(argv), None
         return
-    if is_too_broad(project_dir):
+    if is_too_broad(project_dir) or (within is not None and not encloses(project_dir, within)):
         raise RefusedTarget(project_dir)
     with tempfile.TemporaryDirectory(prefix="hook-sandbox.") as raw_temp_dir:
         temp_dir = os.path.realpath(raw_temp_dir)

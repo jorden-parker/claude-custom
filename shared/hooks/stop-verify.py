@@ -185,8 +185,8 @@ def fallow_findings(command, root):
     try:
         with tempfile.TemporaryDirectory(prefix="stop-verify.") as neutral_dir, hook_sandbox.confined(command, root) as (argv, env):
             result = subprocess.run(argv, cwd=neutral_dir, env=env, capture_output=True, text=True)
-    except hook_sandbox.RefusedTarget:
-        return []
+    except hook_sandbox.RefusedTarget as refused:
+        return [f"fallow not run: {refused}"]
     report = parsed_report(result.stdout) if result.returncode else None
     if report is None:
         return []

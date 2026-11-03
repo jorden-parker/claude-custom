@@ -338,6 +338,10 @@ rm -f "$sandbox/sandbox-exec.log"
 HOME="$home_repo" run_hook "$home_repo"
 check 'home-dir root reports too broad'  grep -qF "verify not run: the project root $home_repo is too broad for the hook sandbox" "$sandbox/stderr"
 check 'home-dir root ran nothing'        test ! -e "$sandbox/sandbox-exec.log"
+printf '{}' > "$home_repo/package.json"
+record_edit "$home_repo/src/app.ts"
+HOME="$home_repo" expect block 'home-dir js root blocks' run_hook "$home_repo"
+check 'home-dir fallow reports too broad' grep -qF "fallow not run: the project root $home_repo is too broad for the hook sandbox" "$sandbox/stderr"
 unset CLAUDE_CUSTOM_HOOK_SANDBOX
 unset CLAUDE_OLLAMA_SANDBOX_EXEC HOOK_SANDBOX_PLATFORM CLAUDE_SANDBOX_CACHE_DIR
 
