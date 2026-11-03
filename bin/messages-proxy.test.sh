@@ -66,7 +66,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
         self.record(body)
-        if self.path != "/v1/messages":
+        if self.path.split("?", 1)[0] != "/v1/messages":
             self.send_error(404)
             return
         self.send_response(200)
@@ -458,6 +458,19 @@ for _ in $(seq 100); do
 done
 check "the proxy exits when the watched pid dies" sh -c "! kill -0 $proxy_pid 2>/dev/null"
 proxy_pid=""
+
+stop_upstream
+start_upstream
+beta_log="$run_dir/beta/requests.jsonl"
+python3 "$tmp/body.py" "Sunday 2026-11-01" "hello" > "$run_dir/beta.json"
+"$proxy" --upstream "$upstream_url" --port 0 --port-file "$run_dir/beta.port" --log "$beta_log" 2> "$run_dir/proxy.err" &
+proxy_pid=$!
+wait_for_file "$run_dir/beta.port"
+beta_status="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' --data-binary @"$run_dir/beta.json" "http://127.0.0.1:$(cat "$run_dir/beta.port")/v1/messages?beta=true")"
+check "Claude Code's ?beta=true messages call is forwarded" [ "$beta_status" = 200 ]
+check "Claude Code's ?beta=true messages call writes a log row" [ "$(wc -l < "$beta_log" 2>/dev/null | tr -d ' ')" = 1 ]
+check "the ?beta=true query reaches the upstream" [ "$(row_field "$(upstream_row 1)" .path)" = "/v1/messages?beta=true" ]
+stop_proxy
 
 if [ "$failures" -eq 0 ]; then
   echo "all passed"

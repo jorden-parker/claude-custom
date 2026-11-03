@@ -453,6 +453,9 @@ class ProxyHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         return
 
+    def route_path(self):
+        return self.path.split("?", 1)[0]
+
     def do_GET(self):
         self.handle_request()
 
@@ -482,14 +485,14 @@ class ProxyHandler(BaseHTTPRequestHandler):
         reason = refusal(self.headers)
         if reason:
             self.refuse(403, reason)
-        elif (self.command, self.path.split("?", 1)[0]) not in FORWARDED_ROUTES:
+        elif (self.command, self.route_path()) not in FORWARDED_ROUTES:
             self.refuse(404, "messages-proxy forwards only /v1/messages, /v1/models, /api/version and /api/tags")
         else:
             self.forward(body)
 
     def forward(self, body):
         request_id = None
-        if self.command == "POST" and self.path == MESSAGES_PATH:
+        if self.command == "POST" and self.route_path() == MESSAGES_PATH:
             request_id, body = observe_request(body, self.tracker, self.log, self.recorder, self.stabilizer)
         connection = http.client.HTTPConnection(self.upstream.hostname, self.upstream.port, timeout=UPSTREAM_TIMEOUT_SECONDS)
         try:
