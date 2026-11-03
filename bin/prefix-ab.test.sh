@@ -37,6 +37,8 @@ class Handler(BaseHTTPRequestHandler):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         with open(log_path, "a") as log:
             log.write(json.dumps(body, sort_keys=True) + "\n")
+        with open(log_path + ".meta", "a") as meta:
+            meta.write("\t".join([self.path, self.headers.get("x-api-key") or "", self.headers.get("authorization") or ""]) + "\n")
         if self.path == "/v1/messages":
             input_tokens, cached = pending.pop(0) if pending else [0, None]
             self.reply({"usage": {"input_tokens": input_tokens, "cache_read_input_tokens": cached, "output_tokens": 1}})
@@ -109,6 +111,7 @@ check() {
 
 has_row() { printf '%s\n' "$1" | grep -Eq -- "$2"; }
 request_at() { sed -n "${1}p" "$run_dir/requests.log"; }
+meta_at() { sed -n "${1}p" "$run_dir/requests.log.meta"; }
 request_count() { wc -l < "$run_dir/requests.log" | tr -d ' '; }
 system_texts_at() { request_at "$1" | jq -c '[.system[].text]'; }
 run_ab() { "$prefix_ab" --record "$tmp/record" --model qwen3.8-27b-cc --base-url "$base_url" "$@"; }
@@ -163,6 +166,32 @@ start_stub '{"responses": [[1000, null], [1010, null], [1020, null], [1000, null
 timed="$(run_ab 2>/dev/null)"
 check "without cached counts the basis is prefill time" has_row "$timed" "^hit % basis: prefill time per token vs the first request"
 check "without cached counts each later request still gets a number" has_row "$timed" "^aaa-second +-?[0-9]+\.[0-9] +-?[0-9]+\.[0-9]"
+
+first_responses='{"responses": [[1000, 0], [910, 100], [920, 100], [1000, 0], [110, 900], [70, 950]]}'
+
+start_stub "$first_responses"
+run_ab --unload llama-slots >/dev/null 2>&1
+check "--unload llama-slots erases slot 0 before the verbatim pass" [ "$(meta_at 1 | cut -f1)" = '/slots/0?action=erase' ]
+check "--unload llama-slots erases slot 0 before the stabilized pass" [ "$(meta_at 5 | cut -f1)" = '/slots/0?action=erase' ]
+check "--unload llama-slots sends the same number of requests" [ "$(request_count)" = 8 ]
+
+start_stub "$first_responses"
+run_ab --unload none >/dev/null 2>&1
+check "--unload none sends only the bodies" [ "$(request_count)" = 6 ]
+check "--unload none starts with a message" [ "$(meta_at 1 | cut -f1)" = '/v1/messages' ]
+
+start_stub "$first_responses"
+run_ab --auth-token bench-token >/dev/null 2>&1
+check "--auth-token is sent as x-api-key" [ "$(meta_at 2 | cut -f2)" = 'bench-token' ]
+check "--auth-token is sent as a bearer token" [ "$(meta_at 2 | cut -f3)" = 'Bearer bench-token' ]
+
+start_stub "$first_responses"
+run_ab >/dev/null 2>&1
+check "the default token is local" [ "$(meta_at 2 | cut -f2)" = 'local' ]
+
+bogus_status=0
+run_ab --unload bogus >/dev/null 2>&1 || bogus_status=$?
+check "a bad --unload value exits 2" [ "$bogus_status" -eq 2 ]
 
 mkdir "$tmp/empty"
 empty_status=0

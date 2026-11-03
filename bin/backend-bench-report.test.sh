@@ -177,12 +177,16 @@ write_done "$gguf" llama-server qwen3.6-35b 2.0 49.0 5
 write_done "$gguf" llama-server-mtp qwen3.6-35b 2.0 70.0 5 'AC Power' '{"active": true, "detail": "accepted 30 of 40 drafted tokens, acceptance 75%"}'
 with_weights "$gguf/llama-server--qwen3.6-35b.jsonl" qwen3.6-35b-gguf
 with_weights "$gguf/llama-server-mtp--qwen3.6-35b.jsonl" qwen3.6-35b-gguf-mtp
+echo '{"type": "replay", "requests": 30, "basis": "cached token count", "verbatim": 87.5, "stabilized": 88.0}' >>"$gguf/llama-server--qwen3.6-35b.jsonl"
+echo '{"type": "replay", "error": "prefix-ab failed; see the unit log"}' >>"$gguf/llama-server-mtp--qwen3.6-35b.jsonl"
 "$report" "$gguf" >/dev/null 2>&1
 page="$gguf/bench-off.html"
 check "llama-server columns follow the others" grep -qF '<th>ollama</th><th>llama-server</th><th>llama-server-mtp</th>' "$page"
 check "llama-server is a candidate against ollama" grep -qF '<p class="headline">Switch to llama.cpp' "$page"
 check "a llama-server column names its GGUF weights" grep -qF '<td>GGUF UD-Q4_K_XL</td>' "$page"
 check "a llama-server MTP column names its GGUF MTP weights" grep -qF '<td>GGUF UD-Q4_K_XL + MTP</td>' "$page"
+check "the replay row shows a value, none and a failure" \
+  grep -qF '<tr><td>Replay cache hit %</td><td>–</td><td>87.5 (30 requests)</td><td>failed</td></tr>' "$page"
 
 "$report" "$results" --output "$sandbox/custom.html" >/dev/null 2>&1
 check "--output picks the file" test -s "$sandbox/custom.html"

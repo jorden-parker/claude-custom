@@ -94,6 +94,7 @@ class Unit:
     error: str = ""
     log_tail: str = ""
     mtp: dict | None = None
+    replay: dict | None = None
 
 
 @dataclass
@@ -130,6 +131,8 @@ def apply_line(unit, line):
         unit.runs.append(line)
     elif kind == "tool_calls":
         unit.tool_calls = {"parsed": line["parsed"], "trials": line["trials"]}
+    elif kind == "replay":
+        unit.replay = line
     elif kind == "end":
         unit.status = line.get("status", FAILED)
         unit.peak_memory_gb = line.get("peak_memory_gb")
@@ -282,6 +285,16 @@ def status_cell(unit, plan):
 
 def tool_text(unit):
     return f"{unit.tool_calls['parsed']}/{unit.tool_calls['trials']}" if unit.tool_calls else "–"
+
+
+def replay_text(unit):
+    if unit.replay is None:
+        return NO_VALUE
+    if unit.replay.get("error"):
+        return "failed"
+    if unit.replay.get("verbatim") is None:
+        return NO_VALUE
+    return f"{unit.replay['verbatim']:.1f} ({unit.replay['requests']} requests)"
 
 
 def conditions_text(unit):
@@ -491,6 +504,7 @@ def render_model(model, units, plan):
     body.extend(render_row(row) for row in measurement_rows(units, plan))
     body.append(labelled_row("Decode vs MTP off", [cell("", decode_ratio(unit, units)) for unit in units]))
     body.append(labelled_row("Tool calls parsed", [cell("", tool_text(unit)) for unit in units]))
+    body.append(labelled_row("Replay cache hit %", [cell("", replay_text(unit)) for unit in units]))
     body.append(labelled_row("Conditions", [cell("", conditions_text(unit)) for unit in units]))
     body.append(labelled_row("Verdict", [verdict_cell(units, unit) for unit in units]))
     repo = html.escape(" · ".join(ordered_unique(unit.repo for unit in units if unit.repo)))

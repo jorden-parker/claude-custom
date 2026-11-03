@@ -16,6 +16,10 @@ PROXY_SCRIPT = REPO_DIR / "bin" / "messages-proxy"
 DEFAULT_BASE_URL = "http://localhost:11434"
 ANTHROPIC_VERSION = "2023-06-01"
 REPLAY_MAX_TOKENS = 1
+UNLOAD_OLLAMA = "ollama"
+UNLOAD_LLAMA_SLOTS = "llama-slots"
+UNLOAD_NONE = "none"
+DEFAULT_AUTH_TOKEN = "local"
 WORTH_IT_POINTS = 1.0
 BASIS_TOKEN_COUNT = "cached token count"
 BASIS_PREFILL_TIME = "prefill time per token vs the first request"
@@ -40,6 +44,8 @@ def parse_args(argv):
     parser.add_argument("--model", required=True)
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
     parser.add_argument("--limit", type=positive_int, help="replay only the first N bodies in ts order")
+    parser.add_argument("--unload", choices=[UNLOAD_OLLAMA, UNLOAD_LLAMA_SLOTS, UNLOAD_NONE], default=UNLOAD_OLLAMA, help="how to clear the server's prompt cache before each pass")
+    parser.add_argument("--auth-token", default=DEFAULT_AUTH_TOKEN)
     parser.add_argument("--json", action="store_true")
     return parser.parse_args(argv)
 
@@ -79,17 +85,24 @@ def post_json(base_url, path, payload, headers=None):
         return json.loads(response.read())
 
 
-def unload_model(base_url, model):
-    post_json(base_url, "/api/chat", {"model": model, "messages": [], "keep_alive": 0})
+def clear_cache(base_url, model, unload_kind):
+    if unload_kind == UNLOAD_OLLAMA:
+        post_json(base_url, "/api/chat", {"model": model, "messages": [], "keep_alive": 0})
+    elif unload_kind == UNLOAD_LLAMA_SLOTS:
+        post_json(base_url, "/slots/0?action=erase", {})
+
+
+def request_headers(auth_token):
+    return {"anthropic-version": ANTHROPIC_VERSION, "x-api-key": auth_token, "authorization": f"Bearer {auth_token}"}
 
 
 def replay_request(body, model):
     return {**body, "model": model, "stream": False, "max_tokens": REPLAY_MAX_TOKENS, "temperature": 0}
 
 
-def send_replay(base_url, body):
+def send_replay(base_url, body, auth_token):
     started = time.monotonic()
-    response = post_json(base_url, "/v1/messages", body, {"anthropic-version": ANTHROPIC_VERSION, "x-api-key": "local"})
+    response = post_json(base_url, "/v1/messages", body, request_headers(auth_token))
     usage = response.get("usage") or {}
     return {
         "prompt_tokens": usage.get("input_tokens", 0) + (usage.get("cache_read_input_tokens") or 0),
@@ -122,13 +135,13 @@ def cold_rate_of(measured):
     return measured["prefill_seconds"] / measured["prompt_tokens"] if measured["prompt_tokens"] else 0.0
 
 
-def replay_pass(base_url, model, name, bodies, paths):
-    unload_model(base_url, model)
+def replay_pass(args, name, bodies, paths):
+    clear_cache(args.base_url, args.model, args.unload)
     rows = []
     cold_rate = 0.0
     for index, (path, body) in enumerate(zip(paths, bodies), 1):
         print(f"[{name} {index}/{len(paths)}] {path.stem}: sending...", file=sys.stderr, flush=True)
-        measured = send_replay(base_url, replay_request(body, model))
+        measured = send_replay(args.base_url, replay_request(body, args.model), args.auth_token)
         if index == 1:
             cold_rate = cold_rate_of(measured)
         measured["hit_percent"] = None if index == 1 else hit_percent(measured, cold_rate)
@@ -165,8 +178,8 @@ def request_rows(paths, verbatim, stabilized):
 def compare(args, proxy):
     paths = recorded_paths(args.record, args.limit)
     bodies = [recorded_body(path) for path in paths]
-    verbatim = replay_pass(args.base_url, args.model, PASS_VERBATIM, bodies, paths)
-    stabilized = replay_pass(args.base_url, args.model, PASS_STABILIZED, proxy.stabilize_bodies(bodies), paths)
+    verbatim = replay_pass(args, PASS_VERBATIM, bodies, paths)
+    stabilized = replay_pass(args, PASS_STABILIZED, proxy.stabilize_bodies(bodies), paths)
     verbatim_mean, stabilized_mean = mean_hit(verbatim), mean_hit(stabilized)
     gain = stabilized_mean - verbatim_mean
     return {

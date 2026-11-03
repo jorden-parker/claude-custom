@@ -43,6 +43,14 @@ esac
 EOF
 chmod +x "$sandbox/repo/bin/messages-bench"
 
+cat >"$sandbox/repo/bin/prefix-ab" <<EOF
+#!/bin/sh
+echo "\$*" >> "$logs/prefix-ab.log"
+[ -n "\${STUB_PREFIX_AB_FAIL:-}" ] && exit 1
+echo '{"requests": [{}, {}, {}], "basis": "cached token count", "mean": {"verbatim": 87.5, "stabilized": 88.0}}'
+EOF
+chmod +x "$sandbox/repo/bin/prefix-ab"
+
 cat >"$sandbox/repo/bin/extract-mtp-weights" <<EOF
 #!/bin/sh
 echo "\$*" >> "$logs/extract.log"
@@ -141,6 +149,7 @@ export PATH="$sandbox/stubbin:$PATH"
 export BENCH_MODELS="$sandbox/models"
 export BENCH_RESULTS="$sandbox/results"
 export BENCH_COOLDOWN=0
+export BENCH_REPLAY_DIR="$sandbox/no-record"
 unset OLLAMA_HOST VLLM_MLX_EXTRA_ARGS
 
 run() {
@@ -295,6 +304,31 @@ check "llama-server without its GGUF says to download" end_mentions "$BENCH_RESU
 run run ollama qwen3.6-35b
 check "an MLX run does not need the GGUF weights" test "$?" -eq 0
 run download
+
+mkdir -p "$sandbox/record"
+echo '{}' >"$sandbox/record/a.json"
+: >"$logs/prefix-ab.log"
+BENCH_REPLAY_DIR="$sandbox/record" run run llama-server qwen3.6-35b
+check "a replay run exits 0" test "$?" -eq 0
+check "llama-server replays the recorded bodies and clears its slots" \
+  grep -qxF -- "--record $sandbox/record --model qwen3.6-35b-gguf --base-url http://127.0.0.1:8300 --auth-token local --unload llama-slots --limit 30 --json" "$logs/prefix-ab.log"
+check "the unit file records the replay" \
+  test "$(line_of "$BENCH_RESULTS/llama-server--qwen3.6-35b.jsonl" replay | jq -c '[.requests, .verbatim + 0, .stabilized + 0, .basis]')" = '[3,87.5,88,"cached token count"]'
+BENCH_REPLAY_DIR="$sandbox/record" run run ollama qwen3.6-35b
+check "ollama replays with its unload" \
+  grep -qF -- "--model bench-qwen3.6-35b --base-url http://localhost:11434 --auth-token ollama --unload ollama --limit 30 --json" "$logs/prefix-ab.log"
+BENCH_REPLAY_DIR="$sandbox/record" run run omlx qwen3.6-35b
+check "omlx replays without an unload" grep -qF -- "--auth-token local-bench --unload none" "$logs/prefix-ab.log"
+BENCH_REPLAY_DIR="$sandbox/record" STUB_PREFIX_AB_FAIL=1 run run llama-server qwen3.6-35b
+check "a failed replay still exits 0" test "$?" -eq 0
+check "a failed replay leaves the unit done" test "$(line_of "$BENCH_RESULTS/llama-server--qwen3.6-35b.jsonl" end | jq -r .status)" = "done"
+check "a failed replay is recorded as an error" \
+  test "$(line_of "$BENCH_RESULTS/llama-server--qwen3.6-35b.jsonl" replay | jq -r '.error | contains("prefix-ab failed")')" = true
+: >"$logs/prefix-ab.log"
+BENCH_REPLAY_DIR="" run run llama-server qwen3.6-35b
+check "an empty BENCH_REPLAY_DIR turns the replay off" test ! -s "$logs/prefix-ab.log"
+BENCH_REPLAY_LIMIT=5 BENCH_REPLAY_DIR="$sandbox/record" run run llama-server qwen3.6-35b
+check "BENCH_REPLAY_LIMIT sets the limit" test "$(tail -n 1 "$logs/prefix-ab.log" | grep -c -- '--limit 5 --json')" -eq 1
 
 "$script" --help >"$sandbox/help"
 check "help lists the MTP subcommands" test "$(grep -cE '^  (ollama-mtp|omlx-mtp|vllm-mlx-mtp|llama-server-mtp) ' "$sandbox/help")" -eq 4

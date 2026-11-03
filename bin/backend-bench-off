@@ -12,6 +12,8 @@ vllm_port="${BENCH_VLLM_PORT:-8200}"
 llama_port="${BENCH_LLAMA_PORT:-8300}"
 server_timeout="${BENCH_SERVER_TIMEOUT:-900}"
 cooldown_seconds="${BENCH_COOLDOWN:-60}"
+replay_dir="${BENCH_REPLAY_DIR-$HOME/.claude-ollama/proxy/record}"
+replay_limit="${BENCH_REPLAY_LIMIT:-30}"
 refresh_seconds=5
 omlx_service_port=8000
 omlx_api_key=local-bench
@@ -69,7 +71,8 @@ Models: $(bench_models)
 Environment: BENCH_MODELS, BENCH_RESULTS, BENCH_COOLDOWN (seconds between runs,
 $cooldown_seconds), BENCH_OMLX_PORT ($omlx_port), BENCH_VLLM_PORT ($vllm_port),
 BENCH_LLAMA_PORT ($llama_port), BENCH_SERVER_TIMEOUT ($server_timeout),
-VLLM_MLX_EXTRA_ARGS, LLAMA_SERVER_EXTRA_ARGS
+BENCH_REPLAY_DIR (recorded bodies replayed through prefix-ab, empty turns it off,
+$replay_dir), BENCH_REPLAY_LIMIT ($replay_limit), VLLM_MLX_EXTRA_ARGS, LLAMA_SERVER_EXTRA_ARGS
 EOF
 }
 
@@ -409,8 +412,29 @@ finish_unit() {
   exit "$status"
 }
 
+has_replay_bodies() {
+  local body
+  [ -n "$replay_dir" ] || return 1
+  for body in "$replay_dir"/*.json; do
+    [ -f "$body" ] && return 0
+  done
+  return 1
+}
+
+replay_sessions() {
+  local url="$1" model_id="$2" token="$3" unload_kind="$4" report
+  has_replay_bodies || return 0
+  step "replaying recorded sessions"
+  if report="$("$repo_dir/bin/prefix-ab" --record "$replay_dir" --model "$model_id" --base-url "$url" \
+    --auth-token "$token" --unload "$unload_kind" --limit "$replay_limit" --json 2>>"$unit_log")" &&
+    printf '%s\n' "$report" | jq -c '{type: "replay", requests: (.requests | length), basis: .basis, verbatim: .mean.verbatim, stabilized: .mean.stabilized}' >>"$unit_file" 2>>"$unit_log"; then
+    return 0
+  fi
+  echo '{"type": "replay", "error": "prefix-ab failed; see the unit log"}' >>"$unit_file"
+}
+
 measure() {
-  local url="$1" model_id="$2" token="$3"
+  local url="$1" model_id="$2" token="$3" unload_kind="$4"
   step "loading the model with a short warm-up request"
   "$repo_dir/bin/messages-bench" --base-url "$url" --model "$model_id" --auth-token "$token" \
     --prefix-tokens "$warmup_prefix_tokens" --tool-trials 0 --json >/dev/null 2>>"$unit_log"
@@ -419,6 +443,7 @@ measure() {
   "$repo_dir/bin/messages-bench" --base-url "$url" --model "$model_id" --auth-token "$token" \
     --prefix-tokens "${prefix_tokens[@]}" --tool-trials "$tool_trials" --jsonl >>"$unit_file" 2>>"$unit_log"
   unit_peak="$(stop_sampler)"
+  replay_sessions "$url" "$model_id" "$token" "$unload_kind"
 }
 
 ollama_modelfile() {
@@ -444,7 +469,7 @@ bench_ollama_unit() {
   curl -sf -m 2 "$ollama_url/api/version" >/dev/null 2>&1 ||
     die "Ollama not reachable at $ollama_url (brew services start ollama)"
   ensure_ollama_model
-  measure "$ollama_url" "bench-$unit_weights" ollama
+  measure "$ollama_url" "bench-$unit_weights" ollama ollama
   if is_mtp_server "$unit_server"; then
     unit_mtp="$(jq -c -n --arg detail "draft_num_predict $ollama_draft_tokens; Ollama exposes no acceptance count" \
       '{active: null, detail: $detail}')"
@@ -487,7 +512,7 @@ bench_omlx_unit() {
     omlx_set_mtp true
     omlx_mtp_on=1
   fi
-  measure "$url" "$unit_weights" "$omlx_api_key"
+  measure "$url" "$unit_weights" "$omlx_api_key" none
   if is_mtp_server "$unit_server"; then
     unit_mtp="$(omlx_mtp_status)"
   fi
@@ -521,7 +546,7 @@ bench_vllm_mlx_unit() {
   start_server vllm-mlx serve "$models_dir/$unit_weights" --host 127.0.0.1 --port "$vllm_port" \
     --served-model-name "$unit_weights" "${vllm_args[@]}" ${mtp_args[@]+"${mtp_args[@]}"} ${extra[@]+"${extra[@]}"}
   wait_for_server "$url" local
-  measure "$url" "$unit_weights" local
+  measure "$url" "$unit_weights" local none
   if is_mtp_server "$unit_server"; then
     unit_mtp="$(vllm_mtp_status "$url")"
   fi
@@ -560,7 +585,7 @@ bench_llama_unit() {
   start_server llama-server -m "$models_dir/$unit_weights/$(gguf_main_file "$unit_weights")" --alias "$unit_weights" \
     --host 127.0.0.1 --port "$llama_port" "${llama_args[@]}" ${mtp_args[@]+"${mtp_args[@]}"} ${extra[@]+"${extra[@]}"}
   wait_for_server "$url" local
-  measure "$url" "$unit_weights" local
+  measure "$url" "$unit_weights" local llama-slots
   if is_mtp_server "$unit_server"; then
     unit_mtp="$(llama_mtp_status)"
   fi
