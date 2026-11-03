@@ -5,6 +5,8 @@ import sys
 import time
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import hook_state
 from hook_telemetry import record_hook_event
 from profile_env import catalogue_default
 
@@ -14,14 +16,6 @@ HANDOFF_NUDGE = (
     "then call the handoff skill with the argument save through the Skill tool (skill: handoff, args: save), "
     "then stop and tell the user a relaunch is coming: the launcher restarts claude on that note."
 )
-
-
-def claude_config_dir():
-    return Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
-
-
-def state_path(session_id):
-    return claude_config_dir() / "cache" / "context-budget" / f"{session_id}.json"
 
 
 def positive_int(text):
@@ -73,15 +67,16 @@ def nudge_reply(percent, max_tokens):
 
 
 def record_nudge(path, percent):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"nudged_at": time.time(), "percent": percent}))
+    hook_state.prune("context-budget")
+    with hook_state.update_state(path, {}) as state:
+        state.update({"nudged_at": time.time(), "percent": percent})
 
 
 def main():
     event = json.load(sys.stdin)
     if event.get("hook_event_name") != "PostToolUse":
         return
-    path = state_path(event.get("session_id", "nosession"))
+    path = hook_state.state_path("context-budget", event.get("session_id", "nosession"))
     if path.exists():
         return
     percent, max_tokens = percent_used(event)

@@ -133,6 +133,15 @@ if [ "$got" != deny ]; then
   failures=$((failures + 1))
 fi
 
+stale_session="$CLAUDE_CONFIG_DIR/cache/tdd-guard/stale.json"
+printf '{}' > "$stale_session"
+touch -t 202001010000 "$stale_session"
+after_bash "echo hi" fresh
+if [ -e "$stale_session" ]; then
+  echo "FAIL: a new session's first event prunes week-old state"
+  failures=$((failures + 1))
+fi
+
 if printf 'not json' | python3 "$guard"; then :; else
   echo "FAIL: bad input must exit 0"
   failures=$((failures + 1))

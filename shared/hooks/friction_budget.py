@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import copy
 import hashlib
 import json
 import os
@@ -7,6 +8,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import hook_state
 from hook_telemetry import record_hook_event
 from recovery_recipes import recovery_line
 
@@ -20,20 +22,7 @@ EMPTY_STATE = {"denials": {}, "calls": {}, "call_count": 0}
 
 
 def _state_path(session_id):
-    config_dir = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
-    return config_dir / "cache" / "friction" / f"{session_id or 'nosession'}.json"
-
-
-def _load_state(path):
-    try:
-        return {**EMPTY_STATE, **json.loads(path.read_text())}
-    except (OSError, ValueError):
-        return json.loads(json.dumps(EMPTY_STATE))
-
-
-def _save_state(path, state):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(state))
+    return hook_state.state_path("friction", session_id)
 
 
 def call_snapshot_dir(session_id):
@@ -42,24 +31,25 @@ def call_snapshot_dir(session_id):
 
 
 def record_call(session_id, key, entry):
-    path = _state_path(session_id)
-    state = _load_state(path)
-    state["call_count"] += 1
-    state["calls"][key] = {**entry, "number": state["call_count"]}
-    _save_state(path, state)
-    return state["call_count"]
+    with hook_state.update_state(_state_path(session_id), EMPTY_STATE) as state:
+        state["call_count"] += 1
+        state["calls"][key] = {**entry, "number": state["call_count"]}
+        return state["call_count"]
 
 
 def lookup_call(session_id, key):
-    return _load_state(_state_path(session_id))["calls"].get(key)
+    return hook_state.read_state(_state_path(session_id), EMPTY_STATE)["calls"].get(key)
 
 
 def recorded_calls(session_id):
-    return list(_load_state(_state_path(session_id))["calls"].values())
+    return list(hook_state.read_state(_state_path(session_id), EMPTY_STATE)["calls"].values())
 
 
 def reset(session_id):
-    _save_state(_state_path(session_id), json.loads(json.dumps(EMPTY_STATE)))
+    hook_state.prune("friction")
+    with hook_state.update_state(_state_path(session_id), EMPTY_STATE) as state:
+        state.clear()
+        state.update(copy.deepcopy(EMPTY_STATE))
 
 
 def enabled(path):
@@ -119,10 +109,9 @@ def deny_reason(hook, event, reason, alternative):
     tool_name = event.get("tool_name", "")
     tool_input = event.get("tool_input") or {}
     key = f"{hook}|{tool_name}|{fingerprint(tool_name, tool_input)}"
-    state = _load_state(path)
-    count = state["denials"].get(key, 0) + 1
-    state["denials"][key] = count
-    _save_state(path, state)
+    with hook_state.update_state(path, EMPTY_STATE) as state:
+        count = state["denials"].get(key, 0) + 1
+        state["denials"][key] = count
     if count <= PLAIN_DENIALS:
         return reason
     trip = f"plan reset after {count} near-identical {tool_name} denials"

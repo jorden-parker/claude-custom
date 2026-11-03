@@ -6,28 +6,28 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import hook_state
+
 INCIDENTS_FILE_VARIABLE = "CLAUDE_OLLAMA_INCIDENTS_FILE"
 CAUSE_ORDER = ("aborted", "evicted", "truncated", "reprefilled", "compacted", "relaunched", "unknown")
 
 
-def claude_config_dir():
-    return Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
-
-
-def state_path(session_id):
-    return claude_config_dir() / "cache" / "incident-note" / f"{session_id}.json"
-
-
-def reported_count(path):
+def reported_count(state):
     try:
-        return int(json.loads(path.read_text())["reported"])
-    except (OSError, ValueError, KeyError, TypeError):
+        return int(state["reported"])
+    except (ValueError, TypeError):
         return 0
 
 
-def save_reported_count(path, count):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"reported": count}))
+def claim_unreported(path, total):
+    if not path.exists():
+        hook_state.prune("incident-note")
+    with hook_state.update_state(path, {"reported": 0}) as state:
+        if total <= reported_count(state):
+            return False
+        state["reported"] = total
+        return True
 
 
 def read_incidents(path):
@@ -121,10 +121,9 @@ def main():
     if not incidents_file:
         return
     incidents = read_incidents(incidents_file)
-    path = state_path(event.get("session_id", "nosession"))
-    if len(incidents) <= reported_count(path):
+    path = hook_state.state_path("incident-note", event.get("session_id", "nosession"))
+    if not claim_unreported(path, len(incidents)):
         return
-    save_reported_count(path, len(incidents))
     print(json.dumps(reply(note(incidents))))
 
 

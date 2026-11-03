@@ -140,6 +140,12 @@ expect_eq "a new turn forgets recorded calls" null "$(call_cache lookup c1 Read:
 expect_eq "a new turn restarts the numbering" 1 "$(call_cache record c1 Read:a '{"tag":"a"}')"
 
 expect_eq "prompt submit prints nothing" "" "$(new_turn s3)"
+new_turn sparallel
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  deny_via sparallel bash-output-guard "alt" Bash '{"command": "git log"}' "r" > /dev/null &
+done
+wait
+expect_eq "ten parallel denials of one key count ten" 10 "$(python3 -c "import json,sys; print(sum(json.load(open(sys.argv[1]))['denials'].values()))" "$CLAUDE_CONFIG_DIR/cache/friction/sparallel.json")"
 if printf 'not json' | python3 "$budget"; then :; else
   echo "FAIL: bad input must exit 0"
   failures=$((failures + 1))

@@ -625,15 +625,18 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `shared/hooks/test-after-edit.test.sh`, `shared/hooks/test_scope.test.sh`.
 - `shared/hooks/friction_budget.py` is the friction budget the efficiency guards
   share (`bash-output-guard.py`, `read-range-guard.py`; never the safety guards
-  or `tdd-guard.py`, which has its own strikes). Each of them passes its denial
-  through `deny_reason(hook, event, reason, alternative)`, which keys it by
-  hook, tool and a fingerprint (Bash: the command minus digits, quoted strings
-  and each path's last segment; Read: the path plus a 300-line bucket of
-  `offset` and `limit`; otherwise the sorted input JSON) and counts it in
-  `${CLAUDE_CONFIG_DIR:-~/.claude}/cache/friction/<session_id>.json`. The first
-  three denials of one fingerprint keep their reason; the fourth and later get a
-  plan reset instead (one line naming what the model keeps trying, the hook's
-  one allowed alternative, and an order to stop retrying) and write a
+  or `tdd-guard.py`, which has its own strikes). Per-session hook state (this
+  file and the ones `tdd-guard.py`, `rule-cards.py`, `context-budget.py`,
+  `handoff-relaunch.py` and `incident-note.py` keep) goes through
+  `shared/hooks/hook_state.py` (locked, atomic, pruned after 7 days). Each of
+  them passes its denial through `deny_reason(hook, event, reason, alternative)`,
+  which keys it by hook, tool and a fingerprint (Bash: the command minus digits,
+  quoted strings and each path's last segment; Read: the path plus a 300-line
+  bucket of `offset` and `limit`; otherwise the sorted input JSON) and counts it
+  in `${CLAUDE_CONFIG_DIR:-~/.claude}/cache/friction/<session_id>.json`. The
+  first three denials of one fingerprint keep their reason; the fourth and later
+  get a plan reset instead (one line naming what the model keeps trying, the
+  hook's one allowed alternative, and an order to stop retrying) and write a
   `"kind": "friction"` telemetry line with the fingerprint's hash, never the
   command. As a UserPromptSubmit hook (Ollama-only, in
   `ollama/hooks.extra.json`) it resets that file each turn; without that reset

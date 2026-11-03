@@ -139,6 +139,10 @@ expect_eq "a missing transcript gives an empty prompt" "exit 0" "$(jq -cn --arg 
 expect_eq "the sentinel prompt is empty without a transcript" "" "$(sentinel_field prompt)"
 rm -f "$relaunch_dir/relaunch"
 
+nudged_state s10 "$(($(date +%s) - 60))"
+jq -cn --arg cwd "$repo" '{session_id: "s10", hook_event_name: "Stop", cwd: $cwd}' | CLAUDE_OLLAMA_RELAUNCH_DIR="$sandbox/no-such-folder" python3 "$hook" 2>/dev/null
+expect_eq "a request into a missing relaunch folder leaves relaunched unset" null "$(jq .relaunched "$state_dir/s10.json")"
+
 expect_eq "--inspect prints the prompt it would pick" "Fix the failing launcher test" "$(python3 "$hook" --inspect "$transcript")"
 long_prompt="$(printf 'word %.0s' $(seq 60))"
 printf '{"type":"user","message":{"role":"user","content":"%s"}}\n' "$long_prompt" > "$sandbox/long.jsonl"

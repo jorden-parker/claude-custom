@@ -59,7 +59,7 @@ expect_eq "a missing transcript prints nothing" "" "$(CLAUDE_CODE_MAX_CONTEXT_TO
 
 catalogue_repo="$sandbox/repo"
 mkdir -p "$catalogue_repo/shared/hooks"
-cp "$(dirname "$hook")"/context-budget.py "$(dirname "$hook")"/hook_telemetry.py "$(dirname "$hook")"/profile_env.py "$catalogue_repo/shared/hooks/"
+cp "$(dirname "$hook")"/context-budget.py "$(dirname "$hook")"/hook_telemetry.py "$(dirname "$hook")"/profile_env.py "$(dirname "$hook")"/hook_state.py "$catalogue_repo/shared/hooks/"
 printf '%s' '[{"key":"CLAUDE_OLLAMA_HANDOFF_PCT","kind":"integer","default":"40"}]' > "$catalogue_repo/shared/profile-env.json"
 expect_eq "without the variable the threshold is the catalogue's default" yes \
   "$(mentions "$(hook="$catalogue_repo/shared/hooks/context-budget.py" CLAUDE_CODE_MAX_CONTEXT_TOKENS=65536 reply_for s6 "$under")" 'handoff')"
@@ -68,7 +68,13 @@ state="$HOME/.claude/cache/context-budget/s1.json"
 expect_eq "the nudge is recorded in the session's state file" yes "$(mentions "$(cat "$state" 2>/dev/null)" '"nudged_at"')"
 expect_eq "no state file is written without a nudge" no "$(test -e "$HOME/.claude/cache/context-budget/s2.json" && echo yes || echo no)"
 
-expect_eq "each of the three nudges logs one budget telemetry line" 3 "$(grep -c '"kind": "budget"' "$CLAUDE_TOOL_TELEMETRY")"
+stale_state="$HOME/.claude/cache/context-budget/stale.json"
+printf '{}' > "$stale_state"
+touch -t 202001010000 "$stale_state"
+CLAUDE_CODE_MAX_CONTEXT_TOKENS=65536 reply_for sprune "$(transcript_with 60000)" > /dev/null
+expect_eq "a session's first nudge prunes week-old state" no "$(test -e "$stale_state" && echo yes || echo no)"
+
+expect_eq "each of the four nudges logs one budget telemetry line" 4 "$(grep -c '"kind": "budget"' "$CLAUDE_TOOL_TELEMETRY")"
 expect_eq "the telemetry line names the hook" yes "$(mentions "$(cat "$CLAUDE_TOOL_TELEMETRY")" '"hook": "context-budget"')"
 
 if [ "$failures" -eq 0 ]; then

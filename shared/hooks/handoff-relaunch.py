@@ -6,27 +6,13 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import hook_state
 from relaunch_dir import RelaunchDir
 
 PROMPT_LIMIT = 200
 SKIPPED_PROMPT_STARTS = ("/", "<system-reminder>", "<local-command")
 BLOCK_REASON = "Context budget at {percent}%: call the handoff skill with save now, then stop."
-
-
-def claude_config_dir():
-    return Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
-
-
-def state_path(session_id):
-    return claude_config_dir() / "cache" / "context-budget" / f"{session_id}.json"
-
-
-def load_state(path):
-    try:
-        state = json.loads(path.read_text())
-    except (OSError, ValueError):
-        return None
-    return state if isinstance(state, dict) else None
 
 
 def handoff_notes_dir(cwd):
@@ -117,23 +103,29 @@ def may_block(event, state):
 
 
 def block_for_save(path, state):
-    path.write_text(json.dumps({**state, "blocked_once": True}))
+    with hook_state.update_state(path, {}) as stored:
+        stored["blocked_once"] = True
     reason = BLOCK_REASON.format(percent=state.get("percent", "?"))
     print(json.dumps({"decision": "block", "reason": reason}))
 
 
+def mark_relaunched(path):
+    with hook_state.update_state(path, {}) as stored:
+        stored["relaunched"] = True
+
+
 def relaunch(event, folder):
-    path = state_path(event.get("session_id", "nosession"))
-    state = load_state(path)
-    if not state or "nudged_at" not in state or state.get("relaunched"):
+    path = hook_state.state_path("context-budget", event.get("session_id", "nosession"))
+    state = hook_state.read_state(path, {})
+    if "nudged_at" not in state or state.get("relaunched"):
         return
     note = fresh_note(event, state)
     if note is None:
         if may_block(event, state):
             block_for_save(path, state)
         return
-    path.write_text(json.dumps({**state, "relaunched": True}))
     request_relaunch(folder, note, event, state)
+    mark_relaunched(path)
     folder.terminate_claude()
 
 
