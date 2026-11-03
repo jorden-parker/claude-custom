@@ -512,8 +512,18 @@ ctx7_home_writable() {
   mkdir -p "$1/npm-cache" 2>/dev/null && : > "$1/npm-cache/.writable" 2>/dev/null
 }
 
+redact_secrets() {
+  sed -E \
+    -e 's#(://)[^/@[:space:]]*@#\1#g' \
+    -e 's#_authToken=[^[:space:]]+#_authToken=<redacted>#g' \
+    -e 's#Bearer [^[:space:]]+#Bearer <redacted>#g' \
+    -e 's#sk-[A-Za-z0-9_-]{8,}#<redacted>#g' \
+    -e 's#ghp_[A-Za-z0-9]{8,}#<redacted>#g' \
+    -e 's#(^|[^A-Za-z0-9+=_-])[A-Za-z0-9+=_-]{40,}#\1<redacted>#g'
+}
+
 ctx7_registry() {
-  (cd "$1" && npm config get registry 2>/dev/null | sed -E 's#(://)[^/@]*@#\1#') || echo "an unknown registry"
+  (cd "$1" && npm config get registry 2>/dev/null | redact_secrets) || echo "an unknown registry"
 }
 
 explain_ctx7_failure() {
@@ -523,13 +533,15 @@ explain_ctx7_failure() {
 }
 
 run_pinned_ctx7() {
-  local prefix="$1" output status
+  local prefix="$1" output errors status
   shift
   output="$(mktemp "${TMPDIR:-/tmp}/claude-custom-ctx7-out.XXXXXX")" || return 1
-  (cd "$prefix" && npx --yes --prefix="$prefix" "$@") > "$output"
+  errors="$(mktemp "${TMPDIR:-/tmp}/claude-custom-ctx7-err.XXXXXX")" || { rm -f "$output"; return 1; }
+  (cd "$prefix" && npx --yes --prefix="$prefix" "$@") > "$output" 2> "$errors"
   status=$?
   head -n 80 "$output"
-  rm -f "$output"
+  redact_secrets < "$errors" >&2
+  rm -f "$output" "$errors"
   [ "$status" -eq 0 ] || explain_ctx7_failure "$prefix" "$status"
   return "$status"
 }

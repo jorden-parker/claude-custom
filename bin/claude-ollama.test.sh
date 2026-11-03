@@ -637,6 +637,25 @@ run_capture env XDG_CACHE_HOME="$sandbox/elsewhere" "$sandbox/repo/bin/claude-cu
 check_that "the failure line drops any user and token the registry URL carries" \
   grep -qF "could not fetch ctx7@0.8.2 from https://npm.example.test/api/npm/ (exit 1)" "$sandbox/err"
 check_not "the registry's token never reaches the output" grep -qF "s3cret-token" "$sandbox/err"
+cat > "$sandbox/stubbin/npx" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" > "$sandbox/npx-args"
+echo "npm error code E401" >&2
+echo "npm error 401 Unauthorized - GET https://deploy:s3cret-token@npm.example.test/ctx7" >&2
+echo "npm error config //npm.example.test/:_authToken=npm_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789" >&2
+echo "npm error header authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJkZXBsb3kifQ.signature" >&2
+echo "npm error ghp_fixture0123456 in the log" >&2
+exit 1
+EOF
+run_capture env XDG_CACHE_HOME="$sandbox/elsewhere" "$sandbox/repo/bin/claude-custom" ctx7 library next "server actions"
+check_that "npm's own error lines still name the code" grep -qF "npm error code E401" "$sandbox/err"
+check_that "npm's own URL loses its user and token" grep -qF "GET https://npm.example.test/ctx7" "$sandbox/err"
+check_that "an auth token line in npm's output is masked" grep -qF "_authToken=<redacted>" "$sandbox/err"
+check_that "a bearer header in npm's output is masked" grep -qF "Bearer <redacted>" "$sandbox/err"
+check_that "a GitHub token in npm's output is masked" grep -qF "<redacted> in the log" "$sandbox/err"
+for secret in s3cret-token npm_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789 eyJhbGciOiJIUzI1NiJ9 ghp_fixture0123456; do
+  check_not "no secret from npm's output reaches the model: $secret" grep -qF "$secret" "$sandbox/err"
+done
 (cd "$sandbox/repo" && HOME="$sandbox/sealed-home" TMPDIR="$sandbox/tmp" run_capture "$sandbox/repo/bin/claude-custom" ctx7 library react hooks)
 check_eq "a failed ctx7 fetch from the temp folder keeps npx's exit status too" 1 "$?"
 check_not "the temp folder is removed after a failure as well" test -d "$(sed -n 's/^--yes --prefix=\([^ ]*\) .*/\1/p' "$sandbox/npx-args")"
