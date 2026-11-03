@@ -89,7 +89,7 @@ echo "\$PPID" > "$sandbox/claude-ppid"
 echo "\${CLAUDE_OLLAMA_RELAUNCH_DIR-unset}" > "$sandbox/relaunch-dir-env"
 for arg; do echo "ARG: \$arg"; done
 if [ -n "\${CLAUDE_OLLAMA_RELAUNCH_DIR:-}" ]; then
-  for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "\$CLAUDE_OLLAMA_RELAUNCH_DIR/claude.pid" ] && break; sleep 0.1; done
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do [ "\$(cat "\$CLAUDE_OLLAMA_RELAUNCH_DIR/claude.pid" 2>/dev/null)" = "\$\$" ] && break; sleep 0.1; done
   cat "\$CLAUDE_OLLAMA_RELAUNCH_DIR/claude.pid" > "$sandbox/pid-file-seen" 2>/dev/null
 fi
 for lease_file in "$HOME/.claude-ollama/lease"/*.json; do [ -f "\$lease_file" ] && jq -c . "\$lease_file" >> "$sandbox/lease-seen"; done
@@ -98,17 +98,17 @@ ls "\${CLAUDE_OLLAMA_RELAUNCH_DIR:-/nonexistent}" 2>/dev/null | tr '\n' ' ' >> "
 echo >> "$sandbox/relaunch-entries"
 if [ -n "\${STUB_CLAUDE_LADDER_UP:-}" ] && [ ! -e "$sandbox/laddered-up" ] && { [ -z "\${STUB_CLAUDE_LADDER_UP_AFTER_LADDER:-}" ] || [ -e "$sandbox/laddered" ]; }; then
   : > "$sandbox/laddered-up"
-  printf '{"rung":"%s","reason":"20 minutes without an incident and the memory fits"}\n' "\$STUB_CLAUDE_LADDER_UP" > "\$CLAUDE_OLLAMA_RELAUNCH_DIR/ladder-up"
-  [ -n "\${STUB_CLAUDE_LADDER_UP_NO_HANDOFF:-}" ] || jq -cn '{note: "note.md", prompt: "go on", percent: 71}' > "\$CLAUDE_OLLAMA_RELAUNCH_DIR/relaunch"
+  "$real_python3" "$repo/shared/relaunch_dir.py" request ladder-up "\$(jq -cn --arg rung "\$STUB_CLAUDE_LADDER_UP" '{rung: \$rung, reason: "20 minutes without an incident and the memory fits"}')"
+  [ -n "\${STUB_CLAUDE_LADDER_UP_NO_HANDOFF:-}" ] || "$real_python3" "$repo/shared/relaunch_dir.py" request relaunch '{"note": "note.md", "prompt": "go on", "percent": 71}'
 fi
 if [ -n "\${STUB_CLAUDE_LADDER_ONCE:-}" ] && [ ! -e "$sandbox/laddered" ]; then
   : > "$sandbox/laddered"
-  [ -z "\${STUB_CLAUDE_EMBED_OFF:-}" ] || : > "\$CLAUDE_OLLAMA_RELAUNCH_DIR/embed-off"
-  echo '{"rung":"context-down","context":32768,"reason":"3 truncated prompts within 10 minutes"}' > "\$CLAUDE_OLLAMA_RELAUNCH_DIR/ladder"
+  [ -z "\${STUB_CLAUDE_EMBED_OFF:-}" ] || "$real_python3" "$repo/shared/relaunch_dir.py" raise embed-off
+  "$real_python3" "$repo/shared/relaunch_dir.py" request ladder '{"rung": "context-down", "context": 32768, "reason": "3 truncated prompts within 10 minutes"}'
 fi
 if [ -n "\${STUB_CLAUDE_RELAUNCH_ONCE:-}" ] && [ ! -e "$sandbox/relaunched" ]; then
   : > "$sandbox/relaunched"
-  jq -cn --arg prompt "\${STUB_CLAUDE_RELAUNCH_PROMPT:-}" '{note: "note.md", prompt: \$prompt, percent: 71}' > "\$CLAUDE_OLLAMA_RELAUNCH_DIR/relaunch"
+  "$real_python3" "$repo/shared/relaunch_dir.py" request relaunch "\$(jq -cn --arg prompt "\${STUB_CLAUDE_RELAUNCH_PROMPT:-}" '{note: "note.md", prompt: \$prompt, percent: 71}')"
 fi
 [ -n "\${STUB_CLAUDE_STDERR:-}" ] && echo "\$STUB_CLAUDE_STDERR" >&2
 exit "\${STUB_CLAUDE_EXIT:-0}"
@@ -165,6 +165,9 @@ EOF
   pinned_tags > "$sandbox/tags.json"
   cat > "$sandbox/stubbin/python3" <<EOF
 #!/bin/sh
+case "\$1" in
+  */shared/relaunch_dir.py) exec "$real_python3" "\$@" ;;
+esac
 echo "\$*" >> "$sandbox/python.log"
 echo "\${CODE_SEARCH_EMBED-unset}" > "$sandbox/indexer-embed-env"
 EOF

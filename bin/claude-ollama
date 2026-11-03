@@ -424,7 +424,7 @@ check_memory_fit() {
 
 start_heartbeat() {
   lease_on || return 0
-  nohup "$lease_bin" heartbeat --watch-pid "$$" --fast-marker "$relaunch_dir/heartbeat-fast" >/dev/null 2>&1 &
+  nohup "$lease_bin" heartbeat --watch-pid "$$" --fast-marker "$(relaunch_signal path heartbeat-fast)" >/dev/null 2>&1 &
   heartbeat_pid=$!
 }
 
@@ -776,15 +776,8 @@ write_append_prompt() {
   return 0
 }
 
-remove_stale_relaunch_dirs() {
-  local dir pid
-  for dir in "$relaunch_root"/*/; do
-    [ -d "$dir" ] || continue
-    pid="${dir%/}"
-    pid="${pid##*/}"
-    case "$pid" in ''|*[!0-9]*|"$$") continue ;; esac
-    kill -0 "$pid" 2>/dev/null || rm -rf "$dir"
-  done
+relaunch_signal() {
+  python3 "$repo_dir/shared/relaunch_dir.py" --dir "$relaunch_dir" "$@"
 }
 
 remove_relaunch_dir() {
@@ -792,21 +785,18 @@ remove_relaunch_dir() {
 }
 
 prepare_relaunch_dir() {
-  (umask 077; mkdir -p "$relaunch_dir")
-  chmod 700 "$relaunch_root" "$relaunch_dir"
-  rm -f "$relaunch_dir/relaunch" "$relaunch_dir/ladder" "$relaunch_dir/ladder-up" "$relaunch_dir/embed-off" "$relaunch_dir/heartbeat-fast"
-  [ -z "$fit_embed_off" ] || : > "$relaunch_dir/embed-off"
+  relaunch_dir="$(python3 "$repo_dir/shared/relaunch_dir.py" prepare --root "$relaunch_root" --pid "$$")"
+  [ -z "$fit_embed_off" ] || relaunch_signal raise embed-off
   trap end_launch EXIT
-  remove_stale_relaunch_dirs
   export CLAUDE_OLLAMA_RELAUNCH_DIR="$relaunch_dir"
 }
 
 read_relaunch_sentinel() {
-  local sentinel="$relaunch_dir/relaunch"
-  relaunch_note="$(jq -r '.note // empty' "$sentinel" 2>/dev/null)"
-  relaunch_prompt="$(jq -r '.prompt // empty' "$sentinel" 2>/dev/null)"
-  relaunch_percent="$(jq -r '.percent // empty' "$sentinel" 2>/dev/null)"
-  rm -f "$sentinel"
+  local request
+  request="$(relaunch_signal take relaunch)"
+  relaunch_note="$(jq -r '.note // empty' <<< "$request" 2>/dev/null)"
+  relaunch_prompt="$(jq -r '.prompt // empty' <<< "$request" 2>/dev/null)"
+  relaunch_percent="$(jq -r '.percent // empty' <<< "$request" 2>/dev/null)"
 }
 
 relaunch_tokens() {
@@ -847,7 +837,7 @@ wait_for_claude() {
 run_claude() {
   "$repo_dir/shared/sandbox-env" claude "$@" <&0 &
   claude_pid=$!
-  echo "$claude_pid" > "$relaunch_dir/claude.pid"
+  relaunch_signal claude-pid "$claude_pid"
   trap terminate_claude INT TERM
   wait_for_claude
 }
@@ -889,11 +879,11 @@ set_ladder_args() {
 }
 
 read_ladder_file() {
-  local ladder_file="$relaunch_dir/ladder"
-  ladder_rung="$(jq -r '.rung // empty' "$ladder_file" 2>/dev/null)"
-  ladder_context="$(jq -r '.context // empty' "$ladder_file" 2>/dev/null)"
-  ladder_reason="$(jq -r '.reason // empty' "$ladder_file" 2>/dev/null)"
-  rm -f "$ladder_file"
+  local request
+  request="$(relaunch_signal take ladder)"
+  ladder_rung="$(jq -r '.rung // empty' <<< "$request" 2>/dev/null)"
+  ladder_context="$(jq -r '.context // empty' <<< "$request" 2>/dev/null)"
+  ladder_reason="$(jq -r '.reason // empty' <<< "$request" 2>/dev/null)"
 }
 
 write_ladder_settings() {
@@ -916,12 +906,12 @@ apply_ladder() {
 
 remaining_rung() {
   if [ -n "$ladder_context" ]; then echo context-down
-  elif [ -e "$relaunch_dir/embed-off" ]; then echo embeddings-off
+  elif relaunch_signal has embed-off; then echo embeddings-off
   fi
 }
 
 restore_embeddings() {
-  rm -f "$relaunch_dir/embed-off"
+  relaunch_signal lower embed-off
   fit_embed_off=""
   unset CODE_SEARCH_EMBED
   allow_search_embeddings
@@ -935,10 +925,10 @@ restore_context() {
 }
 
 apply_ladder_up() {
-  local ladder_up="$relaunch_dir/ladder-up" rung reason
-  rung="$(jq -r '.rung // empty' "$ladder_up" 2>/dev/null)"
-  reason="$(jq -r '.reason // empty' "$ladder_up" 2>/dev/null)"
-  rm -f "$ladder_up"
+  local request rung reason
+  request="$(relaunch_signal take ladder-up)"
+  rung="$(jq -r '.rung // empty' <<< "$request" 2>/dev/null)"
+  reason="$(jq -r '.reason // empty' <<< "$request" 2>/dev/null)"
   case "$rung" in
     embeddings-off) restore_embeddings ;;
     context-down) restore_context ;;
@@ -951,22 +941,22 @@ apply_ladder_up() {
 }
 
 honour_embed_off() {
-  [ -e "$relaunch_dir/embed-off" ] || return 0
+  relaunch_signal has embed-off || return 0
   export CODE_SEARCH_EMBED=0
 }
 
 relaunch_pending() {
-  [ -e "$relaunch_dir/relaunch" ] || [ -e "$relaunch_dir/ladder" ]
+  relaunch_signal has relaunch || relaunch_signal has ladder
 }
 
 prepare_relaunch() {
-  [ ! -e "$relaunch_dir/ladder" ] || apply_ladder
-  if [ -e "$relaunch_dir/relaunch" ]; then
+  ! relaunch_signal has ladder || apply_ladder
+  if relaunch_signal has relaunch; then
     read_relaunch_sentinel
     announce_relaunch
     record_relaunch_incident
     set_relaunch_args "$@"
-    [ ! -e "$relaunch_dir/ladder-up" ] || apply_ladder_up
+    ! relaunch_signal has ladder-up || apply_ladder_up
   else
     set_ladder_args "$@"
   fi
