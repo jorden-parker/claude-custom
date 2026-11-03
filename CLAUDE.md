@@ -413,18 +413,22 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
 - `shared/hooks/tool-telemetry.py` is a `PostToolUse` hook on every tool. With
   `CLAUDE_TOOL_TELEMETRY=<file>` set it appends one JSON line per call (time,
   session, tool, bytes, lines, over the trim limit; never the tool input).
-  `claude-ollama` sets that variable to
-  `~/.claude-ollama/telemetry/tool-calls.jsonl` unless
-  `CLAUDE_OLLAMA_TELEMETRY=0`, and a symlinked folder or file turns it off for
-  that launch. The five deny hooks add one `"kind": "deny"` line per denial
-  through `shared/hooks/hook_telemetry.py` (hook name and reason, never the
-  command; a path that cannot be written never changes the decision), and
-  `.claude/verify` maps that module to their tests. An Edit, Write or MultiEdit
-  line also carries `input_bytes` (the bytes of `old_string` plus `new_string`,
-  or `content`; never the text). `bin/tool-telemetry-report LOG` summarises
-  calls and denials, and its `output` section lists per tool the median and p90
-  `input_bytes` plus the `"kind": "nudge"` lines counted per rule, so a model
-  upgrade can be judged on decode waste too; it refuses a symlink; its test is
+  Telemetry is off by default: `claude-ollama` sets that variable to
+  `~/.claude-ollama/telemetry/tool-calls.jsonl` only with
+  `CLAUDE_OLLAMA_TELEMETRY=1` (and unsets an inherited one otherwise), and a
+  symlinked folder or file turns it off for that launch. Both overlays also set
+  Claude Code's own `DISABLE_TELEMETRY`, `DO_NOT_TRACK`,
+  `DISABLE_ERROR_REPORTING`, `CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY` and
+  `CLAUDE_CODE_ENABLE_TELEMETRY=0` (`bin/check-config` checks them). The five
+  deny hooks add one `"kind": "deny"` line per denial through
+  `shared/hooks/hook_telemetry.py` (hook name and reason, never the command; a
+  path that cannot be written never changes the decision), and `.claude/verify`
+  maps that module to their tests. An Edit, Write or MultiEdit line also carries
+  `input_bytes` (the bytes of `old_string` plus `new_string`, or `content`;
+  never the text). `bin/tool-telemetry-report LOG` summarises calls and denials,
+  and its `output` section lists per tool the median and p90 `input_bytes` plus
+  the `"kind": "nudge"` lines counted per rule, so a model upgrade can be judged
+  on decode waste too; it refuses a symlink; its test is
   `bin/tool-telemetry-report.test.sh`. Its `TRIM_LINE_LIMIT` must equal
   `MAX_LINES` in `bash-output-trim.py` (`bin/check-config` checks it).
 - `shared/preferences/PREFERENCES.md` holds the prose rules no tool can check,
@@ -1409,33 +1413,34 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `shared/profile-env.json` (an ordered list of
   `{key, group, kind, default, min, max, step | choices, label, help, ollamaOnly}`,
   `kind` one of `switch`, `integer`, `choice`; values are not checked there):
-  the 0/1 switches `CLAUDE_OLLAMA_TELEMETRY`, `CLAUDE_OLLAMA_NO_INDEX`,
-  `CLAUDE_OLLAMA_OPEN_DRAFTS`, `CLAUDE_OLLAMA_CMUX`, `CLAUDE_OLLAMA_RELAUNCH`,
-  `CLAUDE_OLLAMA_INCIDENTS`, `CLAUDE_OLLAMA_PROXY` (default on),
-  `CLAUDE_OLLAMA_PROXY_RECORD` (default off), `CLAUDE_OLLAMA_PROXY_STABILIZE`
-  (off), `CLAUDE_CUSTOM_FRICTION` (on), `CLAUDE_OLLAMA_LEASE` (on),
-  `CLAUDE_OLLAMA_LADDER` (on), `CLAUDE_OLLAMA_FIT` (on), `CLAUDE_OLLAMA_BEACON`
-  (on), `CLAUDE_OLLAMA_RULE_CARDS` (on) and `CLAUDE_OLLAMA_EDIT_NUDGE` (on),
-  plus `CLAUDE_OLLAMA_HANDOFF_PCT` (a whole percent from 30 to 85, default 70),
-  `CLAUDE_OLLAMA_LEASE_HEARTBEAT` (whole seconds from 30 to 600, default 120)
-  `CLAUDE_OLLAMA_TEST_AFTER_EDIT` (`0`, `suggest` or `run`, default `suggest`)
-  and `CLAUDE_CODE_EFFORT_LEVEL` (`low`, `medium` or `xhigh`, default `xhigh`;
-  Claude Code's own variable, read by Qwen 3.8's chat template through Ollama
-  when the profile's thinking is on, ignored by Qwen 3.6). Adding a switch is
-  one catalogue entry, then `bin/ollama-profiles` (which renders the console's
-  copy and the `docs/ollama.md` table) and a mention here (`bin/check-config`
-  fails when this file lacks a key). `context-budget.py` and
-  `test-after-edit.py` read their defaults from the catalogue through
-  `shared/hooks/profile_env.py` (`catalogue_default`); the bash launchers keep
-  their own `${VAR:-1}` defaults. `web/console/src/lib/profile-rules.ts` builds
-  `PROFILE_ENV_KEYS` and `PROFILE_ENV_FIELDS` from the rendered copy (an
-  `integer` becomes a `number` field with a `range`) and throws on an unknown
-  group or kind. The console's Profiles page shows each key by the plain label,
-  default and help sentence in `PROFILE_ENV_FIELDS`, never the variable name,
-  grouped under the field's `group`, and hides every Ollama-only field from the
-  `claude-code` profile, which of the harness switches sees only
-  `CLAUDE_CUSTOM_FRICTION`. It refuses a symlinked profile, and `Agent` never
-  reaches an Ollama profile. The overlay sets `sandbox.enabled` and the ask rule
+  the 0/1 switches `CLAUDE_OLLAMA_TELEMETRY` (default off),
+  `CLAUDE_OLLAMA_NO_INDEX`, `CLAUDE_OLLAMA_OPEN_DRAFTS`, `CLAUDE_OLLAMA_CMUX`,
+  `CLAUDE_OLLAMA_RELAUNCH`, `CLAUDE_OLLAMA_INCIDENTS`, `CLAUDE_OLLAMA_PROXY`
+  (default on), `CLAUDE_OLLAMA_PROXY_RECORD` (default off),
+  `CLAUDE_OLLAMA_PROXY_STABILIZE` (off), `CLAUDE_CUSTOM_FRICTION` (on),
+  `CLAUDE_OLLAMA_LEASE` (on), `CLAUDE_OLLAMA_LADDER` (on), `CLAUDE_OLLAMA_FIT`
+  (on), `CLAUDE_OLLAMA_BEACON` (on), `CLAUDE_OLLAMA_RULE_CARDS` (on) and
+  `CLAUDE_OLLAMA_EDIT_NUDGE` (on), plus `CLAUDE_OLLAMA_HANDOFF_PCT` (a whole
+  percent from 30 to 85, default 70), `CLAUDE_OLLAMA_LEASE_HEARTBEAT` (whole
+  seconds from 30 to 600, default 120) `CLAUDE_OLLAMA_TEST_AFTER_EDIT` (`0`,
+  `suggest` or `run`, default `suggest`) and `CLAUDE_CODE_EFFORT_LEVEL` (`low`,
+  `medium` or `xhigh`, default `xhigh`; Claude Code's own variable, read by Qwen
+  3.8's chat template through Ollama when the profile's thinking is on, ignored
+  by Qwen 3.6). Adding a switch is one catalogue entry, then
+  `bin/ollama-profiles` (which renders the console's copy and the
+  `docs/ollama.md` table) and a mention here (`bin/check-config` fails when this
+  file lacks a key). `context-budget.py` and `test-after-edit.py` read their
+  defaults from the catalogue through `shared/hooks/profile_env.py`
+  (`catalogue_default`); the bash launchers keep their own `${VAR:-1}` defaults.
+  `web/console/src/lib/profile-rules.ts` builds `PROFILE_ENV_KEYS` and
+  `PROFILE_ENV_FIELDS` from the rendered copy (an `integer` becomes a `number`
+  field with a `range`) and throws on an unknown group or kind. The console's
+  Profiles page shows each key by the plain label, default and help sentence in
+  `PROFILE_ENV_FIELDS`, never the variable name, grouped under the field's
+  `group`, and hides every Ollama-only field from the `claude-code` profile,
+  which of the harness switches sees only `CLAUDE_CUSTOM_FRICTION`. It refuses a
+  symlinked profile, and `Agent` never reaches an Ollama profile. The overlay
+  sets `sandbox.enabled` and the ask rule
   `Bash(dangerouslyDisableSandbox:true)`, so every personal session (subagents
   and `--agent pr-review` included) runs Claude's shell commands inside Claude
   Code's sandbox and asks before one runs outside it; `bin/check-config` checks

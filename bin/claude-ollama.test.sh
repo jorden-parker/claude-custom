@@ -286,10 +286,14 @@ ANTHROPIC_MODEL=claude-opus-5-5 run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "claude-ollama 27b ignores ANTHROPIC_MODEL" grep -qF -- "--model qwen3.8-27b-cc --tools" "$sandbox/out"
 check_that "claude-ollama unsets ANTHROPIC_MODEL" grep -qxF "unset" "$sandbox/model-env"
 check_eq "claude-ollama exports CLAUDE_CUSTOM_HOME to claude" "$repo" "$(cat "$sandbox/custom-home-env")"
-check_eq "claude-ollama records tool telemetry under the session folder by default" "$HOME/.claude-ollama/telemetry/tool-calls.jsonl" "$(cat "$sandbox/telemetry-env")"
+check_eq "claude-ollama keeps tool telemetry off by default" unset "$(cat "$sandbox/telemetry-env")"
+run_capture env CLAUDE_OLLAMA_TELEMETRY=1 "$repo/bin/claude-ollama" 27b -p hi
+check_eq "CLAUDE_OLLAMA_TELEMETRY=1 records tool telemetry under the session folder" "$HOME/.claude-ollama/telemetry/tool-calls.jsonl" "$(cat "$sandbox/telemetry-env")"
 run_capture env CLAUDE_OLLAMA_TELEMETRY=0 "$repo/bin/claude-ollama" 27b -p hi
 check_eq "CLAUDE_OLLAMA_TELEMETRY=0 turns tool telemetry off" unset "$(cat "$sandbox/telemetry-env")"
 run_capture env CLAUDE_TOOL_TELEMETRY="$sandbox/mine.jsonl" "$repo/bin/claude-ollama" 27b -p hi
+check_eq "CLAUDE_TOOL_TELEMETRY alone does not turn tool telemetry on" unset "$(cat "$sandbox/telemetry-env")"
+run_capture env CLAUDE_OLLAMA_TELEMETRY=1 CLAUDE_TOOL_TELEMETRY="$sandbox/mine.jsonl" "$repo/bin/claude-ollama" 27b -p hi
 check_eq "CLAUDE_TOOL_TELEMETRY overrides the telemetry file" "$sandbox/mine.jsonl" "$(cat "$sandbox/telemetry-env")"
 check_eq "every launch points the package caches at the sandbox cache folder" "$HOME/.cache/claude-sandbox/go/mod" \
   "$(grep '^GOMODCACHE=' "$sandbox/claude-env" | cut -d= -f2-)"
@@ -298,18 +302,18 @@ check_eq "and names that folder in CLAUDE_SANDBOX_CACHE_DIR" "$HOME/.cache/claud
 telemetry_dir="$HOME/.claude-ollama/telemetry"
 mkdir -p "$telemetry_dir"
 head -c 1048577 /dev/zero > "$telemetry_dir/tool-calls.jsonl"
-run_capture "$repo/bin/claude-ollama" 27b -p hi
+run_capture env CLAUDE_OLLAMA_TELEMETRY=1 "$repo/bin/claude-ollama" 27b -p hi
 check_that "claude-ollama rotates a telemetry file past 1 MiB" test -f "$telemetry_dir/tool-calls.jsonl.1"
 new_sandbox
 mkdir -p "$HOME/.claude-ollama" "$sandbox/elsewhere"
 ln -s "$sandbox/elsewhere" "$HOME/.claude-ollama/telemetry"
-run_capture "$repo/bin/claude-ollama" 27b -p hi
+run_capture env CLAUDE_OLLAMA_TELEMETRY=1 "$repo/bin/claude-ollama" 27b -p hi
 check_eq "a symlinked telemetry folder turns telemetry off" unset "$(cat "$sandbox/telemetry-env")"
 check_that "a symlinked telemetry folder is reported" grep -qF "claude-ollama: telemetry: $HOME/.claude-ollama/telemetry is a symlink or not a regular file; telemetry off" "$sandbox/err"
 new_sandbox
 mkdir -p "$HOME/.claude-ollama/telemetry" "$sandbox/elsewhere"
 ln -s "$sandbox/elsewhere/tool-calls.jsonl" "$HOME/.claude-ollama/telemetry/tool-calls.jsonl"
-run_capture "$repo/bin/claude-ollama" 27b -p hi
+run_capture env CLAUDE_OLLAMA_TELEMETRY=1 "$repo/bin/claude-ollama" 27b -p hi
 check_eq "a symlinked tool-calls.jsonl turns telemetry off" unset "$(cat "$sandbox/telemetry-env")"
 check_that "a symlinked tool-calls.jsonl is reported" grep -qF "claude-ollama: telemetry: $HOME/.claude-ollama/telemetry/tool-calls.jsonl is a symlink or not a regular file; telemetry off" "$sandbox/err"
 run_capture "$repo/bin/claude-ollama" 35b -p hi
@@ -897,12 +901,15 @@ check_that "ui prints its tokened console URL" grep -qxE "claude-ollama: console
 check_not "ui removes .web-url after it exits" test -e "$PR_REVIEW_LOG_DIR/.web-url"
 rm -f "$PNPM_LOG"
 run_capture "$repo/bin/claude-ollama" ui --port 9000
-check_that "ui hands the console the default telemetry file" grep -qxF -- "TELEMETRY: $HOME/.claude-ollama/telemetry/tool-calls.jsonl" "$PNPM_LOG"
+check_that "ui gives the console no telemetry file by default" grep -qxF -- "TELEMETRY: unset" "$PNPM_LOG"
+rm -f "$PNPM_LOG"
+run_capture env CLAUDE_OLLAMA_TELEMETRY=1 "$repo/bin/claude-ollama" ui --port 9000
+check_that "ui hands the console the default telemetry file when telemetry is on" grep -qxF -- "TELEMETRY: $HOME/.claude-ollama/telemetry/tool-calls.jsonl" "$PNPM_LOG"
 mkdir -p "$HOME/.claude-ollama" "$sandbox/moved-telemetry"
 rm -rf "$HOME/.claude-ollama/telemetry"
 ln -s "$sandbox/moved-telemetry" "$HOME/.claude-ollama/telemetry"
 rm -f "$PNPM_LOG"
-run_capture "$repo/bin/claude-ollama" ui --port 9000
+run_capture env CLAUDE_OLLAMA_TELEMETRY=1 "$repo/bin/claude-ollama" ui --port 9000
 check_that "ui gives the console no telemetry file when its folder is a symlink" grep -qxF -- "TELEMETRY: unset" "$PNPM_LOG"
 check_that "ui warns when the telemetry folder is a symlink" grep -qF -- "claude-ollama: telemetry: $HOME/.claude-ollama/telemetry is a symlink or not a regular file; telemetry off" "$sandbox/err"
 rm -f "$HOME/.claude-ollama/telemetry"
@@ -1244,7 +1251,7 @@ new_sandbox
 export XDG_CONFIG_HOME="$sandbox/xdg"
 profiles="$XDG_CONFIG_HOME/claude-custom/profiles"
 mkdir -p "$profiles"
-printf '%s' '{"tools":{"Glob":"allow"},"mcp":{"dev":false},"env":{"CLAUDE_OLLAMA_TELEMETRY":"0"}}' > "$profiles/ollama-27b.json"
+printf '%s' '{"tools":{"Glob":"allow"},"mcp":{"dev":false},"env":{"CLAUDE_OLLAMA_TELEMETRY":"1"}}' > "$profiles/ollama-27b.json"
 profile_settings="$HOME/.claude-ollama/launch-settings.json"
 run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "a profile adds its allowed tool to --tools" grep -qF -- "--tools Bash,Read,Edit,Write,Skill,TaskStop,Glob -p hi" "$sandbox/out"
@@ -1253,7 +1260,7 @@ check_that "the derived settings allow the tool" jq -e '.permissions.allow | ind
 check_that "the derived settings keep the profile model" jq -e '.model == "qwen3.8-27b-cc"' "$profile_settings"
 check_not "a disabled MCP server drops out of --mcp-config" grep -qF '"dev":{' "$sandbox/out"
 check_that "enabled MCP servers stay in --mcp-config" grep -qF '"repo":{' "$sandbox/out"
-check_eq "a profile env value applies before the launch" unset "$(cat "$sandbox/telemetry-env")"
+check_eq "a profile env value applies before the launch" "$HOME/.claude-ollama/telemetry/tool-calls.jsonl" "$(cat "$sandbox/telemetry-env")"
 
 new_sandbox
 export XDG_CONFIG_HOME="$sandbox/xdg"

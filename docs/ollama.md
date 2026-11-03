@@ -114,7 +114,8 @@ feedback-draft, update-check and marketplace-install switch off
 (`DISABLE_TELEMETRY`, `DO_NOT_TRACK`, `DISABLE_ERROR_REPORTING`,
 `DISABLE_AUTOUPDATER`, `DISABLE_BUG_COMMAND`,
 `CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY`, `CLAUDE_CODE_SEND_FEEDBACK=0`,
-`CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL`, `feedbackDrafts: off`,
+`CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL`,
+`CLAUDE_CODE_ENABLE_TELEMETRY=0`, `feedbackDrafts: off`,
 `feedbackSurveyRate: 0`) beside `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, and
 `bin/check-config` checks them.
 
@@ -592,7 +593,7 @@ launch (every key optional):
   "thinking": true,
   "parameters": { "temperature": 0.6 },
   "mcp": { "dev": false },
-  "env": { "CLAUDE_OLLAMA_TELEMETRY": "0" }
+  "env": { "CLAUDE_OLLAMA_TELEMETRY": "1" }
 }
 ```
 
@@ -626,7 +627,7 @@ console's copy.
 | `CLAUDE_OLLAMA_LEASE`           | 1       | Hold an Ollama residency lease and heartbeat                         |
 | `CLAUDE_OLLAMA_LEASE_HEARTBEAT` | 120     | Seconds between keep-alive heartbeats, 30 to 600                     |
 | `CLAUDE_OLLAMA_FIT`             | 1       | Check memory fit before launch                                       |
-| `CLAUDE_OLLAMA_TELEMETRY`       | 1       | Session telemetry                                                    |
+| `CLAUDE_OLLAMA_TELEMETRY`       | 0       | Session telemetry                                                    |
 | `CLAUDE_OLLAMA_INCIDENTS`       | 1       | Record Ollama incidents                                              |
 | `CLAUDE_OLLAMA_PROXY_RECORD`    | 0       | Record every request body for replay benches                         |
 | `CLAUDE_OLLAMA_BEACON`          | 1       | Write a machine beacon at launch                                     |
@@ -833,7 +834,7 @@ allows scripts only, and shows the install, download and run commands for the
 terminal when no report exists yet. The console never runs
 `backend-bench-off install`, `download` or `all`. History lists the last 20
 bench runs. The telemetry card shows `tool-telemetry-report`; it stays off until
-`CLAUDE_TOOL_TELEMETRY` is set, for sessions and for `claude-ollama ui`. The
+`CLAUDE_OLLAMA_TELEMETRY=1` is set, for sessions and for `claude-ollama ui`. The
 Settings page's Tool budget card (`claude-ollama tool-budget` in the terminal)
 joins the proxy log's per-request schema bytes with the telemetry's calls,
 suggests the tools nothing called over the last 14 days, and applies that

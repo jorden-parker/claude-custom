@@ -163,7 +163,7 @@
     "key": "CLAUDE_OLLAMA_TELEMETRY",
     "group": "Diagnostics",
     "kind": "switch",
-    "default": "1",
+    "default": "0",
     "label": "Session telemetry",
     "help": "One JSON line per tool call in ~/.claude-ollama/telemetry; never the tool input.",
     "ollamaOnly": false

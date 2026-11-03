@@ -170,10 +170,12 @@ mkdir -p "$HOME/.claude-ollama/telemetry"
   for _ in $(seq 7); do echo '{"time":1,"session":"c","kind":"friction","hook":"read-range-guard","tool":"Read","reason":"plan reset after 4 near-identical Read denials","fingerprint":"aa"}'; done
 } > "$HOME/.claude-ollama/telemetry/tool-calls.jsonl"
 run_doctor
+check_that "doctor skips the guard lint while telemetry is off" grep -qxF "ok   guards: not checked (no telemetry log)" "$sandbox/out"
+CLAUDE_OLLAMA_TELEMETRY=1 run_doctor
 check_that "doctor warns about a guard the telemetry flags" grep -qxF "warn guards: read-range-guard: message unclear or rule too strict: a.py has 900 lines" "$sandbox/out"
 head -n 3 "$HOME/.claude-ollama/telemetry/tool-calls.jsonl" > "$sandbox/few.jsonl"
 mv "$sandbox/few.jsonl" "$HOME/.claude-ollama/telemetry/tool-calls.jsonl"
-run_doctor
+CLAUDE_OLLAMA_TELEMETRY=1 run_doctor
 check_that "doctor reports no flagged guard" grep -qxF "ok   guards: none flagged" "$sandbox/out"
 check_that "doctor reports nothing to drop without a proxy log" grep -qxF "ok   tool budget: nothing to drop" "$sandbox/out"
 mkdir -p "$HOME/.local/share/claude-custom/console/proxy"

@@ -4,7 +4,7 @@ console_state_dir="${CLAUDE_CONSOLE_STATE_DIR:-$HOME/.local/share/claude-custom/
 telemetry_log="$session_config_dir/telemetry/tool-calls.jsonl"
 
 telemetry_log_path() {
-  [ "${CLAUDE_OLLAMA_TELEMETRY:-1}" != 0 ] || return 0
+  [ "${CLAUDE_OLLAMA_TELEMETRY:-0}" = 1 ] || return 0
   printf '%s\n' "${CLAUDE_TOOL_TELEMETRY:-$telemetry_log}"
 }
 

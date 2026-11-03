@@ -227,7 +227,7 @@ describe("ProfileEditor", () => {
       name: "Session telemetry",
     })) as HTMLSelectElement;
     expect(telemetry.options[telemetry.selectedIndex].text).toBe(
-      "default (on)",
+      "default (off)",
     );
     expect(screen.queryByText("CLAUDE_OLLAMA_TELEMETRY")).toBeNull();
     expect(

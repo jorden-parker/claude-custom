@@ -1077,13 +1077,11 @@ warm_model
 
 unset ANTHROPIC_API_KEY ANTHROPIC_MODEL CLAUDE_OLLAMA_DRAFTS_DIR
 export CLAUDE_CUSTOM_HOME="$repo_dir"
-if [ -n "$(telemetry_log_path)" ]; then
-  if prepare_telemetry_log; then
-    CLAUDE_TOOL_TELEMETRY="$(telemetry_log_path)"
-    export CLAUDE_TOOL_TELEMETRY
-  else
-    unset CLAUDE_TOOL_TELEMETRY
-  fi
+if [ -n "$(telemetry_log_path)" ] && prepare_telemetry_log; then
+  CLAUDE_TOOL_TELEMETRY="$(telemetry_log_path)"
+  export CLAUDE_TOOL_TELEMETRY
+else
+  unset CLAUDE_TOOL_TELEMETRY
 fi
 prepare_session_config
 prepare_drafts_dir

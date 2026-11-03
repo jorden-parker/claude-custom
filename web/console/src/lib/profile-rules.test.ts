@@ -266,7 +266,7 @@ describe("validateProfileOverride", () => {
       ),
     ).toMatchObject({
       kind: "switch",
-      defaultValue: "1",
+      defaultValue: "0",
       ollamaOnly: false,
     });
   });
