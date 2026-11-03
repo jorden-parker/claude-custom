@@ -9,11 +9,11 @@ const textClasses: Record<Level, string> = {
 };
 
 const boxClasses: Record<Level, string> = {
-  ok: "rounded-md border border-success-border bg-success px-4 py-3 text-sm",
-  warn: "rounded-md border border-warning-border bg-warning px-4 py-3 text-sm",
-  fail: "rounded-md border border-error-border bg-error px-4 py-3 text-sm",
-  error: "rounded-md border border-error-border bg-error px-4 py-3 text-sm",
-  info: "rounded-md border border-info-border bg-info px-4 py-3 text-sm",
+  ok: "border-success-border bg-success text-success-foreground",
+  warn: "border-warning-border bg-warning text-warning-foreground",
+  fail: "border-error-border bg-error text-error-foreground",
+  error: "border-error-border bg-error text-error-foreground",
+  info: "border-info-border bg-info text-info-foreground",
 };
 
 export function levelTextClass(level: Level): string {

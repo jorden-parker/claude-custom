@@ -1,5 +1,6 @@
 "use client";
 
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -76,12 +77,14 @@ export function WorkspaceList() {
 
   return (
     <div className="flex flex-col gap-6">
-      <p className={levelBoxClass("info")}>
-        claude-ollama keeps its own trust list, apart from plain claude. A
-        project&apos;s <code>.claude/skills</code>, settings and hooks load only
-        in a trusted folder, so an untrusted folder shows no project skills in
-        the <code>/</code> menu.
-      </p>
+      <Alert className={levelBoxClass("info")}>
+        <AlertDescription className="text-inherit">
+          claude-ollama keeps its own trust list, apart from plain claude. A
+          project&apos;s <code>.claude/skills</code>, settings and hooks load
+          only in a trusted folder, so an untrusted folder shows no project
+          skills in the <code>/</code> menu.
+        </AlertDescription>
+      </Alert>
       <FilePath path={state?.path ?? null} />
       {error ? <p className="text-sm text-error-foreground">{error}</p> : null}
 
@@ -272,27 +275,33 @@ function SkillCheckReport({ check }: { check: SkillCheck }) {
   const version = check.version ?? "unknown version";
   if (check.error !== null) {
     return (
-      <p className={levelBoxClass("error")}>
-        Claude Code {version}: {check.error}
-      </p>
+      <Alert className={levelBoxClass("error")}>
+        <AlertDescription className="text-inherit">
+          Claude Code {version}: {check.error}
+        </AlertDescription>
+      </Alert>
     );
   }
   if (check.missing.length > 0) {
     return (
-      <div className={levelBoxClass("warn")}>
-        <p>
-          Claude Code {version} found {check.discovered.length} skills but not{" "}
-          {check.missing.map((name) => `/${name}`).join(", ")}.
-        </p>
-        <p className="mt-1 text-xs">{CHECK_HINT}</p>
-      </div>
+      <Alert className={levelBoxClass("warn")}>
+        <AlertDescription className="text-inherit">
+          <p>
+            Claude Code {version} found {check.discovered.length} skills but not{" "}
+            {check.missing.map((name) => `/${name}`).join(", ")}.
+          </p>
+          <p className="mt-1 text-xs">{CHECK_HINT}</p>
+        </AlertDescription>
+      </Alert>
     );
   }
   return (
-    <p className={levelBoxClass("ok")}>
-      Claude Code {version} found every project skill here. Skills available:{" "}
-      {check.discovered.map((name) => `/${name}`).join(", ") || "none"}.
-    </p>
+    <Alert className={levelBoxClass("ok")}>
+      <AlertDescription className="text-inherit">
+        Claude Code {version} found every project skill here. Skills available:{" "}
+        {check.discovered.map((name) => `/${name}`).join(", ") || "none"}.
+      </AlertDescription>
+    </Alert>
   );
 }
 

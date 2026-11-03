@@ -1,5 +1,6 @@
 "use client";
 
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -116,9 +117,11 @@ export function FetchDomainsEditor() {
 
   return (
     <div className="flex flex-col gap-6 pb-24">
-      <p className={levelBoxClass("warn")}>
-        Each host listed here can be read by the local model&apos;s sessions.
-      </p>
+      <Alert className={levelBoxClass("warn")}>
+        <AlertDescription className="text-inherit">
+          Each host listed here can be read by the local model&apos;s sessions.
+        </AlertDescription>
+      </Alert>
       <FilePath path={saved?.path ?? null} />
       {error ? <p className="text-sm text-error-foreground">{error}</p> : null}
       <IgnoredLines ignored={saved?.ignored ?? []} />
@@ -276,16 +279,18 @@ function IgnoredLines({ ignored }: { ignored: string[] }) {
     return null;
   }
   return (
-    <div className={levelBoxClass("warn")}>
-      <p className="font-medium">Ignored lines in the file</p>
-      <ul className="mt-2 flex flex-col gap-1">
-        {ignored.map((line, index) => (
-          <li key={`${line}-${index}`}>
-            <code>{line}</code>
-          </li>
-        ))}
-      </ul>
-    </div>
+    <Alert className={levelBoxClass("warn")}>
+      <AlertDescription className="text-inherit">
+        <p className="font-medium">Ignored lines in the file</p>
+        <ul className="mt-2 flex flex-col gap-1">
+          {ignored.map((line, index) => (
+            <li key={`${line}-${index}`}>
+              <code>{line}</code>
+            </li>
+          ))}
+        </ul>
+      </AlertDescription>
+    </Alert>
   );
 }
 

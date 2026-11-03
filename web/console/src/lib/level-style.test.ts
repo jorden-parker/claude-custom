@@ -12,11 +12,21 @@ describe("levelTextClass", () => {
 });
 
 describe("levelBoxClass", () => {
-  it("draws each level as a banner with its role border and fill", () => {
-    expect(levelBoxClass("warn")).toContain("border-warning-border bg-warning");
-    expect(levelBoxClass("fail")).toContain("border-error-border bg-error");
-    expect(levelBoxClass("ok")).toContain("border-success-border bg-success");
-    expect(levelBoxClass("info")).toContain("border-info-border bg-info");
-    expect(levelBoxClass("error")).toContain("border-error-border bg-error");
+  it("gives each level only its role border, fill and text color", () => {
+    expect(levelBoxClass("warn")).toBe(
+      "border-warning-border bg-warning text-warning-foreground",
+    );
+    expect(levelBoxClass("fail")).toBe(
+      "border-error-border bg-error text-error-foreground",
+    );
+    expect(levelBoxClass("error")).toBe(
+      "border-error-border bg-error text-error-foreground",
+    );
+    expect(levelBoxClass("ok")).toBe(
+      "border-success-border bg-success text-success-foreground",
+    );
+    expect(levelBoxClass("info")).toBe(
+      "border-info-border bg-info text-info-foreground",
+    );
   });
 });
