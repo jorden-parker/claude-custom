@@ -692,6 +692,23 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `CLAUDE_OLLAMA_EDIT_NUDGE=0` (the console's "Nudge wasteful edits" switch)
   turns it off; `bin/check-config` fails when an Ollama profile lacks it. Tests:
   `shared/hooks/edit-nudge.test.sh`.
+- `shared/relaunch_dir.py` (stdlib only) owns the relaunch dir protocol (terms
+  in `CONTEXT.md`): its path (`~/.claude-ollama/relaunch/<launcher pid>`), the
+  signal files (requests `relaunch` `{note, prompt, percent}`, `ladder`
+  `{rung, context, reason}`, `ladder-up` `{rung, reason}`; flags `embed-off`,
+  `heartbeat-fast`), `claude.pid`, and the SIGTERM sent only when `ps -o comm=`
+  names a node or claude process. Requests are validated against their schema
+  and written through a temp file and `os.replace` (0600); `take` reads and
+  removes one, and a malformed one is removed with a stderr line. Python callers
+  import `RelaunchDir` (`handoff-relaunch.py`, `ladder.py` and `code-search.py`
+  add `shared/` to `sys.path`); `bin/claude-ollama` (`relaunch_signal`) and the
+  console's promote run its CLI:
+  `[--dir D | --root R --pid N] prepare|request NAME JSON|take|has|raise|lower|path NAME|claude-pid PID`
+  (`--dir` defaults to `CLAUDE_OLLAMA_RELAUNCH_DIR`; exit 1 absent, 2 usage or
+  schema, 3 no such folder). `prepare --pid N` makes the folder 0700, clears
+  every signal file and removes sibling folders whose pid no longer runs.
+  Nothing else names a signal file. Tests: `shared/relaunch_dir.test.sh`; the
+  launcher test's stub `claude` writes through the CLI.
 - `shared/hooks/context-budget.py` and `shared/hooks/handoff-relaunch.py`
   (Ollama-only, in `ollama/hooks.extra.json`) chain short sessions through
   `/handoff` instead of letting the small model compact. The first is a
@@ -718,11 +735,10 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   empty text, newlines collapsed and clipped to 200 characters (`""` when none);
   `handoff-relaunch.py --inspect TRANSCRIPT` prints it. `bin/claude-ollama`
   (`launch_claude`) exports that dir as
-  `~/.claude-ollama/relaunch/<launcher pid>` (0700, removed by its EXIT trap;
-  `prepare_relaunch_dir` removes sibling dirs whose pid no longer runs), runs
-  `claude` in the background with the tty's stdin, writes `claude.pid`, forwards
-  SIGINT/SIGTERM and waits; while the sentinel exists it reads it with jq,
-  removes it, prints
+  `~/.claude-ollama/relaunch/<launcher pid>` (made by `relaunch_dir.py prepare`,
+  removed by its EXIT trap), runs `claude` in the background with the tty's
+  stdin, records `claude.pid`, forwards SIGINT/SIGTERM and waits; while the
+  `relaunch` request exists it takes it through the module, prints
   `context budget reached at N%: handoff saved, resuming "<prompt>"`
   (`relaunching claude` without one), appends a `relaunched` incident (`detail`
   the note, `tokens` the percent of the profile's
@@ -1248,9 +1264,9 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `{holders, rung, fit}` (the live `session` holder's rung and the newest
   `claude-ollama: memory fit:` line of the launcher log under the console state
   dir), and the "Promote back up" button posts `{rung}` to
-  `POST /api/lease/promote`, which writes `ladder-up`
-  (`reason: "promoted from the console"`, 0600) into
-  `~/.claude-ollama/relaunch/<pid>` of the live session, refusing (409) a
+  `POST /api/lease/promote`, which runs
+  `shared/relaunch_dir.py request ladder-up --pid <pid>`
+  (`reason: "promoted from the console"`) for the live session, refusing (409) a
   session on another rung or without a relaunch dir; the same-origin rule of
   `proxy.ts` applies.
 - `shared/mcp/code-search.py` is the `semantic_search` MCP server (JSON-RPC over

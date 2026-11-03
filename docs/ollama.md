@@ -78,9 +78,10 @@ that nudge when no note in `<git common dir>/handoff/` is newer than it, asking
 for the save once more; with a fresh note it writes the note's path, the last
 real prompt from the transcript (200 characters at most) and the percent as JSON
 to `$CLAUDE_OLLAMA_RELAUNCH_DIR/relaunch` (a per-launcher dir under
-`~/.claude-ollama/relaunch/`) and sends SIGTERM to the pid in `claude.pid` there
-(only when `ps` says it is a node or claude process). `claude-ollama` runs
-`claude` in a loop: while that sentinel exists it removes it, prints
+`~/.claude-ollama/relaunch/`, whose signal files `shared/relaunch_dir.py`
+defines) and sends SIGTERM to the pid in `claude.pid` there (only when `ps` says
+it is a node or claude process). `claude-ollama` runs `claude` in a loop: while
+that request exists it takes it, prints
 `context budget reached at N%: handoff saved, resuming "<prompt>"`, writes a
 `relaunched` incident (the Logs page's Incidents tab and `incident-note.py` show
 it) and starts `claude` again with the same flags and `/handoff <prompt>` as the
