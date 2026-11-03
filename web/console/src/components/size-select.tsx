@@ -1,5 +1,7 @@
 "use client";
 
+import { Select } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 import { useEffect, useState } from "react";
 
 export function useSizePicker(): { sizes: string[]; size: string; select: (size: string) => void } {
@@ -21,10 +23,10 @@ type SizeSelectProps = { sizes: string[]; size: string; onChange: (size: string)
 
 export function SizeSelect({ sizes, size, onChange }: SizeSelectProps) {
   return (
-    <label className="flex items-center gap-2 text-sm">
+    <Label className="flex items-center gap-2">
       Size
-      <select
-        className="rounded-md border border-border bg-background px-2 py-1"
+      <Select
+        className="w-auto"
         value={size}
         onChange={(event) => onChange(event.target.value)}
         disabled={sizes.length === 0}
@@ -34,7 +36,7 @@ export function SizeSelect({ sizes, size, onChange }: SizeSelectProps) {
             {name}
           </option>
         ))}
-      </select>
-    </label>
+      </Select>
+    </Label>
   );
 }

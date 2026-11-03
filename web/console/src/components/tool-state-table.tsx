@@ -1,3 +1,4 @@
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { ReactNode } from "react";
 import {
   Table,
@@ -86,20 +87,21 @@ function StateButtons<State extends ToolState>({
   onSelect: (state: State) => void;
 }) {
   return (
-    <div role="group" aria-label={`Permission for ${name}`} className="inline-flex rounded-md border">
+    <ToggleGroup
+      aria-label={`Permission for ${name}`}
+      value={[current]}
+      onValueChange={(next: string[]) => {
+        const chosen = options.find((state) => next.includes(state));
+        if (chosen !== undefined) {
+          onSelect(chosen);
+        }
+      }}
+    >
       {options.map((state) => (
-        <button
-          key={state}
-          type="button"
-          aria-pressed={current === state}
-          onClick={() => onSelect(state)}
-          className={`px-2 py-1 text-xs first:rounded-l-md last:rounded-r-md ${
-            current === state ? "bg-muted font-medium" : "hover:bg-muted/60"
-          }`}
-        >
+        <ToggleGroupItem key={state} value={state} className="px-2 text-xs">
           {state}
-        </button>
+        </ToggleGroupItem>
       ))}
-    </div>
+    </ToggleGroup>
   );
 }

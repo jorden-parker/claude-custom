@@ -1,3 +1,5 @@
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import {
   Table,
   TableBody,
@@ -111,21 +113,17 @@ function ThinkingSwitch({
   update,
 }: Pick<FieldProps, "update"> & { enabled: boolean }) {
   return (
-    <label className="flex items-center gap-2 text-sm">
-      <input
-        type="checkbox"
-        role="switch"
+    <Label className="flex items-center gap-2">
+      <Switch
         aria-label="Thinking enabled"
         checked={enabled}
-        onChange={(event) =>
-          update((current) =>
-            withThinking(current, event.target.checked ? true : null),
-          )
+        onCheckedChange={(next) =>
+          update((current) => withThinking(current, next ? true : null))
         }
       />
       Model thinking on (off by default: Claude Code asks for high effort on
       every turn)
-    </label>
+    </Label>
   );
 }
 
@@ -134,20 +132,16 @@ function SandboxSwitch({
   update,
 }: Pick<FieldProps, "update"> & { enabled: boolean }) {
   return (
-    <label className="flex items-center gap-2 text-sm">
-      <input
-        type="checkbox"
-        role="switch"
+    <Label className="flex items-center gap-2">
+      <Switch
         aria-label="Sandbox enabled"
         checked={enabled}
-        onChange={(event) =>
-          update((current) =>
-            withSandbox(current, event.target.checked ? null : false),
-          )
+        onCheckedChange={(next) =>
+          update((current) => withSandbox(current, next ? null : false))
         }
       />
       Sandbox enabled for this profile
-    </label>
+    </Label>
   );
 }
 
@@ -273,20 +267,16 @@ function McpSwitch({
   update: ProfileUpdate;
 }) {
   return (
-    <label className="flex items-center gap-2">
-      <input
-        type="checkbox"
-        role="switch"
+    <Label className="flex items-center gap-2">
+      <Switch
         aria-label={`MCP ${name}`}
         checked={enabled}
-        onChange={(event) =>
-          update((current) =>
-            withMcp(current, name, event.target.checked ? null : false),
-          )
+        onCheckedChange={(next) =>
+          update((current) => withMcp(current, name, next ? null : false))
         }
       />
       <span className="font-mono">{name}</span>
-    </label>
+    </Label>
   );
 }
 

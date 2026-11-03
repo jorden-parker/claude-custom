@@ -1,5 +1,7 @@
 "use client";
 
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -49,15 +51,14 @@ export function PrFields({
           />
         </CardContent>
       </Card>
-      <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
+      <Label className="flex items-center gap-2">
+        <Checkbox
           aria-label="Draft PR"
           checked={asDraft}
-          onChange={(event) => onAsDraftChange(event.target.checked)}
+          onCheckedChange={onAsDraftChange}
         />
         Draft PR
-      </label>
+      </Label>
       {draft.sections.map((section, index) => (
         <SectionCard
           key={index}

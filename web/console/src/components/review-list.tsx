@@ -1,5 +1,6 @@
 "use client";
 
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import Link from "next/link";
 import { emptyLineFor } from "@/lib/whimsy-copy";
 import { useEffect, useState } from "react";
@@ -35,12 +36,14 @@ export function ReviewList() {
   }
   if (reviews.length === 0) {
     return (
-      <>
-        <p className="text-sm text-muted-foreground">
-          No reviews yet. Run <code className="rounded bg-muted px-1 font-mono text-xs">claude-ollama review PR</code>.
-        </p>
-        <p className="text-sm text-muted-foreground italic">{emptyLineFor("reviews")}</p>
-      </>
+      <Empty className="border">
+        <EmptyHeader>
+          <EmptyTitle>
+            No reviews yet. Run <code className="rounded bg-muted px-1 font-mono text-xs">claude-ollama review PR</code>.
+          </EmptyTitle>
+          <EmptyDescription className="italic">{emptyLineFor("reviews")}</EmptyDescription>
+        </EmptyHeader>
+      </Empty>
     );
   }
   return (

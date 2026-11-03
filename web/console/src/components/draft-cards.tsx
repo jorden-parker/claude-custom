@@ -1,5 +1,7 @@
 "use client";
 
+import { Label as FieldLabel } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -160,12 +162,11 @@ export function CommentCard({
             ))}
           </Select>
           {DECORATIONS.map((decoration) => (
-            <label key={decoration} className="flex items-center gap-1 text-sm">
-              <input
-                type="checkbox"
+            <FieldLabel key={decoration} className="flex items-center gap-1">
+              <Checkbox
                 aria-label={`${decoration} ${number}`}
                 checked={comment.decorations.includes(decoration)}
-                onChange={() =>
+                onCheckedChange={() =>
                   onChange({
                     ...comment,
                     decorations: toggleDecoration(
@@ -176,7 +177,7 @@ export function CommentCard({
                 }
               />
               {decoration}
-            </label>
+            </FieldLabel>
           ))}
         </div>
         <div className="flex flex-wrap gap-3">

@@ -1,5 +1,7 @@
 "use client";
 
+import { Select } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 import { useState } from "react";
 import { StartRunButton } from "@/components/start-run-button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -29,10 +31,10 @@ export function BenchCard({ title, description, command, fields }: BenchCardProp
       <CardContent className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center gap-3">
           {fields.map((field) => (
-            <label key={field.key} className="flex items-center gap-2 text-sm">
+            <Label key={field.key} className="flex items-center gap-2">
               {field.label}
-              <select
-                className="rounded-md border border-border bg-background px-2 py-1"
+              <Select
+                className="w-auto"
                 value={values[field.key] ?? ""}
                 onChange={(event) => setValues({ ...values, [field.key]: event.target.value })}
               >
@@ -41,8 +43,8 @@ export function BenchCard({ title, description, command, fields }: BenchCardProp
                     {option}
                   </option>
                 ))}
-              </select>
-            </label>
+              </Select>
+            </Label>
           ))}
         </div>
         <p className="text-xs text-muted-foreground">{BENCH_NOTE}</p>

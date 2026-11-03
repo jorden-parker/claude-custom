@@ -1,5 +1,8 @@
 "use client";
 
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { levelBoxClass } from "@/lib/level-style";
@@ -172,13 +175,13 @@ function AddHostForm({ onAdd }: { onAdd: (host: string) => void }) {
       }}
     >
       <div className="flex flex-col gap-1">
-        <input
+        <Input
           aria-label="Add host"
           aria-invalid={draftError !== null}
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           placeholder="docs.example.com"
-          className={`rounded-md border bg-background px-3 py-2 text-sm ${draftError ? "border-error-border ring-2 ring-error-border" : "border-input"}`}
+          className={`h-auto px-3 py-2 ${draftError ? "border-error-border ring-2 ring-error-border" : ""}`}
         />
         {draftError ? <span className="text-xs text-error-foreground">{draftError}</span> : null}
       </div>
@@ -203,20 +206,17 @@ function DomainRow({
       data-host={row.host}
       className="animate-in fade-in slide-in-from-top-1 flex items-center justify-between gap-4 px-4 py-3"
     >
-      <label className="flex items-center gap-3 text-sm">
-        <input
-          type="checkbox"
-          role="switch"
+      <Label className="flex items-center gap-3">
+        <Switch
           aria-label={row.host}
           checked={row.on}
-          onChange={() => onToggle(row.host)}
-          className="size-4"
+          onCheckedChange={() => onToggle(row.host)}
         />
         <span className="font-mono">{row.host}</span>
         {row.suggestedOnly && !row.on ? (
           <span className="rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">suggested</span>
         ) : null}
-      </label>
+      </Label>
       {isCustom(row.host) ? (
         <Button type="button" variant="ghost" size="sm" onClick={() => onRemove(row.host)}>
           Remove

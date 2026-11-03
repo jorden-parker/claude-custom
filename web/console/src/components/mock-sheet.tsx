@@ -1,5 +1,7 @@
 "use client";
 
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { ChevronDownIcon } from "lucide-react";
 import { MockFrame } from "@/lib/mock-spike/registry.tsx";
 import { specOutline } from "@/lib/mock-spike/outline.ts";
 import type { MockRun, MockSpikeReport } from "@/lib/mock-spike/reports.ts";
@@ -49,16 +51,19 @@ function MockCell({ run, preset }: { run: MockRun; preset: string | null }) {
           Not rendered: {run.score.issue}
         </p>
       )}
-      <details className="text-xs">
-        <summary className="cursor-pointer text-muted-foreground">
+      <Collapsible className="text-xs">
+        <CollapsibleTrigger className="group flex cursor-pointer items-center gap-2 text-muted-foreground">
+          <ChevronDownIcon className="size-4 shrink-0 transition-transform group-data-[panel-open]:rotate-180" />
           Elements the model produced
-        </summary>
+        </CollapsibleTrigger>
+        <CollapsibleContent keepMounted>
         <ScrollArea className="mt-2 rounded-md bg-muted">
           <pre className="max-w-full p-2">
             {specOutline(run.spec).join("\n") || "none"}
           </pre>
         </ScrollArea>
-      </details>
+        </CollapsibleContent>
+      </Collapsible>
     </article>
   );
 }

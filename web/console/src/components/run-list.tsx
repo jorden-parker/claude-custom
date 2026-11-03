@@ -1,5 +1,6 @@
 "use client";
 
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import Link from "next/link";
 import { emptyLineFor } from "@/lib/whimsy-copy";
 import { Badge } from "@/components/ui/badge";
@@ -19,10 +20,12 @@ export function RunList() {
   }
   if (runs.length === 0) {
     return (
-      <>
-        <p className="text-sm text-muted-foreground">No runs yet. Start one above.</p>
-        <p className="text-sm text-muted-foreground italic">{emptyLineFor("runs")}</p>
-      </>
+      <Empty className="border">
+        <EmptyHeader>
+          <EmptyTitle>No runs yet. Start one above.</EmptyTitle>
+          <EmptyDescription className="italic">{emptyLineFor("runs")}</EmptyDescription>
+        </EmptyHeader>
+      </Empty>
     );
   }
   return (

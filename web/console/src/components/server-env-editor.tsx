@@ -1,5 +1,6 @@
 "use client";
 
+import { Input } from "@/components/ui/input";
 import Link from "next/link";
 import { Lock } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
@@ -177,12 +178,12 @@ function ValueInput({
   onEdit: (name: string, value: string) => void;
 }) {
   return (
-    <input
+    <Input
       aria-label={name}
       aria-invalid={invalid}
       value={value}
       onChange={(event) => onEdit(name, event.target.value)}
-      className={`rounded-md border bg-background px-2 py-1 font-mono text-sm ${invalid ? "ring-2 ring-error-border" : ""}`}
+      className={`font-mono ${invalid ? "ring-2 ring-error-border" : ""}`}
     />
   );
 }

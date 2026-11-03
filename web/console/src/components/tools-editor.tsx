@@ -1,5 +1,7 @@
 "use client";
 
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { StartRunButton } from "@/components/start-run-button";
@@ -147,15 +149,13 @@ function keepOutOfContext(edit: ToolEdit, onOff: (disabled: boolean) => void) {
     return null;
   }
   return (
-    <label className="flex items-center gap-2 text-xs">
-      <input
-        type="checkbox"
-        role="switch"
+    <Label className="flex items-center gap-2 text-xs">
+      <Switch
         aria-label="Keep out of context"
         checked={edit.disabled}
-        onChange={(event) => onOff(event.target.checked)}
+        onCheckedChange={onOff}
       />
       Keep out of context
-    </label>
+    </Label>
   );
 }

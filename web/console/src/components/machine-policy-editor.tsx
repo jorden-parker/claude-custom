@@ -1,5 +1,6 @@
 "use client";
 
+import { Textarea } from "@/components/ui/textarea";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -147,12 +148,12 @@ function PolicyCard({
       <h2 className="font-mono text-lg font-medium">{file}</h2>
       <p className="text-sm text-muted-foreground">{DESCRIPTIONS[file]}</p>
       <p className="text-xs text-muted-foreground">File: {saved.path}</p>
-      <textarea
+      <Textarea
         aria-label={`Lines for ${file}`}
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
         rows={6}
-        className="rounded-md border bg-background p-2 font-mono text-sm"
+        className="font-mono"
       />
       <InvalidLines invalid={saved.invalid} />
       <div>
