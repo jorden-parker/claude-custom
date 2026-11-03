@@ -152,8 +152,12 @@ class RelaunchDir:
             pid = int(self.path_of(CLAUDE_PID_FILE).read_text().strip())
         except (OSError, ValueError):
             return
-        if pid > 0 and is_claude_process(pid):
+        if pid <= 0 or not is_claude_process(pid):
+            return
+        try:
             os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
 
 
 def remove_stale_siblings(root, own_pid):

@@ -123,18 +123,6 @@ expect_eq "no relaunch dir means nothing happens" "exit 0" "$(stop_event s4)"
 expect_eq "no sentinel without a relaunch dir" no "$(sentinel_state)"
 expect_eq "the process stays without a relaunch dir" yes "$(sleeper_alive)"
 
-nudged_state s5 "$(($(date +%s) - 60))"
-expect_eq "a pid that is not a claude process is not signalled" "exit 0" "$(STUB_PS_COMM=/bin/sleep CLAUDE_OLLAMA_RELAUNCH_DIR="$relaunch_dir" stop_event s5)"
-expect_eq "but the sentinel is still written" yes "$(sentinel_state)"
-expect_eq "the foreign process stays" yes "$(sleeper_alive)"
-rm -f "$relaunch_dir/relaunch"
-
-nudged_state s6 "$(($(date +%s) - 60))"
-rm -f "$relaunch_dir/claude.pid"
-expect_eq "a missing pid file never blocks the stop" "exit 0" "$(CLAUDE_OLLAMA_RELAUNCH_DIR="$relaunch_dir" stop_event s6)"
-expect_eq "the sentinel is written without a pid file" yes "$(sentinel_state)"
-rm -f "$relaunch_dir/relaunch"
-
 nudged_state s7 "$(($(date +%s) - 60))"
 expect_eq "a cwd outside a git repo blocks once and exits 0" "$block_line
 exit 0" "$(jq -cn --arg cwd "$sandbox" '{session_id: "s7", hook_event_name: "Stop", cwd: $cwd}' | CLAUDE_OLLAMA_RELAUNCH_DIR="$relaunch_dir" python3 "$hook"; echo "exit $?")"

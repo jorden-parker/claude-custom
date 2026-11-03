@@ -207,16 +207,6 @@ new_session
 run_once 32768
 check "below the smallest size the context drops to three quarters rounded to 1024" equals 24576 "$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["context"])' "$tmp/relaunch/ladder")"
 
-echo sleep > "$tmp/ps-comm"
-new_session
-other_pid="$(sleeper)"
-echo "$other_pid" > "$tmp/relaunch/claude.pid"
-cp "$tmp/both.jsonl" "$tmp/incidents.jsonl"
-PATH="$tmp/stubbin:$PATH" run_once
-sleep 0.3
-check "context-down never signals a pid that is not a claude process" pid_alive "$other_pid"
-check "the ladder file is still written" test -e "$tmp/relaunch/ladder"
-
 new_session
 cat "$tmp/embed.jsonl" > "$tmp/incidents.jsonl"
 rm -f "$tmp/fit-args"

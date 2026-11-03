@@ -2,12 +2,13 @@
 import argparse
 import json
 import os
-import signal
 import subprocess
 import sys
 import time
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "shared"))
+from relaunch_dir import RelaunchDir
 from watcher import FileTail, IncidentLog, now_iso, process_alive
 
 EVIDENCE_COUNT = 3
@@ -16,7 +17,6 @@ WINDOW_LABEL = "within 10 minutes"
 CONTEXT_STEP = 1024
 MIN_CONTEXT = 16384
 LOWER_CONTEXT_SHARE = 0.75
-CLAUDE_PROCESS_NAMES = ("node", "claude")
 DEFAULT_SIZES = Path(__file__).resolve().parent.parent / "sizes.json"
 DEFAULT_LEASE_BIN = Path(__file__).resolve().parent.parent.parent / "bin" / "ollama-lease"
 RECOVERY_QUIET_SECONDS = 1200
@@ -100,23 +100,6 @@ def lower_context(current, sizes_path):
     return max(rounded, MIN_CONTEXT)
 
 
-def is_claude_process(pid):
-    try:
-        comm = subprocess.run(["ps", "-o", "comm=", "-p", str(pid)], capture_output=True, text=True, check=False).stdout.strip()
-    except OSError:
-        return False
-    return any(name in Path(comm).name for name in CLAUDE_PROCESS_NAMES)
-
-
-def terminate_claude(relaunch_dir):
-    try:
-        pid = int((relaunch_dir / "claude.pid").read_text().strip())
-    except (OSError, ValueError):
-        return
-    if pid > 0 and is_claude_process(pid):
-        os.kill(pid, signal.SIGTERM)
-
-
 class Evidence:
     def __init__(self):
         self.fired = {}
@@ -188,7 +171,7 @@ class Recovery:
     def __init__(self, options, evidence):
         self.options = options
         self.evidence = evidence
-        self.ladder_up = Path(options.relaunch_dir) / "ladder-up"
+        self.folder = RelaunchDir(options.relaunch_dir)
         self.proposed = None
         self.next_fit_at = 0.0
         for name in options.rung:
@@ -196,7 +179,7 @@ class Recovery:
 
     def poll(self):
         if self.proposed is not None:
-            if self.ladder_up.exists():
+            if self.folder.has("ladder-up"):
                 return
             self.evidence.recover(self.proposed)
             self.proposed = None
@@ -212,7 +195,7 @@ class Recovery:
 
     def propose(self, name):
         reason = recovery_reason(name, self.options.quiet_seconds)
-        self.ladder_up.write_text(json.dumps({"rung": name, "reason": reason}))
+        self.folder.request("ladder-up", {"rung": name, "reason": reason})
         self.proposed = name
 
     def fit_context(self, name):
@@ -239,7 +222,7 @@ class Recovery:
 class Ladder:
     def __init__(self, options):
         self.options = options
-        self.relaunch_dir = Path(options.relaunch_dir)
+        self.folder = RelaunchDir(options.relaunch_dir)
         self.log = IncidentLog(options.incidents)
         self.tail = FileTail(options.incidents, start_at_end=False)
         self.evidence = Evidence()
@@ -256,9 +239,9 @@ class Ladder:
 
     def fire(self, name, reason):
         if name == "embeddings-off":
-            (self.relaunch_dir / "embed-off").touch()
+            self.folder.raise_flag("embed-off")
         elif name == "heartbeat":
-            (self.relaunch_dir / "heartbeat-fast").touch()
+            self.folder.raise_flag("heartbeat-fast")
         elif name == "context-down":
             self.lower_context(reason)
         self.log.record({"ts": now_iso(), "cause": "degraded", "detail": f"{name}: {reason}", "tokens": None, "rule": f"ladder/{name}"})
@@ -266,8 +249,8 @@ class Ladder:
     def lower_context(self, reason):
         current = self.options.context or 0
         target = {"rung": "context-down", "context": lower_context(current, self.options.sizes), "reason": reason}
-        (self.relaunch_dir / "ladder").write_text(json.dumps(target))
-        terminate_claude(self.relaunch_dir)
+        self.folder.request("ladder", target)
+        self.folder.terminate_claude()
 
     def run(self):
         if self.options.once:

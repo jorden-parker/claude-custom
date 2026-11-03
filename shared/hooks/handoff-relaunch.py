@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 import json
 import os
-import signal
 import subprocess
 import sys
 from pathlib import Path
 
-CLAUDE_PROCESS_NAMES = ("node", "claude")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from relaunch_dir import RelaunchDir
+
 PROMPT_LIMIT = 200
 SKIPPED_PROMPT_STARTS = ("/", "<system-reminder>", "<local-command")
 BLOCK_REASON = "Context budget at {percent}%: call the handoff skill with save now, then stop."
@@ -100,32 +101,15 @@ def last_user_prompt(transcript_path):
     return ""
 
 
-def is_claude_process(pid):
-    try:
-        comm = subprocess.run(
-            ["ps", "-o", "comm=", "-p", str(pid)], capture_output=True, text=True, check=False
-        ).stdout.strip()
-    except OSError:
-        return False
-    return any(name in Path(comm).name for name in CLAUDE_PROCESS_NAMES)
-
-
-def terminate_claude(relaunch_dir):
-    try:
-        pid = int((relaunch_dir / "claude.pid").read_text().strip())
-    except (OSError, ValueError):
-        return
-    if pid > 0 and is_claude_process(pid):
-        os.kill(pid, signal.SIGTERM)
-
-
-def write_sentinel(relaunch_dir, note, event, state):
-    sentinel = {
-        "note": str(note),
-        "prompt": last_user_prompt(event.get("transcript_path")),
-        "percent": state.get("percent"),
-    }
-    (relaunch_dir / "relaunch").write_text(json.dumps(sentinel))
+def request_relaunch(folder, note, event, state):
+    folder.request(
+        "relaunch",
+        {
+            "note": str(note),
+            "prompt": last_user_prompt(event.get("transcript_path")),
+            "percent": state.get("percent"),
+        },
+    )
 
 
 def may_block(event, state):
@@ -138,7 +122,7 @@ def block_for_save(path, state):
     print(json.dumps({"decision": "block", "reason": reason}))
 
 
-def relaunch(event, relaunch_dir):
+def relaunch(event, folder):
     path = state_path(event.get("session_id", "nosession"))
     state = load_state(path)
     if not state or "nudged_at" not in state or state.get("relaunched"):
@@ -149,8 +133,8 @@ def relaunch(event, relaunch_dir):
             block_for_save(path, state)
         return
     path.write_text(json.dumps({**state, "relaunched": True}))
-    write_sentinel(relaunch_dir, note, event, state)
-    terminate_claude(relaunch_dir)
+    request_relaunch(folder, note, event, state)
+    folder.terminate_claude()
 
 
 def main():
@@ -158,12 +142,12 @@ def main():
         print(last_user_prompt(sys.argv[2]))
         return
     event = json.load(sys.stdin)
-    relaunch_dir = os.environ.get("CLAUDE_OLLAMA_RELAUNCH_DIR")
-    if event.get("hook_event_name") != "Stop" or not relaunch_dir:
+    folder = RelaunchDir.from_env()
+    if event.get("hook_event_name") != "Stop" or folder is None:
         return
     try:
-        relaunch(event, Path(relaunch_dir))
-    except OSError as error:
+        relaunch(event, folder)
+    except (OSError, ValueError) as error:
         print(f"handoff-relaunch: {error}", file=sys.stderr)
 
 
