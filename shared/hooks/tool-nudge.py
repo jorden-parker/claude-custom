@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
+import copy
 import json
-import os
 import shlex
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import hook_state
 from friction_budget import deny_reason
 from hook_telemetry import record_denial
 
@@ -20,26 +22,6 @@ ALTERNATIVES = {
     DOCS_FIRST_DENY: "call Skill find-docs once, then open node_modules",
 }
 EMPTY_STATE = {"docs_looked_up": False}
-
-
-def claude_config_dir():
-    return Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
-
-
-def state_path(session_id):
-    return claude_config_dir() / "cache" / "tool-nudge" / f"{session_id}.json"
-
-
-def load_state(path):
-    try:
-        return {**EMPTY_STATE, **json.loads(path.read_text())}
-    except (OSError, ValueError):
-        return dict(EMPTY_STATE)
-
-
-def save_state(path, state):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(state))
 
 
 def words_of(text):
@@ -93,26 +75,24 @@ def deny(reason):
     }
 
 
-def handle(event, state):
+def pending_advice(event, state):
     if event.get("hook_event_name") != "PreToolUse":
         return None
-    tool_name = event.get("tool_name", "")
-    tool_input = event.get("tool_input") or {}
-    advice = docs_gate(state, tool_name, tool_input)
-    if not advice:
-        return None
-    return deny(deny_reason("tool-nudge", event, advice, ALTERNATIVES[advice]))
+    return docs_gate(state, event.get("tool_name", ""), event.get("tool_input") or {})
 
 
 def main():
     event = json.load(sys.stdin)
-    path = state_path(event.get("session_id", "nosession"))
+    path = hook_state.state_path("tool-nudge", event.get("session_id", "nosession"))
     if event.get("hook_event_name") == "UserPromptSubmit":
-        save_state(path, dict(EMPTY_STATE))
+        hook_state.prune("tool-nudge")
+        hook_state.write_state(path, copy.deepcopy(EMPTY_STATE))
         return
-    state = load_state(path)
-    output = handle(event, state)
-    save_state(path, state)
+    with hook_state.update_state(path, EMPTY_STATE) as state:
+        advice = pending_advice(event, state)
+    if not advice:
+        return
+    output = deny(deny_reason("tool-nudge", event, advice, ALTERNATIVES[advice]))
     if output:
         record_denial("tool-nudge", event, output["hookSpecificOutput"]["permissionDecisionReason"])
         print(json.dumps(output))

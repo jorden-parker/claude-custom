@@ -55,6 +55,12 @@ expect_eq "reads never nudge toward Agent" "" "$(post Read)"
 
 expect_eq "prompt submit prints nothing" "" "$(event UserPromptSubmit)"
 
+stale_state="$HOME/.claude/cache/tool-nudge/stale.json"
+printf '{}' > "$stale_state"
+touch -t 202001010000 "$stale_state"
+event UserPromptSubmit >/dev/null
+expect_eq "prompt submit prunes week-old state" missing "$([ -e "$stale_state" ] && echo present || echo missing)"
+
 tool_event() {
   local tool_name="$1" tool_input="$2"
   jq -cn --arg tool "$tool_name" --argjson input "$tool_input" \
