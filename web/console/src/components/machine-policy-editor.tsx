@@ -1,5 +1,6 @@
 "use client";
 
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Textarea } from "@/components/ui/textarea";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
@@ -173,17 +174,19 @@ function InvalidLines({ invalid }: { invalid: InvalidLine[] }) {
     return null;
   }
   return (
-    <div className={levelBoxClass("warn")}>
-      <p className="font-medium">The launcher ignores these lines</p>
-      <ul className="mt-2 flex flex-col gap-1">
-        {invalid.map((entry, index) => (
-          <li key={`${entry.line}-${index}`}>
-            <code>{entry.line}</code>{" "}
-            <span className="text-muted-foreground">{entry.reason}</span>
-          </li>
-        ))}
-      </ul>
-    </div>
+    <Alert className={levelBoxClass("warn")}>
+      <AlertDescription className="text-inherit">
+        <p className="font-medium">The launcher ignores these lines</p>
+        <ul className="mt-2 flex flex-col gap-1">
+          {invalid.map((entry, index) => (
+            <li key={`${entry.line}-${index}`}>
+              <code>{entry.line}</code>{" "}
+              <span className="text-muted-foreground">{entry.reason}</span>
+            </li>
+          ))}
+        </ul>
+      </AlertDescription>
+    </Alert>
   );
 }
 

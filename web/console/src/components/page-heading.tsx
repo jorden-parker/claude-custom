@@ -6,16 +6,16 @@ import {
   BreadcrumbList,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
-import { subtitleFor } from "@/lib/whimsy-copy";
+import { sectionSummaryForTitle } from "@/lib/console-sections";
 
 type PageHeadingProps = {
   title: string;
   backHref?: string;
   backLabel?: string;
+  description?: string;
 };
 
-const HEADING_CLASS =
-  "min-w-0 break-words font-heading text-2xl font-semibold tracking-heading sm:text-3xl";
+const HEADING_CLASS = "min-w-0 break-words text-heading-24 sm:text-heading-32";
 
 function Title({ title, backHref, backLabel }: PageHeadingProps) {
   if (backHref && backLabel) {
@@ -41,12 +41,13 @@ function Title({ title, backHref, backLabel }: PageHeadingProps) {
 }
 
 export function PageHeading(props: PageHeadingProps) {
+  const subtitle = props.description ?? sectionSummaryForTitle(props.title);
   return (
     <header className="flex flex-col gap-1">
       <Title {...props} />
-      <p className="text-sm text-muted-foreground">
-        {subtitleFor(props.title)}
-      </p>
+      {subtitle === undefined ? null : (
+        <p className="text-copy-14 text-muted-foreground">{subtitle}</p>
+      )}
     </header>
   );
 }

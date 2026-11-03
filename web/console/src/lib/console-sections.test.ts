@@ -1,5 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { CONSOLE_SECTIONS } from "./console-sections";
+import {
+  CONSOLE_SECTION_GROUPS,
+  CONSOLE_SECTIONS,
+  sectionsInGroup,
+  sectionSummaryForTitle,
+} from "./console-sections";
+
+describe("sectionSummaryForTitle", () => {
+  it("returns the summary of the section with that title", () => {
+    expect(sectionSummaryForTitle("Runs")).toBe(
+      "Every job the console started, live and past",
+    );
+  });
+
+  it("returns undefined for an unknown title", () => {
+    expect(sectionSummaryForTitle("No such page")).toBeUndefined();
+  });
+});
 
 describe("CONSOLE_SECTIONS", () => {
   it("lists at least one section", () => {
@@ -36,5 +53,31 @@ describe("CONSOLE_SECTIONS", () => {
     expect(
       CONSOLE_SECTIONS.find((section) => section.href === "/diagnose")?.title,
     ).toBe("Diagnose");
+  });
+
+  it("puts every section in a known group", () => {
+    for (const section of CONSOLE_SECTIONS) {
+      expect(CONSOLE_SECTION_GROUPS).toContain(section.group);
+    }
+  });
+
+  it("keeps each group's sections next to each other", () => {
+    const groupsInOrder = CONSOLE_SECTIONS.map((section) => section.group);
+    const groupChanges = groupsInOrder.filter(
+      (group, index) => index === 0 || group !== groupsInOrder[index - 1],
+    );
+
+    expect(groupChanges).toEqual([...CONSOLE_SECTION_GROUPS]);
+  });
+});
+
+describe("sectionsInGroup", () => {
+  it("lists the Work sections in order", () => {
+    expect(sectionsInGroup("Work").map((section) => section.href)).toEqual([
+      "/reviews",
+      "/drafts",
+      "/runs",
+      "/mockups",
+    ]);
   });
 });

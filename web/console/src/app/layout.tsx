@@ -1,19 +1,13 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import { Fraunces, Geist_Mono, Nunito } from "next/font/google";
+import { Geist, Geist_Mono } from "next/font/google";
 import { ConsoleShell } from "@/components/console-shell";
+import { ThemeProvider } from "@/components/theme-provider";
 import "./globals.css";
 
-const fraunces = Fraunces({
-  weight: "variable",
-  axes: ["SOFT", "WONK"],
-  variable: "--font-fraunces",
-  subsets: ["latin"],
-});
-
-const nunito = Nunito({
-  weight: "variable",
-  variable: "--font-nunito",
+const geistSans = Geist({
+  weight: ["400", "500", "600"],
+  variable: "--font-geist-sans",
   subsets: ["latin"],
 });
 
@@ -34,10 +28,18 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${fraunces.variable} ${nunito.variable} ${geistMono.variable} h-full antialiased`}
+      suppressHydrationWarning
+      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        <ConsoleShell>{children}</ConsoleShell>
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange
+        >
+          <ConsoleShell>{children}</ConsoleShell>
+        </ThemeProvider>
       </body>
     </html>
   );

@@ -4,6 +4,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HistoryEntry } from "@/lib/history";
@@ -137,12 +138,18 @@ describe("HistoryView", () => {
       screen.getByRole("button", { name: "Restore this version" }),
     );
 
+    const dialog = within(await screen.findByRole("alertdialog"));
     expect(
-      screen.getByText(/Restore \/home\/owner\/\.claude\/settings\.json/),
+      dialog.getByRole("heading", { name: "Restore Settings" }),
+    ).toBeTruthy();
+    expect(
+      dialog.getByText(
+        "/home/owner/.claude/settings.json returns to the version before this change.",
+      ),
     ).toBeTruthy();
     expect(posts).toEqual([]);
 
-    fireEvent.click(screen.getByRole("button", { name: "Confirm restore" }));
+    fireEvent.click(dialog.getByRole("button", { name: "Restore Settings" }));
 
     await waitFor(() =>
       expect(posts).toEqual([`/api/history/${SETTINGS_ID}/restore`]),
@@ -174,8 +181,9 @@ describe("HistoryView", () => {
       screen.getByRole("button", { name: "Restore this version" }),
     );
 
+    const dialog = within(await screen.findByRole("alertdialog"));
     expect(
-      screen.getByText(/use Apply on the Server page to reload Ollama/),
+      dialog.getByText(/use Apply on the Server page to reload Ollama/),
     ).toBeTruthy();
   });
 });

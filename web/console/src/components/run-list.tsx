@@ -4,10 +4,11 @@ import {
   Empty,
   EmptyDescription,
   EmptyHeader,
+  EmptyMedia,
   EmptyTitle,
 } from "@/components/ui/empty";
 import Link from "next/link";
-import { emptyLineFor } from "@/lib/whimsy-copy";
+import { SectionIcon } from "@/components/section-icon";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { useRunSummaries } from "@/components/use-run-summaries";
@@ -31,10 +32,11 @@ export function RunList() {
     return (
       <Empty className="border">
         <EmptyHeader>
-          <EmptyTitle>No runs yet. Start one above.</EmptyTitle>
-          <EmptyDescription className="italic">
-            {emptyLineFor("runs")}
-          </EmptyDescription>
+          <EmptyMedia variant="icon">
+            <SectionIcon href="/runs" />
+          </EmptyMedia>
+          <EmptyTitle>No Runs Yet</EmptyTitle>
+          <EmptyDescription>Start one above.</EmptyDescription>
         </EmptyHeader>
       </Empty>
     );
@@ -54,9 +56,9 @@ function RunRow({ run, now }: { run: RunSummary; now: number }) {
   return (
     <Link
       href={`/runs/${encodeURIComponent(run.id)}`}
-      className="block rounded-card outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="block rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
-      <Card className="cursor-pointer rounded-card shadow-border transition-colors hover:bg-accent">
+      <Card className="cursor-pointer transition-colors hover:bg-accent">
         <CardContent className="flex flex-col gap-2">
           <div className="flex min-w-0 items-center gap-2">
             <span className={runStatusDotClass(run.status)} />

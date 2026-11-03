@@ -34,6 +34,17 @@ describe("RunView", () => {
     expect(logRegion.textContent).toContain("second line");
   });
 
+  it("shows no petals when a run ends ok", async () => {
+    const { container } = render(<RunView id="run-3" />);
+    const source = FakeRunEventSource.opened[0];
+    act(() => {
+      source.start("doctor-free", "Check things");
+      source.end(0);
+    });
+    await screen.findAllByText("done");
+    expect(container.querySelector("[data-petal]")).toBeNull();
+  });
+
   it("shows the stage as a progress bar", async () => {
     render(<RunView id="run-2" />);
     const source = FakeRunEventSource.opened[0];

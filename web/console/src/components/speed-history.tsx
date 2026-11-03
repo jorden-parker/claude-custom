@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { emptyLineFor } from "@/lib/whimsy-copy";
 import { useEffect, useState } from "react";
 import { StartRunButton } from "@/components/start-run-button";
 import { Button } from "@/components/ui/button";
@@ -32,10 +31,7 @@ export function SpeedHistory() {
         <FailureCard key={failure.id} failure={failure} />
       ))}
       {reports.length === 0 ? (
-        <>
-          <p className="text-sm text-muted-foreground">No speed-check reports in ~/bench-results yet.</p>
-          <p className="text-sm text-muted-foreground italic">{emptyLineFor("speed-check")}</p>
-        </>
+        <p className="text-sm text-muted-foreground">No speed-check reports in ~/bench-results yet.</p>
       ) : (
         reports.map((report) => <ReportCard key={report.file} report={report} />)
       )}

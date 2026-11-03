@@ -1,6 +1,16 @@
 "use client";
 
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Table,
   TableBody,
   TableCell,
@@ -293,23 +303,33 @@ function ApplyConfirm({
   onCancel,
 }: ApplyConfirmProps) {
   return (
-    <div className="flex flex-col gap-2 rounded-xl bg-muted p-3">
-      <p className="text-sm font-medium">
-        Turn these tools off in {profile.title}?
-      </p>
-      <ul className="flex flex-col gap-1 font-mono text-xs">
-        {drop.map((name) => (
-          <li key={name}>{name}</li>
-        ))}
-      </ul>
-      <div className="flex gap-2">
-        <Button type="button" size="sm" onClick={onConfirm}>
-          Turn these off
-        </Button>
-        <Button type="button" size="sm" variant="outline" onClick={onCancel}>
-          Cancel
-        </Button>
-      </div>
-    </div>
+    <AlertDialog
+      open
+      onOpenChange={(open) => {
+        if (!open) {
+          onCancel();
+        }
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Turn Off Tools</AlertDialogTitle>
+          <AlertDialogDescription>
+            These tools turn off in {profile.title}:
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <ul className="flex flex-col gap-1 font-mono text-xs">
+          {drop.map((name) => (
+            <li key={name}>{name}</li>
+          ))}
+        </ul>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction onClick={onConfirm}>
+            Turn Off Tools
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

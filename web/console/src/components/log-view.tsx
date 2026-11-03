@@ -64,7 +64,7 @@ export function LogView() {
         value={source}
         onValueChange={(next) => setSource(next as LogSource)}
       >
-        <TabsList>
+        <TabsList className="max-w-full justify-start overflow-x-auto">
           <TabsTrigger value="server">Ollama server</TabsTrigger>
           <TabsTrigger value="launcher">Launcher</TabsTrigger>
           <TabsTrigger value="incidents">Incidents</TabsTrigger>

@@ -1,5 +1,13 @@
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { gigabytes, namesToRemove, totalBytes, type InstalledModel } from "@/lib/model-display";
 
 type PruneConfirmProps = {
@@ -10,11 +18,21 @@ type PruneConfirmProps = {
 
 export function PruneConfirm({ models, onConfirm, onCancel }: PruneConfirmProps) {
   return (
-    <Card>
-      <CardContent className="flex flex-col gap-3">
-        <p className="text-sm font-medium">
-          Remove these {models.length} models and free {gigabytes(totalBytes(models))} GB?
-        </p>
+    <AlertDialog
+      open
+      onOpenChange={(open) => {
+        if (!open) {
+          onCancel();
+        }
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Remove Models</AlertDialogTitle>
+          <AlertDialogDescription>
+            {models.length} models, {gigabytes(totalBytes(models))} GB freed.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
         <ul className="flex flex-col gap-1 font-mono text-xs">
           {models.map((model) => (
             <li key={model.name}>
@@ -22,15 +40,13 @@ export function PruneConfirm({ models, onConfirm, onCancel }: PruneConfirmProps)
             </li>
           ))}
         </ul>
-        <div className="flex gap-2">
-          <Button variant="destructive" onClick={() => onConfirm(namesToRemove(models))}>
-            Remove these
-          </Button>
-          <Button variant="outline" onClick={onCancel}>
-            Cancel
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction variant="destructive" onClick={() => onConfirm(namesToRemove(models))}>
+            Remove Models
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

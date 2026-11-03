@@ -71,7 +71,7 @@ export function ProfileEditor({ id }: { id: string }) {
     <section className="flex flex-col gap-4">
       <ProfileFacts detail={detail} />
       <Tabs defaultValue="tools">
-        <TabsList>
+        <TabsList className="max-w-full justify-start overflow-x-auto">
           <TabsTrigger value="tools">Tools</TabsTrigger>
           <TabsTrigger value="model">Sandbox &amp; model</TabsTrigger>
           <TabsTrigger value="mcp">MCP &amp; hooks</TabsTrigger>

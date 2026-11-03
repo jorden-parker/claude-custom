@@ -1,6 +1,17 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { SidebarProvider } from "@/components/ui/sidebar";
+import {
+  Sidebar,
+  SidebarProvider,
+  SidebarTrigger,
+} from "@/components/ui/sidebar";
 import { ConsoleNav, isActiveSection } from "./console-nav";
 
 vi.mock("next/navigation", () => ({
@@ -42,11 +53,105 @@ describe("ConsoleNav", () => {
     ).toBe(false);
   });
 
+  it("groups the sections under Work, Observe and Configure", () => {
+    renderNav();
+
+    for (const label of ["Work", "Observe", "Configure"]) {
+      expect(screen.getByText(label)).toBeTruthy();
+    }
+  });
+
+  it("closes the mobile sheet after a link is chosen", async () => {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn().mockImplementation(() => ({
+        matches: true,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })),
+    );
+    render(
+      <SidebarProvider>
+        <SidebarTrigger />
+        <Sidebar>
+          <ConsoleNav />
+        </Sidebar>
+      </SidebarProvider>,
+    );
+    expect(screen.queryByRole("link", { name: "Runs" })).toBeNull();
+
+    fireEvent.click(screen.getAllByRole("button", { name: /sidebar/i })[0]);
+    fireEvent.click(await screen.findByRole("link", { name: "Runs" }));
+
+    await waitFor(() =>
+      expect(screen.queryByRole("link", { name: "Runs" })).toBeNull(),
+    );
+  });
+
+  it("puts a sidebar toggle in the sidebar header", () => {
+    renderNav();
+
+    const sidebarHeader = document.querySelector('[data-sidebar="header"]');
+
+    expect(sidebarHeader).not.toBeNull();
+    expect(
+      within(sidebarHeader as HTMLElement).getByRole("button", {
+        name: "Toggle Sidebar",
+      }),
+    ).toBeTruthy();
+  });
+
+  it("hides the brand text while the sidebar is collapsed to icons", () => {
+    renderNav();
+
+    const brandText = screen.getByText("claude-ollama");
+
+    expect(brandText.className).toContain(
+      "group-data-[collapsible=icon]:hidden",
+    );
+  });
+
+  it("keeps the theme switch in the footer and shows a second toggle there only while collapsed", () => {
+    renderNav();
+
+    const sidebarFooter = document.querySelector(
+      '[data-sidebar="footer"]',
+    ) as HTMLElement | null;
+
+    expect(sidebarFooter).not.toBeNull();
+    expect(sidebarFooter!.className).not.toContain("hidden");
+    expect(
+      within(sidebarFooter!).getByRole("button", { name: "Theme: System" }),
+    ).toBeTruthy();
+
+    const collapsedToggle = within(sidebarFooter!)
+      .getByRole("button", { name: "Toggle Sidebar" })
+      .closest("div");
+
+    expect(collapsedToggle!.className).toContain("hidden");
+    expect(collapsedToggle!.className).toContain(
+      "group-data-[collapsible=icon]:flex",
+    );
+  });
+
+  it("renders menu buttons without the pill shape", () => {
+    renderNav();
+
+    const menuButton = document.querySelector('[data-sidebar="menu-button"]');
+
+    expect(menuButton).not.toBeNull();
+    expect(menuButton?.className).not.toContain("rounded-full");
+  });
+
   it("links to Profiles and to Global tools in the nav", () => {
     renderNav();
 
-    expect(screen.getByRole("link", { name: "Profiles" }).getAttribute("href")).toBe("/profiles");
-    expect(screen.getByRole("link", { name: "Global tools" }).getAttribute("href")).toBe("/tools");
+    expect(
+      screen.getByRole("link", { name: "Profiles" }).getAttribute("href"),
+    ).toBe("/profiles");
+    expect(
+      screen.getByRole("link", { name: "Global tools" }).getAttribute("href"),
+    ).toBe("/tools");
   });
 });
 

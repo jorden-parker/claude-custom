@@ -61,7 +61,7 @@ function CheckCardItem({
   now: number;
 }) {
   return (
-    <Card className="rounded-card shadow-border">
+    <Card>
       <CardContent className="flex flex-col gap-2">
         <span className="font-medium">{check.title}</span>
         <span className="text-sm text-muted-foreground">

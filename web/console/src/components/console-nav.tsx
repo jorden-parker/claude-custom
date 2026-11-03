@@ -2,16 +2,25 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { GardenSprite } from "@/components/garden-sprite";
+import { BrandMark } from "@/components/brand-mark";
 import { SectionIcon } from "@/components/section-icon";
+import { ThemeSwitch } from "@/components/theme-switch";
 import {
   SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarTrigger,
+  useSidebar,
 } from "@/components/ui/sidebar";
-import { CONSOLE_SECTIONS } from "@/lib/console-sections";
+import {
+  CONSOLE_SECTION_GROUPS,
+  sectionsInGroup,
+} from "@/lib/console-sections";
 
 export function isActiveSection(pathname: string, href: string): boolean {
   if (href === "/") {
@@ -22,34 +31,62 @@ export function isActiveSection(pathname: string, href: string): boolean {
 
 export function ConsoleNav() {
   const pathname = usePathname();
+  const { isMobile, setOpenMobile } = useSidebar();
+
+  const closeMobileSheet = () => {
+    if (isMobile) {
+      setOpenMobile(false);
+    }
+  };
 
   return (
     <>
       <SidebarHeader>
-        <Link
-          href="/"
-          className="flex items-center gap-2 px-2 py-1.5 font-heading text-lg font-semibold tracking-heading"
-        >
-          <GardenSprite />
-          claude-ollama
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/"
+            className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-sm font-semibold"
+          >
+            <BrandMark />
+            <span className="truncate group-data-[collapsible=icon]:hidden">
+              claude-ollama
+            </span>
+          </Link>
+          <SidebarTrigger className="shrink-0 group-data-[collapsible=icon]:hidden" />
+        </div>
       </SidebarHeader>
       <SidebarContent>
-        <SidebarMenu>
-          {CONSOLE_SECTIONS.map((section) => (
-            <SidebarMenuItem key={section.href}>
-              <SidebarMenuButton
-                render={<Link href={section.href} />}
-                isActive={isActiveSection(pathname, section.href)}
-                tooltip={section.summary}
-              >
-                <SectionIcon href={section.href} />
-                <span>{section.title}</span>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          ))}
-        </SidebarMenu>
+        {CONSOLE_SECTION_GROUPS.map((group) => (
+          <SidebarGroup key={group}>
+            <SidebarGroupLabel>{group}</SidebarGroupLabel>
+            <SidebarMenu>
+              {sectionsInGroup(group).map((section) => (
+                <SidebarMenuItem key={section.href}>
+                  <SidebarMenuButton
+                    render={<Link href={section.href} />}
+                    isActive={isActiveSection(pathname, section.href)}
+                    tooltip={section.summary}
+                    onClick={closeMobileSheet}
+                  >
+                    <SectionIcon href={section.href} />
+                    <span>{section.title}</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroup>
+        ))}
       </SidebarContent>
+      <SidebarFooter>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <ThemeSwitch />
+          </SidebarMenuItem>
+        </SidebarMenu>
+        <div className="hidden group-data-[collapsible=icon]:flex">
+          <SidebarTrigger />
+        </div>
+      </SidebarFooter>
     </>
   );
 }

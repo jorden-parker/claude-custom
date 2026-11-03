@@ -33,7 +33,7 @@ export function MockSheet({ report }: { report: MockSpikeReport }) {
 
 function MockCell({ run, preset }: { run: MockRun; preset: string | null }) {
   return (
-    <article className="flex flex-col gap-3 rounded-lg border border-ink bg-card p-4">
+    <article className="flex flex-col gap-3 rounded-lg border bg-card p-4">
       <header className="flex items-baseline justify-between gap-2 text-sm">
         <span className="font-medium">
           {run.brief} #{run.run}
