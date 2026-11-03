@@ -449,7 +449,7 @@ def send_replay(probe, body):
     response = post_json(probe.base_url, "/v1/messages", body, {"anthropic-version": ANTHROPIC_VERSION, "x-api-key": "local"})
     usage = response.get("usage") or {}
     return {
-        "prompt_tokens": usage.get("input_tokens", 0),
+        "prompt_tokens": usage.get("input_tokens", 0) + (usage.get("cache_read_input_tokens") or 0),
         "cached_tokens": usage.get("cache_read_input_tokens"),
         "prefill_seconds": time.monotonic() - started,
     }

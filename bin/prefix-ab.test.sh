@@ -116,7 +116,7 @@ run_ab() { "$prefix_ab" --record "$tmp/record" --model qwen3.8-27b-cc --base-url
 original_system='["The session began on Monday 2026-11-02.","You are a terse assistant.","Keep replies short."]'
 stabilized_system='["You are a terse assistant.","Keep replies short.\nThe session began on Monday 2026-11-02."]'
 
-start_stub '{"responses": [[1000, 0], [1010, 100], [1020, 100], [1000, 0], [1010, 900], [1020, 950]]}'
+start_stub '{"responses": [[1000, 0], [910, 100], [920, 100], [1000, 0], [110, 900], [70, 950]]}'
 table="$(run_ab 2> "$tmp/table.err")"
 status=$?
 check "exits 0" [ "$status" -eq 0 ]
@@ -137,7 +137,7 @@ check "the third request shows both hit rates" has_row "$table" "^mmm-third +9\.
 check "the mean row averages the later requests" has_row "$table" "^mean +9\.9 +91\.1"
 check "the verdict names the gain in points" has_row "$table" "^stabilize: worth it \(\+81 points mean hit rate\)"
 
-start_stub '{"responses": [[1000, 0], [1010, 100], [1020, 100], [1000, 0], [1010, 900], [1020, 950]]}'
+start_stub '{"responses": [[1000, 0], [910, 100], [920, 100], [1000, 0], [110, 900], [70, 950]]}'
 report="$(run_ab --json 2>/dev/null)"
 check "--json lists one row per body" [ "$(printf '%s' "$report" | jq '.requests | length')" = 3 ]
 check "--json carries both hit rates" [ "$(printf '%s' "$report" | jq -c '.requests[1] | [.request_id, .verbatim.hit_percent, .stabilized.hit_percent]')" = '["aaa-second",9.9,89.1]' ]
@@ -145,15 +145,15 @@ check "--json carries the means and the gain" [ "$(printf '%s' "$report" | jq -c
 check "--json carries the verdict" [ "$(printf '%s' "$report" | jq -r .verdict)" = "stabilize: worth it (+81 points mean hit rate)" ]
 check "--json names the model and the record dir" [ "$(printf '%s' "$report" | jq -r '[.model, .record_dir] | join(" ")')" = "qwen3.8-27b-cc $tmp/record" ]
 
-start_stub '{"responses": [[1000, 0], [1010, 900], [1020, 900], [1000, 0], [1010, 900], [1020, 900]]}'
+start_stub '{"responses": [[1000, 0], [110, 900], [120, 900], [1000, 0], [110, 900], [120, 900]]}'
 same="$(run_ab 2>/dev/null)"
 check "equal hit rates are no gain" has_row "$same" "^stabilize: no gain"
 
-start_stub '{"responses": [[1000, 0], [1010, 900], [1020, 900], [1000, 0], [1010, 880], [1020, 880]]}'
+start_stub '{"responses": [[1000, 0], [110, 900], [120, 900], [1000, 0], [130, 880], [140, 880]]}'
 worse="$(run_ab 2>/dev/null)"
 check "a lower stabilized hit rate is no gain" has_row "$worse" "^stabilize: no gain"
 
-start_stub '{"responses": [[1000, 0], [1010, 100], [1000, 0], [1010, 900]]}'
+start_stub '{"responses": [[1000, 0], [910, 100], [1000, 0], [110, 900]]}'
 limited="$(run_ab --limit 2 2>/dev/null)"
 check "--limit replays only the first N bodies" [ "$(request_count)" = 6 ]
 check "--limit keeps the ts order" [ "$(request_at 3 | jq -r '.messages[0].content')" = "second turn" ]

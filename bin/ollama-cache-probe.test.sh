@@ -275,7 +275,7 @@ PY
 python3 "$tmp/replay_dir.py" "$tmp/replay"
 replay_turns() { grep -o '"content": "[a-z]* recorded turn"' "$run_dir/requests.log" | tr '\n' ' '; }
 
-start_stub '{"tags": ["qwen3.8-27b-cc"], "responses": [], "replay_responses": [[1000, 0], [1010, 900], [1020, 200]]}'
+start_stub '{"tags": ["qwen3.8-27b-cc"], "responses": [], "replay_responses": [[1000, 0], [110, 900], [820, 200]]}'
 replay_table="$(probe_output --replay "$tmp/replay" 27b 2> "$tmp/replay.err")"
 replay_status=$?
 check "--replay exits 0" [ "$replay_status" -eq 0 ]
@@ -289,7 +289,7 @@ check "--replay scores each next body by its cached tokens" has_row "$replay_tab
 check "--replay scores a weak reuse" has_row "$replay_table" "^mmm-third +1020 +200 +19\.6 "
 check "--replay prints a verdict" has_row "$replay_table" "^Replay: 1 of 2 consecutive requests reused the cache"
 
-start_stub '{"tags": ["qwen3.8-27b-cc"], "responses": [], "replay_responses": [[1000, 0], [1010, 900], [1020, 200]]}'
+start_stub '{"tags": ["qwen3.8-27b-cc"], "responses": [], "replay_responses": [[1000, 0], [110, 900], [820, 200]]}'
 replay_json="$(probe_output --replay "$tmp/replay" --json 27b 2>/dev/null)"
 check "--replay --json lists one row per body" [ "$(printf '%s' "$replay_json" | jq '.replay | length')" = 3 ]
 check "--replay --json carries the request id and hit" [ "$(printf '%s' "$replay_json" | jq -c '.replay[1] | [.request_id, .hit_percent]')" = '["aaa-second",89.1]' ]
