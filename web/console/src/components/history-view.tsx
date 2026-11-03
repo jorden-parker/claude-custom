@@ -1,9 +1,18 @@
 "use client";
 
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+} from "@/components/ui/empty";
+import { Select } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 import { diffLines } from "diff";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { HistoryChange, HistoryEntry } from "@/lib/history";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 export function HistoryView() {
   const [entries, setEntries] = useState<HistoryEntry[] | null>(null);
@@ -118,12 +127,12 @@ function HistoryList({
     kind === "all" ? entries : entries.filter((entry) => entry.kind === kind);
   return (
     <div className="flex flex-col gap-3">
-      <label className="flex items-center gap-2 text-sm">
+      <Label className="flex items-center gap-2">
         Kind
-        <select
+        <Select
           value={kind}
           onChange={(event) => setKind(event.target.value)}
-          className="rounded-md border bg-background px-2 py-1"
+          className="w-auto"
         >
           <option value="all">All kinds</option>
           {kinds.map((name) => (
@@ -131,29 +140,31 @@ function HistoryList({
               {name}
             </option>
           ))}
-        </select>
-      </label>
+        </Select>
+      </Label>
       <ul className="flex flex-col gap-1">
         {visible.map((entry) => (
           <li key={entry.id}>
-            <button
+            <Button
               type="button"
+              variant="ghost"
               onClick={() => onSelect(entry.id)}
               aria-pressed={entry.id === selectedId}
-              className={`flex w-full flex-col gap-1 rounded-md border px-3 py-2 text-left text-sm ${
-                entry.id === selectedId ? "bg-muted" : ""
-              }`}
+              data-selected={entry.id === selectedId}
+              className="h-auto w-full flex-col items-start justify-start gap-1 whitespace-normal border px-3 py-2 text-left text-sm data-[selected=true]:bg-muted"
             >
               <span className="flex flex-wrap gap-2 text-xs">
                 <span className="rounded border px-1">{entry.kind}</span>
                 <span className="text-muted-foreground">{entry.source}</span>
                 <span>{formatTime(entry.at)}</span>
                 {entry.id === highlightId ? (
-                  <span className="font-medium text-success-foreground">new</span>
+                  <span className="font-medium text-success-foreground">
+                    new
+                  </span>
                 ) : null}
               </span>
               <span className="break-all font-mono text-xs">{entry.path}</span>
-            </button>
+            </Button>
           </li>
         ))}
       </ul>
@@ -253,13 +264,18 @@ function DiffView({ before, after }: { before: string | null; after: string }) {
       .map((text) => ({ text, className: diffClass(part) })),
   );
   return (
-    <pre className="max-h-96 overflow-auto rounded-md border p-3 font-mono text-xs">
-      {lines.map((line, index) => (
-        <span key={index} className={`block whitespace-pre ${line.className}`}>
-          {line.text || " "}
-        </span>
-      ))}
-    </pre>
+    <ScrollArea className="rounded-md border" viewportClassName="max-h-96">
+      <pre className="max-w-full p-3 font-mono text-xs">
+        {lines.map((line, index) => (
+          <span
+            key={index}
+            className={`block whitespace-pre ${line.className}`}
+          >
+            {line.text || " "}
+          </span>
+        ))}
+      </pre>
+    </ScrollArea>
   );
 }
 
@@ -275,14 +291,16 @@ function diffClass(part: { added?: boolean; removed?: boolean }): string {
 
 function EmptyHistory() {
   return (
-    <div className="flex flex-col gap-2 text-sm">
-      <p>No changes recorded yet.</p>
-      <p className="text-muted-foreground">
-        Changes made by claude-tools, ollama-agent and the console show up here.
-        Recording is on by default; set CLAUDE_CUSTOM_HISTORY=off in the
-        environment to turn it off.
-      </p>
-    </div>
+    <Empty className="border">
+      <EmptyHeader>
+        <EmptyTitle>No changes recorded yet.</EmptyTitle>
+        <EmptyDescription>
+          Changes made by claude-tools, ollama-agent and the console show up
+          here. Recording is on by default; set CLAUDE_CUSTOM_HISTORY=off in the
+          environment to turn it off.
+        </EmptyDescription>
+      </EmptyHeader>
+    </Empty>
   );
 }
 

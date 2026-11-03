@@ -4,8 +4,11 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useFollowScroll } from "@/components/use-follow-scroll";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Shimmer } from "@/components/ai-elements/shimmer";
+import { StreamOutput } from "@/components/stream-output";
+import { Input } from "@/components/ui/input";
+import { Progress } from "@/components/ui/progress";
 import {
   INCIDENT_CAUSES,
   healthSummary,
@@ -32,6 +35,12 @@ import { type LogFrame, type LogLevel } from "@/lib/log-line";
 import type { LogSource } from "@/lib/log-path";
 
 const MAX_LINES = 5000;
+const LOG_SOURCES: readonly LogSource[] = [
+  "server",
+  "launcher",
+  "incidents",
+  "proxy",
+];
 
 const levelClass: Record<LogLevel, string> = {
   error: levelTextClass("error"),
@@ -61,8 +70,16 @@ export function LogView() {
           <TabsTrigger value="incidents">Incidents</TabsTrigger>
           <TabsTrigger value="proxy">Proxy</TabsTrigger>
         </TabsList>
+        {LOG_SOURCES.map((logSource) => (
+          <TabsContent
+            key={logSource}
+            value={logSource}
+            className="animate-in fade-in duration-200 motion-reduce:animate-none"
+          >
+            <LogPanel source={logSource} />
+          </TabsContent>
+        ))}
       </Tabs>
-      <LogPanel key={source} source={source} />
     </div>
   );
 }
@@ -190,12 +207,10 @@ function LedgerBars({ ledger }: { ledger: ProxyLedger }) {
         >
           <span className="truncate">{tool.name}</span>
           <span className="text-right">{tool.bytes}</span>
-          <span className="h-2 rounded bg-muted">
-            <span
-              className="block h-2 rounded bg-foreground/60"
-              style={{ width: `${Math.round(tool.share * 100)}%` }}
-            />
-          </span>
+          <Progress
+            value={Math.round(tool.share * 100)}
+            aria-label={tool.name}
+          />
         </div>
       ))}
     </>
@@ -280,12 +295,13 @@ function LogToolbar({
 }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <input
+      <Input
         type="search"
+        aria-label="Filter lines"
         placeholder="Filter lines"
         value={filter}
         onChange={(event) => onFilter(event.target.value)}
-        className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1 text-sm"
+        className="min-w-0 flex-1 sm:max-w-xs"
       />
       <Button variant="outline" size="sm" onClick={onTogglePause}>
         {paused ? "Resume" : "Pause"}
@@ -319,7 +335,10 @@ function StatusPill({
   if (path === null) {
     return (
       <Badge variant="outline" className="w-fit text-muted-foreground">
-        connecting…
+        <Shimmer as="span" className="motion-reduce:hidden">
+          connecting…
+        </Shimmer>
+        <span className="hidden motion-reduce:inline">connecting…</span>
       </Badge>
     );
   }
@@ -334,23 +353,14 @@ function StatusPill({
 }
 
 function LogOutput({ lines }: { lines: LogFrame[] }) {
-  const { outputRef, onScroll } = useFollowScroll<HTMLDivElement>(lines);
-
   return (
-    <div
-      ref={outputRef}
-      onScroll={onScroll}
-      className="max-h-[70vh] overflow-auto rounded-lg bg-muted/40 p-3 font-mono text-xs"
-    >
-      {lines.map((line, index) => (
-        <div
-          key={index}
-          className={`whitespace-pre-wrap break-all ${line.level === null ? "" : levelClass[line.level]}`}
-        >
-          {line.text}
-        </div>
-      ))}
-    </div>
+    <StreamOutput
+      lines={lines.map((line, index) => ({
+        key: index,
+        text: line.text,
+        className: line.level === null ? "" : levelClass[line.level],
+      }))}
+    />
   );
 }
 

@@ -1,8 +1,14 @@
 "use client";
 
+import { Select } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 import { useEffect, useState } from "react";
 
-export function useSizePicker(): { sizes: string[]; size: string; select: (size: string) => void } {
+export function useSizePicker(): {
+  sizes: string[];
+  size: string;
+  select: (size: string) => void;
+} {
   const [sizes, setSizes] = useState<string[]>([]);
   const [picked, setPicked] = useState("");
   useEffect(() => {
@@ -14,17 +20,25 @@ export function useSizePicker(): { sizes: string[]; size: string; select: (size:
     };
     void load();
   }, []);
-  return { sizes, size: sizes.includes(picked) ? picked : (sizes[0] ?? ""), select: setPicked };
+  return {
+    sizes,
+    size: sizes.includes(picked) ? picked : (sizes[0] ?? ""),
+    select: setPicked,
+  };
 }
 
-type SizeSelectProps = { sizes: string[]; size: string; onChange: (size: string) => void };
+type SizeSelectProps = {
+  sizes: string[];
+  size: string;
+  onChange: (size: string) => void;
+};
 
 export function SizeSelect({ sizes, size, onChange }: SizeSelectProps) {
   return (
-    <label className="flex items-center gap-2 text-sm">
+    <Label className="flex items-center gap-2">
       Size
-      <select
-        className="rounded-md border border-border bg-background px-2 py-1"
+      <Select
+        className="w-auto"
         value={size}
         onChange={(event) => onChange(event.target.value)}
         disabled={sizes.length === 0}
@@ -34,7 +48,7 @@ export function SizeSelect({ sizes, size, onChange }: SizeSelectProps) {
             {name}
           </option>
         ))}
-      </select>
-    </label>
+      </Select>
+    </Label>
   );
 }

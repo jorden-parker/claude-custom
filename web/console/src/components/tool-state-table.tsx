@@ -1,4 +1,13 @@
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { ReactNode } from "react";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import type { ToolState } from "@/lib/tool-states";
 
 export type ToolLine = { name: string; description: string; baseline?: string };
@@ -22,38 +31,47 @@ export function ToolStateTable<State extends ToolState>({
 }: ToolStateTableProps<State>) {
   const showBaseline = rows.some((row) => row.baseline !== undefined);
   return (
-    <table className="w-full text-left text-sm">
-      <thead>
-        <tr className="border-b text-muted-foreground">
-          <th className="py-2 pr-3 font-medium">Tool</th>
-          <th className="py-2 pr-3 font-medium">Description</th>
-          {showBaseline ? <th className="py-2 pr-3 font-medium">Default</th> : null}
-          <th className="py-2 pr-3 font-medium">Permission</th>
-        </tr>
-      </thead>
-      <tbody>
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>Tool</TableHead>
+          <TableHead>Description</TableHead>
+          {showBaseline ? <TableHead>Default</TableHead> : null}
+          <TableHead>Permission</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
         {rows.map((row) => (
-          <tr key={row.name} className={`border-b align-top ${isChanged(row.name) ? "bg-warning" : ""}`}>
-            <td className="py-2 pr-3 font-mono">{row.name}</td>
-            <td className="py-2 pr-3 text-muted-foreground">{row.description}</td>
+          <TableRow
+            key={row.name}
+            className={`align-top ${isChanged(row.name) ? "bg-warning" : ""}`}
+          >
+            <TableCell className="font-mono">{row.name}</TableCell>
+            <TableCell className="whitespace-normal text-muted-foreground">
+              {row.description}
+            </TableCell>
             {showBaseline ? (
-              <td className="py-2 pr-3 font-mono text-xs text-muted-foreground">{row.baseline}</td>
+              <TableCell className="font-mono text-xs text-muted-foreground">
+                {row.baseline}
+              </TableCell>
             ) : null}
-            <td className="py-2 pr-3">
+            <TableCell>
               <div className="flex flex-col items-start gap-2">
                 <StateButtons
                   name={row.name}
                   current={states[row.name]}
-                  options={typeof options === "function" ? options(row.name) : options}
+                  options={
+                    typeof options === "function" ? options(row.name) : options
+                  }
                   onSelect={(state) => onChange(row.name, state)}
                 />
                 {aside?.(row.name)}
               </div>
-            </td>
-          </tr>
+            </TableCell>
+          </TableRow>
         ))}
-      </tbody>
-    </table>
+      </TableBody>
+    </Table>
   );
 }
 
@@ -69,20 +87,21 @@ function StateButtons<State extends ToolState>({
   onSelect: (state: State) => void;
 }) {
   return (
-    <div role="group" aria-label={`Permission for ${name}`} className="inline-flex rounded-md border">
+    <ToggleGroup
+      aria-label={`Permission for ${name}`}
+      value={[current]}
+      onValueChange={(next: string[]) => {
+        const chosen = options.find((state) => next.includes(state));
+        if (chosen !== undefined) {
+          onSelect(chosen);
+        }
+      }}
+    >
       {options.map((state) => (
-        <button
-          key={state}
-          type="button"
-          aria-pressed={current === state}
-          onClick={() => onSelect(state)}
-          className={`px-2 py-1 text-xs first:rounded-l-md last:rounded-r-md ${
-            current === state ? "bg-muted font-medium" : "hover:bg-muted/60"
-          }`}
-        >
+        <ToggleGroupItem key={state} value={state} className="px-2 text-xs">
           {state}
-        </button>
+        </ToggleGroupItem>
       ))}
-    </div>
+    </ToggleGroup>
   );
 }

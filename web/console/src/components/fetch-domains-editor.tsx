@@ -1,9 +1,16 @@
 "use client";
 
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { levelBoxClass } from "@/lib/level-style";
-import { SUGGESTED_HOSTS, isValidHost, normalizeHost } from "@/lib/fetch-domain-rules";
+import {
+  SUGGESTED_HOSTS,
+  isValidHost,
+  normalizeHost,
+} from "@/lib/fetch-domain-rules";
 
 type FetchDomainState = {
   path: string;
@@ -26,7 +33,8 @@ type HistoryEntry = {
 };
 
 const SAVED_MESSAGE = "saved; applies to the next claude-ollama launch";
-const INVALID_MESSAGE = "not a hostname (expected something like docs.python.org)";
+const INVALID_MESSAGE =
+  "not a hostname (expected something like docs.python.org)";
 const FETCH_DOMAIN_KIND = "fetch-domains";
 
 export function FetchDomainsEditor() {
@@ -63,7 +71,9 @@ export function FetchDomainsEditor() {
   const dirty = hasUnsavedHosts(saved, onHosts);
 
   function toggle(host: string) {
-    setRows((current) => current.map((row) => (row.host === host ? { ...row, on: !row.on } : row)));
+    setRows((current) =>
+      current.map((row) => (row.host === host ? { ...row, on: !row.on } : row)),
+    );
     setMessage(null);
   }
 
@@ -79,7 +89,9 @@ export function FetchDomainsEditor() {
 
   function addHost(host: string) {
     setRows((current) =>
-      current.some((row) => row.host === host) ? turnOn(current, host) : insertCustom(current, host),
+      current.some((row) => row.host === host)
+        ? turnOn(current, host)
+        : insertCustom(current, host),
     );
     setMessage(null);
     scrollTarget.current = host;
@@ -115,20 +127,38 @@ export function FetchDomainsEditor() {
 
       <ul className="flex flex-col divide-y rounded-md border">
         {rows.map((row) => (
-          <DomainRow key={row.host} row={row} onToggle={toggle} onRemove={remove} />
+          <DomainRow
+            key={row.host}
+            row={row}
+            onToggle={toggle}
+            onRemove={remove}
+          />
         ))}
       </ul>
 
       <HistorySection entries={history} />
 
-      {dirty ? <UnsavedBar saving={saving} onDiscard={discard} onSave={() => void save()} /> : null}
-      {message ? <p className="text-sm text-success-foreground">{message}</p> : null}
+      {dirty ? (
+        <UnsavedBar
+          saving={saving}
+          onDiscard={discard}
+          onSave={() => void save()}
+        />
+      ) : null}
+      {message ? (
+        <p className="text-sm text-success-foreground">{message}</p>
+      ) : null}
     </div>
   );
 }
 
-function hasUnsavedHosts(saved: FetchDomainState | null, onHosts: string[]): boolean {
-  return saved !== null && JSON.stringify(onHosts) !== JSON.stringify(saved.hosts);
+function hasUnsavedHosts(
+  saved: FetchDomainState | null,
+  onHosts: string[],
+): boolean {
+  return (
+    saved !== null && JSON.stringify(onHosts) !== JSON.stringify(saved.hosts)
+  );
 }
 
 function FilePath({ path }: { path: string | null }) {
@@ -138,14 +168,19 @@ function FilePath({ path }: { path: string | null }) {
   return <p className="text-sm text-muted-foreground">File: {path}</p>;
 }
 
-function useScrollToPendingHost(pendingHostRef: { current: string | null }, rows: Row[]) {
+function useScrollToPendingHost(
+  pendingHostRef: { current: string | null },
+  rows: Row[],
+) {
   useEffect(() => {
     const host = pendingHostRef.current;
     if (host === null) {
       return;
     }
     pendingHostRef.current = null;
-    document.querySelector<HTMLElement>(`[data-host="${host}"]`)?.scrollIntoView?.({ block: "center" });
+    document
+      .querySelector<HTMLElement>(`[data-host="${host}"]`)
+      ?.scrollIntoView?.({ block: "center" });
   }, [pendingHostRef, rows]);
 }
 
@@ -172,17 +207,23 @@ function AddHostForm({ onAdd }: { onAdd: (host: string) => void }) {
       }}
     >
       <div className="flex flex-col gap-1">
-        <input
+        <Input
           aria-label="Add host"
           aria-invalid={draftError !== null}
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           placeholder="docs.example.com"
-          className={`rounded-md border bg-background px-3 py-2 text-sm ${draftError ? "border-error-border ring-2 ring-error-border" : "border-input"}`}
+          className={`h-auto px-3 py-2 ${draftError ? "border-error-border ring-2 ring-error-border" : ""}`}
         />
-        {draftError ? <span className="text-xs text-error-foreground">{draftError}</span> : null}
+        {draftError ? (
+          <span className="text-xs text-error-foreground">{draftError}</span>
+        ) : null}
       </div>
-      <Button type="submit" variant="outline" disabled={isEmpty || draftError !== null}>
+      <Button
+        type="submit"
+        variant="outline"
+        disabled={isEmpty || draftError !== null}
+      >
         Add
       </Button>
     </form>
@@ -203,22 +244,26 @@ function DomainRow({
       data-host={row.host}
       className="animate-in fade-in slide-in-from-top-1 flex items-center justify-between gap-4 px-4 py-3"
     >
-      <label className="flex items-center gap-3 text-sm">
-        <input
-          type="checkbox"
-          role="switch"
+      <Label className="flex items-center gap-3">
+        <Switch
           aria-label={row.host}
           checked={row.on}
-          onChange={() => onToggle(row.host)}
-          className="size-4"
+          onCheckedChange={() => onToggle(row.host)}
         />
         <span className="font-mono">{row.host}</span>
         {row.suggestedOnly && !row.on ? (
-          <span className="rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">suggested</span>
+          <span className="rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+            suggested
+          </span>
         ) : null}
-      </label>
+      </Label>
       {isCustom(row.host) ? (
-        <Button type="button" variant="ghost" size="sm" onClick={() => onRemove(row.host)}>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => onRemove(row.host)}
+        >
           Remove
         </Button>
       ) : null}
@@ -261,7 +306,15 @@ function HistorySection({ entries }: { entries: HistoryEntry[] }) {
   );
 }
 
-function UnsavedBar({ saving, onDiscard, onSave }: { saving: boolean; onDiscard: () => void; onSave: () => void }) {
+function UnsavedBar({
+  saving,
+  onDiscard,
+  onSave,
+}: {
+  saving: boolean;
+  onDiscard: () => void;
+  onSave: () => void;
+}) {
   return (
     <div className="sticky bottom-0 flex items-center justify-between gap-4 border-t bg-background px-4 py-3">
       <span className="text-sm">Unsaved changes</span>
@@ -278,7 +331,11 @@ function UnsavedBar({ saving, onDiscard, onSave }: { saving: boolean; onDiscard:
 }
 
 function rowsFrom(state: FetchDomainState): Row[] {
-  const listed = state.hosts.map((host) => ({ host, on: true, suggestedOnly: false }));
+  const listed = state.hosts.map((host) => ({
+    host,
+    on: true,
+    suggestedOnly: false,
+  }));
   const offered = state.suggested
     .filter((host) => !state.hosts.includes(host))
     .map((host) => ({ host, on: false, suggestedOnly: true }));

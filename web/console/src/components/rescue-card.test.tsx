@@ -8,7 +8,10 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RescueCard } from "./rescue-card";
-import { FakeRunEventSource } from "./run-stream-test-support";
+import {
+  FakeRunEventSource,
+  stubResizeObserver,
+} from "./run-stream-test-support";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: () => undefined }),
@@ -31,6 +34,7 @@ describe("RescueCard", () => {
     FakeRunEventSource.opened = [];
     writeText = vi.fn().mockResolvedValue(undefined);
     vi.stubGlobal("EventSource", FakeRunEventSource);
+    stubResizeObserver();
     vi.stubGlobal("navigator", { clipboard: { writeText } });
     vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
       Response.json({

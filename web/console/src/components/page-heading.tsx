@@ -14,7 +14,8 @@ type PageHeadingProps = {
   backLabel?: string;
 };
 
-const HEADING_CLASS = "font-heading text-3xl font-semibold tracking-heading";
+const HEADING_CLASS =
+  "min-w-0 break-words font-heading text-2xl font-semibold tracking-heading sm:text-3xl";
 
 function Title({ title, backHref, backLabel }: PageHeadingProps) {
   if (backHref && backLabel) {
@@ -43,7 +44,9 @@ export function PageHeading(props: PageHeadingProps) {
   return (
     <header className="flex flex-col gap-1">
       <Title {...props} />
-      <p className="text-sm text-muted-foreground">{subtitleFor(props.title)}</p>
+      <p className="text-sm text-muted-foreground">
+        {subtitleFor(props.title)}
+      </p>
     </header>
   );
 }

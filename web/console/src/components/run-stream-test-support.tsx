@@ -1,3 +1,16 @@
+import { vi } from "vitest";
+
+export function stubResizeObserver() {
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe = vi.fn();
+      unobserve = vi.fn();
+      disconnect = vi.fn();
+    },
+  );
+}
+
 export class FakeRunEventSource {
   static opened: FakeRunEventSource[] = [];
   onmessage: ((message: MessageEvent) => void) | null = null;

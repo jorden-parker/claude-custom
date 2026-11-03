@@ -1,5 +1,8 @@
 "use client";
 
+import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 import { useEffect, useState } from "react";
 import { StartRunButton } from "@/components/start-run-button";
 import { PR_NUMBER_PATTERN } from "@/lib/pr-number";
@@ -51,7 +54,14 @@ type NewReviewFieldsProps = {
   onPrChange: (pr: string) => void;
 };
 
-export function NewReviewFields({ sizes, size, pr, projectDir, onSizeChange, onPrChange }: NewReviewFieldsProps) {
+export function NewReviewFields({
+  sizes,
+  size,
+  pr,
+  projectDir,
+  onSizeChange,
+  onPrChange,
+}: NewReviewFieldsProps) {
   const prValid = PR_NUMBER_PATTERN.test(pr);
   const canStart = prValid && size !== "" && projectDir !== null;
 
@@ -64,14 +74,15 @@ export function NewReviewFields({ sizes, size, pr, projectDir, onSizeChange, onP
         </p>
       ) : (
         <p className="text-sm text-muted-foreground">
-          Reviews the pull requests of <code className="font-mono text-xs">{projectDir}</code>.
+          Reviews the pull requests of{" "}
+          <code className="font-mono text-xs">{projectDir}</code>.
         </p>
       )}
       <div className="flex flex-wrap items-end gap-3">
-        <label className="flex flex-col gap-1 text-sm">
+        <Label className="flex flex-col items-start gap-1">
           Size
-          <select
-            className="rounded-md border border-border bg-background px-2 py-1"
+          <Select
+            className="w-auto"
             value={size}
             onChange={(event) => onSizeChange(event.target.value)}
             disabled={sizes.length === 0}
@@ -81,25 +92,31 @@ export function NewReviewFields({ sizes, size, pr, projectDir, onSizeChange, onP
                 {name}
               </option>
             ))}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
+          </Select>
+        </Label>
+        <Label className="flex flex-col items-start gap-1">
           PR number
-          <input
-            className="w-28 rounded-md border border-border bg-background px-2 py-1 font-mono"
+          <Input
+            className="w-28 font-mono"
             inputMode="numeric"
             placeholder="12"
             value={pr}
             onChange={(event) => onPrChange(event.target.value)}
             aria-invalid={pr !== "" && !prValid}
           />
-        </label>
-        <StartRunButton command="review" params={{ size, pr }} disabled={!canStart}>
+        </Label>
+        <StartRunButton
+          command="review"
+          params={{ size, pr }}
+          disabled={!canStart}
+        >
           Start review
         </StartRunButton>
       </div>
       {pr === "" || prValid ? null : (
-        <p className="text-sm text-error-foreground">Enter a PR number, such as 12.</p>
+        <p className="text-sm text-error-foreground">
+          Enter a PR number, such as 12.
+        </p>
       )}
     </section>
   );

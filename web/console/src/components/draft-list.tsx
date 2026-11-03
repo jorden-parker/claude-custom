@@ -1,5 +1,11 @@
 "use client";
 
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import Link from "next/link";
 import { emptyLineFor } from "@/lib/whimsy-copy";
 import { useEffect, useState } from "react";
@@ -31,12 +37,16 @@ export function DraftList() {
   }
   if (rows.length === 0) {
     return (
-      <>
-        <p className="text-sm text-muted-foreground">
-          No drafts yet. /pr-draft and /pr-review-draft write them here.
-        </p>
-        <p className="text-sm text-muted-foreground italic">{emptyLineFor("drafts")}</p>
-      </>
+      <Empty className="border">
+        <EmptyHeader>
+          <EmptyTitle>
+            No drafts yet. /pr-draft and /pr-review-draft write them here.
+          </EmptyTitle>
+          <EmptyDescription className="italic">
+            {emptyLineFor("drafts")}
+          </EmptyDescription>
+        </EmptyHeader>
+      </Empty>
     );
   }
   return (
@@ -53,7 +63,10 @@ export function DraftList() {
 function DraftRowCard({ row }: { row: DraftRow }) {
   return (
     <Link href={`/drafts/${row.id}`} className="block">
-      <Card size="sm" className="rounded-card shadow-border transition-colors hover:bg-accent">
+      <Card
+        size="sm"
+        className="rounded-card shadow-border transition-colors hover:bg-accent"
+      >
         <CardContent className="flex flex-col gap-1">
           {row.draft === null ? (
             <InvalidRow id={row.id} reason={row.invalid ?? "invalid"} />

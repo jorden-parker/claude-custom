@@ -250,6 +250,11 @@
       26px 26px;
     background-attachment: fixed;
   }
+  .stream-line {
+    content-visibility: auto;
+    contain-intrinsic-block-size: auto 1.25rem;
+  }
+
   main > * {
     @apply animate-in fade-in duration-300 motion-reduce:animate-none;
   }

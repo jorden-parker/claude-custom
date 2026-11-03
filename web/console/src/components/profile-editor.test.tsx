@@ -200,8 +200,8 @@ describe("ProfileEditor", () => {
 
     const thinking = (await screen.findByRole("switch", {
       name: "Thinking enabled",
-    })) as HTMLInputElement;
-    expect(thinking.checked).toBe(false);
+    })) as HTMLElement;
+    expect(thinking.getAttribute("aria-checked")).toBe("false");
     fireEvent.click(thinking);
     expect(screen.getByText("Unsaved changes")).toBeTruthy();
   });

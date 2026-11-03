@@ -1,5 +1,7 @@
 "use client";
 
+import { Select } from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
 import { useState } from "react";
 import { MarkdownText } from "@/components/markdown-text";
 import { RunOutputBox } from "@/components/run-view";
@@ -39,10 +41,10 @@ export function RescueCard({ sizes, initialRunId }: RescueCardProps) {
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center gap-3">
-          <label className="flex items-center gap-2 text-sm">
+          <Label className="flex items-center gap-2">
             Size
-            <select
-              className="rounded-md border border-border bg-background px-2 py-1"
+            <Select
+              className="w-auto"
               value={size}
               onChange={(event) => setSize(event.target.value)}
             >
@@ -51,8 +53,8 @@ export function RescueCard({ sizes, initialRunId }: RescueCardProps) {
                   {option}
                 </option>
               ))}
-            </select>
-          </label>
+            </Select>
+          </Label>
           <StartRunButton
             command={RESCUE_COMMAND}
             params={{ size }}

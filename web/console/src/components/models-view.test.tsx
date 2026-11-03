@@ -10,8 +10,18 @@ vi.mock("next/navigation", () => ({
 function snapshotWith(ollama: "up" | "down"): ModelsSnapshot {
   return {
     ollama,
-    sizes: [{ size: "27b", model: "qwen-27b", base: "qwen3.8:27b", installed: true, class: "mlx" }],
-    models: [{ name: "qwen3.8:27b", class: "library", bytes: 1024, loaded: true }],
+    sizes: [
+      {
+        size: "27b",
+        model: "qwen-27b",
+        base: "qwen3.8:27b",
+        installed: true,
+        class: "mlx",
+      },
+    ],
+    models: [
+      { name: "qwen3.8:27b", class: "library", bytes: 1024, loaded: true },
+    ],
     prunable: [],
     embedding: { name: "test-embed:0.6b", installed: false },
   };
@@ -43,6 +53,9 @@ describe("ModelsView", () => {
     serve(snapshotWith("up"));
     render(<ModelsView />);
     await waitFor(() => expect(screen.getByText("qwen-27b")).toBeTruthy());
+    expect(
+      document.querySelector('[data-slot="table-container"] table'),
+    ).not.toBeNull();
     expect(screen.getAllByText("qwen3.8:27b")).toHaveLength(2);
     expect(screen.queryByText(/Ollama is not running/)).toBeNull();
   });
@@ -50,7 +63,9 @@ describe("ModelsView", () => {
   it("offers Set up for a missing embedding model", async () => {
     serve(snapshotWith("up"));
     render(<ModelsView />);
-    await waitFor(() => expect(screen.getByText("test-embed:0.6b")).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByText("test-embed:0.6b")).toBeTruthy(),
+    );
     expect(screen.getByRole("button", { name: "Set up" })).toBeTruthy();
   });
 });

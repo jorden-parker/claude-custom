@@ -1,15 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { DoctorChecklist } from "@/components/doctor-checklist";
 import { LiveMockSheet } from "@/components/live-mock-sheet";
-import { useFollowScroll } from "@/components/use-follow-scroll";
+import { StreamOutput } from "@/components/stream-output";
 import { useRunStream } from "@/components/use-run-stream";
+import { Loader } from "@/components/ai-elements/loader";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
 import { checksFromLines } from "@/lib/doctor-checks";
 import { percentFrom, phaseFrom } from "@/lib/pull-progress";
 import { elapsedSeconds, formatElapsed, statusOf } from "@/lib/run-display";
@@ -131,26 +132,15 @@ function RunHeader({
 }
 
 export function RunOutputBox({ lines }: { lines: RunState["lines"] }) {
-  const { outputRef, onScroll } = useFollowScroll<HTMLDivElement>(lines.length);
-
   return (
-    <div
-      ref={outputRef}
-      onScroll={onScroll}
-      className="max-h-[60vh] overflow-auto rounded-lg bg-muted/40 p-3 font-mono text-xs"
-    >
-      {lines.map((line, index) => (
-        <div key={index} className={lineClass(line.stream)}>
-          {line.text}
-        </div>
-      ))}
-    </div>
+    <StreamOutput
+      lines={lines.map((line, index) => ({
+        key: index,
+        text: line.text,
+        className: line.stream === "stderr" ? "text-muted-foreground" : "",
+      }))}
+    />
   );
-}
-
-function lineClass(stream: RunState["lines"][number]["stream"]): string {
-  const color = stream === "stderr" ? "text-muted-foreground" : "";
-  return `animate-in fade-in whitespace-pre-wrap break-all ${color}`;
 }
 
 function StageBar({ stage }: { stage: NonNullable<RunState["stage"]> }) {
@@ -161,12 +151,7 @@ function StageBar({ stage }: { stage: NonNullable<RunState["stage"]> }) {
       <p className="text-sm">
         Stage {stage.number} of {stage.total} — {stage.title}
       </p>
-      <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-        <div
-          className="h-full rounded-full bg-info-foreground transition-[width] duration-500"
-          style={{ width: `${percent}%` }}
-        />
-      </div>
+      <Progress value={percent} aria-label="Stage progress" />
     </div>
   );
 }
@@ -192,7 +177,7 @@ function ProgressLines({ progress }: { progress: RunState["progress"] }) {
     <div className="flex flex-col gap-1 text-sm text-muted-foreground">
       {texts.map((text, index) => (
         <p key={index} className="flex items-center gap-2 font-mono text-xs">
-          <Loader2 className="size-3 animate-spin" />
+          <Loader size={12} />
           {text}
         </p>
       ))}

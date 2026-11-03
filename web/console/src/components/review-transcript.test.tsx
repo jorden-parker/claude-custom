@@ -8,13 +8,30 @@ const PROMPT_BODY = "PROMPT_BODY_MARKER";
 
 const promptEvents = (user: string, total = 1) => [
   { kind: "file_start", index: 1, total, path: "src/a.ts", chars: 10 },
-  { kind: "prompt", scope: "file", index: 1, path: "src/a.ts", attempt: 1, system: "sys", user },
+  {
+    kind: "prompt",
+    scope: "file",
+    index: 1,
+    path: "src/a.ts",
+    attempt: 1,
+    system: "sys",
+    user,
+  },
 ];
 
-const doneEvent = { kind: "file_done", index: 1, total: 1, path: "src/a.ts", outcome: "clean", seconds: 1 };
+const doneEvent = {
+  kind: "file_done",
+  index: 1,
+  total: 1,
+  path: "src/a.ts",
+  outcome: "clean",
+  seconds: 1,
+};
 
 function render(events: Parameters<typeof reduceEvents>[0]) {
-  return renderToStaticMarkup(<ReviewTranscript state={reduceEvents(events)} />);
+  return renderToStaticMarkup(
+    <ReviewTranscript state={reduceEvents(events)} />,
+  );
 }
 
 describe("ReviewTranscript", () => {
@@ -39,10 +56,26 @@ describe("ReviewTranscript", () => {
     expect(markup).toContain("Model reply");
   });
 
+  it("scrolls the reply inside a scroll area", () => {
+    const container = document.createElement("div");
+    container.innerHTML = render([...promptEvents("user"), doneEvent]);
+
+    const replyBlock = container
+      .querySelector("pre")
+      ?.closest("[data-slot=scroll-area]");
+    expect(replyBlock).not.toBeNull();
+  });
+
   it("keeps a reply with markdown syntax as literal text", () => {
     const markup = render([
       ...promptEvents("user"),
-      { kind: "reply_text", scope: "file", index: 1, attempt: 1, text: "**x**" },
+      {
+        kind: "reply_text",
+        scope: "file",
+        index: 1,
+        attempt: 1,
+        text: "**x**",
+      },
       doneEvent,
     ]);
 
@@ -60,7 +93,13 @@ describe("ReviewTranscript", () => {
   it("renders the prompt body inside a hidden panel until it is opened", () => {
     const markup = render(promptEvents(PROMPT_BODY));
     const bodyAt = markup.indexOf(PROMPT_BODY);
-    const panelOpenTag = markup.slice(markup.lastIndexOf("<div", bodyAt), bodyAt);
+    const panelOpenTag = markup.slice(
+      markup.lastIndexOf(
+        "<div",
+        markup.lastIndexOf("collapsible-content", bodyAt),
+      ),
+      bodyAt,
+    );
 
     expect(markup).toContain("Prompt · 18 chars");
     expect(panelOpenTag).toContain("hidden");
@@ -69,7 +108,13 @@ describe("ReviewTranscript", () => {
   it("shows the caret inline at the end of the reply while it streams", () => {
     const markup = render([
       ...promptEvents("user"),
-      { kind: "reply_text", scope: "file", index: 1, attempt: 1, text: "partial" },
+      {
+        kind: "reply_text",
+        scope: "file",
+        index: 1,
+        attempt: 1,
+        text: "partial",
+      },
     ]);
 
     expect(markup).toContain('partial<span data-slot="transcript-caret"');
@@ -78,7 +123,13 @@ describe("ReviewTranscript", () => {
   it("hides the caret once the attempt is done", () => {
     const markup = render([
       ...promptEvents("user"),
-      { kind: "reply_text", scope: "file", index: 1, attempt: 1, text: "partial" },
+      {
+        kind: "reply_text",
+        scope: "file",
+        index: 1,
+        attempt: 1,
+        text: "partial",
+      },
       doneEvent,
     ]);
 
@@ -88,14 +139,24 @@ describe("ReviewTranscript", () => {
   it("shows only the waiting text and caret while the reply is empty, with no empty pre", () => {
     const markup = render(promptEvents("user"));
 
-    expect(markup).toContain('waiting for the first token<span data-slot="transcript-caret"');
+    expect(markup).toContain(
+      'waiting for the first token<span data-slot="transcript-caret"',
+    );
     expect(markup).not.toContain("></pre>");
   });
 
   it("labels a second attempt as a retry", () => {
     const markup = render([
       ...promptEvents("first"),
-      { kind: "prompt", scope: "file", index: 1, path: "src/a.ts", attempt: 2, system: "sys", user: "again" },
+      {
+        kind: "prompt",
+        scope: "file",
+        index: 1,
+        path: "src/a.ts",
+        attempt: 2,
+        system: "sys",
+        user: "again",
+      },
     ]);
 
     expect(markup).toContain("retry");

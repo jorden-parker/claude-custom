@@ -1,10 +1,12 @@
 "use client";
 
+import { Textarea } from "@/components/ui/textarea";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { levelBoxClass } from "@/lib/level-style";
 import type { InvalidLine, PolicyFile } from "@/lib/machine-policy-rules";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 type PolicyFileState = {
   path: string;
@@ -107,7 +109,9 @@ export function MachinePolicyEditor() {
     <div className="flex flex-col gap-6">
       <p className="text-sm text-muted-foreground">Folder: {state.dir}</p>
       {error ? <p className="text-sm text-error-foreground">{error}</p> : null}
-      {message ? <p className="text-sm text-success-foreground">{message}</p> : null}
+      {message ? (
+        <p className="text-sm text-success-foreground">{message}</p>
+      ) : null}
       {EDITABLE_FILES.map((file) => (
         <PolicyCard
           key={`${file}:${state.files[file].text ?? ""}`}
@@ -146,12 +150,12 @@ function PolicyCard({
       <h2 className="font-mono text-lg font-medium">{file}</h2>
       <p className="text-sm text-muted-foreground">{DESCRIPTIONS[file]}</p>
       <p className="text-xs text-muted-foreground">File: {saved.path}</p>
-      <textarea
+      <Textarea
         aria-label={`Lines for ${file}`}
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
         rows={6}
-        className="rounded-md border bg-background p-2 font-mono text-sm"
+        className="font-mono"
       />
       <InvalidLines invalid={saved.invalid} />
       <div>
@@ -253,9 +257,9 @@ function SandboxOffCard({ state }: { state: SandboxOffState }) {
         Turn it off with touch, back on with rm. The console does not create or
         delete this file.
       </p>
-      <pre className="overflow-x-auto rounded-md bg-muted p-3 text-sm">
-        {commands}
-      </pre>
+      <ScrollArea className="rounded-md bg-muted">
+        <pre className="max-w-full p-3 text-sm">{commands}</pre>
+      </ScrollArea>
     </section>
   );
 }

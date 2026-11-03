@@ -59,6 +59,9 @@ describe("SettingsOverview", () => {
     render(<SettingsOverview />);
 
     await screen.findByText("Hold an Ollama residency lease and heartbeat");
+    expect(
+      document.querySelector('[data-slot="table-container"] table'),
+    ).not.toBeNull();
     const lease = rowFor("CLAUDE_OLLAMA_LEASE");
     expect(lease.getAllByRole("cell").map((cell) => cell.textContent)).toEqual([
       "CLAUDE_OLLAMA_LEASE",

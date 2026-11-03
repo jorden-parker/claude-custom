@@ -101,6 +101,20 @@ describe("HistoryView", () => {
     vi.restoreAllMocks();
   });
 
+  it("names the kind picker and marks the selected entry as pressed", async () => {
+    render(<HistoryView />);
+
+    expect(await screen.findByRole("combobox", { name: "Kind" })).toBeTruthy();
+    const entryButton = await screen.findByRole("button", {
+      name: /settings.*console/,
+    });
+    expect(entryButton.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(entryButton);
+    await waitFor(() =>
+      expect(entryButton.getAttribute("aria-pressed")).toBe("true"),
+    );
+  });
+
   it("shows the diff of the selected change", async () => {
     render(<HistoryView />);
 

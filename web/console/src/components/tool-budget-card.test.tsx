@@ -117,6 +117,9 @@ describe("ToolBudgetCard shows", () => {
     render(<ToolBudgetCard />);
 
     expect(await screen.findByText("WebFetch")).toBeTruthy();
+    expect(
+      document.querySelector('[data-slot="table-container"] table'),
+    ).not.toBeNull();
     expect(screen.getByText("never called")).toBeTruthy();
     expect(screen.getByText("9750 bytes per call")).toBeTruthy();
     expect(screen.getByText("Last 14 days, 26 requests")).toBeTruthy();

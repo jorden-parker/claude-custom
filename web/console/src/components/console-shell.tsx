@@ -16,10 +16,10 @@ export function ConsoleShell({ children }: Readonly<{ children: ReactNode }>) {
         </Suspense>
       </Sidebar>
       <SidebarInset>
-        <header className="flex h-12 items-center gap-2 border-b px-4">
+        <header className="sticky top-0 z-10 flex h-12 items-center gap-2 border-b bg-background/80 px-3 backdrop-blur supports-[backdrop-filter]:bg-background/60 sm:px-4">
           <SidebarTrigger />
         </header>
-        <main className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-8">
+        <main className="mx-auto flex w-full max-w-(--ds-page-width) flex-col gap-5 px-4 py-6 sm:gap-6 sm:px-6 sm:py-8 lg:px-8">
           {children}
         </main>
       </SidebarInset>

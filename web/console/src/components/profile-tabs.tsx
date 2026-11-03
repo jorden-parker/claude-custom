@@ -1,3 +1,13 @@
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import type { ReactNode } from "react";
 import { ToolStateTable, type ToolLine } from "@/components/tool-state-table";
 import { Input } from "@/components/ui/input";
@@ -103,21 +113,17 @@ function ThinkingSwitch({
   update,
 }: Pick<FieldProps, "update"> & { enabled: boolean }) {
   return (
-    <label className="flex items-center gap-2 text-sm">
-      <input
-        type="checkbox"
-        role="switch"
+    <Label className="flex items-center gap-2">
+      <Switch
         aria-label="Thinking enabled"
         checked={enabled}
-        onChange={(event) =>
-          update((current) =>
-            withThinking(current, event.target.checked ? true : null),
-          )
+        onCheckedChange={(next) =>
+          update((current) => withThinking(current, next ? true : null))
         }
       />
       Model thinking on (off by default: Claude Code asks for high effort on
       every turn)
-    </label>
+    </Label>
   );
 }
 
@@ -126,20 +132,16 @@ function SandboxSwitch({
   update,
 }: Pick<FieldProps, "update"> & { enabled: boolean }) {
   return (
-    <label className="flex items-center gap-2 text-sm">
-      <input
-        type="checkbox"
-        role="switch"
+    <Label className="flex items-center gap-2">
+      <Switch
         aria-label="Sandbox enabled"
         checked={enabled}
-        onChange={(event) =>
-          update((current) =>
-            withSandbox(current, event.target.checked ? null : false),
-          )
+        onCheckedChange={(next) =>
+          update((current) => withSandbox(current, next ? null : false))
         }
       />
       Sandbox enabled for this profile
-    </label>
+    </Label>
   );
 }
 
@@ -216,7 +218,7 @@ function ParameterFields({ detail, draft, update }: FieldProps) {
 
 function FieldRow({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="grid grid-cols-[10rem_1fr] items-center gap-3">
+    <div className="grid grid-cols-1 gap-1 sm:grid-cols-[10rem_1fr] sm:items-center sm:gap-3">
       <span className="font-mono text-muted-foreground">{label}</span>
       {children}
     </div>
@@ -265,46 +267,39 @@ function McpSwitch({
   update: ProfileUpdate;
 }) {
   return (
-    <label className="flex items-center gap-2">
-      <input
-        type="checkbox"
-        role="switch"
+    <Label className="flex items-center gap-2">
+      <Switch
         aria-label={`MCP ${name}`}
         checked={enabled}
-        onChange={(event) =>
-          update((current) =>
-            withMcp(current, name, event.target.checked ? null : false),
-          )
+        onCheckedChange={(next) =>
+          update((current) => withMcp(current, name, next ? null : false))
         }
       />
       <span className="font-mono">{name}</span>
-    </label>
+    </Label>
   );
 }
 
 function HookTable({ detail }: { detail: ProfileDetail }) {
   return (
-    <table className="w-full text-left">
-      <thead>
-        <tr className="border-b text-muted-foreground">
-          <th className="py-2 pr-3 font-medium">Event</th>
-          <th className="py-2 pr-3 font-medium">Matcher</th>
-          <th className="py-2 pr-3 font-medium">Script</th>
-        </tr>
-      </thead>
-      <tbody>
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>Event</TableHead>
+          <TableHead>Matcher</TableHead>
+          <TableHead>Script</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
         {detail.base.hooks.map((hook) => (
-          <tr
-            key={`${hook.event}-${hook.matcher}-${hook.command}`}
-            className="border-b"
-          >
-            <td className="py-2 pr-3">{hook.event}</td>
-            <td className="py-2 pr-3 font-mono">{hook.matcher}</td>
-            <td className="py-2 pr-3 font-mono">{hook.command}</td>
-          </tr>
+          <TableRow key={`${hook.event}-${hook.matcher}-${hook.command}`}>
+            <TableCell>{hook.event}</TableCell>
+            <TableCell className="font-mono">{hook.matcher}</TableCell>
+            <TableCell className="font-mono">{hook.command}</TableCell>
+          </TableRow>
         ))}
-      </tbody>
-    </table>
+      </TableBody>
+    </Table>
   );
 }
 
@@ -342,7 +337,7 @@ function EnvField({ field, value, update }: EnvFieldProps) {
   const setValue = (next: string | null) =>
     update((current) => withEnv(current, field.key, next));
   return (
-    <div className="grid grid-cols-[14rem_1fr] items-start gap-3">
+    <div className="grid grid-cols-1 gap-2 md:grid-cols-[14rem_1fr] md:items-start md:gap-3">
       <div className="flex flex-col gap-1">
         <span>{field.label}</span>
         <span className="text-xs text-muted-foreground">{field.help}</span>

@@ -1,5 +1,8 @@
 "use client";
 
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { levelBoxClass } from "@/lib/level-style";
@@ -135,13 +138,13 @@ function AddWorkspaceForm({
       }}
     >
       <div className="flex grow flex-col gap-1">
-        <input
+        <Input
           aria-label="Trust a folder"
           aria-invalid={draftError !== null}
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           placeholder="/Users/you/src/project"
-          className={`rounded-md border bg-background px-3 py-2 font-mono text-sm ${draftError ? "border-error-border ring-2 ring-error-border" : "border-input"}`}
+          className={`h-auto px-3 py-2 font-mono ${draftError ? "border-error-border ring-2 ring-error-border" : ""}`}
         />
         {draftError ? (
           <span className="text-xs text-error-foreground">{draftError}</span>
@@ -197,19 +200,16 @@ function WorkspaceRow({
 }) {
   return (
     <li className="flex flex-col gap-2 px-4 py-3">
-      <label className="flex items-center gap-3 text-sm">
-        <input
-          type="checkbox"
-          role="switch"
+      <Label className="flex flex-wrap items-center gap-3">
+        <Switch
           aria-label={workspace.path}
           checked={workspace.trusted}
           disabled={disabled}
-          onChange={() => onToggle(workspace)}
-          className="size-4"
+          onCheckedChange={() => onToggle(workspace)}
         />
-        <span className="font-mono">{workspace.path}</span>
+        <span className="min-w-0 break-all font-mono">{workspace.path}</span>
         <TrustBadge workspace={workspace} />
-      </label>
+      </Label>
       <SkillList workspace={workspace} />
       {workspace.exists && workspace.trusted ? (
         <SkillCheckPanel workspace={workspace} />
