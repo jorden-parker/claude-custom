@@ -810,113 +810,23 @@ check_that "claude-ollama help lists logs" grep -q '^logs \[-n LINES|--path\]: '
 check_that "claude-ollama help lists task-eval" grep -q '^task-eval \[size\] \[--task NAME\]... \[--runs N\] \[--json\]: ' "$sandbox/out"
 
 new_sandbox
-STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2 OLLAMA_NUM_PARALLEL=1" run_capture "$repo/bin/claude-ollama" doctor 27b
-check_eq "doctor healthy exit status" 0 "$?"
-check_that "doctor reports jq" grep -qxF "ok   jq on PATH" "$sandbox/out"
-check_that "doctor reports the main model" grep -qxF "ok   model qwen3.8-27b-cc" "$sandbox/out"
-check_not "doctor no longer checks a side model" grep -q "side model" "$sandbox/out"
-check_that "doctor reports the embedding model" grep -qxF "ok   embedding model qwen3-embedding:0.6b" "$sandbox/out"
-check_that "doctor reports context sizes agree" grep -qxF "ok   num_ctx 65536 leaves 4096 tokens over CLAUDE_CODE_MAX_CONTEXT_TOKENS 53248 plus output 8192 (reserve 4096)" "$sandbox/out"
-check_that "doctor reports hooks" grep -qxF "ok   hook stop-verify.py present" "$sandbox/out"
-check_that "doctor reports reachability" grep -qxF "ok   ollama reachable at http://127.0.0.1:11434" "$sandbox/out"
-check_that "doctor reports server env" grep -qxF "ok   server env OLLAMA_KV_CACHE_TYPE=q8_0" "$sandbox/out"
-check_that "doctor reports no managed model allowlist" grep -qxF "ok   no managed availableModels restricts qwen3.8-27b-cc" "$sandbox/out"
-check_not "doctor does not launch claude" grep -q '^ARGS:' "$sandbox/out"
-check_that "doctor reports a base that matches its pin" grep -qxF "ok   digest qwen3.8:27b-mlx matches its pin" "$sandbox/out"
-jq '.models[0].digest = "0000"' "$sandbox/tags.json" > "$sandbox/tags.new" && mv "$sandbox/tags.new" "$sandbox/tags.json"
-STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2 OLLAMA_NUM_PARALLEL=1" run_capture "$repo/bin/claude-ollama" doctor 27b
-check_eq "doctor with a base that misses its pin exit status" 1 "$?"
-check_that "doctor fails a base that misses its pin" grep -qF "fail digest qwen3.8:27b-mlx is 0000, not the pinned" "$sandbox/out"
-pinned_tags > "$sandbox/tags.json"
-check_not "doctor does not pull or create" grep -sqE '^(pull|create) ' "$sandbox/ollama.log"
 healthy_server_env="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2 OLLAMA_NUM_PARALLEL=1"
-HOMEBREW_PREFIX="$sandbox/brew" STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_server_env" run_capture "$repo/bin/claude-ollama" doctor 27b
-check_that "doctor skips the classifier check without a server log" grep -qxF "ok   incident classifier not checked (no server log)" "$sandbox/out"
-mkdir -p "$sandbox/brew/var/log" "$sandbox/realbin"
-ln -sf "$real_python3" "$sandbox/realbin/python3"
-cp "$repo/ollama/incidents/fixtures/server-log.txt" "$sandbox/brew/var/log/ollama.log"
-PATH="$sandbox/realbin:$PATH" CLAUDE_OLLAMA_INCIDENT_WATCHER="$repo/ollama/incidents/watcher.py" HOMEBREW_PREFIX="$sandbox/brew" \
-  STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_server_env" run_capture "$repo/bin/claude-ollama" doctor 27b
-check_eq "doctor with a server log the classifier reads exit status" 0 "$?"
-check_that "doctor reports the classifier matches the server log" grep -qxF "ok   incident classifier matches the server log (rules: 6)" "$sandbox/out"
-check_that "doctor counts the rule cards" grep -qxF "ok   rule cards: $(ls "$repo"/ollama/rule-cards/*.md | wc -l | tr -d ' ')" "$sandbox/out"
-mkdir -p "$sandbox/cards"
-printf -- '---\ntriggers:\n---\nno trigger\n' > "$sandbox/cards/broken.md"
-printf -- '---\ntriggers:\n  - suffix: .sh\n---\nshell\n' > "$sandbox/cards/shell.md"
-PATH="$sandbox/realbin:$PATH" CLAUDE_OLLAMA_RULE_CARDS_DIR="$sandbox/cards" CLAUDE_OLLAMA_INCIDENT_WATCHER="$repo/ollama/incidents/watcher.py" HOMEBREW_PREFIX="$sandbox/brew" \
-  STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_server_env" run_capture "$repo/bin/claude-ollama" doctor 27b
-check_eq "doctor with a malformed rule card exit status" 0 "$?"
-check_that "doctor warns about a malformed rule card" grep -qxF "warn rule cards: 1 ok, skipping broken.md: no triggers" "$sandbox/out"
-for i in $(seq 60); do
-  printf 'time=2026-11-02T15:00:%02d.000Z level=INFO source=sched.go:1 msg="runner did a new thing" model=qwen3.8-27b-cc\n' "$((i % 60))"
-done > "$sandbox/brew/var/log/ollama.log"
-PATH="$sandbox/realbin:$PATH" CLAUDE_OLLAMA_INCIDENT_WATCHER="$repo/ollama/incidents/watcher.py" HOMEBREW_PREFIX="$sandbox/brew" \
-  STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_server_env" run_capture "$repo/bin/claude-ollama" doctor 27b
-check_eq "doctor with a server log no rule matches exit status" 1 "$?"
-check_that "doctor fails when the classifier is blind to the server log" grep -qxF "fail incident classifier is blind to the server log format (update ollama/incidents/watcher.py rules)" "$sandbox/out"
-check_that "doctor skips the guard lint without a telemetry log" grep -qxF "ok   guards: not checked (no telemetry log)" "$sandbox/out"
-mkdir -p "$HOME/.claude-ollama/telemetry"
-{
-  for _ in $(seq 30); do echo '{"time":1,"session":"c","kind":"deny","hook":"read-range-guard","tool":"Read","reason":"a.py has 900 lines"}'; done
-  for _ in $(seq 7); do echo '{"time":1,"session":"c","kind":"friction","hook":"read-range-guard","tool":"Read","reason":"plan reset after 4 near-identical Read denials","fingerprint":"aa"}'; done
-} > "$HOME/.claude-ollama/telemetry/tool-calls.jsonl"
-PATH="$sandbox/realbin:$PATH" CLAUDE_OLLAMA_INCIDENT_WATCHER="$repo/ollama/incidents/watcher.py" HOMEBREW_PREFIX="$sandbox/brew" \
-  STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_server_env" run_capture "$repo/bin/claude-ollama" doctor 27b
-check_that "doctor warns about a guard the telemetry flags" grep -qxF "warn guards: read-range-guard: message unclear or rule too strict: a.py has 900 lines" "$sandbox/out"
-head -n 3 "$HOME/.claude-ollama/telemetry/tool-calls.jsonl" > "$sandbox/few.jsonl"
-mv "$sandbox/few.jsonl" "$HOME/.claude-ollama/telemetry/tool-calls.jsonl"
-PATH="$sandbox/realbin:$PATH" CLAUDE_OLLAMA_INCIDENT_WATCHER="$repo/ollama/incidents/watcher.py" HOMEBREW_PREFIX="$sandbox/brew" \
-  STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_server_env" run_capture "$repo/bin/claude-ollama" doctor 27b
-check_that "doctor reports no flagged guard" grep -qxF "ok   guards: none flagged" "$sandbox/out"
-check_that "doctor reports nothing to drop without a proxy log" grep -qxF "ok   tool budget: nothing to drop" "$sandbox/out"
-mkdir -p "$HOME/.local/share/claude-custom/console/proxy"
-budget_ts="$("$real_python3" -c 'from datetime import datetime, timezone; print(datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z"))')"
-for _ in $(seq 20); do
-  printf '{"ts":"%s","request_id":"r","sections":2,"stable_sections":2,"diverged_at":null,"offset":null,"diff":null,"prompt_bytes":10,"ledger":{"system":1,"tools":{"Bash":1500,"WebFetch":2048},"messages":1}}\n' "$budget_ts"
-done > "$HOME/.local/share/claude-custom/console/proxy/requests.jsonl"
-PATH="$sandbox/realbin:$PATH" CLAUDE_OLLAMA_INCIDENT_WATCHER="$repo/ollama/incidents/watcher.py" HOMEBREW_PREFIX="$sandbox/brew" \
-  STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_server_env" run_capture "$repo/bin/claude-ollama" doctor 27b
-check_that "doctor warns about a tool schema nothing calls" grep -qxF "warn tool budget: drop WebFetch (saves 2.0 KiB per request): claude-ollama tool-budget" "$sandbox/out"
-
-new_sandbox
-STUB_OLLAMA_SHOW_EXIT=1 STUB_OLLAMA_PID=42 run_capture "$repo/bin/claude-ollama" doctor 27b
-check_eq "doctor with missing models exit status" 1 "$?"
-check_that "doctor fails the main model" grep -qxF "fail model qwen3.8-27b-cc missing (run claude-ollama 27b to pull and create it)" "$sandbox/out"
-check_that "doctor fails the embedding model" grep -qxF "fail embedding model qwen3-embedding:0.6b missing (pick 'Set up embedding model' in claude-ollama)" "$sandbox/out"
-check_that "doctor fails server env" grep -qxF "fail server env OLLAMA_FLASH_ATTENTION=1 not set on the running server" "$sandbox/out"
-
-new_sandbox
-copy_repo "$sandbox/repo"
-sed 's/num_ctx 65536/num_ctx 32768/' "$sandbox/repo/ollama/Modelfile.27b" > "$sandbox/Modelfile.27b"
-mv "$sandbox/Modelfile.27b" "$sandbox/repo/ollama/Modelfile.27b"
-STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2 OLLAMA_NUM_PARALLEL=1" run_capture "$sandbox/repo/bin/claude-ollama" doctor 27b
-check_eq "doctor with mismatched context sizes exit status" 1 "$?"
-check_that "doctor fails mismatched context sizes" grep -qxF "fail num_ctx 32768 leaves -28672 tokens over CLAUDE_CODE_MAX_CONTEXT_TOKENS 53248 plus output 8192, below the reserve 4096 (run bin/ollama-profiles)" "$sandbox/out"
-
-new_sandbox
-copy_repo "$sandbox/repo"
-rm "$sandbox/repo/shared/hooks/edit-check.py"
-STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2 OLLAMA_NUM_PARALLEL=1" run_capture "$sandbox/repo/bin/claude-ollama" doctor 27b
-check_eq "doctor with a missing hook exit status" 1 "$?"
-check_that "doctor fails a missing hook" grep -qxF "fail hook edit-check.py missing or not executable in shared/hooks" "$sandbox/out"
-
-new_sandbox
-echo '{"availableModels":["qwen3.8-27b-cc","opus"]}' > "$CLAUDE_OLLAMA_MANAGED_SETTINGS"
-STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2 OLLAMA_NUM_PARALLEL=1" run_capture "$repo/bin/claude-ollama" doctor 27b
-check_eq "doctor with the model in the managed allowlist exit status" 0 "$?"
-check_that "doctor reports the managed allowlist allows the model" grep -qxF "ok   managed availableModels allows qwen3.8-27b-cc" "$sandbox/out"
-
-new_sandbox
-echo '{"availableModels":["opus"]}' > "$CLAUDE_OLLAMA_MANAGED_SETTINGS"
-STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2 OLLAMA_NUM_PARALLEL=1" run_capture "$repo/bin/claude-ollama" doctor 27b
-check_eq "doctor with the model missing from the managed allowlist exits 0" 0 "$?"
-check_that "doctor warns the managed allowlist lacks the model" grep -qxF "warn managed availableModels lacks qwen3.8-27b-cc (ask your admin to add it; Claude Code substitutes a [1m] variant)" "$sandbox/out"
-
-new_sandbox
-STUB_CURL_EXIT=7 run_capture "$repo/bin/claude-ollama" doctor 27b
-check_eq "doctor with no server exit status" 1 "$?"
-check_that "doctor fails when the server is unreachable" grep -qxF "fail ollama not reachable at http://127.0.0.1:11434 (brew services start ollama)" "$sandbox/out"
-check_that "doctor fails when no server process runs" grep -qxF "fail ollama server not running (brew services start ollama)" "$sandbox/out"
+cat > "$sandbox/stubbin/doctor" <<'EOF'
+#!/bin/sh
+echo "DOCTOR: $*"
+exit "${STUB_DOCTOR_EXIT:-0}"
+EOF
+chmod +x "$sandbox/stubbin/doctor"
+STUB_DOCTOR_EXIT=1 run_capture env CLAUDE_OLLAMA_DOCTOR_BIN="$sandbox/stubbin/doctor" "$repo/bin/claude-ollama" doctor 27b
+check_eq "claude-ollama doctor exits with the doctor's status" 1 "$?"
+check_that "claude-ollama doctor runs bin/claude-ollama-doctor with the size" grep -qxF "DOCTOR: 27b" "$sandbox/out"
+check_not "doctor does not launch claude" grep -q '^ARGS:' "$sandbox/out"
+check_not "doctor does not pull or create" grep -sqE '^(pull|create) ' "$sandbox/ollama.log"
+check_not "doctor does not apply server.env" grep -sqxF -- "-apply" "$sandbox/agent.log"
+run_capture env CLAUDE_OLLAMA_DOCTOR_BIN="$sandbox/stubbin/doctor" "$repo/bin/claude-ollama" doctor </dev/null
+check_that "claude-ollama doctor without a size uses the default" grep -qxF "DOCTOR: 27b" "$sandbox/out"
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_server_env" run_capture "$repo/bin/claude-ollama" doctor 35b
+check_that "claude-ollama doctor runs the real doctor by default" grep -qxF "ok   model qwen3.6-35b-cc" "$sandbox/out"
 
 new_sandbox
 nojq="$sandbox/nojq"
@@ -944,9 +854,6 @@ STUB_AGENT_EXIT=1 STUB_OLLAMA_PID=42 run_capture "$repo/bin/claude-ollama" 27b -
 check_that "a failed apply says how to fix it" grep -qF "claude-custom agent" "$sandbox/err"
 check_that "claude-ollama still launches after a failed apply" grep -qF -- "--model qwen3.8-27b-cc --tools" "$sandbox/out"
 rm -f "$sandbox/agent.log"
-STUB_OLLAMA_PID=42 run_capture "$repo/bin/claude-ollama" doctor 27b
-check_that "doctor names the fix for missing server env" grep -qF "claude-custom agent -apply" "$sandbox/out"
-check_not "doctor does not apply server.env" grep -sqxF -- "-apply" "$sandbox/agent.log"
 
 export PNPM_LOG="$sandbox/pnpm.log"
 export PR_REVIEW_LOG_DIR="$sandbox/reviews"
@@ -1244,14 +1151,6 @@ for agent_only_skill in chief-of-staff claude-handoff code-review implement-spec
   check_not "$agent_only_skill needs subagents or the web, so it is not vendored" test -e "$session_config/skills/$agent_only_skill"
 done
 
-
-
-
-
-run_capture "$repo/bin/claude-ollama" doctor 27b
-check_that "doctor reports the browser tools" grep -q 'browser tools' "$sandbox/out"
-check_not "doctor never mentions sandbox-runtime" grep -q 'sandbox-runtime' "$sandbox/out"
-
 run_capture "$repo/bin/claude-ollama" --help
 check_not "help no longer offers github-token" grep -q 'github-token' "$sandbox/out"
 check_not "help no longer offers browser-check" grep -q 'browser-check' "$sandbox/out"
@@ -1259,7 +1158,6 @@ check_not "help no longer offers browser-check" grep -q 'browser-check' "$sandbo
 run_capture "$repo/bin/claude-ollama" --print-config 27b
 check_not "print-config has no sandbox line" grep -q '^sandbox:' "$sandbox/out"
 check_that "print-config prints the claude command" grep -qF "command: claude --settings " "$sandbox/out"
-
 
 write_fetch_list() {
   mkdir -p "$(dirname "$fetch_list")"
@@ -1319,125 +1217,37 @@ run_capture "$repo/bin/claude-ollama" --print-config 27b
 check_that "print-config says when no fetch domains are listed" grep -qxF "fetch domains: none" "$sandbox/out"
 check_that "print-config keeps the base tools without a fetch list" grep -qxF "tools: Bash,Read,Edit,Write,Skill,TaskStop" "$sandbox/out"
 
-write_fetch_list 'docs.python.org\n'
-run_capture "$repo/bin/claude-ollama" doctor 27b
-check_that "doctor says web fetch is on for the listed domains" grep -qxF "ok   web fetch on for: docs.python.org" "$sandbox/out"
-rm -f "$fetch_list"
-run_capture "$repo/bin/claude-ollama" doctor 27b
-check_that "doctor says web fetch is off without a fetch list" grep -qxF "ok   web fetch off (no domains in $fetch_list)" "$sandbox/out"
-
 new_sandbox /tmp
-qwen_home="$HOME/.claude-ollama/qwen"
 qwen_project="$sandbox/qwen-project"
-mkdir -p "$qwen_project" && git -C "$qwen_project" init -q
+mkdir -p "$qwen_project"
 qwen_return_dir="$(pwd -P)"
 cd "$qwen_project" || exit 1
-SANDBOX=outer CLAUDE_OLLAMA_SANDBOX_EXEC=/usr/bin/true GH_TOKEN=secret SHORTCUT_API_TOKEN=secret run_capture "$repo/bin/claude-ollama" qwen 27b -p hi
+cat > "$sandbox/stubbin/qwen-script" <<'EOF'
+#!/bin/sh
+echo "QWEN SCRIPT: $*"
+exit "${STUB_QWEN_SCRIPT_EXIT:-0}"
+EOF
+chmod +x "$sandbox/stubbin/qwen-script"
+export CLAUDE_OLLAMA_QWEN_BIN="$sandbox/stubbin/qwen-script"
+run_capture "$repo/bin/claude-ollama" qwen 27b -p hi
 check_eq "claude-ollama qwen exit status" 0 "$?"
-check_that "claude-ollama qwen passes the model and args to qwen" grep -qF -- "-m qwen3.8-27b-cc --approval-mode auto-edit" "$sandbox/out"
-check_that "claude-ollama qwen passes the MCP servers and the user's args" grep -qF -- 'repo-tools.py"]}' "$sandbox/out"
-check_that "and the user's args last" grep -q -- '-p hi$' "$sandbox/out"
+check_that "claude-ollama qwen hands the size and args to bin/claude-ollama-qwen" grep -qxF "QWEN SCRIPT: launch 27b -p hi" "$sandbox/out"
 check_not "claude-ollama qwen never runs claude" grep -q '^ARGS:' "$sandbox/out"
 check_that "claude-ollama qwen warms the model" warm_up_logged
-check_eq "claude-ollama qwen gives Qwen Code its own home under the session folder" "QWEN_HOME=$qwen_home" "$(grep '^QWEN_HOME=' "$sandbox/qwen-env")"
-check_that "and turns usage statistics off" grep -qx 'QWEN_USAGE_STATISTICS_ENABLED=false' "$sandbox/qwen-env"
-check_eq "and points its package caches at the sandbox cache folder" "$HOME/.cache/claude-sandbox/pnpm/store" \
-  "$(grep '^npm_config_store_dir=' "$sandbox/qwen-env" | cut -d= -f2-)"
-check_that "and the models.dev download" grep -qx 'QWEN_CODE_MODELS_DEV_REFRESH=off' "$sandbox/qwen-env"
-for folder in skills agents extensions rules commands hooks; do
-  check_that "claude-ollama qwen creates $folder under its home before the launch, since Qwen Code's startup mkdir is denied inside the sandbox" test -d "$qwen_home/$folder"
-done
 launcher_log="$HOME/.local/share/claude-custom/console/launcher.log"
 check_that "and the launcher log records the hand-off to qwen" wait_for_launcher_log "claude-ollama: starting qwen"
-check_not "an outer OPENAI_API_KEY never reaches the session" grep -q '^OPENAI_API_KEY=' "$sandbox/qwen-env"
-check_eq "the rendered settings name the size's model" "qwen3.8-27b-cc qwen3.8-27b-cc" \
-  "$(jq -r '[.model.name, .modelProviders.openai[0].id] | join(" ")' "$qwen_home/settings.json")"
-check_eq "and point it at Ollama's OpenAI endpoint by address, since the sandbox resolves names only from /etc/hosts" "http://127.0.0.1:11434/v1" "$(jq -r '.modelProviders.openai[0].baseUrl' "$qwen_home/settings.json")"
-check_eq "and carry the Modelfile's num_ctx as the context window" 65536 "$(jq -r '.modelProviders.openai[0].generationConfig.contextWindowSize' "$qwen_home/settings.json")"
-check_eq "and ask Ollama for no thinking" none "$(jq -r '.modelProviders.openai[0].generationConfig.extra_body.reasoning_effort' "$qwen_home/settings.json")"
-check_eq "and turn cross-session messaging off, whose socket the sandbox would refuse" false "$(jq -r '.agents.crossSessionMessaging' "$qwen_home/settings.json")"
-check_that "the global QWEN.md starts with the preferences" \
-  test "$(head -1 "$qwen_home/QWEN.md")" = "$(head -1 "$repo/shared/preferences/PREFERENCES.md")"
-check_that "and carries the Qwen rules" grep -qF 'mcp__code-search__semantic_search answers' "$qwen_home/QWEN.md"
-check_that "the rendered settings keep QWEN_SYSTEM_MD out of a project .env" \
-  jq -e '.advanced.excludedEnvVars | index("QWEN_SYSTEM_MD")' "$qwen_home/settings.json"
-check_that "claude-ollama qwen asks Qwen Code for its Seatbelt sandbox" grep -qx 'QWEN_SANDBOX=sandbox-exec' "$sandbox/qwen-env"
-check_that "and names the repo's profile" grep -qx 'SEATBELT_PROFILE=claude-ollama' "$sandbox/qwen-env"
-check_not "and never hands Qwen Code an outer SANDBOX, which would turn its sandbox off" grep -q '^SANDBOX=' "$sandbox/qwen-env"
-check_that "claude-ollama qwen installs the profile where Qwen Code looks for it" \
-  cmp -s "$repo/ollama/qwen-sandbox.sb" "$qwen_project/.qwen/sandbox-macos-claude-ollama.sb"
-check_that "and keeps it out of the project's git status" grep -qxF '/.qwen/sandbox-macos-claude-ollama.sb' "$qwen_project/.git/info/exclude"
-check_that "claude-ollama qwen says it runs in Seatbelt" grep -qF "qwen runs in macOS Seatbelt (profile claude-ollama)" "$sandbox/err"
-check_not "an outer GH_TOKEN never reaches Qwen Code" grep -q '^GH_TOKEN=' "$sandbox/qwen-env"
-check_not "an outer SHORTCUT_API_TOKEN never reaches Qwen Code" grep -q '^SHORTCUT_API_TOKEN=' "$sandbox/qwen-env"
-
-link_project="$sandbox/qwen-link-project"
-mkdir -p "$link_project" "$sandbox/elsewhere" && git -C "$link_project" init -q
-ln -s "$sandbox/elsewhere" "$link_project/.qwen"
-cd "$link_project" || exit 1
-CLAUDE_OLLAMA_SANDBOX_EXEC=/usr/bin/true run_capture "$repo/bin/claude-ollama" qwen 27b -p hi
-check_eq "claude-ollama qwen refuses a .qwen that is a symbolic link, which a session could point anywhere" 1 "$?"
-check_that "and says so" grep -qF ".qwen is a symbolic link" "$sandbox/err"
-check_not "and writes nothing through the link" test -e "$sandbox/elsewhere/sandbox-macos-claude-ollama.sb"
-check_not "and never starts qwen" grep -q '^QWEN ARGS:' "$sandbox/out"
-
-victim_project="$sandbox/qwen-victim-project"
-mkdir -p "$victim_project/.qwen" && git -C "$victim_project" init -q
-echo keep > "$sandbox/elsewhere/victim"
-ln -s "$sandbox/elsewhere/victim" "$victim_project/.qwen/sandbox-macos-claude-ollama.sb"
-cd "$victim_project" || exit 1
-CLAUDE_OLLAMA_SANDBOX_EXEC=/usr/bin/true run_capture "$repo/bin/claude-ollama" qwen 27b -p hi
-check_eq "a profile path that is a symbolic link is replaced, never written through" keep "$(cat "$sandbox/elsewhere/victim")"
-check_not "and the profile is a plain file afterwards" test -L "$victim_project/.qwen/sandbox-macos-claude-ollama.sb"
-check_that "with the profile's content" cmp -s "$repo/ollama/qwen-sandbox.sb" "$victim_project/.qwen/sandbox-macos-claude-ollama.sb"
-
-exclude_project="$sandbox/qwen-exclude-project"
-mkdir -p "$exclude_project" && git -C "$exclude_project" init -q && mkdir -p "$exclude_project/.git/info"
-rm -f "$exclude_project/.git/info/exclude" && ln -s "$sandbox/elsewhere/victim" "$exclude_project/.git/info/exclude"
-cd "$exclude_project" || exit 1
-CLAUDE_OLLAMA_SANDBOX_EXEC=/usr/bin/true run_capture "$repo/bin/claude-ollama" qwen 27b -p hi
-check_eq "claude-ollama qwen refuses a .git/info/exclude that is a symbolic link" 1 "$?"
-check_eq "and appends nothing through it" keep "$(cat "$sandbox/elsewhere/victim")"
-cd "$qwen_project" || exit 1
-
-OPENAI_API_KEY=outer run_capture "$repo/bin/claude-ollama" qwen 35b -p hi
-check_that "claude-ollama qwen 35b uses the 35b model" grep -qF -- "-m qwen3.6-35b-cc" "$sandbox/out"
-check_eq "and its context window" 98304 "$(jq -r '.modelProviders.openai[0].generationConfig.contextWindowSize' "$qwen_home/settings.json")"
-check_not "an outer OPENAI_API_KEY is dropped" grep -q '^OPENAI_API_KEY=' "$sandbox/qwen-env"
-
+check_that "and names the program" grep -qxF "claude-ollama: starting qwen" "$sandbox/err"
 run_capture "$repo/bin/claude-ollama" qwen -p hi </dev/null
-check_that "claude-ollama qwen without a size uses the default" grep -qF -- "-m qwen3.8-27b-cc" "$sandbox/out"
-
-CLAUDE_OLLAMA_SANDBOX_EXEC=/nonexistent/sandbox-exec run_capture "$repo/bin/claude-ollama" qwen 27b -p hi
-check_that "claude-ollama qwen without sandbox-exec says its commands run as you" grep -qF "qwen runs without a sandbox: its commands run as you (sandbox-exec not found)" "$sandbox/err"
-check_not "and sets no QWEN_SANDBOX" grep -q '^QWEN_SANDBOX=' "$sandbox/qwen-env"
-check_that "and still names the program" grep -qxF "claude-ollama: starting qwen" "$sandbox/err"
-
-run_capture "$repo/bin/claude-ollama" qwen --print-config 35b
-check_eq "qwen print-config exit status" 0 "$?"
-check_not "qwen print-config does not launch qwen" grep -q '^QWEN ARGS:' "$sandbox/out"
-check_that "qwen print-config names the harness" grep -qxF "harness: qwen" "$sandbox/out"
-check_that "qwen print-config shows the model" grep -qxF "model: qwen3.6-35b-cc" "$sandbox/out"
-check_that "qwen print-config shows the context window" grep -qxF "context window: 98304" "$sandbox/out"
-check_that "print-config names the Qwen sandbox" grep -q '^sandbox: ' "$sandbox/out"
-
-QWEN_DOCTOR_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2 OLLAMA_NUM_PARALLEL=1"
-STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$QWEN_DOCTOR_ENV" run_capture "$repo/bin/claude-ollama" qwen doctor 27b
-check_eq "claude-ollama qwen doctor exit status" 0 "$?"
-check_that "qwen doctor reports qwen on PATH" grep -q '^ok   qwen on PATH' "$sandbox/out"
-check_that "qwen doctor reports the main model" grep -qxF "ok   model qwen3.8-27b-cc" "$sandbox/out"
-check_that "qwen doctor reports the settings template parses" grep -qxF "ok   qwen settings template parses" "$sandbox/out"
-check_that "qwen doctor warns that no hooks are wired" grep -qxF "warn qwen hooks: none wired (docs/ollama.md)" "$sandbox/out"
-check_not "qwen doctor skips the Claude hook check" grep -q '^ok   hook ' "$sandbox/out"
-check_not "qwen doctor skips the Claude model allowlist check" grep -q 'availableModels' "$sandbox/out"
-check_not "qwen doctor never launches qwen" grep -q '^QWEN ARGS:' "$sandbox/out"
+check_that "claude-ollama qwen without a size uses the default" grep -qxF "QWEN SCRIPT: launch 27b -p hi" "$sandbox/out"
+STUB_QWEN_SCRIPT_EXIT=1 run_capture "$repo/bin/claude-ollama" qwen doctor 35b
+check_eq "claude-ollama qwen doctor exits with the qwen doctor's status" 1 "$?"
+check_that "claude-ollama qwen doctor runs the qwen doctor" grep -qxF "QWEN SCRIPT: doctor 35b" "$sandbox/out"
 check_not "qwen doctor never launches claude" grep -q '^ARGS:' "$sandbox/out"
-check_that "qwen doctor reports the sandbox" grep -q 'qwen sandbox: ' "$sandbox/out"
-mv "$sandbox/stubbin/qwen" "$sandbox/stubbin/qwen.off"
-STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$QWEN_DOCTOR_ENV" run_capture "$repo/bin/claude-ollama" qwen doctor 27b
-check_eq "qwen doctor without qwen exit status" 1 "$?"
-check_that "qwen doctor fails a missing qwen" grep -q '^fail qwen missing' "$sandbox/out"
-mv "$sandbox/stubbin/qwen.off" "$sandbox/stubbin/qwen"
+run_capture "$repo/bin/claude-ollama" qwen --print-config 35b
+check_that "claude-ollama qwen --print-config runs the qwen print-config" grep -qxF "QWEN SCRIPT: --print-config 35b" "$sandbox/out"
+unset CLAUDE_OLLAMA_QWEN_BIN
+CLAUDE_OLLAMA_SANDBOX_EXEC=/usr/bin/true run_capture "$repo/bin/claude-ollama" qwen 27b -p hi
+check_that "claude-ollama qwen runs the real qwen script by default" grep -qF -- "-m qwen3.8-27b-cc --approval-mode auto-edit" "$sandbox/out"
 
 rm -f "$sandbox/stubbin/qwen"
 run_capture "$repo/bin/claude-ollama" qwen 27b -p hi
@@ -1477,9 +1287,6 @@ check_that "the recreated model builds on the installed one" grep -qxF "modelfil
 check_that "claude-ollama says it recreates with the merged parameters" grep -qF "recreating qwen3.8-27b-cc with num_ctx 32768 num_predict 8192 temperature 0.7 top_k 20 top_p 0.8" "$sandbox/err"
 check_eq "the derived settings carry the override context" 20480 "$(jq -r '.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS' "$profile_settings")"
 check_that "the launch uses the derived settings" grep -qF -- "--settings $profile_settings" "$sandbox/out"
-STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2 OLLAMA_NUM_PARALLEL=1" run_capture "$repo/bin/claude-ollama" doctor 27b
-check_eq "doctor with a context override exits 0" 0 "$?"
-check_that "doctor agrees with the override context" grep -qxF "ok   num_ctx 32768 leaves 4096 tokens over CLAUDE_CODE_MAX_CONTEXT_TOKENS 20480 plus output 8192 (reserve 4096)" "$sandbox/out"
 
 new_sandbox
 export XDG_CONFIG_HOME="$sandbox/xdg"
@@ -1604,14 +1411,8 @@ CLAUDE_OLLAMA_LEASE_DIR="$lease_dir" "$repo/bin/ollama-lease" holders >/dev/null
 STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_MAX_LOADED_MODELS=1" run_capture env CLAUDE_OLLAMA_LEASE=0 "$repo/bin/claude-ollama" 27b -p hi
 check_that "CLAUDE_OLLAMA_LEASE=0 launches past a held lease" grep -q '^ARGS:' "$sandbox/out"
 check_eq "CLAUDE_OLLAMA_LEASE=0 writes no lease" "$lease_dir/$holder_pid.json" "$(ls "$lease_dir"/*.json)"
-STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture "$repo/bin/claude-ollama" doctor 27b
-check_that "doctor reports the live lease holder" grep -qxF "ok   lease held by session (pid $holder_pid, model qwen3.6-35b-cc)" "$sandbox/out"
 kill "$holder_pid" 2>/dev/null
 wait "$holder_pid" 2>/dev/null
-STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture "$repo/bin/claude-ollama" doctor 27b
-check_that "doctor reports a stale lease whose pid is dead" grep -qxF "warn stale lease session (pid $holder_pid) removed" "$sandbox/out"
-STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture "$repo/bin/claude-ollama" doctor 27b
-check_that "doctor reports no lease holders" grep -qxF "ok   no lease holders" "$sandbox/out"
 
 rm -f "$sandbox/laddered" "$sandbox/lease-seen"
 STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture env STUB_CLAUDE_LADDER_ONCE=1 STUB_CLAUDE_EMBED_OFF=1 "$repo/bin/claude-ollama" 27b "finish the tests"
@@ -1691,13 +1492,6 @@ echo "${STUB_MEMSIZE:-34359738368}"
 EOF
 chmod +x "$sandbox/stubbin/sysctl"
 
-STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture "$repo/bin/claude-ollama" doctor 27b
-check_that "doctor reports a fitting memory as ok" grep -qxF "ok   memory fit: model 16.0 GiB + kv 8.0 GiB + embedding 0.6 GiB = 24.6 GiB of 28.9 GiB free" "$sandbox/out"
-STUB_MEMSIZE=29276800000 STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture "$repo/bin/claude-ollama" doctor 27b
-check_that "doctor warns when the models do not fit" grep -qxF "warn memory fit: model 16.0 GiB + kv 8.0 GiB + embedding 0.6 GiB = 24.6 GiB of 24.2 GiB free (0.4 GiB short)" "$sandbox/out"
-STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture env CLAUDE_OLLAMA_FIT=0 "$repo/bin/claude-ollama" doctor 27b
-check_not "doctor skips the fit with CLAUDE_OLLAMA_FIT=0" grep -q "memory fit" "$sandbox/out"
-
 rm -f "$sandbox/lease-seen" "$sandbox/laddered" "$sandbox/laddered-up" "$sandbox/relaunch-entries"
 STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture env STUB_CLAUDE_LADDER_ONCE=1 STUB_CLAUDE_EMBED_OFF=1 STUB_CLAUDE_LADDER_UP=embeddings-off STUB_CLAUDE_LADDER_UP_AFTER_LADDER=1 "$repo/bin/claude-ollama" 27b "finish the tests"
 check_eq "a ladder-up with a handoff sentinel starts claude a third time" 3 "$(grep -c '^ARGS:' "$sandbox/out")"
@@ -1734,16 +1528,6 @@ rm -f "$launch_beacon"
 run_capture env CLAUDE_OLLAMA_BEACON=0 "$repo/bin/claude-ollama" 27b -p hi
 sleep 1
 check_not "CLAUDE_OLLAMA_BEACON=0 writes no beacon" test -e "$launch_beacon"
-run_capture "$repo/bin/claude-ollama" doctor 27b
-check_that "doctor warns when no beacon exists" grep -qxF "warn beacon: none yet (written at the next launch)" "$sandbox/out"
-mkdir -p "$(dirname "$launch_beacon")"
-jq -n --arg commit "$(git -C "$repo" rev-parse HEAD)" --arg ts "$(jq -rn 'now - 7200 | todate')" '{commit: $commit, ts: $ts}' > "$launch_beacon"
-run_capture "$repo/bin/claude-ollama" doctor 27b
-check_that "doctor reports a beacon at HEAD with its age" grep -qxF "ok   beacon: 2h ago, commit matches" "$sandbox/out"
-jq -n --arg ts "$(jq -rn 'now - 60 | todate')" '{commit: "abc1234def5678", ts: $ts}' > "$launch_beacon"
-run_capture "$repo/bin/claude-ollama" doctor 27b
-check_that "doctor reports a beacon behind HEAD" \
-  grep -qxF "warn beacon: stale, commit abc1234 vs HEAD $(git -C "$repo" rev-parse --short=7 HEAD): run claude-custom update" "$sandbox/out"
 
 new_sandbox
 copy_repo "$sandbox/repo"
@@ -1863,12 +1647,6 @@ check_not "and puts no nvm folder on the session PATH" contains "$(session_path_
 NVM_DIR="$sandbox/other-nvm" run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_not "without an nvm install the launcher says nothing about node" grep -q "claude-ollama: node:" "$sandbox/err"
 check_not "and leaves PATH alone" contains "$(session_path_head)" "$nvm_versions"
-echo "20" > "$sandbox/nvm-project/.nvmrc"
-(cd "$sandbox/nvm-project" && STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_server_env" run_capture "$repo/bin/claude-ollama" doctor 27b)
-check_that "doctor reports the nvm node the session gets" grep -qxF "ok   node $nvm_versions/v20.11.0/bin/node (nvm 20 from $sandbox/nvm-project/.nvmrc)" "$sandbox/out"
-rm -rf "$HOME/.nvm"
-STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_server_env" run_capture "$repo/bin/claude-ollama" doctor 27b
-check_that "doctor reports the PATH node without nvm" grep -qx "ok   node .*/node (no nvm)\|warn node: none on PATH" "$sandbox/out"
 
 if [ "$failures" -eq 0 ]; then
   echo "all passed"

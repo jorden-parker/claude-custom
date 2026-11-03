@@ -20,7 +20,7 @@ add_test() {
 }
 
 for test in shared/hooks/edit-check.test.sh shared/hooks/fallow-a.test.sh shared/hooks/fallow-b.test.sh \
-  personal/install.test.sh bin/claude-ollama.test.sh bin/ollama-profiles.test.sh .claude/verify.test.sh \
+  personal/install.test.sh bin/claude-ollama.test.sh bin/claude-ollama-doctor.test.sh bin/claude-ollama-qwen.test.sh bin/ollama-profiles.test.sh .claude/verify.test.sh \
   ollama/drafts/opener.test.sh ollama/incidents/watcher.test.sh ollama/incidents/incident_log.test.sh shared/mcp/repo-tools.test.sh; do
   add_test "$test"
 done
@@ -56,7 +56,10 @@ check_ran 'console files run the web tests' "$checks test-web|" web/console/src/
 check_ran 'go files run go tests' "$checks test-go|" go/internal/picker/ui/model.go
 check_ran 'fallow lib runs every fallow test' "$checks|shared/hooks/fallow-a.test.sh|shared/hooks/fallow-b.test.sh|" shared/hooks/fallow-lib.sh
 check_ran 'installer runs install and launcher tests' "$checks|bin/claude-ollama.test.sh|personal/install.test.sh|" bin/claude-custom
-check_ran 'ollama config runs launcher tests' "$checks|bin/claude-ollama.test.sh|" ollama/sizes.json
+check_ran 'ollama config runs the launcher, doctor and qwen tests' "$checks|bin/claude-ollama-doctor.test.sh|bin/claude-ollama-qwen.test.sh|bin/claude-ollama.test.sh|" ollama/sizes.json
+check_ran 'a launcher library runs every test that sources it' "$checks|bin/claude-ollama-doctor.test.sh|bin/claude-ollama-qwen.test.sh|bin/claude-ollama.test.sh|" bin/lib/size-profile.sh
+check_ran 'the doctor runs its sibling test' "$checks|bin/claude-ollama-doctor.test.sh|" bin/claude-ollama-doctor
+check_ran 'the qwen harness runs its sibling test' "$checks|bin/claude-ollama-qwen.test.sh|" bin/claude-ollama-qwen
 check_ran 'personal files run install tests' "$checks|personal/install.test.sh|" personal/claude.sh
 check_ran 'shared settings run install tests' "$checks|personal/install.test.sh|" shared/settings/hooks.json
 check_ran 'draft opener runs its tests and the launcher tests' "$checks|bin/claude-ollama.test.sh|ollama/drafts/opener.test.sh|" ollama/drafts/opener.py

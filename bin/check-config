@@ -118,7 +118,7 @@ check_eq "the Qwen Code profile turns cross-session messaging off, since no seco
 digests="$repo/ollama/model-digests.json"
 pulled_models() {
   sed -n 's/^FROM //p' "$repo"/ollama/Modelfile.*
-  sed -n 's/^embedding_model=.*CODE_SEARCH_MODEL:-\([^}]*\)}.*/\1/p' "$repo/bin/claude-ollama"
+  sed -n 's/^embedding_model=.*CODE_SEARCH_MODEL:-\([^}]*\)}.*/\1/p' "$repo/bin/lib/size-profile.sh"
 }
 is_sha256() {
   [[ "$1" =~ ^[0-9a-f]{64}$ ]]
@@ -167,8 +167,10 @@ check_eq "settings.tokens.json reaches the same hosts and writes the same cache 
 check_eq "shared/sandbox-env keeps every package cache under the folder both sandboxes may write" \
   "$(jq -r '.sandbox.filesystem.allowWrite[0]' "$repo/ollama/settings.27b.json")" \
   "$(grep -o 'HOME/[^}]*' "$repo/shared/sandbox-env" | sed 's|^HOME|~|' | sort -u)"
-check_eq "claude-ollama runs claude and qwen through shared/sandbox-env" 2 \
-  "$(grep -cF "exec \"\$repo_dir/shared/sandbox-env\" " "$repo/bin/claude-ollama")"
+check_eq "claude-ollama runs claude through shared/sandbox-env" 1 \
+  "$(grep -cF "exec \"\$repo_dir/shared/sandbox-env\" claude " "$repo/bin/claude-ollama")"
+check_eq "claude-ollama-qwen runs qwen through shared/sandbox-env" 1 \
+  "$(grep -cF "exec \"\$repo_dir/shared/sandbox-env\" qwen " "$repo/bin/claude-ollama-qwen")"
 check_eq "personal/launch runs claude through shared/sandbox-env" 1 \
   "$(grep -cF "exec \"\$repo_dir/shared/sandbox-env\" claude " "$repo/personal/launch")"
 check_eq "shared/host-env unsets every cache variable shared/sandbox-env sets, so hooks and MCP servers use your own caches" \
@@ -177,7 +179,7 @@ check_eq "shared/host-env unsets every cache variable shared/sandbox-env sets, s
 check_eq "every hook command runs through shared/host-env" 0 \
   "$(jq -r '.[][].hooks[].command' "$repo/shared/settings/hooks.json" "$repo/ollama/hooks.extra.json" | grep -vcF "/shared/host-env \"\$CLAUDE_CUSTOM_HOME\"/shared/hooks/")"
 check_eq "claude-ollama starts its three MCP servers through shared/host-env" 3 \
-  "$(grep -oF "\"\$repo_dir/shared/host-env\" " "$repo/bin/claude-ollama" | wc -l | tr -d ' ')"
+  "$(grep -oF "\"\$repo_dir/shared/host-env\" " "$repo/bin/lib/size-profile.sh" | wc -l | tr -d ' ')"
 check_that "claude-ollama starts the incident watcher tied to its own pid" \
   grep -qF -- '--model "$model" --out "$incidents_file" --watch-pid "$$"' "$repo/bin/claude-ollama"
 check_that "claude-ollama starts the degrade ladder beside the watcher, tied to its own pid" \
@@ -210,7 +212,7 @@ default_embedding() {
   grep -c 'qwen3-embedding:0.6b' "$1"
 }
 
-for source in bin/claude-ollama shared/mcp/code-search.py go/internal/picker/profiles/embedding.go; do
+for source in bin/lib/size-profile.sh shared/mcp/code-search.py go/internal/picker/profiles/embedding.go; do
   check_eq "$source names the default embedding model once" 1 "$(default_embedding "$repo/$source")"
 done
 
@@ -449,7 +451,7 @@ check_eq "tool-telemetry counts the same line limit that bash-output-trim applie
   "$(sed -n 's/^TRIM_LINE_LIMIT = //p' "$repo/shared/hooks/tool-telemetry.py")"
 
 check_eq "the console's fetch-domain pattern equals the launcher's" \
-  "$(sed -n "s/^fetch_domain_pattern='\(.*\)'\$/\1/p" "$repo/bin/claude-ollama")" \
+  "$(sed -n "s/^fetch_domain_pattern='\(.*\)'\$/\1/p" "$repo/bin/lib/size-profile.sh")" \
   "$(sed -n 's|^export const FETCH_DOMAIN_PATTERN = /\(.*\)/;$|\1|p' "$repo/web/console/src/lib/fetch-domain-rules.ts")"
 
 agent="$repo/shared/agents/pr-review.md"
