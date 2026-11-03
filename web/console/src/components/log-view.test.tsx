@@ -85,6 +85,7 @@ describe("LogView", () => {
     await screen.findByText("following /var/log/ollama.log");
     const tabBar = screen.getByRole("tablist");
     expect(tabBar.className).toContain("overflow-x-auto");
+    expect(tabBar.className).toContain("overflow-y-hidden");
     expect(tabBar.className).toContain("max-w-full");
   });
 
