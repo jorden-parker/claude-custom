@@ -71,6 +71,12 @@ expect_eq "the state lives under the Claude config dir" yes "$([ -f "$HOME/.clau
 export CLAUDE_CONFIG_DIR="$sandbox/config"
 expect_eq "CLAUDE_CONFIG_DIR moves the state" yes "$(prompt >/dev/null; [ -f "$sandbox/config/cache/incident-note/s1.json" ] && echo yes || echo no)"
 
+stale_state="$sandbox/config/cache/incident-note/stale.json"
+printf '{"reported": 1}' > "$stale_state"
+touch -t 202001010000 "$stale_state"
+prompt s9 >/dev/null
+expect_eq "a new session's first report prunes week-old state" no "$([ -e "$stale_state" ] && echo yes || echo no)"
+
 if [ "$failures" -eq 0 ]; then
   echo "all passed"
 else
