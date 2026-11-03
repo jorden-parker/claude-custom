@@ -4,6 +4,8 @@ const BENCH_COMMANDS = [
   "messages-bench",
   "cache-probe",
   "review-eval",
+  "task-eval",
+  "prefix-ab",
   "bench-off-run",
   "bench-off-report",
 ] as const;

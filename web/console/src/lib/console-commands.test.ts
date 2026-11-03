@@ -48,6 +48,8 @@ describe("console commands", () => {
       "messages-bench",
       "cache-probe",
       "review-eval",
+      "task-eval",
+      "prefix-ab",
       "bench-off-run",
       "bench-off-report",
       "thinking-check",
@@ -635,6 +637,27 @@ describe("console queries", () => {
       expect(
         command("review-eval")?.argv({ size: "27b", extra: "x" }, repo),
       ).toBeNull();
+    });
+
+    it("builds the task eval and prefix A/B argv through the launcher", () => {
+      expect(command("task-eval")?.argv({ size: "27b" }, repo)).toEqual([
+        `${repo}/bin/claude-ollama`,
+        "task-eval",
+        "27b",
+      ]);
+      expect(command("task-eval")?.label({ size: "27b" })).toBe(
+        "Task eval (27b)",
+      );
+      expect(command("prefix-ab")?.argv({ size: "27b" }, repo)).toEqual([
+        `${repo}/bin/claude-ollama`,
+        "prefix-ab",
+        "27b",
+      ]);
+      expect(command("prefix-ab")?.label({ size: "27b" })).toBe(
+        "Prefix A/B (27b)",
+      );
+      expect(command("task-eval")?.argv({ size: "35b" }, repo)).toBeNull();
+      expect(command("prefix-ab")?.argv({ size: "35b" }, repo)).toBeNull();
     });
 
     it("builds the bench-off run argv from the fixed servers and models", () => {

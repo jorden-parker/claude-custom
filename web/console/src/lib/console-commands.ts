@@ -355,6 +355,18 @@ const reviewEval: ConsoleCommand = {
   },
 };
 
+const taskEval: ConsoleCommand = {
+  name: "task-eval",
+  label: (params) => `Task eval (${params.size})`,
+  argv: sizeArgv("task-eval"),
+};
+
+const prefixAb: ConsoleCommand = {
+  name: "prefix-ab",
+  label: (params) => `Prefix A/B (${params.size})`,
+  argv: sizeArgv("prefix-ab"),
+};
+
 const benchOffRun: ConsoleCommand = {
   name: "bench-off-run",
   label: (params) => `Bench-off ${params.server} ${params.model}`,
@@ -399,6 +411,8 @@ export const CONSOLE_COMMANDS: readonly ConsoleCommand[] = [
   messagesBench,
   cacheProbe,
   reviewEval,
+  taskEval,
+  prefixAb,
   benchOffRun,
   benchOffReport,
   thinkingCheck,

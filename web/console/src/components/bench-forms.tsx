@@ -29,6 +29,18 @@ export function BenchForms({ sizes }: BenchFormsProps) {
         command="review-eval"
         fields={[sizeField]}
       />
+      <BenchCard
+        title="Task eval"
+        description="Seconds from prompt to a green test over the five coding tasks"
+        command="task-eval"
+        fields={[sizeField]}
+      />
+      <BenchCard
+        title="Prefix A/B"
+        description="Prefill gain from the stabilised prompt prefix on recorded traffic"
+        command="prefix-ab"
+        fields={[sizeField]}
+      />
     </div>
   );
 }

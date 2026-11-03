@@ -8,8 +8,8 @@ function run(id: string, command: string): RunSummary {
 
 describe("bench runs", () => {
   it("keeps only the bench commands, newest first as listed", () => {
-    const runs = [run("a", "doctor"), run("b", "messages-bench"), run("c", "bench-off-report"), run("d", "pull")];
-    expect(benchRuns(runs).map((item) => item.id)).toEqual(["b", "c"]);
+    const runs = [run("a", "doctor"), run("b", "messages-bench"), run("c", "bench-off-report"), run("d", "pull"), run("e", "task-eval"), run("f", "prefix-ab")];
+    expect(benchRuns(runs).map((item) => item.id)).toEqual(["b", "c", "e", "f"]);
   });
 
   it("keeps at most the last twenty bench runs", () => {
