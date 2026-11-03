@@ -1339,16 +1339,18 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   (on), `CLAUDE_OLLAMA_RULE_CARDS` (on) and `CLAUDE_OLLAMA_EDIT_NUDGE` (on),
   plus `CLAUDE_OLLAMA_HANDOFF_PCT` (a whole percent from 30 to 85, default 70),
   `CLAUDE_OLLAMA_LEASE_HEARTBEAT` (whole seconds from 30 to 600, default 120)
-  and `CLAUDE_OLLAMA_TEST_AFTER_EDIT` (`0`, `suggest` or `run`, default
-  `suggest`). That list must equal `PROFILE_ENV_KEYS` in
-  `web/console/src/lib/profile-rules.ts`, and this file and `docs/ollama.md`
-  must name every key (`bin/check-config` checks both); the console's Profiles
-  page shows each key by the plain label, default and help sentence in
-  `PROFILE_ENV_FIELDS`, never the variable name, grouped under the field's
-  `group`, and hides every Ollama-only field from the `claude-code` profile,
-  which of the harness switches sees only `CLAUDE_CUSTOM_FRICTION`. It refuses a
-  symlinked profile, and `Agent` never reaches an Ollama profile. The overlay
-  sets `sandbox.enabled` and the ask rule
+  `CLAUDE_OLLAMA_TEST_AFTER_EDIT` (`0`, `suggest` or `run`, default `suggest`)
+  and `CLAUDE_CODE_EFFORT_LEVEL` (`low`, `medium` or `xhigh`, default `xhigh`;
+  Claude Code's own variable, read by Qwen 3.8's chat template through Ollama
+  when the profile's thinking is on, ignored by Qwen 3.6). That list must equal
+  `PROFILE_ENV_KEYS` in `web/console/src/lib/profile-rules.ts`, and this file
+  and `docs/ollama.md` must name every key (`bin/check-config` checks both); the
+  console's Profiles page shows each key by the plain label, default and help
+  sentence in `PROFILE_ENV_FIELDS`, never the variable name, grouped under the
+  field's `group`, and hides every Ollama-only field from the `claude-code`
+  profile, which of the harness switches sees only `CLAUDE_CUSTOM_FRICTION`. It
+  refuses a symlinked profile, and `Agent` never reaches an Ollama profile. The
+  overlay sets `sandbox.enabled` and the ask rule
   `Bash(dangerouslyDisableSandbox:true)`, so every personal session (subagents
   and `--agent pr-review` included) runs Claude's shell commands inside Claude
   Code's sandbox and asks before one runs outside it; `bin/check-config` checks

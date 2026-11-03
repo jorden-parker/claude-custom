@@ -95,7 +95,17 @@ which Ollama reads first. To measure it, run
 one size, set `"thinking": true` in its profile (the Model thinking switch on
 the console's `/profiles/ollama-<size>` page, Sandbox & model tab): the launch
 then drops that variable from the derived settings, so Claude Code's own
-adaptive request reaches Ollama and the model reasons before every reply.
+adaptive request reaches Ollama and the model reasons before every reply. With
+thinking on, Qwen 3.8 (the 27b) also reads an effort level: Claude Code sends
+its effort as `output_config.effort`, Ollama passes a name the model's
+`/api/show` metadata lists (`low`, `medium`, `xhigh`) through to the chat
+template, which injects a matching instruction before the system prompt. Claude
+Code's default `high` is not one of them, so Ollama falls back to the model
+default, `xhigh`. The "Thinking effort when thinking is on" select on the same
+profile page sets `CLAUDE_CODE_EFFORT_LEVEL` for the launch, which outranks
+`/effort` and every settings file. Qwen 3.6 (the 35b) has on/off only and
+ignores the level. Check what a model offers with
+`curl -s localhost:11434/api/show -d '{"model":"qwen3.8-27b-cc"}' | jq .thinking`.
 Thinking tokens count against `CLAUDE_CODE_MAX_OUTPUT_TOKENS`, and
 `thinking-check` still measures the model with thinking off, since it never
 reads a profile. The profiles also set every telemetry, error-report, survey,
@@ -592,6 +602,7 @@ the harness switches, each `0` or `1` unless noted:
 | ------------------------------- | ------- | ------------------------------------------------------------------------------ |
 | `CLAUDE_OLLAMA_PROXY`           | 1       | Observe prompt drift through the messages proxy                                |
 | `CLAUDE_OLLAMA_RULE_CARDS`      | 1       | Deliver rule cards just in time                                                |
+| `CLAUDE_CODE_EFFORT_LEVEL`      | xhigh   | Thinking effort when thinking is on (`low`, `medium`, `xhigh`; Qwen 3.8 only)  |
 | `CLAUDE_OLLAMA_RELAUNCH`        | 1       | Hand off before the context fills (`0`: single exec)                           |
 | `CLAUDE_OLLAMA_HANDOFF_PCT`     | 70      | Hand off at this whole percent of context, 30 to 85                            |
 | `CLAUDE_OLLAMA_NO_INDEX`        | 0       | Skip the code search index                                                     |

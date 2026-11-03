@@ -4,6 +4,7 @@ import {
   LEASE_HEARTBEAT_RANGE,
   OUTPUT_TOKENS_RANGE,
   TEST_AFTER_EDIT_CHOICES,
+  THINKING_EFFORT_CHOICES,
   PROFILE_ENV_FIELDS,
   PROFILE_ENV_GROUPS,
   PROFILE_ENV_KEYS,
@@ -392,6 +393,43 @@ describe("validateProfileOverride", () => {
     for (const value of ["1", "yes", "", 0]) {
       expect(
         rejected({ env: { CLAUDE_OLLAMA_TEST_AFTER_EDIT: value } }, OLLAMA),
+      ).toBe(message);
+    }
+  });
+
+  it("takes the thinking effort as low, medium or xhigh", () => {
+    expect(
+      PROFILE_ENV_FIELDS.find(
+        (field) => field.key === "CLAUDE_CODE_EFFORT_LEVEL",
+      ),
+    ).toMatchObject({
+      kind: "choice",
+      choices: THINKING_EFFORT_CHOICES,
+      defaultValue: "xhigh",
+      group: "Prompt and context",
+      ollamaOnly: true,
+      label: "Thinking effort when thinking is on",
+    });
+    expect(THINKING_EFFORT_CHOICES).toEqual([
+      { value: "low", word: "low" },
+      { value: "medium", word: "medium" },
+      { value: "xhigh", word: "xhigh" },
+    ]);
+    expect(
+      PROFILE_ENV_FIELDS.find(
+        (field) => field.key === "CLAUDE_CODE_EFFORT_LEVEL",
+      )?.help,
+    ).toMatch(/Qwen 3\.6 .*ignores it/);
+    for (const value of ["low", "medium", "xhigh"]) {
+      expect(
+        accepted({ env: { CLAUDE_CODE_EFFORT_LEVEL: value } }, OLLAMA),
+      ).toEqual({ env: { CLAUDE_CODE_EFFORT_LEVEL: value } });
+    }
+    const message =
+      "CLAUDE_CODE_EFFORT_LEVEL must be one of low, medium, xhigh";
+    for (const value of ["high", "max", "", 1]) {
+      expect(
+        rejected({ env: { CLAUDE_CODE_EFFORT_LEVEL: value } }, OLLAMA),
       ).toBe(message);
     }
   });

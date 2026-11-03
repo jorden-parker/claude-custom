@@ -36,6 +36,7 @@ export const PROFILE_ENV_KEYS = [
   "CLAUDE_OLLAMA_PROXY",
   "CLAUDE_OLLAMA_PROXY_STABILIZE",
   "CLAUDE_OLLAMA_RULE_CARDS",
+  "CLAUDE_CODE_EFFORT_LEVEL",
   "CLAUDE_OLLAMA_RELAUNCH",
   "CLAUDE_OLLAMA_HANDOFF_PCT",
   "CLAUDE_OLLAMA_NO_INDEX",
@@ -101,6 +102,12 @@ export const TEST_AFTER_EDIT_CHOICES: readonly EnvChoice[] = [
   { value: "run", word: "run" },
 ];
 
+export const THINKING_EFFORT_CHOICES: readonly EnvChoice[] = [
+  { value: "low", word: "low" },
+  { value: "medium", word: "medium" },
+  { value: "xhigh", word: "xhigh" },
+];
+
 export const PROFILE_ENV_FIELDS: readonly ProfileEnvField[] = [
   {
     key: "CLAUDE_OLLAMA_PROXY",
@@ -127,6 +134,16 @@ export const PROFILE_ENV_FIELDS: readonly ProfileEnvField[] = [
     group: "Prompt and context",
     kind: "switch",
     defaultValue: "1",
+    ollamaOnly: true,
+  },
+  {
+    key: "CLAUDE_CODE_EFFORT_LEVEL",
+    label: "Thinking effort when thinking is on",
+    help: "Qwen 3.8 reads this level from the request and thinks briefly on low or at length on xhigh; it has no high, so Claude Code's default falls back to xhigh. Only counts with the Model thinking switch on, and Qwen 3.6 (the 35b) ignores it.",
+    group: "Prompt and context",
+    kind: "choice",
+    choices: THINKING_EFFORT_CHOICES,
+    defaultValue: "xhigh",
     ollamaOnly: true,
   },
   {

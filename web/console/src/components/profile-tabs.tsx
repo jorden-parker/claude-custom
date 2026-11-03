@@ -121,8 +121,8 @@ function ThinkingSwitch({
           update((current) => withThinking(current, next ? true : null))
         }
       />
-      Model thinking on (off by default: Claude Code asks for high effort on
-      every turn)
+      Model thinking on (off by default; the level comes from the Env tab
+      thinking effort select, xhigh unless set)
     </Label>
   );
 }
