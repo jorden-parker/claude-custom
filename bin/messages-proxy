@@ -449,6 +449,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
     log = None
     recorder = None
     stabilizer = None
+    response_started = False
 
     def log_message(self, format, *args):
         return
@@ -490,7 +491,17 @@ class ProxyHandler(BaseHTTPRequestHandler):
         else:
             self.forward(body)
 
+    def fail_upstream(self, error):
+        if self.response_started:
+            self.close_connection = True
+            return
+        try:
+            self.send_error(502, f"upstream failed: {error}")
+        except OSError:
+            self.close_connection = True
+
     def forward(self, body):
+        self.response_started = False
         request_id = None
         if self.command == "POST" and self.route_path() == MESSAGES_PATH:
             request_id, body = observe_request(body, self.tracker, self.log, self.recorder, self.stabilizer)
@@ -505,11 +516,12 @@ class ProxyHandler(BaseHTTPRequestHandler):
             reply = connection.getresponse()
             self.relay(reply)
         except (OSError, http.client.HTTPException) as error:
-            self.send_error(502, f"upstream failed: {error}")
+            self.fail_upstream(error)
         finally:
             connection.close()
 
     def relay(self, reply):
+        self.response_started = True
         self.send_response_only(reply.status, reply.reason)
         for name, value in returned_headers(reply.headers):
             self.send_header(name, value)
