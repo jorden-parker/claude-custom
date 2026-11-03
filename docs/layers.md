@@ -67,7 +67,10 @@ Per-profile options go in `~/.config/claude-custom/profiles/<id>.json`, where
 `<id>` is `claude-code` (the personal overlay) or `ollama-<size>`. Every key is
 optional and a missing file changes nothing. `personal/settings-path` layers
 `claude-code.json` onto the machine copy after `enabled-tools` and
-`sandbox-off`, through `shared/profile-overlay settings`; `claude-ollama` layers
-its own profile onto the fetch-domains copy of the launch settings, and onto the
-`--tools` list, the MCP servers and the Modelfile parameters. See
-`docs/ollama.md` for the keys.
+`sandbox-off`, through `shared/profile-overlay settings`; `claude-ollama` builds
+its launch settings with `shared/profile-overlay compose`, which applies the
+fetch domains, its own profile (with a ladder context in place of the
+profile's), then the messages proxy URL onto `ollama/settings.<size>.json`, in
+that order, into `~/.claude-ollama/launch-settings.json` (the base file itself
+when no layer applies). The profile also reaches the `--tools` list, the MCP
+servers and the Modelfile parameters. See `docs/ollama.md` for the keys.

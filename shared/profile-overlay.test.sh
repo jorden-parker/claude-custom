@@ -148,4 +148,27 @@ check_eq "check refuses a symlinked profile" 1 "$(status_of "$script" check "$tm
 check_eq "check refuses a profile that is not an object" 1 "$(status_of "$script" check "$tmp/profiles/bad.json")"
 check_eq "no subcommand is a usage error" 2 "$(status_of "$script")"
 
+compose() {
+  "$script" compose "$ollama_base" "$tmp/composed.json" "$@" && cat "$tmp/composed.json"
+}
+printf '%s' '{"tools":{"Glob":"allow"},"context":49152}' > "$tmp/profiles/ollama-27b.json"
+check_eq "compose with no layers passes the base through" "$(jq -c -S . "$ollama_base")" "$(compose | jq -c -S .)"
+check_eq "compose writes the settings file 0600" yes "$([ -n "$(find "$tmp/composed.json" -perm 600)" ] && echo yes)"
+fetch_out="$(compose --fetch-domain docs.python.org --fetch-domain pkg.go.dev)"
+check_eq "a fetch domain layer allows WebFetch for exactly those hosts" '["WebFetch(domain:docs.python.org)","WebFetch(domain:pkg.go.dev)"]' "$(jq -c .permissions.allow <<< "$fetch_out")"
+check_eq "a fetch domain layer denies loopback hosts" '["WebFetch(domain:localhost)","WebFetch(domain:127.0.0.1)","WebFetch(domain:0.0.0.0)","WebFetch(domain:[::1])"]' "$(jq -c .permissions.deny <<< "$fetch_out")"
+check_eq "a fetch domain layer skips the WebFetch preflight" true "$(jq .skipWebFetchPreflight <<< "$fetch_out")"
+check_eq "the profile layer applies after the fetch layer" '["WebFetch(domain:docs.python.org)","Glob"]' "$(compose --fetch-domain docs.python.org --profile "$tmp/profiles/ollama-27b.json" | jq -c .permissions.allow)"
+check_eq "the profile layer keeps the headroom below the profile context" 36864 "$(compose --profile "$tmp/profiles/ollama-27b.json" | jq -r .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS)"
+check_eq "a context layer wins over the profile context and keeps the headroom" 20480 "$(compose --profile "$tmp/profiles/ollama-27b.json" --context 32768 | jq -r .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS)"
+check_eq "a context layer keeps the profile's other overrides" '["Glob"]' "$(compose --profile "$tmp/profiles/ollama-27b.json" --context 32768 | jq -c .permissions.allow)"
+check_eq "a context layer without a profile keeps the headroom" 20480 "$(compose --context 32768 | jq -r .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS)"
+check_eq "a context layer with an absent profile keeps the headroom" 20480 "$(compose --profile "$tmp/profiles/absent.json" --context 32768 | jq -r .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS)"
+check_eq "a proxy layer points the base URL at the proxy last" http://127.0.0.1:48001 "$(compose --context 32768 --proxy-url http://127.0.0.1:48001 | jq -r .env.ANTHROPIC_BASE_URL)"
+check_eq "a proxy layer keeps the context layer" 20480 "$(compose --proxy-url http://127.0.0.1:48001 --context 32768 | jq -r .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS)"
+check_eq "a context that is not a number is refused" 1 "$(status_of "$script" compose "$ollama_base" "$tmp/composed.json" --context lots)"
+check_eq "compose refuses a symlinked profile" 1 "$(status_of "$script" compose "$ollama_base" "$tmp/composed.json" --profile "$tmp/linked/claude-code.json")"
+check_eq "compose refuses an unknown layer" 2 "$(status_of "$script" compose "$ollama_base" "$tmp/composed.json" --colour red)"
+check_eq "compose needs a base and an output" 2 "$(status_of "$script" compose "$ollama_base")"
+
 if [ "$failures" -eq 0 ]; then echo "all passed"; else echo "$failures failed"; exit 1; fi

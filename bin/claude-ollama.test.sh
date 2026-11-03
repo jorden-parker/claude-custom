@@ -1268,7 +1268,7 @@ write_fetch_list() {
 
 new_sandbox
 fetch_list="$HOME/.config/claude-custom/fetch-domains"
-fetch_settings_file="$HOME/.claude-ollama/fetch-settings.json"
+fetch_settings_file="$HOME/.claude-ollama/launch-settings.json"
 run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "without a fetch list the launch keeps the base tools" grep -qF -- "--tools Bash,Read,Edit,Write,Skill,TaskStop -p hi" "$sandbox/out"
 check_that "without a fetch list the launch keeps the profile settings" grep -qF -- "--settings $repo/ollama/settings.27b.json" "$sandbox/out"
@@ -1276,7 +1276,7 @@ check_not "without a fetch list no derived settings are written" test -e "$fetch
 
 new_sandbox
 fetch_list="$HOME/.config/claude-custom/fetch-domains"
-fetch_settings_file="$HOME/.claude-ollama/fetch-settings.json"
+fetch_settings_file="$HOME/.claude-ollama/launch-settings.json"
 write_fetch_list '  \nlocalhost\n127.0.0.1\n*\nhttps://x.org/\nexample.com:8080\n'
 run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "a fetch list with only invalid lines keeps the base tools" grep -qF -- "--tools Bash,Read,Edit,Write,Skill,TaskStop -p hi" "$sandbox/out"
@@ -1285,7 +1285,7 @@ check_that "an invalid fetch line says why it is ignored" grep -qxF "claude-olla
 
 new_sandbox
 fetch_list="$HOME/.config/claude-custom/fetch-domains"
-fetch_settings_file="$HOME/.claude-ollama/fetch-settings.json"
+fetch_settings_file="$HOME/.claude-ollama/launch-settings.json"
 write_fetch_list '  Docs.Python.org \npkg.go.dev\npkg.go.dev\nbad_host\n'
 run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "a fetch list adds WebFetch to the tools" grep -qF -- "--tools Bash,Read,Edit,Write,Skill,TaskStop,WebFetch -p hi" "$sandbox/out"
@@ -1306,7 +1306,7 @@ new_sandbox
 mkdir -p "$sandbox/xdg/claude-custom"
 printf 'docs.rs\n' > "$sandbox/xdg/claude-custom/fetch-domains"
 run_capture env XDG_CONFIG_HOME="$sandbox/xdg" "$repo/bin/claude-ollama" 27b -p hi
-check_that "XDG_CONFIG_HOME moves the fetch list" test -e "$HOME/.claude-ollama/fetch-settings.json"
+check_that "XDG_CONFIG_HOME moves the fetch list" test -e "$HOME/.claude-ollama/launch-settings.json"
 
 new_sandbox
 fetch_list="$HOME/.config/claude-custom/fetch-domains"
@@ -1455,7 +1455,7 @@ export XDG_CONFIG_HOME="$sandbox/xdg"
 profiles="$XDG_CONFIG_HOME/claude-custom/profiles"
 mkdir -p "$profiles"
 printf '%s' '{"tools":{"Glob":"allow"},"mcp":{"dev":false},"env":{"CLAUDE_OLLAMA_TELEMETRY":"0"}}' > "$profiles/ollama-27b.json"
-profile_settings="$HOME/.claude-ollama/profile-settings.json"
+profile_settings="$HOME/.claude-ollama/launch-settings.json"
 run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "a profile adds its allowed tool to --tools" grep -qF -- "--tools Bash,Read,Edit,Write,Skill,TaskStop,Glob -p hi" "$sandbox/out"
 check_that "a profile launches the settings it derives" grep -qF -- "--settings $profile_settings" "$sandbox/out"
@@ -1469,7 +1469,7 @@ new_sandbox
 export XDG_CONFIG_HOME="$sandbox/xdg"
 profiles="$XDG_CONFIG_HOME/claude-custom/profiles"
 mkdir -p "$profiles"
-profile_settings="$HOME/.claude-ollama/profile-settings.json"
+profile_settings="$HOME/.claude-ollama/launch-settings.json"
 printf '%s' '{"context":32768}' > "$profiles/ollama-27b.json"
 run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "a context override recreates the model with its num_ctx" grep -qxF "modelfile: PARAMETER num_ctx 32768" "$sandbox/ollama.log"
@@ -1618,7 +1618,7 @@ STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture env STUB_CLAUDE_LA
 check_eq "a ladder file starts claude a second time" 2 "$(grep -c '^ARGS:' "$sandbox/out")"
 check_that "the ladder relaunch names the rung and the reason" grep -qxF "claude-ollama: ladder context-down: 3 truncated prompts within 10 minutes" "$sandbox/err"
 ladder_settings="$(settings_arg | tail -n 1)"
-check_eq "the second run uses the ladder settings" "$HOME/.claude-ollama/ladder-settings.json" "$ladder_settings"
+check_eq "the second run uses the ladder settings" "$HOME/.claude-ollama/launch-settings.json" "$ladder_settings"
 check_eq "the ladder settings lower the context budget and keep the headroom" 20480 "$(jq -r .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS "$ladder_settings")"
 check_that "the second run continues the conversation without the prompt" grep -qF -- "--tools Bash,Read,Edit,Write,Skill,TaskStop --continue" "$sandbox/out"
 check_not "the second run drops the prompt" grep -qF -- "--continue finish the tests" "$sandbox/out"
@@ -1671,8 +1671,8 @@ rm -f "$sandbox/lease-seen" "$sandbox/ladder-args"
 STUB_MEMSIZE=25276800000 STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "a launch short by more than the embedding model steps to embeddings-off first" grep -qxF "claude-ollama: ladder embeddings-off: does not fit with the embedding model (4.1 GiB short)" "$sandbox/err"
 check_that "then to the next lower context" grep -qxF "claude-ollama: ladder context-down: does not fit at num_ctx 65536 (3.5 GiB short); starting at 32768" "$sandbox/err"
-check_eq "the context-down start uses the ladder settings" "$HOME/.claude-ollama/ladder-settings.json" "$(settings_arg)"
-check_eq "the ladder settings keep the headroom below the lower context" 20480 "$(jq -r .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS "$HOME/.claude-ollama/ladder-settings.json")"
+check_eq "the context-down start uses the ladder settings" "$HOME/.claude-ollama/launch-settings.json" "$(settings_arg)"
+check_eq "the ladder settings keep the headroom below the lower context" 20480 "$(jq -r .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS "$HOME/.claude-ollama/launch-settings.json")"
 check_eq "the lease records the context-down rung" context-down "$(last_session_lease | jq -r .rung)"
 check_eq "the lease records the lower num_ctx" 32768 "$(last_session_lease | jq -r .num_ctx)"
 ladder_args="$(for _ in $(seq 25); do [ -s "$sandbox/ladder-args" ] && break; sleep 0.2; done; cat "$sandbox/ladder-args" 2>/dev/null)"
@@ -1706,7 +1706,7 @@ check_eq "the recovered rung turns the search embeddings back on" 1 "$(cat "$san
 check_not "the recovery removes embed-off" grep -q "embed-off" <<< "$(tail -n 1 "$sandbox/relaunch-entries")"
 check_that "the recovery is recorded as an incident" grep -q '"cause": "recovered", "detail": "embeddings-off: 20 minutes without an incident and the memory fits", "tokens": null, "rule": "ladder/up"' "$(cat "$incidents_dir/current")"
 check_eq "the lease keeps the context-down rung still in effect" context-down "$(last_session_lease | jq -r .rung)"
-check_eq "the third run keeps the ladder settings" "$HOME/.claude-ollama/ladder-settings.json" "$(settings_arg | tail -n 1)"
+check_eq "the third run keeps the ladder settings" "$HOME/.claude-ollama/launch-settings.json" "$(settings_arg | tail -n 1)"
 check_that "the third run resumes the handoff" grep -qF -- "--tools Bash,Read,Edit,Write,Skill,TaskStop /handoff go on" "$sandbox/out"
 
 rm -f "$sandbox/lease-seen" "$sandbox/laddered" "$sandbox/laddered-up" "$sandbox/relaunch-entries"
