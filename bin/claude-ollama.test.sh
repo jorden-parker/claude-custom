@@ -839,11 +839,11 @@ PATH="$sandbox/realbin:$PATH" CLAUDE_OLLAMA_INCIDENT_WATCHER="$repo/ollama/incid
   STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_server_env" run_capture "$repo/bin/claude-ollama" doctor 27b
 check_that "doctor reports no flagged guard" grep -qxF "ok   guards: none flagged" "$sandbox/out"
 check_that "doctor reports nothing to drop without a proxy log" grep -qxF "ok   tool budget: nothing to drop" "$sandbox/out"
-mkdir -p "$HOME/.claude-ollama/proxy"
+mkdir -p "$HOME/.local/share/claude-custom/console/proxy"
 budget_ts="$("$real_python3" -c 'from datetime import datetime, timezone; print(datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z"))')"
 for _ in $(seq 20); do
   printf '{"ts":"%s","request_id":"r","sections":2,"stable_sections":2,"diverged_at":null,"offset":null,"diff":null,"prompt_bytes":10,"ledger":{"system":1,"tools":{"Bash":1500,"WebFetch":2048},"messages":1}}\n' "$budget_ts"
-done > "$HOME/.claude-ollama/proxy/requests.jsonl"
+done > "$HOME/.local/share/claude-custom/console/proxy/requests.jsonl"
 PATH="$sandbox/realbin:$PATH" CLAUDE_OLLAMA_INCIDENT_WATCHER="$repo/ollama/incidents/watcher.py" HOMEBREW_PREFIX="$sandbox/brew" \
   STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_server_env" run_capture "$repo/bin/claude-ollama" doctor 27b
 check_that "doctor warns about a tool schema nothing calls" grep -qxF "warn tool budget: drop WebFetch (saves 2.0 KiB per request): claude-ollama tool-budget" "$sandbox/out"
@@ -1102,13 +1102,13 @@ proxy_args="$(cat "$sandbox/proxy-args" 2>/dev/null)"
 check_that "the messages proxy forwards to the profile's Ollama URL" contains "$proxy_args" "--upstream $(jq -r .env.ANTHROPIC_BASE_URL "$repo/ollama/settings.27b.json")"
 check_that "the messages proxy picks a free loopback port" contains "$proxy_args" "--port 0 "
 check_that "the messages proxy publishes its port" contains "$proxy_args" "--port-file $session_config/proxy.port"
-check_that "the messages proxy logs in the session config without a console state dir" contains "$proxy_args" "--log $session_config/proxy/requests.jsonl"
+check_that "the messages proxy logs under the default console state dir" contains "$proxy_args" "--log $HOME/.local/share/claude-custom/console/proxy/requests.jsonl"
 check_that "the messages proxy stops with the launch" contains "$proxy_args" "--watch-pid "
 check_eq "claude is pointed at the proxy" "http://127.0.0.1:48000" "$(launch_base_url)"
 rm -f "$sandbox/proxy-args"
 mkdir -p "$sandbox/console-state"
 run_capture env -u CLAUDE_OLLAMA_PROXY CLAUDE_CONSOLE_STATE_DIR="$sandbox/console-state" STUB_PROXY_PORT=48001 "$repo/bin/claude-ollama" 27b -p hi
-check_that "the messages proxy logs under the console state dir when it exists" contains "$(cat "$sandbox/proxy-args")" "--log $sandbox/console-state/proxy/requests.jsonl"
+check_that "the messages proxy logs under CLAUDE_CONSOLE_STATE_DIR when it is set" contains "$(cat "$sandbox/proxy-args")" "--log $sandbox/console-state/proxy/requests.jsonl"
 check_eq "claude is pointed at the proxy's published port" "http://127.0.0.1:48001" "$(launch_base_url)"
 rm -f "$sandbox/proxy-args"
 run_capture env CLAUDE_OLLAMA_PROXY=0 "$repo/bin/claude-ollama" 27b -p hi
@@ -1764,7 +1764,7 @@ EOF
 chmod +x "$sandbox/stubbin/why"
 CLAUDE_OLLAMA_WHY_BIN="$sandbox/stubbin/why" run_capture "$repo/bin/claude-ollama" why --since 10 --json
 check_eq "why exit status" 0 "$?"
-check_that "why reads the session proxy log and the incidents folder and passes its flags" grep -qxF -- "--proxy-log $HOME/.claude-ollama/proxy/requests.jsonl --incidents-dir $HOME/.local/share/claude-custom/console/incidents --since 10 --json" "$sandbox/why-args"
+check_that "why reads the console proxy log and the incidents folder and passes its flags" grep -qxF -- "--proxy-log $HOME/.local/share/claude-custom/console/proxy/requests.jsonl --incidents-dir $HOME/.local/share/claude-custom/console/incidents --since 10 --json" "$sandbox/why-args"
 check_that "why prints the verdict" grep -qxF "verdict: stub" "$sandbox/out"
 check_not "why does not launch claude" grep -q '^ARGS:' "$sandbox/out"
 check_not "why does not start the proxy" test -e "$sandbox/proxy-args"
@@ -1786,7 +1786,7 @@ EOF
 chmod +x "$sandbox/stubbin/tool-budget"
 CLAUDE_OLLAMA_TOOL_BUDGET_BIN="$sandbox/stubbin/tool-budget" run_capture "$repo/bin/claude-ollama" tool-budget --since 7 --json
 check_eq "tool-budget exit status" 0 "$?"
-check_that "tool-budget reads the session proxy log and the telemetry log and passes its flags" grep -qxF -- "--proxy-log $HOME/.claude-ollama/proxy/requests.jsonl --telemetry $HOME/.claude-ollama/telemetry/tool-calls.jsonl --since 7 --json" "$sandbox/budget-args"
+check_that "tool-budget reads the console proxy log and the telemetry log and passes its flags" grep -qxF -- "--proxy-log $HOME/.local/share/claude-custom/console/proxy/requests.jsonl --telemetry $HOME/.claude-ollama/telemetry/tool-calls.jsonl --since 7 --json" "$sandbox/budget-args"
 check_that "tool-budget prints the report" grep -qxF "suggest: stub" "$sandbox/out"
 check_not "tool-budget does not launch claude" grep -q '^ARGS:' "$sandbox/out"
 check_not "tool-budget does not start the proxy" test -e "$sandbox/proxy-args"

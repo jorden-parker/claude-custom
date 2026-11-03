@@ -1036,8 +1036,9 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `CLAUDE_OLLAMA_PROXY_RECORD=1`. `bin/claude-ollama` starts it before
   `launch_claude` unless `CLAUDE_OLLAMA_PROXY=0` (`CLAUDE_OLLAMA_PROXY_BIN`
   overrides the script; tests stub it), with `--watch-pid $$`, the log at
-  `$CLAUDE_CONSOLE_STATE_DIR/proxy/requests.jsonl` when that dir exists, else
-  `~/.claude-ollama/proxy/requests.jsonl`, waits for the port file and writes
+  `<console state dir>/proxy/requests.jsonl` (`CLAUDE_CONSOLE_STATE_DIR`, else
+  `~/.local/share/claude-custom/console`, the folder the console reads; the
+  proxy creates it 0700), waits for the port file and writes
   `~/.claude-ollama/proxy-settings.json` with `env.ANTHROPIC_BASE_URL` pointed
   at the proxy (the settings file `claude` gets); when the port never appears it
   warns and keeps the direct URL. By default it only observes: no rewriting, no

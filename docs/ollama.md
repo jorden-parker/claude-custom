@@ -749,11 +749,12 @@ appeared since your last prompt, such as
 Each launch also starts `bin/messages-proxy` between `claude` and Ollama
 (`CLAUDE_OLLAMA_PROXY=0` turns it off): it forwards every request unchanged and
 appends one line per `/v1/messages` request to
-`$CLAUDE_CONSOLE_STATE_DIR/proxy/requests.jsonl` (else
-`~/.claude-ollama/proxy/requests.jsonl`) naming the first section of the prompt
-(`system`, `tools` or `message:N`) that differs from the previous request, the
-byte offset inside it and up to 200 characters from there, so a prompt-cache
-miss can be traced to what changed. It never logs the rest of the body.
+`$CLAUDE_CONSOLE_STATE_DIR/proxy/requests.jsonl` (default
+`~/.local/share/claude-custom/console`, where the console's Proxy tab reads it)
+naming the first section of the prompt (`system`, `tools` or `message:N`) that
+differs from the previous request, the byte offset inside it and up to 200
+characters from there, so a prompt-cache miss can be traced to what changed. It
+never logs the rest of the body.
 
 With `CLAUDE_OLLAMA_PROXY_STABILIZE=1` the proxy also stabilises the prefix:
 when two requests in a row differ inside the system prompt by one short span (at

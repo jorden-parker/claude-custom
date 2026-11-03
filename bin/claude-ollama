@@ -685,11 +685,7 @@ messages_proxy() {
 }
 
 proxy_log_dir() {
-  if [ -n "${CLAUDE_CONSOLE_STATE_DIR:-}" ] && [ -d "$CLAUDE_CONSOLE_STATE_DIR" ]; then
-    echo "$CLAUDE_CONSOLE_STATE_DIR/proxy"
-  else
-    echo "$session_config_dir/proxy"
-  fi
+  echo "$console_state_dir/proxy"
 }
 
 wait_for_proxy_port() {
