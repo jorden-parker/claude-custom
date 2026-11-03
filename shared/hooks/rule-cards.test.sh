@@ -74,6 +74,11 @@ expect_eq "a command trigger on a go card fires on go test" \
   "Run gofmt and go vet; test with table tests." "$(context_for s1 Bash '{"command": "cd go && go test ./..."}')"
 expect_eq "a tool card matches by tool name" "Name a new file by what it holds." "$(context_for s1 Write '{"file_path": "notes.txt", "content": "x"}')"
 expect_eq "the state lives under the Claude config dir" yes "$([ -f "$CLAUDE_CONFIG_DIR/cache/rule-cards/s1.json" ] && echo yes || echo no)"
+stale_state="$CLAUDE_CONFIG_DIR/cache/rule-cards/stale.json"
+printf '{"delivered": []}' > "$stale_state"
+touch -t 202001010000 "$stale_state"
+context_for s6 Write '{"file_path": "notes.txt", "content": "x"}' > /dev/null
+expect_eq "a new session's first delivery prunes week-old state" no "$([ -e "$stale_state" ] && echo yes || echo no)"
 expect_contains "a card without triggers is reported on stderr" "broken.md" "$(cat "$sandbox/stderr")"
 expect_contains "a card without a body is reported on stderr" "empty.md" "$(cat "$sandbox/stderr")"
 expect_eq "the hook never denies" 0 "$(printf '{"session_id":"s9","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git commit"}}' | python3 "$hook" 2>/dev/null | grep -c permissionDecision)"

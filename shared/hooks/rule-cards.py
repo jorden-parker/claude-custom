@@ -6,6 +6,10 @@ import shlex
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import hook_state
+
+EMPTY_STATE = {"delivered": []}
 CONTEXT_CAP = 1200
 FILE_TOOLS = {"Edit", "Write", "MultiEdit", "Read"}
 TRIGGER_KINDS = ("path", "suffix", "command", "tool")
@@ -27,24 +31,16 @@ def cards_dir():
     return root / "ollama" / "rule-cards"
 
 
-def claude_config_dir():
-    return Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
-
-
-def state_path(session_id):
-    return claude_config_dir() / "cache" / "rule-cards" / f"{session_id}.json"
-
-
-def load_delivered(path):
-    try:
-        return set(json.loads(path.read_text()).get("delivered", []))
-    except (OSError, ValueError, AttributeError):
-        return set()
-
-
-def save_delivered(path, delivered):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"delivered": sorted(delivered)}))
+def deliver_pending(session_id, cards, event):
+    path = hook_state.state_path("rule-cards", session_id)
+    if not path.exists():
+        hook_state.prune("rule-cards")
+    with hook_state.update_state(path, EMPTY_STATE) as state:
+        delivered = set(state["delivered"])
+        chosen = select(cards, delivered, event.get("tool_name", ""), event.get("tool_input") or {}, event.get("cwd", ""))
+        if chosen:
+            state["delivered"] = sorted(delivered | {card["id"] for card in chosen})
+    return chosen
 
 
 def parse_trigger(line):
@@ -201,12 +197,9 @@ def handle_event(event):
         return 0
     cards, problems = load_cards(cards_dir())
     report_problems(problems)
-    path = state_path(event.get("session_id", "nosession"))
-    delivered = load_delivered(path)
-    chosen = select(cards, delivered, event.get("tool_name", ""), event.get("tool_input") or {}, event.get("cwd", ""))
+    chosen = deliver_pending(event.get("session_id", "nosession"), cards, event)
     if not chosen:
         return 0
-    save_delivered(path, delivered | {card["id"] for card in chosen})
     context = "\n\n".join(card["body"] for card in chosen)
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": context}}))
     return 0
