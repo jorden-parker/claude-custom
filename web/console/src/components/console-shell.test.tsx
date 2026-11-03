@@ -64,9 +64,20 @@ describe("ConsoleShell", () => {
         <p>page body</p>
       </ConsoleShell>,
     );
-    const mainRegion = screen.getByText("page body").closest("main");
+    const mainRegion = screen.getByText("page body").parentElement;
     expect(mainRegion).not.toBeNull();
     expect(mainRegion!.className).toContain("max-w-(--ds-page-width)");
     expect(mainRegion!.className).toContain("px-4");
+  });
+
+  it("lets the page shrink below its widest table and keeps one main landmark", () => {
+    render(
+      <ConsoleShell>
+        <p>page body</p>
+      </ConsoleShell>,
+    );
+    const inset = document.querySelector('[data-slot="sidebar-inset"]')!;
+    expect(inset.className).toContain("min-w-0");
+    expect(screen.getAllByRole("main")).toHaveLength(1);
   });
 });
