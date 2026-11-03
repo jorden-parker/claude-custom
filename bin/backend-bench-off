@@ -9,6 +9,7 @@ ollama_url="${OLLAMA_HOST:-http://localhost:11434}"
 case "$ollama_url" in http://*|https://*) ;; *) ollama_url="http://$ollama_url" ;; esac
 omlx_port="${BENCH_OMLX_PORT:-8100}"
 vllm_port="${BENCH_VLLM_PORT:-8200}"
+llama_port="${BENCH_LLAMA_PORT:-8300}"
 server_timeout="${BENCH_SERVER_TIMEOUT:-900}"
 cooldown_seconds="${BENCH_COOLDOWN:-60}"
 refresh_seconds=5
@@ -21,9 +22,13 @@ warmup_prefix_tokens=1000
 ollama_draft_tokens=4
 side_model=qwen3-4b-cc
 mtp_suffix=-mtp
-servers="ollama ollama-mtp omlx omlx-mtp vllm-mlx vllm-mlx-mtp"
+gguf_suffix=-gguf
+servers="ollama ollama-mtp omlx omlx-mtp vllm-mlx vllm-mlx-mtp llama-server llama-server-mtp"
 vllm_mlx_version=0.4.1
 vllm_args=(--continuous-batching --use-paged-cache --enable-auto-tool-choice --tool-call-parser qwen --reasoning-parser qwen3)
+llama_draft_tokens=2
+llama_args=(-c "$context_tokens" -ngl 99 -fa on -b 2048 -ub 2048 -ctk q8_0 -ctv q8_0 -np 1 --jinja
+  --cache-ram 8192 --ctx-checkpoints 128 --checkpoint-min-step 128 --metrics)
 report_page="$results_dir/bench-off.html"
 server_pid=""
 sampler_pid=""
@@ -44,7 +49,7 @@ usage() {
   cat <<EOF
 usage: backend-bench-off <command>
 
-  install       brew install oMLX, uv tool install vllm-mlx $vllm_mlx_version
+  install       brew install oMLX and llama.cpp, uv tool install vllm-mlx $vllm_mlx_version
   download      download the bench weights into \$BENCH_MODELS ($models_dir)
   all           bench every model on every server below, model by model,
                 streaming results into $report_page
@@ -54,13 +59,17 @@ usage: backend-bench-off <command>
   omlx-mtp      the same on the MTP weights, with mtp_enabled on (MTP on)
   vllm-mlx      start vllm-mlx on port $vllm_port per model, bench, stop it
   vllm-mlx-mtp  the same on the MTP weights, with --enable-mtp (MTP on)
+  llama-server  start llama.cpp's llama-server on port $llama_port per model on
+                the pinned GGUF weights, with the Mac settings, bench, stop it
+  llama-server-mtp  the same with --spec-type draft-mtp (MTP on)
   run SERVER MODEL  bench one model on one server
   report        rebuild the page from the results so far
 
 Models: $(bench_models)
 Environment: BENCH_MODELS, BENCH_RESULTS, BENCH_COOLDOWN (seconds between runs,
 $cooldown_seconds), BENCH_OMLX_PORT ($omlx_port), BENCH_VLLM_PORT ($vllm_port),
-BENCH_SERVER_TIMEOUT ($server_timeout), VLLM_MLX_EXTRA_ARGS
+BENCH_LLAMA_PORT ($llama_port), BENCH_SERVER_TIMEOUT ($server_timeout),
+VLLM_MLX_EXTRA_ARGS, LLAMA_SERVER_EXTRA_ARGS
 EOF
 }
 
@@ -94,7 +103,32 @@ model_repo() {
     qwen3.8-27b) echo mlx-community/Qwen3.8-27B-4bit ;;
     qwen3.8-27b-mtp) echo Jundot/Qwen3.8-27B-oQ4e-mtp ;;
     "$side_model") echo mlx-community/Qwen3-4B-4bit ;;
+    *) gguf_spec "$1" | awk '{ print $1 }' ;;
   esac
+}
+
+gguf_spec() {
+  case "$1" in
+    qwen3.6-35b-gguf) echo unsloth/Qwen3.6-35B-A3B-GGUF a483e9e6cbd595906af30beda3187c2663a1118c Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf ;;
+    qwen3.6-35b-gguf-mtp) echo unsloth/Qwen3.6-35B-A3B-MTP-GGUF 5bc3e238d916f48a861bac2f8a1990a0e9b7e98d Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf ;;
+    qwen3.8-27b-gguf) echo unsloth/Qwen3.8-27B-GGUF 4ca720788d1e01f1bff70c033e0d0028fd02e502 Qwen3.8-27B-UD-Q4_K_XL.gguf MTP/mtp-Qwen3.8-27B-Q4_0.gguf ;;
+  esac
+}
+
+gguf_files() {
+  gguf_spec "$1" | cut -d' ' -f3-
+}
+
+gguf_main_file() {
+  gguf_spec "$1" | awk '{ print $3 }'
+}
+
+gguf_draft_file() {
+  gguf_spec "$1" | awk '{ print $4 }'
+}
+
+is_gguf() {
+  [ -n "$(gguf_spec "$1")" ]
 }
 
 is_mtp_server() {
@@ -102,8 +136,23 @@ is_mtp_server() {
   return 1
 }
 
+is_llama_server() {
+  [ "${1%"$mtp_suffix"}" = llama-server ]
+}
+
+gguf_weights_for() {
+  local mtp_weights="$2$gguf_suffix$mtp_suffix"
+  if is_mtp_server "$1" && is_gguf "$mtp_weights"; then
+    echo "$mtp_weights"
+  else
+    echo "$2$gguf_suffix"
+  fi
+}
+
 weights_for() {
-  if is_mtp_server "$1"; then
+  if is_llama_server "$1"; then
+    gguf_weights_for "$1" "$2"
+  elif is_mtp_server "$1"; then
     echo "$2$mtp_suffix"
   else
     echo "$2"
@@ -114,6 +163,10 @@ all_weights() {
   local model
   for model in $(bench_models); do
     printf '%s %s ' "$model" "$model$mtp_suffix"
+    printf '%s ' "$(gguf_weights_for llama-server "$model")"
+    if is_gguf "$model$gguf_suffix$mtp_suffix"; then
+      printf '%s ' "$model$gguf_suffix$mtp_suffix"
+    fi
   done
 }
 
@@ -123,13 +176,26 @@ is_known() {
 }
 
 is_downloaded() {
-  [ -f "$models_dir/$1/config.json" ]
+  local file
+  if ! is_gguf "$1"; then
+    [ -f "$models_dir/$1/config.json" ]
+    return
+  fi
+  for file in $(gguf_files "$1"); do
+    [ -f "$models_dir/$1/$file" ] || return 1
+  done
 }
 
 download_model() {
+  local spec=()
   if is_downloaded "$1"; then
     say "$1 already in $models_dir"
     return 0
+  fi
+  if is_gguf "$1"; then
+    read -r -a spec <<<"$(gguf_spec "$1")"
+    hf download "${spec[0]}" "${spec[@]:2}" --revision "${spec[1]}" --local-dir "$models_dir/$1"
+    return
   fi
   hf download "$(model_repo "$1")" --local-dir "$models_dir/$1"
 }
@@ -143,14 +209,19 @@ download_models() {
   done
 }
 
+require_weights() {
+  is_downloaded "$1" || die "$1 missing in $models_dir: run backend-bench-off download"
+}
+
 require_models() {
   local name
   for name in $(all_weights); do
-    is_downloaded "$name" || die "$name missing in $models_dir: run backend-bench-off download"
+    require_weights "$name"
   done
 }
 
 install_servers() {
+  brew install llama.cpp
   require brew "https://brew.sh"
   require uv "brew install uv"
   brew tap jundot/omlx https://github.com/jundot/omlx
@@ -265,7 +336,12 @@ server_version() {
     ollama) ollama_version ;;
     omlx) omlx_version ;;
     vllm-mlx) vllm_mlx_installed_version ;;
+    llama-server) llama_server_version ;;
   esac
+}
+
+llama_server_version() {
+  llama-server --version 2>&1 | sed -n 's/^version: //p' | head -n 1 | grep . || echo unknown
 }
 
 write_meta() {
@@ -451,6 +527,45 @@ bench_vllm_mlx_unit() {
   fi
 }
 
+llama_mtp_status() {
+  local line
+  line="$(grep -F 'draft acceptance rate' "$server_log" 2>/dev/null | tail -n 1 || true)"
+  if [ -z "$line" ]; then
+    echo '{"active": null, "detail": "no llama-server draft acceptance line found"}'
+    return 0
+  fi
+  printf '%s\n' "$line" | sed -n 's/.*( *\([0-9]*\) accepted \/ *\([0-9]*\) generated).*/\1 \2/p' |
+    jq -c -R 'split(" ") | map(tonumber) | {accepted: .[0], drafted: .[1]} |
+      {active: (.accepted > 0),
+       detail: "accepted \(.accepted) of \(.drafted) drafted tokens, acceptance \(if .drafted > 0 then (.accepted * 100 / .drafted | round) else 0 end)%"}'
+}
+
+llama_mtp_args() {
+  local draft
+  is_mtp_server "$unit_server" || return 0
+  printf '%s\n' --spec-type draft-mtp --spec-draft-n-max "$llama_draft_tokens"
+  draft="$(gguf_draft_file "$unit_weights")"
+  [ -z "$draft" ] || printf '%s\n' --spec-draft-model "$models_dir/$unit_weights/$draft"
+}
+
+bench_llama_unit() {
+  local url="http://127.0.0.1:$llama_port" extra=() mtp_args=() line
+  require llama-server "backend-bench-off install"
+  require_free_port "$url"
+  read -r -a extra <<<"${LLAMA_SERVER_EXTRA_ARGS:-}"
+  while IFS= read -r line; do
+    mtp_args+=("$line")
+  done < <(llama_mtp_args)
+  step "starting llama-server"
+  start_server llama-server -m "$models_dir/$unit_weights/$(gguf_main_file "$unit_weights")" --alias "$unit_weights" \
+    --host 127.0.0.1 --port "$llama_port" "${llama_args[@]}" ${mtp_args[@]+"${mtp_args[@]}"} ${extra[@]+"${extra[@]}"}
+  wait_for_server "$url" local
+  measure "$url" "$unit_weights" local
+  if is_mtp_server "$unit_server"; then
+    unit_mtp="$(llama_mtp_status)"
+  fi
+}
+
 run_unit() {
   unit_server="$1"
   unit_model="$2"
@@ -467,12 +582,13 @@ run_unit() {
   trap finish_unit EXIT
   write_meta
   step "preparing"
-  require_models
+  require_weights "$unit_weights"
   unload_ollama_models
   case "${unit_server%"$mtp_suffix"}" in
     ollama) bench_ollama_unit ;;
     omlx) bench_omlx_unit ;;
     vllm-mlx) bench_vllm_mlx_unit ;;
+    llama-server) bench_llama_unit ;;
   esac
 }
 

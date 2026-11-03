@@ -13,6 +13,10 @@ describe("bench-off choices", () => {
     expect(servers?.split(" ")).toEqual(BENCH_OFF_SERVERS);
   });
 
+  it("offers llama.cpp with and without MTP", () => {
+    expect(BENCH_OFF_SERVERS).toEqual(expect.arrayContaining(["llama-server", "llama-server-mtp"]));
+  });
+
   it("matches the models the script benches", () => {
     const models = /^bench_models\(\) \{\n\s*echo ([^\n]+)\n/m.exec(script)?.[1];
     expect(models?.split(" ")).toEqual(BENCH_OFF_MODELS);

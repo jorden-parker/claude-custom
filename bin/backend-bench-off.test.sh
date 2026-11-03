@@ -51,8 +51,20 @@ chmod +x "$sandbox/repo/bin/extract-mtp-weights"
 
 stub hf <<EOF
 echo "\$*" >> "$logs/hf.log"
-mkdir -p "\$4"
-echo '{}' > "\$4/config.json"
+dir=""
+files=""
+previous=""
+for word in "\$@"; do
+  [ "\$previous" = --local-dir ] && dir="\$word"
+  case "\$word" in *.gguf) files="\$files \$word" ;; esac
+  previous="\$word"
+done
+mkdir -p "\$dir"
+echo '{}' > "\$dir/config.json"
+for file in \$files; do
+  mkdir -p "\$(dirname "\$dir/\$file")"
+  : > "\$dir/\$file"
+done
 EOF
 stub ollama <<EOF
 echo "\$*" >> "$logs/ollama.log"
@@ -80,6 +92,14 @@ $serve_until_stopped
 EOF
 stub vllm-mlx <<EOF
 echo "\$*" >> "$logs/vllm.log"
+$serve_until_stopped
+EOF
+stub llama-server <<EOF
+[ "\$1" = --version ] && { echo 'version: 9216 (1ff0fc138)' >&2; exit 0; }
+echo "\$*" >> "$logs/llama.log"
+case "\$*" in
+  *draft-mtp*) echo 'draft acceptance rate = 0.75000 (   30 accepted /    40 generated)' ;;
+esac
 $serve_until_stopped
 EOF
 stub curl <<EOF
@@ -146,8 +166,14 @@ check "download fetches the 27B dense" grep -qxF "download mlx-community/Qwen3.8
 check "download fetches the side model" grep -qxF "download mlx-community/Qwen3-4B-4bit --local-dir $BENCH_MODELS/qwen3-4b-cc" "$logs/hf.log"
 check "download fetches the 35B MTP weights" grep -qxF "download Jundot/Qwen3.6-35B-A3B-oQ4e-mtp --local-dir $BENCH_MODELS/qwen3.6-35b-mtp" "$logs/hf.log"
 check "download fetches the 27B MTP weights" grep -qxF "download Jundot/Qwen3.8-27B-oQ4e-mtp --local-dir $BENCH_MODELS/qwen3.8-27b-mtp" "$logs/hf.log"
+check "download fetches the pinned 27B GGUF with its MTP head" \
+  grep -qxF "download unsloth/Qwen3.8-27B-GGUF Qwen3.8-27B-UD-Q4_K_XL.gguf MTP/mtp-Qwen3.8-27B-Q4_0.gguf --revision 4ca720788d1e01f1bff70c033e0d0028fd02e502 --local-dir $BENCH_MODELS/qwen3.8-27b-gguf" "$logs/hf.log"
+check "download fetches the pinned 35B-A3B GGUF" \
+  grep -qxF "download unsloth/Qwen3.6-35B-A3B-GGUF Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf --revision a483e9e6cbd595906af30beda3187c2663a1118c --local-dir $BENCH_MODELS/qwen3.6-35b-gguf" "$logs/hf.log"
+check "download fetches the pinned 35B-A3B MTP GGUF" \
+  grep -qxF "download unsloth/Qwen3.6-35B-A3B-MTP-GGUF Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf --revision 5bc3e238d916f48a861bac2f8a1990a0e9b7e98d --local-dir $BENCH_MODELS/qwen3.6-35b-gguf-mtp" "$logs/hf.log"
 run download
-check "a second download skips what is there" test "$(wc -l <"$logs/hf.log")" -eq 5
+check "a second download skips what is there" test "$(wc -l <"$logs/hf.log")" -eq 8
 
 run run ollama qwen3.6-35b
 check "run ollama exits 0" test "$?" -eq 0
@@ -235,20 +261,55 @@ check "vllm-mlx-mtp reads acceptance from /v1/status" \
   test "$(line_of "$unit" end | jq -r .mtp.detail)" = "accepted 80 of attempted 100 drafts, acceptance 80%"
 check "vllm-mlx-mtp reports MTP active when drafts were accepted" test "$(line_of "$unit" end | jq -r .mtp.active)" = true
 
+llama_flags="--host 127.0.0.1 --port 8300 -c 65536 -ngl 99 -fa on -b 2048 -ub 2048 -ctk q8_0 -ctv q8_0 -np 1 --jinja --cache-ram 8192 --ctx-checkpoints 128 --checkpoint-min-step 128 --metrics"
+LLAMA_SERVER_EXTRA_ARGS='--cache-reuse 256' run run llama-server qwen3.6-35b
+check "run llama-server exits 0" test "$?" -eq 0
+check "llama-server serves the GGUF with the Mac settings and extra args" \
+  grep -qxF -- "-m $BENCH_MODELS/qwen3.6-35b-gguf/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf --alias qwen3.6-35b-gguf $llama_flags --cache-reuse 256" "$logs/llama.log"
+check "llama-server benches by its alias" \
+  grep -qxF -- '--base-url http://127.0.0.1:8300 --model qwen3.6-35b-gguf --auth-token local --prefix-tokens 20000 60000 --tool-trials 5 --jsonl' "$logs/bench.log"
+unit="$BENCH_RESULTS/llama-server--qwen3.6-35b.jsonl"
+check "llama-server records its build" test "$(line_of "$unit" meta | jq -r .version)" = '9216 (1ff0fc138)'
+check "llama-server records the GGUF repo" test "$(line_of "$unit" meta | jq -r .repo)" = unsloth/Qwen3.6-35B-A3B-GGUF
+check "llama-server is stopped afterwards" test -z "$(pgrep -f "$sandbox/stubbin/llama-server" || true)"
+check "an MTP-off llama-server run records mtp as null" test "$(line_of "$unit" end | jq -r '.mtp == null')" = true
+
+run run llama-server-mtp qwen3.6-35b
+check "run llama-server-mtp exits 0" test "$?" -eq 0
+check "llama-server-mtp serves the MTP GGUF with draft-mtp" \
+  grep -qxF -- "-m $BENCH_MODELS/qwen3.6-35b-gguf-mtp/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf --alias qwen3.6-35b-gguf-mtp $llama_flags --spec-type draft-mtp --spec-draft-n-max 2" "$logs/llama.log"
+unit="$BENCH_RESULTS/llama-server-mtp--qwen3.6-35b.jsonl"
+check "llama-server-mtp reads acceptance from its log" \
+  test "$(line_of "$unit" end | jq -r .mtp.detail)" = "accepted 30 of 40 drafted tokens, acceptance 75%"
+check "llama-server-mtp reports MTP active when drafts were accepted" test "$(line_of "$unit" end | jq -r .mtp.active)" = true
+
+run run llama-server-mtp qwen3.8-27b
+check "run llama-server-mtp on the 27B exits 0" test "$?" -eq 0
+check "llama-server-mtp loads the 27B's separate MTP head" \
+  grep -qxF -- "-m $BENCH_MODELS/qwen3.8-27b-gguf/Qwen3.8-27B-UD-Q4_K_XL.gguf --alias qwen3.8-27b-gguf $llama_flags --spec-type draft-mtp --spec-draft-n-max 2 --spec-draft-model $BENCH_MODELS/qwen3.8-27b-gguf/MTP/mtp-Qwen3.8-27B-Q4_0.gguf" "$logs/llama.log"
+
+rm "$BENCH_MODELS/qwen3.6-35b-gguf/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf"
+run run llama-server qwen3.6-35b
+check "llama-server without its GGUF exits 1" test "$?" -eq 1
+check "llama-server without its GGUF says to download" end_mentions "$BENCH_RESULTS/llama-server--qwen3.6-35b.jsonl" error 'backend-bench-off download'
+run run ollama qwen3.6-35b
+check "an MLX run does not need the GGUF weights" test "$?" -eq 0
+run download
+
 "$script" --help >"$sandbox/help"
-check "help lists the MTP subcommands" test "$(grep -cE '^  (ollama-mtp|omlx-mtp|vllm-mlx-mtp) ' "$sandbox/help")" -eq 3
+check "help lists the MTP subcommands" test "$(grep -cE '^  (ollama-mtp|omlx-mtp|vllm-mlx-mtp|llama-server-mtp) ' "$sandbox/help")" -eq 4
 
 : >"$logs/bench.log"
 echo stale >"$BENCH_RESULTS/old-server--old-model.jsonl"
 run all
 check "all exits 0 when every run passes" test "$?" -eq 0
-check "all writes a finished plan" test "$(jq -r '[.servers, .models | join(",")] | join(" ")' "$BENCH_RESULTS/plan.json") $(jq -r .finished "$BENCH_RESULTS/plan.json")" = "ollama,ollama-mtp,omlx,omlx-mtp,vllm-mlx,vllm-mlx-mtp qwen3.6-35b,qwen3.8-27b true"
+check "all writes a finished plan" test "$(jq -r '[.servers, .models | join(",")] | join(" ")' "$BENCH_RESULTS/plan.json") $(jq -r .finished "$BENCH_RESULTS/plan.json")" = "ollama,ollama-mtp,omlx,omlx-mtp,vllm-mlx,vllm-mlx-mtp,llama-server,llama-server-mtp qwen3.6-35b,qwen3.8-27b true"
 check "all benches model by model" \
-  test "$(grep -- '--jsonl' "$logs/bench.log" | sed -n 's/.*--model \([^ ]*\).*/\1/p' | tr '\n' ' ')" = "bench-qwen3.6-35b bench-qwen3.6-35b-mtp qwen3.6-35b qwen3.6-35b-mtp qwen3.6-35b qwen3.6-35b-mtp bench-qwen3.8-27b bench-qwen3.8-27b-mtp qwen3.8-27b qwen3.8-27b-mtp qwen3.8-27b qwen3.8-27b-mtp "
+  test "$(grep -- '--jsonl' "$logs/bench.log" | sed -n 's/.*--model \([^ ]*\).*/\1/p' | tr '\n' ' ')" = "bench-qwen3.6-35b bench-qwen3.6-35b-mtp qwen3.6-35b qwen3.6-35b-mtp qwen3.6-35b qwen3.6-35b-mtp qwen3.6-35b-gguf qwen3.6-35b-gguf-mtp bench-qwen3.8-27b bench-qwen3.8-27b-mtp qwen3.8-27b qwen3.8-27b-mtp qwen3.8-27b qwen3.8-27b-mtp qwen3.8-27b-gguf qwen3.8-27b-gguf "
 check "all starts from a clean results dir" test ! -e "$BENCH_RESULTS/old-server--old-model.jsonl"
-check "all streams progress into the page while it runs" grep -lqF 'Running: 1 of 12 runs done' "$logs"/page.*.html
+check "all streams progress into the page while it runs" grep -lqF 'Running: 1 of 16 runs done' "$logs"/page.*.html
 check "the final page has every server side by side" \
-  grep -qF '<th>ollama</th><th>ollama-mtp</th><th>omlx</th><th>omlx-mtp</th><th>vllm-mlx</th><th>vllm-mlx-mtp</th>' "$BENCH_RESULTS/bench-off.html"
+  grep -qF '<th>ollama</th><th>ollama-mtp</th><th>omlx</th><th>omlx-mtp</th><th>vllm-mlx</th><th>vllm-mlx-mtp</th><th>llama-server</th><th>llama-server-mtp</th>' "$BENCH_RESULTS/bench-off.html"
 check "the final page stops refreshing" test "$(grep -c 'http-equiv="refresh"' "$BENCH_RESULTS/bench-off.html")" -eq 0
 
 rm "$sandbox/stubbin/omlx"

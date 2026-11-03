@@ -11,8 +11,16 @@ PLAN_NAME = "plan.json"
 BASELINE = "ollama"
 OLLAMA_MTP = "ollama-mtp"
 MTP_SUFFIX = "-mtp"
-CANDIDATES = ("omlx", "omlx-mtp", "vllm-mlx", "vllm-mlx-mtp")
-SERVER_ORDER = (BASELINE, OLLAMA_MTP, "omlx", "omlx-mtp", "vllm-mlx", "vllm-mlx-mtp")
+LLAMA_SERVER = "llama-server"
+CANDIDATES = (
+    "omlx",
+    "omlx-mtp",
+    "vllm-mlx",
+    "vllm-mlx-mtp",
+    LLAMA_SERVER,
+    "llama-server-mtp",
+)
+SERVER_ORDER = (BASELINE, OLLAMA_MTP, *CANDIDATES)
 SERVER_LABELS = {
     "ollama": "Ollama",
     "ollama-mtp": "Ollama with MTP",
@@ -20,10 +28,14 @@ SERVER_LABELS = {
     "omlx-mtp": "oMLX with MTP",
     "vllm-mlx": "vllm-mlx",
     "vllm-mlx-mtp": "vllm-mlx with MTP",
+    "llama-server": "llama.cpp",
+    "llama-server-mtp": "llama.cpp with MTP",
 }
 MTP_ACTIVE_WORDS = {True: "yes", False: "no", None: "unverified"}
 STOCK_WEIGHTS = "stock 4-bit"
 MTP_WEIGHTS = "oQ4e + MTP head"
+GGUF_WEIGHTS = "GGUF UD-Q4_K_XL"
+GGUF_MTP_WEIGHTS = "GGUF UD-Q4_K_XL + MTP"
 NO_VALUE = "–"
 WARM_TTFT_CUT = 0.30
 DECODE_FLOOR = 0.90
@@ -404,7 +416,10 @@ def mtp_note(units):
 def weights_label(unit):
     if not unit.weights:
         return NO_VALUE
-    return MTP_WEIGHTS if mtp_base(unit.server) else STOCK_WEIGHTS
+    is_mtp = mtp_base(unit.server) is not None
+    if unit.server.removesuffix(MTP_SUFFIX) == LLAMA_SERVER:
+        return GGUF_MTP_WEIGHTS if is_mtp else GGUF_WEIGHTS
+    return MTP_WEIGHTS if is_mtp else STOCK_WEIGHTS
 
 
 def decode_ratio(unit, units):

@@ -31,20 +31,20 @@ machine-readable output.
 The owner runs this, not an agent. Three commands, from the repo root:
 
 ```sh
-bin/backend-bench-off install    # brew install oMLX, uv tool install vllm-mlx 0.4.1
-bin/backend-bench-off download   # about 78 GB into ~/bench-models
-bin/backend-bench-off all        # every model on six server runs, MTP off and on
+bin/backend-bench-off install    # brew install oMLX and llama.cpp, uv tool install vllm-mlx 0.4.1
+bin/backend-bench-off download   # about 78 GB of MLX plus about 60 GB of GGUF into ~/bench-models
+bin/backend-bench-off all        # every model on eight server runs, MTP off and on
 ```
 
 `all` opens `~/bench-results/bench-off.html` straight away and fills it in as
 the bench runs: the page reloads itself every 5 seconds, and every measurement
-appears as soon as it finishes. Each model gets one table with six columns side
-by side (Ollama, oMLX and vllm-mlx, each with MTP off and on), the best value in
-each row highlighted, a PASS/FAIL verdict per candidate and, for a run that
-failed, the error and the end of its log. The headline counts finished runs,
-then says which server to switch to (for example "Switch to oMLX" or "Switch to
-vllm-mlx with MTP"), "Stay on Ollama" or, when Ollama itself failed, "No Ollama
-baseline". The whole bench takes two to three hours.
+appears as soon as it finishes. Each model gets one table with eight columns
+side by side (Ollama, oMLX, vllm-mlx and llama.cpp, each with MTP off and on),
+the best value in each row highlighted, a PASS/FAIL verdict per candidate and,
+for a run that failed, the error and the end of its log. The headline counts
+finished runs, then says which server to switch to (for example "Switch to oMLX"
+or "Switch to vllm-mlx with MTP"), "Stay on Ollama" or, when Ollama itself
+failed, "No Ollama baseline". The whole bench takes two to three hours.
 
 Before `all`, plug in the laptop, turn off Low Power Mode, quit any
 `claude-ollama` session, start Ollama (`brew services start ollama`), stop the
@@ -57,11 +57,14 @@ carries on with the rest and exits 1 at the end. Logs for each run are in
 
 Other commands: `bin/backend-bench-off run SERVER MODEL` reruns one cell,
 `bin/backend-bench-off SERVER` (`ollama`, `ollama-mtp`, `omlx`, `omlx-mtp`,
-`vllm-mlx`, `vllm-mlx-mtp`) benches one server on every model, and
-`bin/backend-bench-off report` rebuilds the page. `--help` lists the environment
-variables: `BENCH_MODELS`, `BENCH_RESULTS`, `BENCH_COOLDOWN` (60 s),
-`BENCH_OMLX_PORT` (8100), `BENCH_VLLM_PORT` (8200), `BENCH_SERVER_TIMEOUT` and
-`VLLM_MLX_EXTRA_ARGS`.
+`vllm-mlx`, `vllm-mlx-mtp`, `llama-server`, `llama-server-mtp`) benches one
+server on every model, and `bin/backend-bench-off report` rebuilds the page.
+`--help` lists the environment variables: `BENCH_MODELS`, `BENCH_RESULTS`,
+`BENCH_COOLDOWN` (60 s), `BENCH_OMLX_PORT` (8100), `BENCH_VLLM_PORT` (8200),
+`BENCH_LLAMA_PORT` (8300), `BENCH_SERVER_TIMEOUT`, `VLLM_MLX_EXTRA_ARGS` and
+`LLAMA_SERVER_EXTRA_ARGS` (for example `--cache-reuse 256`, or
+`--cache-ram 0 --ctx-checkpoints 1` to test the low-memory advice in
+`docs/llama-cpp-migration.md`).
 
 The console's Benchmarks page (`claude-ollama ui`, then `/benchmarks`) can run
 one cell (`bench-off-run`) and rebuild the report (`bench-off-report`), and
@@ -160,6 +163,16 @@ treat it as a guide, not an exact speed-up.
   with `OMLX_PORT=8100`, so it doesn't collide with a Homebrew service on 8000.
 - vllm-mlx: one process per run,
   `vllm-mlx serve ~/bench-models/<directory> --port 8200 --served-model-name <directory> --continuous-batching --use-paged-cache --enable-auto-tool-choice --tool-call-parser qwen --reasoning-parser qwen3`.
+- llama.cpp: one `llama-server` per run on the pinned Unsloth `UD-Q4_K_XL` GGUF,
+  aliased to its directory name, with the Mac settings from
+  `docs/llama-cpp-migration.md`:
+  `llama-server -m <gguf> --alias <directory> --host 127.0.0.1 --port 8300 -c 65536 -ngl 99 -fa on -b 2048 -ub 2048 -ctk q8_0 -ctv q8_0 -np 1 --jinja --cache-ram 8192 --ctx-checkpoints 128 --checkpoint-min-step 128 --metrics`.
+  With MTP it adds `--spec-type draft-mtp --spec-draft-n-max 2`: the 35B-A3B
+  runs Unsloth's MTP GGUF (head inside), the 27B its usual GGUF with the
+  separate head `MTP/mtp-Qwen3.8-27B-Q4_0.gguf` as `--spec-draft-model`. The MTP
+  row reads the last `draft acceptance rate` line of the server log. llama.cpp's
+  `/v1/messages` may not report `cache_read_input_tokens`, so judge its cache
+  reuse on warm TTFT.
 
 ## Decision rule
 
@@ -172,9 +185,10 @@ prefix (60k), against its baseline:
 - for an MTP run, MTP is not reported inactive.
 
 The headline picks the first candidate, in the order oMLX, oMLX with MTP,
-vllm-mlx, vllm-mlx with MTP, that passes on every model it could be judged on,
-else "Stay on Ollama". Before switching, confirm with a real Claude Code session
-of about 20 tool-using turns on the winner, with no malformed tool calls.
+vllm-mlx, vllm-mlx with MTP, llama.cpp, llama.cpp with MTP, that passes on every
+model it could be judged on, else "Stay on Ollama". Before switching, confirm
+with a real Claude Code session of about 20 tool-using turns on the winner, with
+no malformed tool calls.
 
 ## Ollama MLX vs Unsloth GGUF
 

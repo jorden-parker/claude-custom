@@ -238,11 +238,15 @@ before changing how any file gets applied.
   (inline fixture logs), `bin/claude-ollama.test.sh` (stub script, doctor lines)
 - Bench-off: `bin/backend-bench-off install|download|all` benches Ollama, oMLX
   and vllm-mlx, each with MTP off (stock MLX weights) and on (`oQ4e` MTP
-  weights), model by model, and streams each run's JSONL into one side-by-side
-  HTML page that reloads while it runs (`bin/backend-bench-report`, default
-  `~/bench-results/bench-off.html`); `run SERVER MODEL` reruns one cell; MTP-on
-  vllm-mlx runs copy the head with `bin/extract-mtp-weights`; tests:
-  `bin/backend-bench-off.test.sh` (stub servers),
+  weights), plus llama.cpp's `llama-server` on the pinned Unsloth GGUFs
+  (`gguf_spec`: repo, revision, files) with the Mac settings in `llama_args`,
+  MTP on through `--spec-type draft-mtp` (the 27B's separate head goes in
+  `--spec-draft-model`; acceptance read from its log), model by model, and
+  streams each run's JSONL into one side-by-side HTML page that reloads while it
+  runs (`bin/backend-bench-report`, default `~/bench-results/bench-off.html`);
+  `run SERVER MODEL` reruns one cell; MTP-on vllm-mlx runs copy the head with
+  `bin/extract-mtp-weights`; the console's server list (`bench-choices.ts`) must
+  match the script's; tests: `bin/backend-bench-off.test.sh` (stub servers),
   `bin/backend-bench-report.test.sh`, `bin/extract-mtp-weights.test.sh`
 - Code search MCP server: `shared/mcp/code-search.py`; its tests are
   `shared/mcp/code-search.test.sh` (stub embedding server, temp git repo)

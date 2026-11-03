@@ -9,6 +9,8 @@ export const BENCH_OFF_SERVERS = [
   "omlx-mtp",
   "vllm-mlx",
   "vllm-mlx-mtp",
+  "llama-server",
+  "llama-server-mtp",
 ] as const;
 
 export const BENCH_OFF_MODELS = ["qwen3.6-35b", "qwen3.8-27b"] as const;
