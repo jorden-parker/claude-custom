@@ -23,7 +23,68 @@ function isCheckedSource(filePath: string): boolean {
   return /\.(ts|tsx|css)$/.test(filePath) && !/\.test\./.test(filePath) && filePath !== globalsPath;
 }
 
+const gardenOnlyNames = [
+  "--border-ink",
+  "--sticker-shadow",
+  "sticker",
+  "--garden-",
+  "--meadow-dot",
+  "--grain-speck",
+  "--petal-",
+  "sprout-bob",
+  "petal-fall",
+  "--font-fraunces",
+  "--font-nunito",
+];
+
+const geistScaleNames = [
+  "--ds-background-100",
+  "--ds-gray-1000",
+  "--ds-blue-700",
+  "--ds-green-900",
+  "--ds-amber-900",
+  "--ds-red-900",
+  "--border: var(--ds-gray-400);",
+];
+
+const mockPresetSelectors = [
+  "calm-saas",
+  "dense-admin",
+  "editorial",
+  "playful",
+  "brutalist",
+].map((preset) => `.mock-frame[data-preset="${preset}"]`);
+
+function consoleThemeCss(): string {
+  const css = fs.readFileSync(globalsPath, "utf8");
+  return css.slice(0, css.indexOf(".mock-frame"));
+}
+
 describe("design tokens", () => {
+  it("defines no garden-only variables or utilities", () => {
+    const themeCss = consoleThemeCss();
+
+    for (const name of gardenOnlyNames) {
+      expect(themeCss, name).not.toContain(name);
+    }
+  });
+
+  it("uses the Geist scale", () => {
+    const themeCss = consoleThemeCss();
+
+    for (const name of geistScaleNames) {
+      expect(themeCss, name).toContain(name);
+    }
+  });
+
+  it("keeps the mock-frame presets", () => {
+    const css = fs.readFileSync(globalsPath, "utf8");
+
+    for (const selector of mockPresetSelectors) {
+      expect(css, selector).toContain(selector);
+    }
+  });
+
   it("resolves every semantic variable through a token", () => {
     const declarations = fs
       .readFileSync(globalsPath, "utf8")
