@@ -19,25 +19,47 @@ DIGITS = re.compile(r"\d+")
 EMPTY_STATE = {"denials": {}, "calls": {}, "call_count": 0}
 
 
-def state_path(session_id):
+def _state_path(session_id):
     config_dir = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
     return config_dir / "cache" / "friction" / f"{session_id or 'nosession'}.json"
 
 
-def load_state(path):
+def _load_state(path):
     try:
         return {**EMPTY_STATE, **json.loads(path.read_text())}
     except (OSError, ValueError):
         return json.loads(json.dumps(EMPTY_STATE))
 
 
-def save_state(path, state):
+def _save_state(path, state):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(state))
 
 
+def call_snapshot_dir(session_id):
+    state_file = _state_path(session_id)
+    return state_file.with_name(f"{state_file.stem}.snapshots")
+
+
+def record_call(session_id, key, entry):
+    path = _state_path(session_id)
+    state = _load_state(path)
+    state["call_count"] += 1
+    state["calls"][key] = {**entry, "number": state["call_count"]}
+    _save_state(path, state)
+    return state["call_count"]
+
+
+def lookup_call(session_id, key):
+    return _load_state(_state_path(session_id))["calls"].get(key)
+
+
+def recorded_calls(session_id):
+    return list(_load_state(_state_path(session_id))["calls"].values())
+
+
 def reset(session_id):
-    save_state(state_path(session_id), json.loads(json.dumps(EMPTY_STATE)))
+    _save_state(_state_path(session_id), json.loads(json.dumps(EMPTY_STATE)))
 
 
 def enabled(path):
@@ -91,16 +113,16 @@ def plan_reset(hook, count, tool_name, tool_input, alternative, reason):
 
 
 def deny_reason(hook, event, reason, alternative):
-    path = state_path(event.get("session_id"))
+    path = _state_path(event.get("session_id"))
     if not enabled(path):
         return reason
     tool_name = event.get("tool_name", "")
     tool_input = event.get("tool_input") or {}
     key = f"{hook}|{tool_name}|{fingerprint(tool_name, tool_input)}"
-    state = load_state(path)
+    state = _load_state(path)
     count = state["denials"].get(key, 0) + 1
     state["denials"][key] = count
-    save_state(path, state)
+    _save_state(path, state)
     if count <= PLAIN_DENIALS:
         return reason
     trip = f"plan reset after {count} near-identical {tool_name} denials"

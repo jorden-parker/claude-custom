@@ -8,7 +8,7 @@ from difflib import SequenceMatcher
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from friction_budget import load_state, save_state, state_path
+from friction_budget import call_snapshot_dir, lookup_call, record_call, recorded_calls
 from hook_telemetry import record_hook_event
 
 HOOK = "repeat-call-cache"
@@ -80,10 +80,6 @@ def call_key(event):
     return f"{event.get('tool_name', '')}|{json.dumps(event.get('tool_input') or {}, sort_keys=True)}"
 
 
-def snapshot_dir(state_file):
-    return state_file.with_name(f"{state_file.stem}.snapshots")
-
-
 def snapshot_name(key):
     return hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
 
@@ -96,8 +92,8 @@ def save_snapshot(directory, name, text):
         snapshot.write(text)
 
 
-def prune_snapshots(directory, state):
-    kept = {call.get("snapshot") for call in state["calls"].values()}
+def prune_snapshots(directory, session_id):
+    kept = {call.get("snapshot") for call in recorded_calls(session_id)}
     if not directory.is_dir():
         return
     for snapshot in directory.iterdir():
@@ -105,7 +101,7 @@ def prune_snapshots(directory, state):
             snapshot.unlink()
 
 
-def record_call(state, event, snapshots):
+def remember_result(session_id, event):
     response = event.get("tool_response")
     stamp = invalidation_stamp(event)
     if is_error(response) or stamp is None:
@@ -113,18 +109,14 @@ def record_call(state, event, snapshots):
     text = response_text(response)
     size = len(text.encode("utf-8"))
     key = call_key(event)
-    state["call_count"] += 1
-    state["calls"][key] = {
-        "number": state["call_count"],
-        "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
-        "bytes": size,
-        "stamp": stamp,
-    }
+    entry = {"sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(), "bytes": size, "stamp": stamp}
+    snapshots = call_snapshot_dir(session_id)
     if event.get("tool_name") == "Read" and size <= SNAPSHOT_BYTE_LIMIT:
-        state["calls"][key]["snapshot"] = snapshot_name(key)
-        state["calls"][key]["realpath"] = os.path.realpath((event.get("tool_input") or {}).get("file_path", ""))
+        entry["snapshot"] = snapshot_name(key)
+        entry["realpath"] = os.path.realpath((event.get("tool_input") or {}).get("file_path", ""))
         save_snapshot(snapshots, snapshot_name(key), text)
-    prune_snapshots(snapshots, state)
+    record_call(session_id, key, entry)
+    prune_snapshots(snapshots, session_id)
 
 
 def deny(reason):
@@ -202,8 +194,8 @@ def pointer(earlier):
     return f"same result as call #{earlier['number']} this turn, unchanged since; use it"
 
 
-def repeat_decision(state, event, snapshots):
-    earlier = state["calls"].get(call_key(event))
+def repeat_decision(session_id, event):
+    earlier = lookup_call(session_id, call_key(event))
     if earlier is None:
         return None
     if earlier["stamp"] == invalidation_stamp(event):
@@ -211,7 +203,7 @@ def repeat_decision(state, event, snapshots):
         record_hook_event(HOOK, event, "friction", reason, {"saved_bytes": earlier["bytes"]})
         return deny(reason)
     if event.get("tool_name") == "Read":
-        return narrowed_read(earlier, event, snapshots)
+        return narrowed_read(earlier, event, call_snapshot_dir(session_id))
     return None
 
 
@@ -222,14 +214,11 @@ def main():
         return
     if event.get("tool_name") not in CACHED_TOOLS:
         return
-    path = state_path(event.get("session_id"))
-    state = load_state(path)
-    snapshots = snapshot_dir(path)
+    session_id = event.get("session_id")
     if event.get("hook_event_name") == "PostToolUse":
-        record_call(state, event, snapshots)
-        save_state(path, state)
+        remember_result(session_id, event)
         return
-    output = repeat_decision(state, event, snapshots)
+    output = repeat_decision(session_id, event)
     if output is not None:
         print(json.dumps(output))
 
