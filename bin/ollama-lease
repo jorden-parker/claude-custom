@@ -256,7 +256,7 @@ heartbeat() {
 
 model_bytes_of() {
   local bytes
-  bytes="$(curl -s -m 10 "$ollama_url/api/tags" 2>/dev/null | jq -r --arg name "$1" '.models[]? | select(.name == $name or .model == $name) | .size' 2>/dev/null | head -n 1)"
+  bytes="$(curl -s -m 10 "$ollama_url/api/tags" 2>/dev/null | jq -r --arg name "$1" --arg tagged "$1:latest" '.models[]? | select(.name == $name or .model == $name or .name == $tagged or .model == $tagged) | .size' 2>/dev/null | head -n 1)"
   case "$bytes" in ''|*[!0-9]*) echo "ollama lease: /api/tags lists no $1" >&2; return 1 ;; esac
   printf '%s' "$bytes"
 }

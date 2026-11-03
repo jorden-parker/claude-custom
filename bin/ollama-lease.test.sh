@@ -248,6 +248,10 @@ printf 'MemTotal:       65536000 kB\nMemFree:         1000000 kB\nMemAvailable: 
 CLAUDE_OLLAMA_MEMINFO="$tmp/proc/meminfo" STUB_OLLAMA_ENV="OLLAMA_KV_CACHE_TYPE=q8_0" run "$lease" fit --model qwen3.8-27b-cc --num-ctx 65536
 check_eq "on Linux the free bytes are MemAvailable" 30720000000 "$(fit_field free_bytes)"
 
+printf '{"models":[{"name":"qwen3.8-27b-cc:latest","model":"qwen3.8-27b-cc:latest","size":17179869184}]}\n' > "$tmp/tags.json"
+STUB_OLLAMA_ENV="OLLAMA_KV_CACHE_TYPE=q8_0" run "$lease" fit --model qwen3.8-27b-cc --num-ctx 65536
+check_eq "fit finds an untagged model listed as :latest" 17179869184 "$(fit_field model_bytes)"
+
 printf '{"models":[]}\n' > "$tmp/tags.json"
 run "$lease" fit --model qwen3.8-27b-cc --num-ctx 65536
 check_eq "fit exits 1 when /api/tags lacks the model" 1 "$?"
