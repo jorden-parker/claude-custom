@@ -246,7 +246,9 @@ before changing how any file gets applied.
   runs (`bin/backend-bench-report`, default `~/bench-results/bench-off.html`);
   `run SERVER MODEL` reruns one cell; MTP-on vllm-mlx runs copy the head with
   `bin/extract-mtp-weights`; the console's server list (`bench-choices.ts`) must
-  match the script's; tests: `bin/backend-bench-off.test.sh` (stub servers),
+  match the script's; each run also replays `BENCH_REPLAY_DIR` through
+  `bin/prefix-ab` into a `replay` line and a "Replay cache hit %" row; tests:
+  `bin/backend-bench-off.test.sh` (stub servers),
   `bin/backend-bench-report.test.sh`, `bin/extract-mtp-weights.test.sh`
 - Code search MCP server: `shared/mcp/code-search.py`; its tests are
   `shared/mcp/code-search.test.sh` (stub embedding server, temp git repo)
@@ -283,12 +285,14 @@ before changing how any file gets applied.
 - Prefix A/B: `claude-ollama prefix-ab [size] [--limit N] [--json]` (dispatched
   like `review`: the size's model, before any pull or launch) execs
   `bin/prefix-ab --record ~/.claude-ollama/proxy/record --model M --base-url URL`
-  (stdlib; `CLAUDE_OLLAMA_PREFIX_AB` overrides it for tests), which replays the
-  recorded bodies twice in ts order, verbatim and through the proxy's
-  `stabilize_bodies` (the script is imported as a module, no server starts),
-  unloading the model between the passes, and prints a two-column table of cache
-  hit % per request (from `cache_read_input_tokens`, else prefill time per token
-  against the first request, like the probe's fallback), a `mean` row and
+  (`--unload ollama|llama-slots|none` picks how the cache is cleared and
+  `--auth-token` the key sent) (stdlib; `CLAUDE_OLLAMA_PREFIX_AB` overrides it
+  for tests), which replays the recorded bodies twice in ts order, verbatim and
+  through the proxy's `stabilize_bodies` (the script is imported as a module, no
+  server starts), unloading the model between the passes, and prints a
+  two-column table of cache hit % per request (from `cache_read_input_tokens`
+  counted against `input_tokens` plus the cached tokens, else prefill time per
+  token against the first request, like the probe's fallback), a `mean` row and
   `stabilize: worth it (+N points mean hit rate)` or `stabilize: no gain` (under
   one point); `--json` prints `requests`, `mean`, `gain_points` and `verdict`.
   Tests: `bin/prefix-ab.test.sh` (stub server)

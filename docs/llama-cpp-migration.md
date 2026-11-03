@@ -228,19 +228,20 @@ One rerunnable command, nothing else changes.
   `MTP/mtp-Qwen3.8-27B-Q4_0.gguf` as `--spec-draft-model`. Run it with
   `bin/backend-bench-off download`, then `bin/backend-bench-off all` (or
   `bin/backend-bench-off llama-server` for just the new columns).
-- Add `llama-server` to `bin/ollama-cache-probe` and `bin/prefix-ab`
-  (`--unload-url` choosing `/models/unload`), so both report cache hits from
-  `timings.cache_n` when `cache_read_input_tokens` is missing.
-- Add a `--base-url` pass-through to `bin/task-eval` so the five tasks run
-  against llama-server through the same launcher.
-- `claude-ollama bench-llamacpp [size]` runs all of it and writes
-  `~/bench-results/llamacpp-*.json` plus the HTML page.
+- Done: `bin/prefix-ab` takes `--unload ollama|llama-slots|none` (llama-server
+  clears slot 0 through `/slots/0?action=erase`) and `--auth-token`, and counts
+  the cached tokens into the total prompt, since `input_tokens` leaves them out
+  (the same fix is in `bin/ollama-cache-probe --replay`). Every
+  `bin/backend-bench-off` run replays up to 30 recorded bodies through it, and
+  the page shows a "Replay cache hit %" row per server.
+- Deferred to Phase 4: `task-eval` drives the full launcher, which still needs
+  Ollama.
+- `bin/backend-bench-off all` is the one command; no wrapper.
 
 Gate (from `docs/backend-bench.md`): at the 60k prefix, warm TTFT no worse than
 Ollama MLX, decode at least 90% of it (or MTP decode above it), tool calls 5/5,
-`prefix-ab` hit rate within 5 points of Ollama, `task-eval` green count not
-lower and median seconds not more than 25% higher, and no "forcing full prompt
-re-processing" lines in a 30-minute session. Record the numbers in
+the page's Replay cache hit % within 5 points of Ollama's, and no "forcing full
+prompt re-processing" lines in a 30-minute session. Record the numbers in
 `docs/backend-bench.md`. If the gate fails, stop here and file the result; retry
 on a newer llama.cpp build.
 

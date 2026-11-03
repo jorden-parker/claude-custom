@@ -66,6 +66,14 @@ server on every model, and `bin/backend-bench-off report` rebuilds the page.
 `--cache-ram 0 --ctx-checkpoints 1` to test the low-memory advice in
 `docs/llama-cpp-migration.md`).
 
+Every run also replays up to `BENCH_REPLAY_LIMIT` (30) recorded bodies from
+`BENCH_REPLAY_DIR` (default `~/.claude-ollama/proxy/record`, filled by a session
+launched with `CLAUDE_OLLAMA_PROXY_RECORD=1`; `BENCH_REPLAY_DIR=` turns it off)
+through `bin/prefix-ab`, clearing the cache first (`/api/chat` keep-alive 0 on
+Ollama, `/slots/0?action=erase` on llama-server, nothing on oMLX and vllm-mlx).
+The page's "Replay cache hit %" row shows the verbatim mean. It is shown, not
+judged by the decision rule.
+
 The console's Benchmarks page (`claude-ollama ui`, then `/benchmarks`) can run
 one cell (`bench-off-run`) and rebuild the report (`bench-off-report`), and
 embeds the report in a frame that allows scripts only. It can't run `install`,
@@ -171,8 +179,8 @@ treat it as a guide, not an exact speed-up.
   runs Unsloth's MTP GGUF (head inside), the 27B its usual GGUF with the
   separate head `MTP/mtp-Qwen3.8-27B-Q4_0.gguf` as `--spec-draft-model`. The MTP
   row reads the last `draft acceptance rate` line of the server log. llama.cpp's
-  `/v1/messages` may not report `cache_read_input_tokens`, so judge its cache
-  reuse on warm TTFT.
+  `/v1/messages` reports `cache_read_input_tokens`, and like Ollama its
+  `input_tokens` leaves the cached tokens out.
 
 ## Decision rule
 
