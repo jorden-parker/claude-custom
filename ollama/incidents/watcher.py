@@ -8,7 +8,8 @@ import time
 from collections import deque, namedtuple
 from pathlib import Path
 
-DETAIL_LENGTH = 200
+from incident_log import IncidentLog, incident, now_iso
+
 REPREFILL_MARGIN_TOKENS = 300
 REPREFILL_MIN_TOKENS = 1000
 BLIND_MIN_MENTIONS = 50
@@ -87,10 +88,6 @@ def process_alive(pid):
     except PermissionError:
         return True
     return True
-
-
-def now_iso():
-    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
 def line_time(line):
@@ -182,7 +179,7 @@ class LogClassifier:
             return self.reprefill(line, first_group(prompt_eval))
         if mentions:
             self.stats.unmatched += 1
-            return incident(line, "unknown", None)
+            return line_incident(line, "unknown", None)
         return None
 
     @staticmethod
@@ -193,7 +190,7 @@ class LogClassifier:
         self.stats.hit(matched.id)
         if matched.cause == IGNORED:
             return None
-        return incident(
+        return line_incident(
             line, matched.cause, self.tokens_of(line, matched.cause), rule=matched.id
         )
 
@@ -201,9 +198,9 @@ class LogClassifier:
         if not self.is_reprefill(tokens):
             return None
         self.stats.hit(REPREFILL_RULE)
-        entry = incident(line, "reprefilled", tokens, rule=REPREFILL_RULE)
-        entry["preceded_by"] = self.last_event
-        return entry
+        return line_incident(
+            line, "reprefilled", tokens, rule=REPREFILL_RULE, preceded_by=self.last_event
+        )
 
     @staticmethod
     def tokens_of(line, cause):
@@ -213,14 +210,8 @@ class LogClassifier:
         return int(match.group(1)) if match else None
 
 
-def incident(line, cause, tokens, timestamp=None, rule=None):
-    return {
-        "ts": timestamp or line_time(line),
-        "cause": cause,
-        "detail": line[:DETAIL_LENGTH],
-        "tokens": tokens,
-        "rule": rule,
-    }
+def line_incident(line, cause, tokens, rule=None, preceded_by=None):
+    return incident(line_time(line), cause, line, tokens, rule, preceded_by)
 
 
 def compaction(line):
@@ -240,43 +231,12 @@ def compaction(line):
     )
     tokens = metadata.get("preTokens")
     return incident(
-        line,
-        "compacted",
-        tokens if isinstance(tokens, int) else None,
         timestamp or now_iso(),
-        rule=COMPACTION_RULE,
+        "compacted",
+        line,
+        tokens if isinstance(tokens, int) else None,
+        COMPACTION_RULE,
     )
-
-
-class IncidentLog:
-    def __init__(self, path):
-        self.path = Path(path)
-        self.latest = Path(f"{path}.latest")
-
-    def prepare(self):
-        self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        self.path.parent.chmod(0o700)
-
-    def record(self, entry):
-        line = json.dumps(entry)
-        self.append(line)
-        with self.open_private(
-            self.latest, os.O_WRONLY | os.O_CREAT | os.O_TRUNC
-        ) as handle:
-            handle.write(line + "\n")
-
-    def record_health(self, entry):
-        self.append(json.dumps(entry))
-
-    def append(self, line):
-        with self.open_private(
-            self.path, os.O_WRONLY | os.O_CREAT | os.O_APPEND
-        ) as handle:
-            handle.write(line + "\n")
-
-    @staticmethod
-    def open_private(path, flags):
-        return os.fdopen(os.open(path, flags, 0o600), "w")
 
 
 class FileTail:
@@ -346,7 +306,7 @@ class Watcher:
             self.out.record(entry)
 
     def report_health(self):
-        self.out.record_health(self.classifier.stats.health())
+        self.out.record_kind_row(self.classifier.stats.health())
 
     def run(self):
         self.out.prepare()
