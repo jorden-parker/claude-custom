@@ -5,6 +5,7 @@ from pathlib import Path
 CODE_SUFFIXES = {".go", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py", ".sh", ".bash", ".zsh"}
 PACKAGE_SUFFIXES = {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"}
 TEST_NAME = re.compile(r"(^|[._-])(test|tests|spec)([._-]|$)", re.IGNORECASE)
+CONFIG_NAME = re.compile(r"(\.config\.[a-z]+|^\.[a-z0-9-]+rc(\.[a-z]+)?)$", re.IGNORECASE)
 TEST_DIRS = {"test", "tests", "__tests__", "testdata", "fixtures", "eval", ".claude"}
 RUNNABLE_TEST_DIRS = TEST_DIRS - {".claude"}
 VITEST_SUFFIXES = (".ts", ".tsx", ".js", ".jsx", ".mts", ".mjs")
@@ -19,7 +20,13 @@ def first_line_of_file(path):
         return ""
 
 
+def is_config(path):
+    return bool(CONFIG_NAME.search(path.name))
+
+
 def is_code(path, tool_input, tool_name):
+    if is_config(path):
+        return False
     if path.suffix in CODE_SUFFIXES:
         return True
     if path.suffix:

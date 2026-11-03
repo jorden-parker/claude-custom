@@ -573,8 +573,10 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   relocks the scope until the next run. The third denial of the same file in a
   row passes and is logged as `allow-after-strikes`; any test edit or run resets
   that count. Test files, files under `test`, `tests`, `__tests__`, `testdata`,
-  `fixtures`, `eval` or `.claude`, and non-code files always pass.
-  `CLAUDE_CUSTOM_TDD=0` turns it off. Tests: `shared/hooks/tdd-guard.test.sh`.
+  `fixtures`, `eval` or `.claude`, tool config files (`jest.config.ts`,
+  `.eslintrc.cjs`; `is_config` in `test_scope.py`) and non-code files always
+  pass. `CLAUDE_CUSTOM_TDD=0` turns it off. Tests:
+  `shared/hooks/tdd-guard.test.sh`.
 - `shared/hooks/test-after-edit.py` is wired only in the Ollama profiles
   (`ollama/hooks.extra.json`), as PostToolUse on Edit, Write and MultiEdit, so
   the small model neither forgets the test nor floods its context with the whole
