@@ -1,0 +1,11 @@
+{
+  "aborted": "warn",
+  "evicted": "error",
+  "truncated": "error",
+  "reprefilled": "warn",
+  "compacted": "info",
+  "relaunched": "info",
+  "degraded": "warn",
+  "recovered": "info",
+  "unknown": "debug"
+}

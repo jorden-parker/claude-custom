@@ -1,10 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   CONTEXT_CAP,
-  LEASE_HEARTBEAT_RANGE,
   OUTPUT_TOKENS_RANGE,
-  TEST_AFTER_EDIT_CHOICES,
-  THINKING_EFFORT_CHOICES,
   PROFILE_ENV_FIELDS,
   PROFILE_ENV_GROUPS,
   PROFILE_ENV_KEYS,
@@ -13,6 +10,7 @@ import {
   validateProfileOverride,
   type ProfileRules,
 } from "./profile-rules";
+import profileEnvCatalogue from "./profile-env.generated.json";
 
 const OLLAMA: ProfileRules = {
   kind: "ollama",
@@ -226,6 +224,25 @@ describe("validateProfileOverride", () => {
     }
   });
 
+  it("takes every env key, in order, from the rendered catalogue", () => {
+    expect([...PROFILE_ENV_KEYS]).toEqual(
+      profileEnvCatalogue.map((entry) => entry.key),
+    );
+    expect(
+      PROFILE_ENV_FIELDS.map(({ label, help, group }) => ({
+        label,
+        help,
+        group,
+      })),
+    ).toEqual(
+      profileEnvCatalogue.map(({ label, help, group }) => ({
+        label,
+        help,
+        group,
+      })),
+    );
+  });
+
   it("lists a labelled field for every env key", () => {
     expect(PROFILE_ENV_FIELDS.map((field) => field.key)).toEqual([
       ...PROFILE_ENV_KEYS,
@@ -326,12 +343,11 @@ describe("validateProfileOverride", () => {
       ),
     ).toMatchObject({
       kind: "number",
-      range: LEASE_HEARTBEAT_RANGE,
+      range: { min: 30, max: 600, step: 10 },
       defaultValue: "120",
       group: "Ollama residency",
       ollamaOnly: true,
     });
-    expect(LEASE_HEARTBEAT_RANGE).toEqual({ min: 30, max: 600, step: 10 });
     expect(
       accepted({ env: { CLAUDE_OLLAMA_LEASE_HEARTBEAT: "60" } }, OLLAMA),
     ).toEqual({
@@ -353,17 +369,16 @@ describe("validateProfileOverride", () => {
       ),
     ).toMatchObject({
       kind: "choice",
-      choices: TEST_AFTER_EDIT_CHOICES,
+      choices: [
+        { value: "0", word: "off" },
+        { value: "suggest", word: "suggest" },
+        { value: "run", word: "run" },
+      ],
       defaultValue: "suggest",
       group: "Guards",
       ollamaOnly: true,
       label: "After each edit: suggest the test, or run it",
     });
-    expect(TEST_AFTER_EDIT_CHOICES).toEqual([
-      { value: "0", word: "off" },
-      { value: "suggest", word: "suggest" },
-      { value: "run", word: "run" },
-    ]);
     expect(
       PROFILE_ENV_FIELDS.find(
         (field) => field.key === "CLAUDE_OLLAMA_TEST_AFTER_EDIT",
@@ -404,17 +419,16 @@ describe("validateProfileOverride", () => {
       ),
     ).toMatchObject({
       kind: "choice",
-      choices: THINKING_EFFORT_CHOICES,
+      choices: [
+        { value: "low", word: "low" },
+        { value: "medium", word: "medium" },
+        { value: "xhigh", word: "xhigh" },
+      ],
       defaultValue: "xhigh",
       group: "Prompt and context",
       ollamaOnly: true,
       label: "Thinking effort when thinking is on",
     });
-    expect(THINKING_EFFORT_CHOICES).toEqual([
-      { value: "low", word: "low" },
-      { value: "medium", word: "medium" },
-      { value: "xhigh", word: "xhigh" },
-    ]);
     expect(
       PROFILE_ENV_FIELDS.find(
         (field) => field.key === "CLAUDE_CODE_EFFORT_LEVEL",

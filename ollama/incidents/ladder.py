@@ -9,7 +9,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "shared"))
 from relaunch_dir import RelaunchDir
-from watcher import FileTail, IncidentLog, now_iso, process_alive
+from incident_log import IncidentLog, incident, incident_rows, now_iso
+from watcher import FileTail, process_alive
 
 EVIDENCE_COUNT = 3
 EVIDENCE_WINDOW_SECONDS = 600
@@ -72,16 +73,6 @@ def row_time(row):
         return time.mktime(time.strptime(row.get("ts", ""), "%Y-%m-%dT%H:%M:%SZ"))
     except (TypeError, ValueError):
         return time.time()
-
-
-def parse_rows(lines):
-    for line in lines:
-        try:
-            row = json.loads(line)
-        except ValueError:
-            continue
-        if isinstance(row, dict) and "kind" not in row:
-            yield row
 
 
 def configured_contexts(sizes_path):
@@ -229,10 +220,10 @@ class Ladder:
         self.recovery = Recovery(options, self.evidence)
 
     def poll(self):
-        for row in parse_rows(self.tail.new_lines()):
+        for row in incident_rows(self.tail.new_lines()):
             for name, text in self.evidence.consider(row):
                 if name is None:
-                    self.log.record_health({"kind": "ladder", "ts": now_iso(), "note": text})
+                    self.log.record_kind_row({"kind": "ladder", "ts": now_iso(), "note": text})
                 else:
                     self.fire(name, text)
         self.recovery.poll()
@@ -244,7 +235,7 @@ class Ladder:
             self.folder.raise_flag("heartbeat-fast")
         elif name == "context-down":
             self.lower_context(reason)
-        self.log.record({"ts": now_iso(), "cause": "degraded", "detail": f"{name}: {reason}", "tokens": None, "rule": f"ladder/{name}"})
+        self.log.record(incident(now_iso(), "degraded", f"{name}: {reason}", rule=f"ladder/{name}"))
 
     def lower_context(self, reason):
         current = self.options.context or 0
@@ -265,7 +256,7 @@ def inspect(path):
     evidence = Evidence()
     lines = []
     with open(path, encoding="utf-8", errors="replace") as handle:
-        rows = list(parse_rows(handle))
+        rows = list(incident_rows(handle))
     for row in rows:
         lines += [f"{name}: {text}" for name, text in evidence.consider(row) if name]
     for name in evidence.quiet_rungs(time.time(), RECOVERY_QUIET_SECONDS):

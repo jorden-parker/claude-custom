@@ -163,8 +163,12 @@ before changing how any file gets applied.
 - Profile generator: `bin/ollama-profiles` renders `ollama/settings.<size>.json`
   and `ollama/Modelfile.<size>` from `ollama/sizes.json` and the two
   `profile-template` files, and `personal/settings.tokens.json` from
-  `personal/settings.tokens.template.json`; `bin/ollama-profiles --check`
-  (`make check-profiles`) fails when they are stale (it compares JSON by
+  `personal/settings.tokens.template.json`; it also copies the profile env
+  catalogue `shared/profile-env.json` to
+  `web/console/src/lib/profile-env.generated.json` and renders its table in
+  `docs/ollama.md` between the `<!-- profile-env:start -->` and
+  `<!-- profile-env:end -->` lines; `bin/ollama-profiles --check`
+  (`make check-profiles`) fails when any of them is stale (it compares JSON by
   content, so it needs no Prettier; writing the files needs `pnpm install`);
   tests: `bin/ollama-profiles.test.sh`
 - GGUF inspector: `bin/gguf-inspect FILE [--file-size N] [--template-out PATH]`
@@ -831,8 +835,23 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `warn beacon: none yet`; it never fails doctor. `claude-custom sync-check`
   compares sections by canonical JSON, not by the stored `fingerprint`, so a
   hand-edited beacon still diffs. Nothing is sent over the network.
+- Launch settings: `bin/claude-ollama` keeps each settings layer as a plain
+  variable (the fetch domains, `profile_file` when it exists, the ladder
+  context, the proxy URL) and `compose_launch_settings` turns them into one file
+  through
+  `shared/profile-overlay compose BASE OUT [--fetch-domain HOST]... [--profile FILE] [--context N] [--proxy-url URL]`,
+  which applies them in that fixed order onto `ollama/settings.<size>.json`:
+  fetch domains (lift the bare `WebFetch` deny, allow each host, deny loopback
+  hosts, `skipWebFetchPreflight`), then the profile with `--context` replacing
+  its `context` (the same rules as `settings`, so the headroom margin holds at a
+  lowered context), then `env.ANTHROPIC_BASE_URL`. It runs on every launch,
+  `--print-config` and `doctor`, after the proxy starts, on a ladder
+  context-down and on its recovery. With no layer in effect `claude` gets
+  `ollama/settings.<size>.json` itself; otherwise it gets
+  `~/.claude-ollama/launch-settings.json` (0600), the only derived settings
+  file. Tests: `shared/profile-overlay.test.sh`, `bin/claude-ollama.test.sh`.
 - `bin/claude-ollama` resolves its own symlink to find `ollama/`. It unsets
-  `ANTHROPIC_API_KEY`, passes `--settings ollama/settings.<size>.json`,
+  `ANTHROPIC_API_KEY`, passes `--settings` with the launch settings above,
   `--system-prompt-file ollama/system-prompt.md` (replacing Claude Code's
   default system prompt),
   `--append-system-prompt-file ~/.claude-ollama/append-prompt.md` (written each
@@ -993,15 +1012,27 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   is skipped. Each rule has an id (`aborted/context-canceled`,
   `truncated/input-prompt`, `evicted/unload`, `evicted/runner-start`,
   `ignored/load-sequence`, `reprefilled/prompt-eval`, `compacted/transcript`).
-  Each incident is one JSON line (`ts`, `cause`, `detail` of 200 chars,
-  `tokens`, `rule`, null for `unknown`) appended to
+  `ollama/incidents/incident_log.py` (stdlib only) owns the record and is the
+  only writer: the watcher, the ladder and the launcher (`append_incident` runs
+  `incident_log.py append --file F --cause C --detail D [--tokens N] [--rule R]`)
+  all append through it. Each incident is one JSON line (`ts`, `cause`, `detail`
+  of 200 chars, `tokens`, `rule`, null for `unknown`) appended to
   `$CLAUDE_CONSOLE_STATE_DIR/incidents/<utc-time>-<pid>.jsonl` (0700/0600), the
   newest also in `<file>.latest`, and `incidents/current` names the running
-  session's file. A `reprefilled` row also carries `preceded_by`, the last
-  `{kind, ts}` event seen in the log before it (`embed`: an `/api/embed`
-  request; `load`: a runner start; `unload`; `expired`: a keep-alive expiry), or
-  null; no other cause has the key. The watcher counts hits per rule, the
-  `unmatched` lines (the `unknown` rows) and the log lines seen, and appends a
+  session's file; rows with a `kind` (`health`, `ladder`) go through
+  `record_kind_row` and never reach `.latest`. A `reprefilled` row also carries
+  `preceded_by`, the last `{kind, ts}` event seen in the log before it (`embed`:
+  an `/api/embed` request; `load`: a runner start; `unload`; `expired`: a
+  keep-alive expiry), or null; no other cause has the key. The causes are the
+  keys of `ollama/incidents/causes.json` (cause to console log level: the
+  watcher's six plus `relaunched` and `recovered` from the launcher and
+  `degraded` from the ladder); appending any other cause raises (the CLI exits
+  2). `bin/ollama-profiles` copies that file, key order kept, to
+  `web/console/src/lib/incident-causes.generated.json`, which `incidents.ts`
+  imports for `INCIDENT_CAUSES` and the levels, and `make check-profiles` fails
+  when the copy is stale. Tests: `ollama/incidents/incident_log.test.sh`. The
+  watcher counts hits per rule, the `unmatched` lines (the `unknown` rows) and
+  the log lines seen, and appends a
   `{"kind": "health", "ts", "rules", "unmatched", "lines"}` row (never to
   `.latest`) every 60 s in follow mode (`--health-interval`) and once at exit
   and in `--once`; every reader skips rows with a `kind`.
@@ -1057,11 +1088,11 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   overrides the script; tests stub it), with `--watch-pid $$`, the log at
   `<console state dir>/proxy/requests.jsonl` (`CLAUDE_CONSOLE_STATE_DIR`, else
   `~/.local/share/claude-custom/console`, the folder the console reads; the
-  proxy creates it 0700), waits for the port file and writes
-  `~/.claude-ollama/proxy-settings.json` with `env.ANTHROPIC_BASE_URL` pointed
-  at the proxy (the settings file `claude` gets); when the port never appears it
-  warns and keeps the direct URL. By default it only observes: no rewriting, no
-  tool pruning. `--stabilize` (the launcher passes it only when
+  proxy creates it 0700), waits for the port file and recomposes the launch
+  settings with `env.ANTHROPIC_BASE_URL` pointed at the proxy (the proxy layer
+  of `compose_launch_settings`); when the port never appears it warns and keeps
+  the direct URL. By default it only observes: no rewriting, no tool pruning.
+  `--stabilize` (the launcher passes it only when
   `CLAUDE_OLLAMA_PROXY_STABILIZE=1`) adds the prefix stabiliser: when two
   consecutive requests differ inside `system` by a span that, widened to whole
   lines, is at most 400 bytes with the rest identical, each changed line's text
@@ -1198,8 +1229,8 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   in the relaunch dir), then
   `claude-ollama: ladder context-down: does not fit at num_ctx N (N GiB short); starting at M`
   (the next lower size's context from `ollama/sizes.json`, else 75% rounded to
-  1024 and never below 16384, through the same `ladder-settings.json` path, one
-  step only;
+  1024 and never below 16384, through the same context layer of the launch
+  settings, one step only;
   `claude-ollama: memory fit: still N GiB short at num_ctx M with the embeddings off`
   when even that is short). The session lease records the rung and the lower
   `num_ctx`, and the ladder is started with one `--rung R` per rung in effect.
@@ -1208,8 +1239,9 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `pgrep`, `ps`, `curl`, `ollama`, `sysctl`, `vm_stat`, a `meminfo` file,
   sleeping pids), `bin/claude-ollama.test.sh` (`STUB_MEMSIZE`, `show-verbose`).
 - Degrade ladder: `ollama/incidents/ladder.py` (stdlib only; it imports
-  `FileTail`, `IncidentLog`, `process_alive` and `now_iso` from `watcher.py`)
-  runs outside the sandbox beside the watcher (`launch_claude` starts it after
+  `FileTail` and `process_alive` from `watcher.py` and `IncidentLog`,
+  `incident`, `incident_rows` and `now_iso` from `incident_log.py`) runs outside
+  the sandbox beside the watcher (`launch_claude` starts it after
   `prepare_relaunch_dir` with
   `--incidents $CLAUDE_OLLAMA_INCIDENTS_FILE --relaunch-dir DIR --watch-pid $$ --context NUM_CTX --model M --embedding E --lease-bin PATH [--rung R]...`;
   `CLAUDE_OLLAMA_LADDER=0` turns it off, `CLAUDE_OLLAMA_LADDER_BIN` overrides it
@@ -1248,18 +1280,17 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   incident (`detail: "<rung>: <reason>"`, `rule: "ladder/up"`) and re-acquires
   the session lease with the rung still in effect, if any. The launcher's
   relaunch loop also wakes on a `ladder` file: it prints
-  `claude-ollama: ladder <rung>: <reason>`, writes
-  `~/.claude-ollama/ladder-profile.json` (the size's profile plus `context`)
-  through `shared/profile-overlay settings` into `ladder-settings.json`, so
-  `CLAUDE_CODE_MAX_CONTEXT_TOKENS` keeps the headroom margin, re-acquires the
-  session lease with `--rung`, and runs `claude` again with the same flags, a
-  trailing prompt dropped and `--continue` added; a handoff sentinel in the same
-  pass still wins the arguments. Every relaunch exports `CODE_SEARCH_EMBED=0`
-  while `embed-off` exists, and `code-search.py` itself answers words only while
-  that file is in `$CLAUDE_OLLAMA_RELAUNCH_DIR`. Tests:
-  `ollama/incidents/ladder.test.sh` (inline incident rows, a sleeping pid, a
-  stub `ps`, a stub `ollama-lease` with `STUB_FIT`), `bin/claude-ollama.test.sh`
-  (stub ladder, `STUB_CLAUDE_LADDER_ONCE`, `STUB_CLAUDE_LADDER_UP`),
+  `claude-ollama: ladder <rung>: <reason>`, recomposes the launch settings with
+  the rung's `context` as the context layer, so `CLAUDE_CODE_MAX_CONTEXT_TOKENS`
+  keeps the headroom margin, re-acquires the session lease with `--rung`, and
+  runs `claude` again with the same flags, a trailing prompt dropped and
+  `--continue` added; a handoff sentinel in the same pass still wins the
+  arguments. Every relaunch exports `CODE_SEARCH_EMBED=0` while `embed-off`
+  exists, and `code-search.py` itself answers words only while that file is in
+  `$CLAUDE_OLLAMA_RELAUNCH_DIR`. Tests: `ollama/incidents/ladder.test.sh`
+  (inline incident rows, a sleeping pid, a stub `ps`, a stub `ollama-lease` with
+  `STUB_FIT`), `bin/claude-ollama.test.sh` (stub ladder,
+  `STUB_CLAUDE_LADDER_ONCE`, `STUB_CLAUDE_LADDER_UP`),
   `shared/mcp/code-search.test.sh`. The console's Server page has a Residency
   card (`web/console/src/components/residency-card.tsx`,
   `web/console/src/lib/lease.ts`): `GET /api/lease` runs
@@ -1350,8 +1381,11 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `thinking:true` (Ollama only; it drops the `CLAUDE_CODE_EXTRA_BODY` that turns
   thinking off, so Claude Code's own adaptive request reaches Ollama); `tools`,
   `env`, `mcp`, `parameters`, `summary` and `check` serve `bin/claude-ollama`.
-  `env` exports only its `env_allowlist`: the 0/1 switches
-  `CLAUDE_OLLAMA_TELEMETRY`, `CLAUDE_OLLAMA_NO_INDEX`,
+  `env` exports only the keys of the profile env catalogue
+  `shared/profile-env.json` (an ordered list of
+  `{key, group, kind, default, min, max, step | choices, label, help, ollamaOnly}`,
+  `kind` one of `switch`, `integer`, `choice`; values are not checked there):
+  the 0/1 switches `CLAUDE_OLLAMA_TELEMETRY`, `CLAUDE_OLLAMA_NO_INDEX`,
   `CLAUDE_OLLAMA_OPEN_DRAFTS`, `CLAUDE_OLLAMA_CMUX`, `CLAUDE_OLLAMA_RELAUNCH`,
   `CLAUDE_OLLAMA_INCIDENTS`, `CLAUDE_OLLAMA_PROXY` (default on),
   `CLAUDE_OLLAMA_PROXY_RECORD` (default off), `CLAUDE_OLLAMA_PROXY_STABILIZE`
@@ -1363,15 +1397,21 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `CLAUDE_OLLAMA_TEST_AFTER_EDIT` (`0`, `suggest` or `run`, default `suggest`)
   and `CLAUDE_CODE_EFFORT_LEVEL` (`low`, `medium` or `xhigh`, default `xhigh`;
   Claude Code's own variable, read by Qwen 3.8's chat template through Ollama
-  when the profile's thinking is on, ignored by Qwen 3.6). That list must equal
-  `PROFILE_ENV_KEYS` in `web/console/src/lib/profile-rules.ts`, and this file
-  and `docs/ollama.md` must name every key (`bin/check-config` checks both); the
-  console's Profiles page shows each key by the plain label, default and help
-  sentence in `PROFILE_ENV_FIELDS`, never the variable name, grouped under the
-  field's `group`, and hides every Ollama-only field from the `claude-code`
-  profile, which of the harness switches sees only `CLAUDE_CUSTOM_FRICTION`. It
-  refuses a symlinked profile, and `Agent` never reaches an Ollama profile. The
-  overlay sets `sandbox.enabled` and the ask rule
+  when the profile's thinking is on, ignored by Qwen 3.6). Adding a switch is
+  one catalogue entry, then `bin/ollama-profiles` (which renders the console's
+  copy and the `docs/ollama.md` table) and a mention here (`bin/check-config`
+  fails when this file lacks a key). `context-budget.py` and
+  `test-after-edit.py` read their defaults from the catalogue through
+  `shared/hooks/profile_env.py` (`catalogue_default`); the bash launchers keep
+  their own `${VAR:-1}` defaults. `web/console/src/lib/profile-rules.ts` builds
+  `PROFILE_ENV_KEYS` and `PROFILE_ENV_FIELDS` from the rendered copy (an
+  `integer` becomes a `number` field with a `range`) and throws on an unknown
+  group or kind. The console's Profiles page shows each key by the plain label,
+  default and help sentence in `PROFILE_ENV_FIELDS`, never the variable name,
+  grouped under the field's `group`, and hides every Ollama-only field from the
+  `claude-code` profile, which of the harness switches sees only
+  `CLAUDE_CUSTOM_FRICTION`. It refuses a symlinked profile, and `Agent` never
+  reaches an Ollama profile. The overlay sets `sandbox.enabled` and the ask rule
   `Bash(dangerouslyDisableSandbox:true)`, so every personal session (subagents
   and `--agent pr-review` included) runs Claude's shell commands inside Claude
   Code's sandbox and asks before one runs outside it; `bin/check-config` checks

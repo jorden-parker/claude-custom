@@ -599,30 +599,37 @@ it. `Agent` cannot be enabled for Ollama (there is no side model). A `context`,
 or `parameters` override recreates the `-cc` model at launch, as the Modelfile
 drift fix does, and `doctor` checks the same values. `thinking: true` turns the
 model's thinking on for that size (off by default, see above). `env` takes only
-the harness switches, each `0` or `1` unless noted:
+the harness switches, each `0` or `1` unless noted. The table comes from
+`shared/profile-env.json`, the one catalogue of these switches: add or change a
+switch there and run `bin/ollama-profiles`, which rewrites this table and the
+console's copy.
 
-| Key                             | Default | Meaning                                                                        |
-| ------------------------------- | ------- | ------------------------------------------------------------------------------ |
-| `CLAUDE_OLLAMA_PROXY`           | 1       | Observe prompt drift through the messages proxy                                |
-| `CLAUDE_OLLAMA_RULE_CARDS`      | 1       | Deliver rule cards just in time                                                |
-| `CLAUDE_CODE_EFFORT_LEVEL`      | xhigh   | Thinking effort when thinking is on (`low`, `medium`, `xhigh`; Qwen 3.8 only)  |
-| `CLAUDE_OLLAMA_RELAUNCH`        | 1       | Hand off before the context fills (`0`: single exec)                           |
-| `CLAUDE_OLLAMA_HANDOFF_PCT`     | 70      | Hand off at this whole percent of context, 30 to 85                            |
-| `CLAUDE_OLLAMA_NO_INDEX`        | 0       | Skip the code search index                                                     |
-| `CLAUDE_CUSTOM_FRICTION`        | 1       | Reset a looping guard after three identical denials                            |
-| `CLAUDE_OLLAMA_LADDER`          | 1       | Degrade rung by rung on incident evidence                                      |
-| `CLAUDE_OLLAMA_TEST_AFTER_EDIT` | suggest | After each edit: suggest the test (`suggest`), run it (`run`) or neither (`0`) |
-| `CLAUDE_OLLAMA_EDIT_NUDGE`      | 1       | Nudge wasteful edits                                                           |
-| `CLAUDE_OLLAMA_LEASE`           | 1       | Hold an Ollama residency lease and heartbeat                                   |
-| `CLAUDE_OLLAMA_LEASE_HEARTBEAT` | 120     | Whole seconds between keep-alive heartbeats, 30-600                            |
-| `CLAUDE_OLLAMA_FIT`             | 1       | Check memory fit before launch                                                 |
-| `CLAUDE_OLLAMA_TELEMETRY`       | 1       | Session telemetry                                                              |
-| `CLAUDE_OLLAMA_INCIDENTS`       | 1       | Record Ollama incidents                                                        |
-| `CLAUDE_OLLAMA_PROXY_RECORD`    | 0       | Record every request body for replay benches                                   |
-| `CLAUDE_OLLAMA_PROXY_STABILIZE` | 0       | Move volatile prompt lines after the stable prefix                             |
-| `CLAUDE_OLLAMA_BEACON`          | 1       | Write a machine beacon at launch                                               |
-| `CLAUDE_OLLAMA_OPEN_DRAFTS`     | 1       | Open drafts in the browser                                                     |
-| `CLAUDE_OLLAMA_CMUX`            | 1       | cmux browser tools                                                             |
+<!-- profile-env:start -->
+
+| Key                             | Default | Meaning                                                              |
+| ------------------------------- | ------- | -------------------------------------------------------------------- |
+| `CLAUDE_OLLAMA_PROXY`           | 1       | Observe prompt drift through the messages proxy                      |
+| `CLAUDE_OLLAMA_PROXY_STABILIZE` | 0       | Move volatile prompt lines after the stable prefix                   |
+| `CLAUDE_OLLAMA_RULE_CARDS`      | 1       | Deliver rule cards just in time                                      |
+| `CLAUDE_CODE_EFFORT_LEVEL`      | xhigh   | Thinking effort when thinking is on (`low`, `medium`, `xhigh`)       |
+| `CLAUDE_OLLAMA_RELAUNCH`        | 1       | Hand off before the context fills                                    |
+| `CLAUDE_OLLAMA_HANDOFF_PCT`     | 70      | Hand off at (% of context), 30 to 85                                 |
+| `CLAUDE_OLLAMA_NO_INDEX`        | 0       | Skip the code search index                                           |
+| `CLAUDE_CUSTOM_FRICTION`        | 1       | Reset a looping guard after three identical denials                  |
+| `CLAUDE_OLLAMA_LADDER`          | 1       | Degrade rung by rung on incident evidence                            |
+| `CLAUDE_OLLAMA_TEST_AFTER_EDIT` | suggest | After each edit: suggest the test, or run it (`0`, `suggest`, `run`) |
+| `CLAUDE_OLLAMA_EDIT_NUDGE`      | 1       | Nudge wasteful edits                                                 |
+| `CLAUDE_OLLAMA_LEASE`           | 1       | Hold an Ollama residency lease and heartbeat                         |
+| `CLAUDE_OLLAMA_LEASE_HEARTBEAT` | 120     | Seconds between keep-alive heartbeats, 30 to 600                     |
+| `CLAUDE_OLLAMA_FIT`             | 1       | Check memory fit before launch                                       |
+| `CLAUDE_OLLAMA_TELEMETRY`       | 1       | Session telemetry                                                    |
+| `CLAUDE_OLLAMA_INCIDENTS`       | 1       | Record Ollama incidents                                              |
+| `CLAUDE_OLLAMA_PROXY_RECORD`    | 0       | Record every request body for replay benches                         |
+| `CLAUDE_OLLAMA_BEACON`          | 1       | Write a machine beacon at launch                                     |
+| `CLAUDE_OLLAMA_OPEN_DRAFTS`     | 1       | Open drafts in the browser                                           |
+| `CLAUDE_OLLAMA_CMUX`            | 1       | cmux browser tools                                                   |
+
+<!-- profile-env:end -->
 
 `CLAUDE_OLLAMA_TEST_AFTER_EDIT` drives `shared/hooks/test-after-edit.py`, which
 runs after every Edit, Write or MultiEdit of a code file: `suggest` adds one
@@ -734,15 +741,24 @@ llama.cpp `prompt eval time = ... / N tokens` line within 300 tokens of `n_ctx`
 or of the previous request's `total time ... / N tokens`: the prompt cache was
 lost and the whole prompt ran again), `compacted` (a `compact_boundary` entry in
 the transcript, with its `preTokens`) and `unknown` (a line naming the model or
-a runner that fits no rule). Each line names the rule that matched it (such as
-`reprefilled/prompt-eval`) and a `reprefilled` line says what the log showed
-last before it (`after embed`, `after load`, `after unload`, `after expired`),
-so a reprefill that follows an embedding request stands out. The tab shows a
-count per cause above the lines and a classifier-health pill
-(`saw N lines, M unmatched`) from the health row the watcher writes every
-minute; a growing unmatched count means Ollama's log format changed.
-`claude-ollama doctor` runs `watcher.py --check-rules` on the server log and
-fails when no rule matches it any more. Inside the session,
+a runner that fits no rule); the launcher adds `relaunched` (a handoff relaunch)
+and `recovered` (a rung promoted back up), and the degrade ladder adds
+`degraded` (a rung fired). Every writer goes through
+`ollama/incidents/incident_log.py`, which owns the record (`ts`, `cause`,
+`detail` cut at 200 characters, `tokens`, `rule`, plus `preceded_by` on
+`reprefilled` only) and refuses a cause missing from
+`ollama/incidents/causes.json`, the cause list with each cause's log level;
+`bin/ollama-profiles` copies that file to
+`web/console/src/lib/incident-causes.generated.json` for the console, and
+`make check-profiles` fails when the copy is stale. Each line names the rule
+that matched it (such as `reprefilled/prompt-eval`) and a `reprefilled` line
+says what the log showed last before it (`after embed`, `after load`,
+`after unload`, `after expired`), so a reprefill that follows an embedding
+request stands out. The tab shows a count per cause above the lines and a
+classifier-health pill (`saw N lines, M unmatched`) from the health row the
+watcher writes every minute; a growing unmatched count means Ollama's log format
+changed. `claude-ollama doctor` runs `watcher.py --check-rules` on the server
+log and fails when no rule matches it any more. Inside the session,
 `shared/hooks/incident-note.py` (UserPromptSubmit, Ollama profiles only) reads
 `CLAUDE_OLLAMA_INCIDENTS_FILE` and adds one line of context when new incidents
 appeared since your last prompt, such as
