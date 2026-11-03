@@ -1777,6 +1777,40 @@ PATH="$sandbox/realbin:$PATH" run_capture "$repo/bin/claude-ollama" why
 check_eq "why with the real script exit status" 0 "$?"
 check_that "why runs the real script by default" grep -q '^verdict: nothing wrong' "$sandbox/out"
 
+nvm_versions="$HOME/.nvm/versions/node"
+for nvm_version in v20.11.0 v22.1.0 v22.9.0; do
+  mkdir -p "$nvm_versions/$nvm_version/bin"
+  printf '#!/bin/sh\necho %s\n' "$nvm_version" > "$nvm_versions/$nvm_version/bin/node"
+  chmod +x "$nvm_versions/$nvm_version/bin/node"
+done
+mkdir -p "$sandbox/nvm-project/nested" "$HOME/.nvm/alias"
+echo "20" > "$sandbox/nvm-project/.nvmrc"
+session_path_head() { session_env PATH | cut -d: -f1; }
+(cd "$sandbox/nvm-project/nested" && run_capture "$repo/bin/claude-ollama" 27b -p hi)
+check_eq "a .nvmrc above the project folder puts that nvm node first on the session PATH" "$nvm_versions/v20.11.0/bin" "$(session_path_head)"
+check_that "the launcher names the node it chose" grep -qxF "claude-ollama: node: $nvm_versions/v20.11.0/bin/node (nvm 20 from $sandbox/nvm-project/.nvmrc)" "$sandbox/err"
+echo "lts/*" > "$HOME/.nvm/alias/default"
+echo "v22.1.0" > "$HOME/.nvm/alias/pinned"
+(cd "$sandbox" && run_capture "$repo/bin/claude-ollama" 27b -p hi)
+check_eq "without a .nvmrc the default alias picks the newest installed node" "$nvm_versions/v22.9.0/bin" "$(session_path_head)"
+check_that "the launcher names the default alias" grep -qxF "claude-ollama: node: $nvm_versions/v22.9.0/bin/node (nvm default)" "$sandbox/err"
+echo "pinned" > "$HOME/.nvm/alias/default"
+(cd "$sandbox" && run_capture "$repo/bin/claude-ollama" 27b -p hi)
+check_eq "an alias that names another alias is followed" "$nvm_versions/v22.1.0/bin" "$(session_path_head)"
+echo "18" > "$sandbox/nvm-project/.nvmrc"
+(cd "$sandbox/nvm-project" && run_capture "$repo/bin/claude-ollama" 27b -p hi)
+check_that "a version nvm has not installed leaves PATH alone and warns" grep -qxF "claude-ollama: node: nvm has no node 18 installed (from $sandbox/nvm-project/.nvmrc); using $(command -v node || echo none)" "$sandbox/err"
+check_not "and puts no nvm folder on the session PATH" contains "$(session_path_head)" "$nvm_versions"
+NVM_DIR="$sandbox/other-nvm" run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_not "without an nvm install the launcher says nothing about node" grep -q "claude-ollama: node:" "$sandbox/err"
+check_not "and leaves PATH alone" contains "$(session_path_head)" "$nvm_versions"
+echo "20" > "$sandbox/nvm-project/.nvmrc"
+(cd "$sandbox/nvm-project" && STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_server_env" run_capture "$repo/bin/claude-ollama" doctor 27b)
+check_that "doctor reports the nvm node the session gets" grep -qxF "ok   node $nvm_versions/v20.11.0/bin/node (nvm 20 from $sandbox/nvm-project/.nvmrc)" "$sandbox/out"
+rm -rf "$HOME/.nvm"
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_server_env" run_capture "$repo/bin/claude-ollama" doctor 27b
+check_that "doctor reports the PATH node without nvm" grep -qx "ok   node .*/node (no nvm)\|warn node: none on PATH" "$sandbox/out"
+
 if [ "$failures" -eq 0 ]; then
   echo "all passed"
 else

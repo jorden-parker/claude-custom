@@ -868,6 +868,16 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   banner says Haiku or Sonnet. `bin/check-config` checks all of this.
   `personal/settings.tokens.json` keeps `CLAUDE_CODE_SUBAGENT_MODEL=haiku` with
   `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1` (Claude Code v2.1.257 or later).
+- `bin/claude-ollama` puts nvm's Node first on the session's PATH, since nvm is
+  a shell function that a fish shell, a cmux command or launchd never loads:
+  with `$NVM_DIR` (default `~/.nvm`) installed it reads the nearest `.nvmrc`
+  above the working folder, else nvm's `default` alias, follows aliases, picks
+  the newest installed `versions/node/v<spec>*` and prints
+  `claude-ollama: node: <path> (nvm <spec> from <file>)` (or `(nvm default)`); a
+  spec nvm has not installed leaves PATH alone with a
+  `nvm has no node <spec> installed` line, and no nvm install says nothing.
+  `doctor` prints `ok   node <path> (...)`, `(no nvm)` for the PATH node, or
+  `warn node: none on PATH`. Tests: `bin/claude-ollama.test.sh`.
 - `bin/claude-ollama` reads the configured sizes from `ollama/` (a
   `settings.<size>.json` plus a `Modelfile.<size>`), never a hardcoded list. A
   first arg that matches launches that size. Otherwise, on a terminal it runs
