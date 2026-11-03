@@ -121,6 +121,15 @@ describe("ProfileEditor", () => {
     ).toBeTruthy();
   });
 
+  it("lets the tab bar scroll sideways instead of overflowing", async () => {
+    mockProfileApi(CLAUDE_CODE_DETAIL);
+    render(<ProfileEditor id="claude-code" />);
+    await screen.findByText("Fetch a web page");
+    const tabBar = screen.getByRole("tablist");
+    expect(tabBar.className).toContain("overflow-x-auto");
+    expect(tabBar.className).toContain("max-w-full");
+  });
+
   it("resets to defaults by saving an empty override", async () => {
     const fetchMock = mockProfileApi(CLAUDE_CODE_DETAIL);
     render(<ProfileEditor id="claude-code" />);
