@@ -77,6 +77,16 @@ EOF
 echo "\$*" >> "$sandbox/agent.log"
 exit "\${STUB_AGENT_EXIT:-0}"
 EOF
+  cat > "$sandbox/stubbin/npm" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" >> "$sandbox/npm-args"
+pwd >> "$sandbox/npm-cwd"
+mkdir -p node_modules/.bin node_modules/ctx7
+printf '#!/bin/sh\necho stub ctx7\n' > node_modules/.bin/ctx7
+chmod +x node_modules/.bin/ctx7
+printf '{"version":"%s"}\n' "\$(sed -n 's/.*"ctx7": *"\([^"]*\)".*/\1/p' package.json)" > node_modules/ctx7/package.json
+EOF
+  chmod +x "$sandbox/stubbin/npm"
   chmod +x "$sandbox/stubbin/claude" "$sandbox/stubbin/ollama" "$sandbox/stubbin/pgrep" "$sandbox/stubbin/ps" "$sandbox/stubbin/uname" "$sandbox/stubbin/ollama-agent"
   link_system_tools
   export PATH="$sandbox/stubbin:$sandbox/sysbin"
@@ -193,6 +203,11 @@ check_not "fresh home: no bashrc" test -e "$HOME/.bashrc"
 check_not "fresh home: no kshrc" test -e "$HOME/.kshrc"
 check_not "fresh home: no fish drop-in" test -e "$HOME/.config/fish/conf.d/claude-custom.fish"
 check_not "fresh home: no grep noise on stderr" grep -q 'No such file' "$sandbox/err"
+check_eq "install runs npm ci with scripts off in the ctx7 cache folder" "ci --ignore-scripts --no-audit --no-fund --loglevel=error" "$(cat "$sandbox/npm-args")"
+check_eq "install runs npm in ~/.cache/claude-custom/ctx7" "$HOME/.cache/claude-custom/ctx7" "$(cat "$sandbox/npm-cwd")"
+check_that "install copies the pinned package.json beside the install" cmp -s "$repo/shared/ctx7/package.json" "$HOME/.cache/claude-custom/ctx7/package.json"
+check_that "install copies the lockfile beside the install" cmp -s "$repo/shared/ctx7/package-lock.json" "$HOME/.cache/claude-custom/ctx7/package-lock.json"
+check_that "the ctx7 cache folder is private" test "$(stat -f %Lp "$HOME/.cache/claude-custom" 2>/dev/null || stat -c %a "$HOME/.cache/claude-custom")" = 700
 
 new_sandbox
 make_all_rc_files
@@ -207,8 +222,19 @@ new_sandbox
 make_all_rc_files
 run_capture "$installer" install
 first_hashes="$(hash_home)"
+rm -f "$sandbox/npm-args"
 run_capture "$installer" install
 check_eq "install is idempotent" "$first_hashes" "$(hash_home)"
+check_not "a second install with the pinned version present runs no npm" test -e "$sandbox/npm-args"
+printf '{"version":"0.0.1"}\n' > "$HOME/.cache/claude-custom/ctx7/node_modules/ctx7/package.json"
+run_capture "$installer" install
+check_that "a stale installed ctx7 version reinstalls" test -e "$sandbox/npm-args"
+mv "$sandbox/stubbin/npm" "$sandbox/npm-away"
+rm -rf "$HOME/.cache/claude-custom/ctx7"
+run_capture "$installer" install
+check_eq "install without npm exits 0" 0 "$?"
+check_that "install without npm says what to do" grep -qF 'skip: npm not installed; claude-custom ctx7 needs it: run claude-custom install after installing Node' "$sandbox/err"
+mv "$sandbox/npm-away" "$sandbox/stubbin/npm"
 
 new_sandbox
 printf 'export FOO=1' > "$HOME/.zshrc"
@@ -418,6 +444,7 @@ run_capture "$installer" uninstall
 check_that "round trip zshrc is identical" cmp -s "$HOME/.zshrc" "$sandbox/zshrc.orig"
 check_that "round trip bashrc is identical" cmp -s "$HOME/.bashrc" "$sandbox/bashrc.orig"
 check_not "round trip removes fish drop-in" test -e "$HOME/.config/fish/conf.d/claude-custom.fish"
+check_not "uninstall removes the installed ctx7 CLI" test -e "$HOME/.cache/claude-custom/ctx7"
 check_not "round trip removes ollama link" test -L "$HOME/.local/bin/claude-ollama"
 check_not "round trip removes claude-custom link" test -L "$HOME/.local/bin/claude-custom"
 check_not "round trip removes claude-tools link" test -L "$HOME/.local/bin/claude-tools"
