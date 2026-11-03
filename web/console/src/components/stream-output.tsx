@@ -7,7 +7,7 @@ import {
 } from "@/components/ai-elements/conversation";
 import { cn } from "@/lib/utils";
 
-export type StreamLine = {
+type StreamLine = {
   key: string | number;
   text: string;
   className?: string;
