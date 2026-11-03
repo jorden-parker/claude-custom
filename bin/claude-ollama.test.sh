@@ -89,6 +89,12 @@ echo "\$\$" > "$sandbox/claude-pid"
 echo "\$PPID" > "$sandbox/claude-ppid"
 echo "\${CLAUDE_OLLAMA_RELAUNCH_DIR-unset}" > "$sandbox/relaunch-dir-env"
 for arg; do echo "ARG: \$arg"; done
+previous_arg=
+for arg; do
+  [ "\$previous_arg" != --settings ] || cp "\$arg" "$sandbox/settings-seen" 2>/dev/null || true
+  [ "\$previous_arg" != --settings ] || stat -f '%Lp' "\$arg" > "$sandbox/settings-seen-mode" 2>/dev/null || stat -c '%a' "\$arg" > "$sandbox/settings-seen-mode" 2>/dev/null || true
+  previous_arg=\$arg
+done
 if [ -n "\${CLAUDE_OLLAMA_RELAUNCH_DIR:-}" ]; then
   for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do [ "\$(cat "\$CLAUDE_OLLAMA_RELAUNCH_DIR/claude.pid" 2>/dev/null)" = "\$\$" ] && break; sleep 0.1; done
   cat "\$CLAUDE_OLLAMA_RELAUNCH_DIR/claude.pid" > "$sandbox/pid-file-seen" 2>/dev/null
@@ -1020,7 +1026,7 @@ sleep 1
 check_not "CLAUDE_OLLAMA_INCIDENTS=0 starts no watcher" test -e "$sandbox/watcher-args"
 check_eq "and the session gets no incidents file" "" "$(session_env CLAUDE_OLLAMA_INCIDENTS_FILE)"
 launch_base_url() {
-  jq -r .env.ANTHROPIC_BASE_URL "$(sed -n 's/^ARGS: --settings \([^ ]*\).*/\1/p' "$sandbox/out" | tail -1)"
+  jq -r .env.ANTHROPIC_BASE_URL "$sandbox/settings-seen"
 }
 run_capture env -u CLAUDE_OLLAMA_PROXY "$repo/bin/claude-ollama" 27b -p hi
 proxy_args="$(cat "$sandbox/proxy-args" 2>/dev/null)"
@@ -1154,28 +1160,31 @@ write_fetch_list() {
 
 new_sandbox
 fetch_list="$HOME/.config/claude-custom/fetch-domains"
-fetch_settings_file="$HOME/.claude-ollama/launch-settings.json"
+fetch_settings_file="$sandbox/settings-seen"
+settings_dir="$HOME/.claude-ollama/launch-settings"
 run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "without a fetch list the launch keeps the base tools" grep -qF -- "--tools Bash,Read,Edit,Write,Skill,TaskStop -p hi" "$sandbox/out"
 check_that "without a fetch list the launch keeps the profile settings" grep -qF -- "--settings $repo/ollama/settings.27b.json" "$sandbox/out"
-check_not "without a fetch list no derived settings are written" test -e "$fetch_settings_file"
+check_eq "without a fetch list no derived settings are written" "" "$(ls "$settings_dir")"
 
 new_sandbox
 fetch_list="$HOME/.config/claude-custom/fetch-domains"
-fetch_settings_file="$HOME/.claude-ollama/launch-settings.json"
+fetch_settings_file="$sandbox/settings-seen"
+settings_dir="$HOME/.claude-ollama/launch-settings"
 write_fetch_list '  \nlocalhost\n127.0.0.1\n*\nhttps://x.org/\nexample.com:8080\n'
 run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "a fetch list with only invalid lines keeps the base tools" grep -qF -- "--tools Bash,Read,Edit,Write,Skill,TaskStop -p hi" "$sandbox/out"
-check_not "a fetch list with only invalid lines writes no derived settings" test -e "$fetch_settings_file"
+check_eq "a fetch list with only invalid lines writes no derived settings" "" "$(ls "$settings_dir")"
 check_that "an invalid fetch line says why it is ignored" grep -qxF "claude-ollama: ignoring fetch domain 'localhost' (expected a hostname like docs.python.org)" "$sandbox/err"
 
 new_sandbox
 fetch_list="$HOME/.config/claude-custom/fetch-domains"
-fetch_settings_file="$HOME/.claude-ollama/launch-settings.json"
+fetch_settings_file="$sandbox/settings-seen"
+settings_dir="$HOME/.claude-ollama/launch-settings"
 write_fetch_list '  Docs.Python.org \npkg.go.dev\npkg.go.dev\nbad_host\n'
 run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "a fetch list adds WebFetch to the tools" grep -qF -- "--tools Bash,Read,Edit,Write,Skill,TaskStop,WebFetch -p hi" "$sandbox/out"
-check_that "a fetch list passes the derived settings" grep -qF -- "--settings $fetch_settings_file" "$sandbox/out"
+check_that "a fetch list passes the derived settings" grep -qE -- "--settings $settings_dir/[0-9]+\.json" "$sandbox/out"
 check_that "an invalid fetch line is ignored with a message" grep -qxF "claude-ollama: ignoring fetch domain 'bad_host' (expected a hostname like docs.python.org)" "$sandbox/err"
 check_eq "a fetch list allows WebFetch for exactly the listed hosts" '["mcp__code-search__semantic_search","mcp__repo","mcp__dev__dev_status","mcp__dev__dev_logs","mcp__dev__dev_errors","mcp__dev__dev_deps","mcp__dev__page_check","mcp__dev__page_snapshot","mcp__dev__page_act","Skill(find-docs)","Bash(claude-custom ctx7 *)","WebFetch(domain:docs.python.org)","WebFetch(domain:pkg.go.dev)"]' "$(jq -c .permissions.allow "$fetch_settings_file")"
 check_that "the derived settings lift the bare WebFetch deny" jq -e '.permissions.deny | index("WebFetch") == null' "$fetch_settings_file"
@@ -1185,18 +1194,40 @@ check_eq "the derived settings skip Anthropic's WebFetch preflight" true "$(jq .
 check_eq "the derived settings keep the profile model" "$(jq -r .model "$repo/ollama/settings.27b.json")" "$(jq -r .model "$fetch_settings_file")"
 rm -f "$fetch_list"
 run_capture "$repo/bin/claude-ollama" 27b -p hi
-check_not "removing the fetch list removes the derived settings" test -e "$fetch_settings_file"
+check_not "removing the fetch list stops passing derived settings" grep -qF "$settings_dir" "$sandbox/out"
 check_not "removing the fetch list removes WebFetch from the tools" grep -qF WebFetch "$sandbox/out"
 
 new_sandbox
 mkdir -p "$sandbox/xdg/claude-custom"
 printf 'docs.rs\n' > "$sandbox/xdg/claude-custom/fetch-domains"
 run_capture env XDG_CONFIG_HOME="$sandbox/xdg" "$repo/bin/claude-ollama" 27b -p hi
-check_that "XDG_CONFIG_HOME moves the fetch list" test -e "$HOME/.claude-ollama/launch-settings.json"
+check_that "XDG_CONFIG_HOME moves the fetch list" grep -qF "WebFetch(domain:docs.rs)" "$sandbox/settings-seen"
 
 new_sandbox
 fetch_list="$HOME/.config/claude-custom/fetch-domains"
+settings_dir="$HOME/.claude-ollama/launch-settings"
 write_fetch_list 'docs.python.org\n'
+run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_that "a composed launch names a file per launcher pid" grep -qE -- "--settings $settings_dir/[0-9]+\.json" "$sandbox/out"
+check_eq "the composed settings file is private" 600 "$(cat "$sandbox/settings-seen-mode")"
+check_eq "the launch-settings folder is private" 700 "$(stat -f '%Lp' "$settings_dir" 2>/dev/null || stat -c '%a' "$settings_dir")"
+check_eq "the composed settings file is removed when the launch ends" "" "$(ls "$settings_dir")"
+
+sleep 30 &
+live_pid=$!
+printf '{"live":true}' > "$settings_dir/$live_pid.json"
+printf '{"dead":true}' > "$settings_dir/99999999.json"
+cp "$settings_dir/$live_pid.json" "$sandbox/live-before.json"
+run_capture "$repo/bin/claude-ollama" --print-config 27b
+check_eq "print-config leaves a live launch's settings alone" "$(cat "$sandbox/live-before.json")" "$(cat "$settings_dir/$live_pid.json")"
+check_that "print-config names the base file and its layers" grep -qxF "settings: $repo/ollama/settings.27b.json + fetch-domain" "$sandbox/out"
+check_not "print-config names no file under launch-settings in its settings line" grep -q "^settings: .*launch-settings" "$sandbox/out"
+run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_not "the next launch removes a dead pid's settings file" test -e "$settings_dir/99999999.json"
+check_that "the next launch keeps a live pid's settings file" test -e "$settings_dir/$live_pid.json"
+kill "$live_pid" 2>/dev/null
+wait "$live_pid" 2>/dev/null
+
 run_capture "$repo/bin/claude-ollama" --print-config 27b
 check_that "print-config lists the fetch domains" grep -qxF "fetch domains: docs.python.org" "$sandbox/out"
 check_that "print-config shows WebFetch in the tools" grep -qxF "tools: Bash,Read,Edit,Write,Skill,TaskStop,WebFetch" "$sandbox/out"
@@ -1253,10 +1284,10 @@ export XDG_CONFIG_HOME="$sandbox/xdg"
 profiles="$XDG_CONFIG_HOME/claude-custom/profiles"
 mkdir -p "$profiles"
 printf '%s' '{"tools":{"Glob":"allow"},"mcp":{"dev":false},"env":{"CLAUDE_OLLAMA_TELEMETRY":"1"}}' > "$profiles/ollama-27b.json"
-profile_settings="$HOME/.claude-ollama/launch-settings.json"
+profile_settings="$sandbox/settings-seen"
 run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "a profile adds its allowed tool to --tools" grep -qF -- "--tools Bash,Read,Edit,Write,Skill,TaskStop,Glob -p hi" "$sandbox/out"
-check_that "a profile launches the settings it derives" grep -qF -- "--settings $profile_settings" "$sandbox/out"
+check_that "a profile launches the settings it derives" grep -qE -- "--settings $HOME/.claude-ollama/launch-settings/[0-9]+\.json" "$sandbox/out"
 check_that "the derived settings allow the tool" jq -e '.permissions.allow | index("Glob") != null' "$profile_settings"
 check_that "the derived settings keep the profile model" jq -e '.model == "qwen3.8-27b-cc"' "$profile_settings"
 check_not "a disabled MCP server drops out of --mcp-config" grep -qF '"dev":{' "$sandbox/out"
@@ -1267,14 +1298,14 @@ new_sandbox
 export XDG_CONFIG_HOME="$sandbox/xdg"
 profiles="$XDG_CONFIG_HOME/claude-custom/profiles"
 mkdir -p "$profiles"
-profile_settings="$HOME/.claude-ollama/launch-settings.json"
+profile_settings="$sandbox/settings-seen"
 printf '%s' '{"context":32768}' > "$profiles/ollama-27b.json"
 run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "a context override recreates the model with its num_ctx" grep -qxF "modelfile: PARAMETER num_ctx 32768" "$sandbox/ollama.log"
 check_that "the recreated model builds on the installed one" grep -qxF "modelfile: FROM qwen3.8-27b-cc" "$sandbox/ollama.log"
 check_that "claude-ollama says it recreates with the merged parameters" grep -qF "recreating qwen3.8-27b-cc with num_ctx 32768 num_predict 8192 temperature 0.7 top_k 20 top_p 0.8" "$sandbox/err"
 check_eq "the derived settings carry the override context" 20480 "$(jq -r '.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS' "$profile_settings")"
-check_that "the launch uses the derived settings" grep -qF -- "--settings $profile_settings" "$sandbox/out"
+check_that "the launch uses the derived settings" grep -qE -- "--settings $HOME/.claude-ollama/launch-settings/[0-9]+\.json" "$sandbox/out"
 
 new_sandbox
 export XDG_CONFIG_HOME="$sandbox/xdg"
@@ -1407,8 +1438,8 @@ STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture env STUB_CLAUDE_LA
 check_eq "a ladder file starts claude a second time" 2 "$(grep -c '^ARGS:' "$sandbox/out")"
 check_that "the ladder relaunch names the rung and the reason" grep -qxF "claude-ollama: ladder context-down: 3 truncated prompts within 10 minutes" "$sandbox/err"
 ladder_settings="$(settings_arg | tail -n 1)"
-check_eq "the second run uses the ladder settings" "$HOME/.claude-ollama/launch-settings.json" "$ladder_settings"
-check_eq "the ladder settings lower the context budget and keep the headroom" 20480 "$(jq -r .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS "$ladder_settings")"
+check_that "the second run uses a per-launch settings file" contains "$ladder_settings" "$HOME/.claude-ollama/launch-settings/"
+check_eq "the ladder settings lower the context budget and keep the headroom" 20480 "$(jq -r .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS "$sandbox/settings-seen")"
 check_that "the second run continues the conversation without the prompt" grep -qF -- "--tools Bash,Read,Edit,Write,Skill,TaskStop --continue" "$sandbox/out"
 check_not "the second run drops the prompt" grep -qF -- "--continue finish the tests" "$sandbox/out"
 check_eq "the lease records the rung after the relaunch" context-down "$(tail -n 1 "$sandbox/lease-seen" | jq -r .rung)"
@@ -1460,8 +1491,8 @@ rm -f "$sandbox/lease-seen" "$sandbox/ladder-args"
 STUB_MEMSIZE=25276800000 STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "a launch short by more than the embedding model steps to embeddings-off first" grep -qxF "claude-ollama: ladder embeddings-off: does not fit with the embedding model (4.1 GiB short)" "$sandbox/err"
 check_that "then to the next lower context" grep -qxF "claude-ollama: ladder context-down: does not fit at num_ctx 65536 (3.5 GiB short); starting at 32768" "$sandbox/err"
-check_eq "the context-down start uses the ladder settings" "$HOME/.claude-ollama/launch-settings.json" "$(settings_arg)"
-check_eq "the ladder settings keep the headroom below the lower context" 20480 "$(jq -r .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS "$HOME/.claude-ollama/launch-settings.json")"
+check_that "the context-down start uses a per-launch settings file" contains "$(settings_arg)" "$HOME/.claude-ollama/launch-settings/"
+check_eq "the ladder settings keep the headroom below the lower context" 20480 "$(jq -r .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS "$sandbox/settings-seen")"
 check_eq "the lease records the context-down rung" context-down "$(last_session_lease | jq -r .rung)"
 check_eq "the lease records the lower num_ctx" 32768 "$(last_session_lease | jq -r .num_ctx)"
 ladder_args="$(for _ in $(seq 25); do [ -s "$sandbox/ladder-args" ] && break; sleep 0.2; done; cat "$sandbox/ladder-args" 2>/dev/null)"
@@ -1488,7 +1519,7 @@ check_eq "the recovered rung turns the search embeddings back on" 1 "$(cat "$san
 check_not "the recovery removes embed-off" grep -q "embed-off" <<< "$(tail -n 1 "$sandbox/relaunch-entries")"
 check_that "the recovery is recorded as an incident" grep -q '"cause": "recovered", "detail": "embeddings-off: 20 minutes without an incident and the memory fits", "tokens": null, "rule": "ladder/up"' "$(cat "$incidents_dir/current")"
 check_eq "the lease keeps the context-down rung still in effect" context-down "$(last_session_lease | jq -r .rung)"
-check_eq "the third run keeps the ladder settings" "$HOME/.claude-ollama/launch-settings.json" "$(settings_arg | tail -n 1)"
+check_eq "the third run keeps the ladder settings file" "$(settings_arg | sed -n 2p)" "$(settings_arg | tail -n 1)"
 check_that "the third run resumes the handoff" grep -qF -- "--tools Bash,Read,Edit,Write,Skill,TaskStop /handoff go on" "$sandbox/out"
 
 rm -f "$sandbox/lease-seen" "$sandbox/laddered" "$sandbox/laddered-up" "$sandbox/relaunch-entries"

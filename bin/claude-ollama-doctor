@@ -185,6 +185,7 @@ check_leases() {
 
 doctor() {
   local status=0
+  use_throwaway_settings
   compose_launch_settings
   report ok "jq on PATH"
   check_node

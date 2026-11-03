@@ -302,6 +302,7 @@ end_launch() {
   stop_heartbeat
   release_session_lease
   remove_relaunch_dir
+  remove_composed_settings
 }
 
 leased_indexer() {
@@ -748,7 +749,9 @@ print_config() {
   echo "max context tokens: $(profile_context_tokens)"
   echo "max output tokens: $(profile_output_tokens)"
   echo "context headroom: $(context_headroom) (reserve $(summary_reserve))"
-  echo "settings: $launch_settings"
+  local layer_labels
+  layer_labels="$(settings_layer_labels)"
+  echo "settings: $settings_file${layer_labels:+ + $layer_labels}"
   echo "fetch domains: $(fetch_domains_label)"
   echo "profile: $profile_file"
   echo "overrides: $(profile_summary)"
@@ -1049,6 +1052,7 @@ case "$mode" in
   print-config)
     [ "$harness" != qwen ] || exec "$qwen_bin" --print-config "$size"
     launch_fetch_domains="$(fetch_domains)"
+    use_throwaway_settings
     compose_launch_settings
     print_config
     exit 0 ;;
@@ -1095,6 +1099,7 @@ if [ "$harness" = qwen ]; then
   exec "$qwen_bin" launch "$size" "$@"
 fi
 launch_fetch_domains="$(fetch_domains)"
+prepare_launch_settings_dir
 compose_launch_settings
 start_messages_proxy
 write_append_prompt
