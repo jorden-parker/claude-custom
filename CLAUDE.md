@@ -518,13 +518,14 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
 - `shared/hooks/tool-nudge.py` is wired only in the Ollama profiles
   (UserPromptSubmit resets its per-session state under
   `${CLAUDE_CONFIG_DIR:-~/.claude}/cache/tool-nudge/`). Text searches (`grep`,
-  `rg`, `find`, `git grep`) are never gated. As PreToolUse on Read, Skill and
-  Bash it denies reading, listing or searching inside `node_modules` until the
-  `find-docs` skill or a `ctx7` command ran in the turn (Next's generated
-  `AGENTS.md` sends models to `node_modules/next/dist/docs` otherwise); a
-  package's own `node_modules/<name>/package.json` is an install check, not
-  docs, and always passes. The profiles allow `Skill(find-docs)` without a
-  prompt; `bin/check-config` checks it.
+  `rg`, `find`, `git grep`) and every other Bash command (`ls -la node_modules`
+  included) are never gated. As PreToolUse on Read it denies a Read inside
+  `node_modules` until the `find-docs` skill or a `ctx7` Bash command ran in the
+  turn (Next's generated `AGENTS.md` sends models to
+  `node_modules/next/dist/docs` otherwise); a package's own
+  `node_modules/<name>/package.json` is an install check, not docs, and always
+  passes. The profiles allow `Skill(find-docs)` without a prompt;
+  `bin/check-config` checks it.
 - `shared/hooks/tdd-guard.py` enforces the TDD rule in both overlays. As
   PreToolUse on Edit, Write and MultiEdit it denies an edit to a code file (by
   suffix, or a shebang) that is not itself a test until, in this session, a test

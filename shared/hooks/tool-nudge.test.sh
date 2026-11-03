@@ -63,36 +63,35 @@ tool_event() {
 tool_denied() { mentions "$(tool_event "$1" "$2")" '"permissionDecision": "deny"'; }
 
 event UserPromptSubmit >/dev/null
-node_modules_deny="$(pre Bash 'grep -rn useActionState node_modules/next/dist')"
-expect_eq "a search inside node_modules is denied before find-docs" yes "$(mentions "$node_modules_deny" '^deny: ')"
+node_modules_deny="$(tool_event Read '{"file_path":"/p/web/node_modules/next/dist/docs/a.md"}')"
+expect_eq "Read of a node_modules file is denied before find-docs" yes "$(mentions "$node_modules_deny" '"permissionDecision": "deny"')"
 expect_eq "the node_modules deny names find-docs" yes "$(mentions "$node_modules_deny" 'find-docs')"
 expect_eq "the node_modules deny names dev_deps for install checks" yes "$(mentions "$node_modules_deny" 'mcp__dev__dev_deps')"
-expect_eq "reading node_modules docs with cat is denied" yes "$(denied 'cat node_modules/next/dist/docs/index.md')"
-expect_eq "listing node_modules is denied" yes "$(denied 'ls node_modules/next/dist/docs')"
-expect_eq "find in node_modules is denied" yes "$(denied 'find node_modules/next -type f')"
-expect_eq "Read of a node_modules file is denied" yes \
-  "$(tool_denied Read '{"file_path":"/p/web/node_modules/next/dist/docs/a.md"}')"
+expect_eq "a Bash search inside node_modules passes" "" "$(pre Bash 'grep -rn useActionState node_modules/next/dist')"
+expect_eq "cat inside node_modules passes" "" "$(pre Bash 'cat node_modules/next/dist/docs/index.md')"
+expect_eq "listing node_modules passes" "" "$(pre Bash 'ls -la node_modules')"
+expect_eq "find in node_modules passes" "" "$(pre Bash 'find node_modules/next -type f')"
 expect_eq "Read of a project file passes" no "$(tool_denied Read '{"file_path":"/p/src/app.ts"}')"
 expect_eq "removing node_modules is not a lookup" "" "$(pre Bash 'rm -rf node_modules')"
 expect_eq "a package's own package.json is an install check, not docs" "" "$(pre Bash 'cat node_modules/zod/package.json')"
 expect_eq "a scoped package's package.json too" "" "$(pre Bash 'jq .version web/console/node_modules/@types/node/package.json')"
 expect_eq "Read of a package's package.json passes" no \
   "$(tool_denied Read '{"file_path":"/p/web/node_modules/zod/package.json"}')"
-expect_eq "a package.json deeper inside a package is still docs" yes "$(denied 'cat node_modules/next/dist/package.json')"
+expect_eq "a package.json deeper inside a package is still docs" yes "$(tool_denied Read '{"file_path":"/p/web/node_modules/next/dist/package.json"}')"
 expect_eq "a search outside node_modules passes" "" "$(pre Bash 'grep -rn foo src')"
 expect_eq "another skill does not unlock node_modules" no "$(tool_denied Skill '{"skill":"tdd"}')"
-expect_eq "still locked after another skill" yes "$(denied 'cat node_modules/next/dist/docs/index.md')"
+expect_eq "still locked after another skill" yes "$(tool_denied Read '{"file_path":"/p/web/node_modules/next/dist/docs/a.md"}')"
 expect_eq "the find-docs skill passes" no "$(tool_denied Skill '{"skill":"find-docs"}')"
-expect_eq "find-docs unlocks node_modules for the turn" "" "$(pre Bash 'cat node_modules/next/package.json')"
+expect_eq "find-docs unlocks node_modules for the turn" no "$(tool_denied Read '{"file_path":"/p/web/node_modules/next/dist/docs/a.md"}')"
 
 event UserPromptSubmit >/dev/null
-expect_eq "a new prompt locks node_modules again" yes "$(denied 'cat node_modules/next/dist/docs/index.md')"
+expect_eq "a new prompt locks node_modules again" yes "$(tool_denied Read '{"file_path":"/p/web/node_modules/next/dist/docs/a.md"}')"
 expect_eq "a ctx7 lookup passes" "" "$(pre Bash 'npx ctx7@0.8.2 library next "server actions" | head -80')"
 expect_eq "a wrapped ctx7 lookup passes" "" "$(pre Bash 'claude-custom ctx7 library next "server actions"')"
-expect_eq "a ctx7 lookup unlocks node_modules" "" "$(pre Bash 'ls node_modules/next/dist/docs')"
+expect_eq "a ctx7 lookup unlocks node_modules" no "$(tool_denied Read '{"file_path":"/p/web/node_modules/next/dist/docs/a.md"}')"
 
 export CLAUDE_CONFIG_DIR="$sandbox/session-config"
-pre Bash 'cat node_modules/next/dist/docs/index.md' >/dev/null
+tool_event Read '{"file_path":"/p/web/node_modules/next/dist/docs/a.md"}' >/dev/null
 expect_eq "state follows CLAUDE_CONFIG_DIR" yes \
   "$([ -f "$CLAUDE_CONFIG_DIR/cache/tool-nudge/s1.json" ] && echo yes || echo no)"
 unset CLAUDE_CONFIG_DIR
@@ -101,7 +100,7 @@ event UserPromptSubmit >/dev/null
 telemetry_log="$sandbox/telemetry.jsonl"
 
 telemetry_for() {
-  printf '{"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":%s}}' \
+  printf '{"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"Read","tool_input":{"file_path":%s}}' \
     "$(printf '%s' "$1" | python3 -c 'import json,sys;print(json.dumps(sys.stdin.read()))')" \
     | CLAUDE_TOOL_TELEMETRY="$telemetry_log" python3 "$hook" >/dev/null
 }
@@ -117,21 +116,21 @@ expect_recorded_lines() {
   expect_eq "telemetry lines for: $command" "$want" "$(recorded_lines)"
 }
 
-expect_recorded_lines 1 'cat node_modules/next/dist/docs/index.md'
-expect_recorded_lines 0 'ls -la'
+expect_recorded_lines 1 '/p/node_modules/next/dist/docs/index.md'
+expect_recorded_lines 0 '/p/src/app.ts'
 rm -f "$telemetry_log"
-telemetry_for 'cat node_modules/next/dist/docs/index.md'
+telemetry_for '/p/node_modules/next/dist/docs/index.md'
 expect_eq "denial line names the kind and hook" yes "$(mentions "$(cat "$telemetry_log")" '"kind": "deny", "hook": "tool-nudge"')"
 rm -f "$telemetry_log"
-printf '{"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"cat node_modules/next/dist/docs/index.md"}}' \
+printf '{"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"Read","tool_input":{"file_path":"/p/node_modules/next/dist/docs/index.md"}}' \
   | env -u CLAUDE_TOOL_TELEMETRY python3 "$hook" >/dev/null
 expect_eq "nothing is recorded when CLAUDE_TOOL_TELEMETRY is unset" no "$([ -e "$telemetry_log" ] && echo yes || echo no)"
 
 printf '{"session_id":"s1","hook_event_name":"UserPromptSubmit"}' | python3 "$(dirname "$0")/friction_budget.py"
 event UserPromptSubmit >/dev/null
 rm -f "$telemetry_log"
-for _ in 1 2 3; do telemetry_for 'cat node_modules/next/dist/docs/a.md'; done
-fourth_strike="$(printf '{"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"cat node_modules/next/dist/docs/b.md"}}' | CLAUDE_TOOL_TELEMETRY="$telemetry_log" python3 "$hook")"
+for _ in 1 2 3; do telemetry_for '/p/node_modules/next/dist/docs/a.md'; done
+fourth_strike="$(printf '{"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"Read","tool_input":{"file_path":"/p/node_modules/next/dist/docs/a.md"}}' | CLAUDE_TOOL_TELEMETRY="$telemetry_log" python3 "$hook")"
 if ! grep -qF '"permissionDecision": "deny"' <<<"$fourth_strike" || ! grep -qF 'call Skill find-docs once, then open node_modules' <<<"$fourth_strike"; then
   echo "FAIL: the fourth near-identical denial is a plan reset naming the alternative"
   failures=$((failures + 1))
@@ -142,7 +141,7 @@ if ! grep -qF '"kind": "friction", "hook": "tool-nudge"' "$telemetry_log"; then
 fi
 
 mkdir -p "$sandbox/as-directory"
-blocked_output="$(printf '%s' '{"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"cat node_modules/next/dist/docs/index.md"}}' | CLAUDE_TOOL_TELEMETRY="$sandbox/as-directory" python3 "$hook")"
+blocked_output="$(printf '%s' '{"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"Read","tool_input":{"file_path":"/p/node_modules/next/dist/docs/index.md"}}' | CLAUDE_TOOL_TELEMETRY="$sandbox/as-directory" python3 "$hook")"
 blocked_status=$?
 if ! grep -qF '"permissionDecision": "deny"' <<<"$blocked_output" || [ "$blocked_status" -ne 0 ]; then
   echo "FAIL: a telemetry path that cannot be written still denies, with exit 0"

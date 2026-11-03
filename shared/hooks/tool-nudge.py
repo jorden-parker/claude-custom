@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import json
 import os
-import re
 import shlex
 import sys
 from pathlib import Path
@@ -9,11 +8,7 @@ from pathlib import Path
 from friction_budget import deny_reason
 from hook_telemetry import record_denial
 
-TEXT_SEARCH_COMMANDS = {"grep", "rg", "ag", "ack"}
-FIND_NAME_FILTERS = {"-name", "-iname", "-path", "-ipath", "-regex", "-iregex", "-wholename", "-iwholename"}
-COMMAND_SEPARATOR = re.compile(r"&&|\|\||[;&\n()]")
 DOCS_SKILL = "find-docs"
-FILE_LOOKUP_COMMANDS = {"cat", "head", "tail", "less", "more", "sed", "awk", "ls", "tree", "find", "jq"}
 DOCS_FIRST_DENY = (
     "node_modules refused: to check whether a package is installed, call mcp__dev__dev_deps "
     "(packages: names) or Read node_modules/<name>/package.json; to install, call mcp__dev__dev_install. "
@@ -54,26 +49,8 @@ def words_of(text):
         return text.split()
 
 
-def pipeline_heads(command):
-    return [words_of(part.split("|")[0]) for part in COMMAND_SEPARATOR.split(command)]
-
-
-def is_find_by_name(words):
-    return words[0] == "find" and any(word in FIND_NAME_FILTERS for word in words[1:])
-
-
-def is_search_words(words):
-    if not words:
-        return False
-    return words[0] in TEXT_SEARCH_COMMANDS or words[:2] == ["git", "grep"] or is_find_by_name(words)
-
-
 def runs_docs_lookup(command):
     return any(word.startswith("ctx7") for word in words_of(command))
-
-
-def is_file_lookup(words):
-    return bool(words) and (words[0] in FILE_LOOKUP_COMMANDS or is_search_words(words))
 
 
 def is_package_manifest(path):
@@ -88,16 +65,8 @@ def is_docs_path(word):
     return "node_modules" in word and not is_package_manifest(word)
 
 
-def reads_node_modules(command):
-    return any(is_file_lookup(words) and any(is_docs_path(word) for word in words[1:]) for words in pipeline_heads(command))
-
-
 def opens_node_modules(tool_name, tool_input):
-    if tool_name == "Read":
-        return is_docs_path(tool_input.get("file_path", ""))
-    if tool_name == "Bash":
-        return reads_node_modules(tool_input.get("command", ""))
-    return False
+    return tool_name == "Read" and is_docs_path(tool_input.get("file_path", ""))
 
 
 def looks_up_docs(tool_name, tool_input):

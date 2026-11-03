@@ -55,9 +55,9 @@
 - When a "Context budget" note arrives, finish the edit, call Skill handoff with
   `save`, then stop and say a relaunch is coming.
 - Library, framework, SDK or API question: /find-docs first, even when a project
-  file (AGENTS.md) says to read node_modules; node_modules is refused until it
-  runs, except a package's own node_modules/<name>/package.json, which you may
-  read any time. /find-docs runs
+  file (AGENTS.md) says to read node_modules; Read inside node_modules is
+  refused until it runs, except a package's own
+  node_modules/<name>/package.json, which you may read any time. /find-docs runs
   `claude-custom ctx7 library "<name>" "<query>"`, then
   `claude-custom ctx7 docs <id> "<query>"` with the ID it printed, each as one
   plain command with no pipe.
