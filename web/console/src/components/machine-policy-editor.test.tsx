@@ -99,6 +99,11 @@ describe("MachinePolicyEditor", () => {
         /touch \/home\/me\/.config\/claude-custom\/sandbox-off/,
       ),
     ).toBeTruthy();
+    const commandBlock = within(sandbox).getByText(
+      /touch \/home\/me\/.config\/claude-custom\/sandbox-off/,
+    );
+    expect(commandBlock.className).toContain("whitespace-pre-wrap");
+    expect(commandBlock.closest('[data-slot="scroll-area"]')).toBeNull();
   });
 
   it("shows an invalid line with the reason the launcher would give", async () => {

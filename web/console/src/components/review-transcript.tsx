@@ -1,6 +1,5 @@
 import { ChevronDownIcon } from "lucide-react";
 import type { ReactNode } from "react";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import {
   Collapsible,
@@ -102,9 +101,7 @@ function PromptCollapsible({ label, text }: { label: string; text: string }) {
         {label}
       </CollapsibleTrigger>
       <CollapsibleContent className="pt-2" keepMounted>
-        <ScrollArea viewportClassName="max-h-96">
-          <pre className={PLAIN_TEXT_CLASSES}>{text}</pre>
-        </ScrollArea>
+        <pre className={PLAIN_TEXT_CLASSES}>{text}</pre>
       </CollapsibleContent>
     </Collapsible>
   );
@@ -120,12 +117,10 @@ function ReplyText({ attempt }: { attempt: TranscriptAttempt }) {
     );
   }
   return (
-    <ScrollArea viewportClassName="max-h-96">
-      <pre className={PLAIN_TEXT_CLASSES}>
-        {attempt.reply}
-        {attempt.done ? null : <Caret />}
-      </pre>
-    </ScrollArea>
+    <pre className={PLAIN_TEXT_CLASSES}>
+      {attempt.reply}
+      {attempt.done ? null : <Caret />}
+    </pre>
   );
 }
 

@@ -123,8 +123,17 @@ describe("HistoryView", () => {
       await screen.findByRole("button", { name: /settings.*console/ }),
     );
 
-    expect(await screen.findByText('"deny": ["WebFetch"]')).toBeTruthy();
+    const diffLine = await screen.findByText('"deny": ["WebFetch"]');
     expect(screen.getByText("{}")).toBeTruthy();
+    expect(diffLine.className).toContain("whitespace-pre-wrap");
+    expect(diffLine.closest('[data-slot="scroll-area"]')).toBeNull();
+    for (
+      let node: Element | null = diffLine;
+      node;
+      node = node.parentElement
+    ) {
+      expect(node.className).not.toContain("max-h-");
+    }
   });
 
   it("asks for confirmation before it posts a restore", async () => {

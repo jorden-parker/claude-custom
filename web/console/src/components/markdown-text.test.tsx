@@ -47,4 +47,13 @@ describe("MarkdownText", () => {
 
     expect(markup).toContain("<h2");
   });
+
+  it("wraps a fenced code block instead of scrolling it sideways", () => {
+    const markup = renderToStaticMarkup(
+      <MarkdownText>{"```\nlong code line\n```"}</MarkdownText>,
+    );
+
+    expect(markup).toContain("[&amp;_pre]:whitespace-pre-wrap");
+    expect(markup).not.toContain("[&amp;_pre]:overflow-x-auto");
+  });
 });
