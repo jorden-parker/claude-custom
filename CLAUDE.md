@@ -648,11 +648,12 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `ollama/hooks.extra.json`) it resets that file each turn; without that reset
   (the personal overlay) the file never exists and every denial stays plain.
   `CLAUDE_CUSTOM_FRICTION=0` turns it off. `shared/hooks/repeat-call-cache.py`
-  (Ollama-only, PreToolUse and PostToolUse on Read, `mcp__repo__git_status` and
-  `mcp__code-search__semantic_search`) keeps a per-turn result cache in the same
-  file: after a call it records the call number, the output's sha256 and size,
-  and an invalidation stamp (the file's mtime for Read, `HEAD` plus the index
-  mtime for `git_status`, none for a search); an error result (`Error` text or
+  (Ollama-only, PreToolUse and PostToolUse on Read and
+  `mcp__code-search__semantic_search`; `git_status` is never cached, since no
+  cheap stamp tracks edits to tracked or untracked files) keeps a per-turn
+  result cache in the same file: after a call it records the call number, the
+  output's sha256 and size, and an invalidation stamp (the file's mtime for
+  Read, none for a search); an error result (`Error` text or
   an error flag) is never recorded. Before an exact same-turn repeat whose stamp
   is unchanged it denies with
   `same result as call #N this turn, unchanged since; use it` and writes a
