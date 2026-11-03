@@ -22,7 +22,6 @@ import { diffLines } from "diff";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { HistoryChange, HistoryEntry } from "@/lib/history";
-import { ScrollArea } from "@/components/ui/scroll-area";
 
 export function HistoryView() {
   const [entries, setEntries] = useState<HistoryEntry[] | null>(null);
@@ -286,18 +285,18 @@ function DiffView({ before, after }: { before: string | null; after: string }) {
       .map((text) => ({ text, className: diffClass(part) })),
   );
   return (
-    <ScrollArea className="rounded-md border" viewportClassName="max-h-96">
+    <div className="rounded-md border">
       <pre className="max-w-full p-3 font-mono text-xs">
         {lines.map((line, index) => (
           <span
             key={index}
-            className={`block whitespace-pre ${line.className}`}
+            className={`block whitespace-pre-wrap [overflow-wrap:anywhere] ${line.className}`}
           >
             {line.text || " "}
           </span>
         ))}
       </pre>
-    </ScrollArea>
+    </div>
   );
 }
 

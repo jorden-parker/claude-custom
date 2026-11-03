@@ -49,7 +49,6 @@ import { tabFromHash, tabFromValue, type ReviewTab } from "@/lib/review-tab";
 import { verdictClass } from "@/lib/verdict-style";
 import { InlineMarkdown, MarkdownText } from "./markdown-text";
 import { ReviewTranscript } from "./review-transcript";
-import { ScrollArea } from "@/components/ui/scroll-area";
 
 type ReviewBodyProps = {
   state: ReviewState;
@@ -266,14 +265,11 @@ function FileTask({
             <p className="text-xs text-muted-foreground">
               retried: the answer was not a JSON array
             </p>
-            <ScrollArea
-              className="rounded bg-muted"
-              viewportClassName="max-h-48"
-            >
+            <div className="rounded bg-muted">
               <pre className="max-w-full whitespace-pre-wrap break-words p-2 font-mono text-xs text-muted-foreground">
                 {reply}
               </pre>
-            </ScrollArea>
+            </div>
           </div>
         ))}
         {file.check ? <CheckLine check={file.check} /> : null}

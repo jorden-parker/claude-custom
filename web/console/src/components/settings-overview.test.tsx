@@ -43,7 +43,7 @@ const jsonResponse = (body: unknown, status = 200) =>
   });
 
 function rowFor(key: string) {
-  return within(screen.getByRole("row", { name: new RegExp(`^${key}\\b`) }));
+  return within(document.getElementById(key)!);
 }
 
 describe("SettingsOverview", () => {
@@ -64,8 +64,7 @@ describe("SettingsOverview", () => {
     ).not.toBeNull();
     const lease = rowFor("CLAUDE_OLLAMA_LEASE");
     expect(lease.getAllByRole("cell").map((cell) => cell.textContent)).toEqual([
-      "CLAUDE_OLLAMA_LEASE",
-      "Hold an Ollama residency lease and heartbeat",
+      "Hold an Ollama residency lease and heartbeatCLAUDE_OLLAMA_LEASE",
       "on",
       "n/a",
       "off",
@@ -76,8 +75,7 @@ describe("SettingsOverview", () => {
         .getAllByRole("cell")
         .map((cell) => cell.textContent),
     ).toEqual([
-      "CLAUDE_OLLAMA_LEASE_HEARTBEAT",
-      "Seconds between keep-alive heartbeats",
+      "Seconds between keep-alive heartbeatsCLAUDE_OLLAMA_LEASE_HEARTBEAT",
       "120",
       "n/a",
       "60",
@@ -88,8 +86,7 @@ describe("SettingsOverview", () => {
         .getAllByRole("cell")
         .map((cell) => cell.textContent),
     ).toEqual([
-      "CLAUDE_OLLAMA_TEST_AFTER_EDIT",
-      "After each edit: suggest the test, or run it",
+      "After each edit: suggest the test, or run itCLAUDE_OLLAMA_TEST_AFTER_EDIT",
       "suggest",
       "n/a",
       "off",
@@ -100,8 +97,7 @@ describe("SettingsOverview", () => {
         .getAllByRole("cell")
         .map((cell) => cell.textContent),
     ).toEqual([
-      "CLAUDE_CUSTOM_FRICTION",
-      "Reset a looping guard after three identical denials",
+      "Reset a looping guard after three identical denialsCLAUDE_CUSTOM_FRICTION",
       "on",
       "default",
       "default",
@@ -112,8 +108,7 @@ describe("SettingsOverview", () => {
       .getAllByRole("columnheader")
       .map((header) => header.textContent);
     expect(headers).toEqual([
-      "Key",
-      "Label",
+      "Switch",
       "Default",
       "Claude Code",
       "Ollama 27b",
@@ -131,9 +126,16 @@ describe("SettingsOverview", () => {
     ).toBe("/diagnose");
     expect(
       screen
-        .getByRole("row", { name: /^CLAUDE_OLLAMA_PROXY_RECORD\b/ })
+        .getByRole("row", { name: /CLAUDE_OLLAMA_PROXY_RECORD/ })
         .getAttribute("id"),
     ).toBe("CLAUDE_OLLAMA_PROXY_RECORD");
+    const leaseKey = within(document.getElementById("CLAUDE_OLLAMA_LEASE")!)
+      .getByText("CLAUDE_OLLAMA_LEASE");
+    expect(leaseKey.className).toContain("font-mono");
+    expect(leaseKey.className).toContain("[overflow-wrap:anywhere]");
+    for (const header of screen.getAllByRole("columnheader")) {
+      expect(header.className).toContain("whitespace-normal");
+    }
     expect(
       screen.getAllByRole("row", {
         name: /^(Prompt and context|Guards|Ollama residency|Diagnostics|Browser)$/,

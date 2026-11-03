@@ -127,6 +127,7 @@ describe("ProfileEditor", () => {
     await screen.findByText("Fetch a web page");
     const tabBar = screen.getByRole("tablist");
     expect(tabBar.className).toContain("overflow-x-auto");
+    expect(tabBar.className).toContain("overflow-y-hidden");
     expect(tabBar.className).toContain("max-w-full");
   });
 

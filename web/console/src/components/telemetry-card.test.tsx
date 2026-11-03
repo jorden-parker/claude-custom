@@ -14,5 +14,8 @@ describe("TelemetryCard", () => {
     const markup = renderToStaticMarkup(<TelemetryCard report={{ configured: true, output: "Bash 3 calls" }} />);
     expect(markup).toContain("<pre");
     expect(markup).toContain("Bash 3 calls");
+    expect(markup).toContain("whitespace-pre-wrap");
+    expect(markup).not.toContain("scroll-area");
+    expect(markup).not.toContain("max-h-");
   });
 });

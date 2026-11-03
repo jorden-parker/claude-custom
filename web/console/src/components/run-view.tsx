@@ -57,7 +57,7 @@ export function RunView({ id }: RunViewProps) {
       {isChecklistRun(state) ? (
         <ChecklistOutput state={state} />
       ) : (
-        <RunOutputBox lines={state.lines} />
+        <RunOutputBox lines={state.lines} live={state.ended === null} />
       )}
       {state.ended === null ? null : (
         <EndBanner status={status} code={state.ended.code} />
@@ -104,9 +104,9 @@ function RunHeader({
 }) {
   return (
     <header className="flex flex-wrap items-center gap-3">
-      <h1 className="min-w-0 break-words text-xl font-semibold">
+      <h2 className="min-w-0 break-words text-xl font-semibold">
         {label || id}
-      </h1>
+      </h2>
       <Badge variant="outline" className={runStatusTextClass(status)}>
         {runStatusLabel(status)}
       </Badge>
@@ -130,9 +130,16 @@ function RunHeader({
   );
 }
 
-export function RunOutputBox({ lines }: { lines: RunState["lines"] }) {
+export function RunOutputBox({
+  lines,
+  live,
+}: {
+  lines: RunState["lines"];
+  live: boolean;
+}) {
   return (
     <StreamOutput
+      live={live}
       lines={lines.map((line, index) => ({
         key: index,
         text: line.text,

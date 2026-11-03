@@ -85,6 +85,7 @@ describe("LogView", () => {
     await screen.findByText("following /var/log/ollama.log");
     const tabBar = screen.getByRole("tablist");
     expect(tabBar.className).toContain("overflow-x-auto");
+    expect(tabBar.className).toContain("overflow-y-hidden");
     expect(tabBar.className).toContain("max-w-full");
   });
 
@@ -247,6 +248,11 @@ describe("LogView", () => {
       "bash",
       "read_file",
     ]);
+    const log = screen.getByRole("log");
+    expect(
+      ledger.compareDocumentPosition(log) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(log.className).toContain("max-h-[calc(100dvh-6rem)]");
   });
 
   it("shows why the launcher log is missing", async () => {

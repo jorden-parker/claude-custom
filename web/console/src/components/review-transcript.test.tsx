@@ -34,6 +34,14 @@ function render(events: Parameters<typeof reduceEvents>[0]) {
   );
 }
 
+function expectNotCapped(element: Element | null) {
+  expect(element).not.toBeNull();
+  expect(element!.closest('[data-slot="scroll-area"]')).toBeNull();
+  for (let node: Element | null = element; node; node = node.parentElement) {
+    expect(node.className).not.toContain("max-h-");
+  }
+}
+
 describe("ReviewTranscript", () => {
   it("shows an empty state for a log with no transcript", () => {
     const markup = render([]);
@@ -56,14 +64,13 @@ describe("ReviewTranscript", () => {
     expect(markup).toContain("Model reply");
   });
 
-  it("scrolls the reply inside a scroll area", () => {
+  it("shows the prompt and the reply at full height", () => {
     const container = document.createElement("div");
     container.innerHTML = render([...promptEvents("user"), doneEvent]);
 
-    const replyBlock = container
-      .querySelector("pre")
-      ?.closest("[data-slot=scroll-area]");
-    expect(replyBlock).not.toBeNull();
+    const blocks = container.querySelectorAll("pre");
+    expect(blocks.length).toBeGreaterThan(1);
+    blocks.forEach(expectNotCapped);
   });
 
   it("keeps a reply with markdown syntax as literal text", () => {

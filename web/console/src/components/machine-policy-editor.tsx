@@ -7,7 +7,6 @@ import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { levelBoxClass } from "@/lib/level-style";
 import type { InvalidLine, PolicyFile } from "@/lib/machine-policy-rules";
-import { ScrollArea } from "@/components/ui/scroll-area";
 
 type PolicyFileState = {
   path: string;
@@ -260,9 +259,11 @@ function SandboxOffCard({ state }: { state: SandboxOffState }) {
         Turn it off with touch, back on with rm. The console does not create or
         delete this file.
       </p>
-      <ScrollArea className="rounded-md bg-muted">
-        <pre className="max-w-full p-3 text-sm">{commands}</pre>
-      </ScrollArea>
+      <div className="rounded-md bg-muted">
+        <pre className="max-w-full whitespace-pre-wrap p-3 text-sm [overflow-wrap:anywhere]">
+          {commands}
+        </pre>
+      </div>
     </section>
   );
 }

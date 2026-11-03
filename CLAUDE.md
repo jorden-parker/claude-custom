@@ -457,19 +457,22 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `~/.config/context7` (a `ctx7 login` or `CONTEXT7_API_KEY` raises the quota);
   the Qwen Seatbelt profile still hides that folder. An exclusion applies only
   when every segment of the command line matches, so the skill runs it as one
-  plain command with no pipe. Because it runs unsandboxed, the wrapper never
-  lets `npx` resolve `ctx7` from the project or the sandbox's npm cache, which
-  the session can write: it runs from `$HOME/.cache/claude-custom/ctx7` (never
-  an environment variable; no sandbox may write it) with `--prefix` and
-  `--cache` pinned there, and where that folder cannot be written (under
-  Seatbelt, or inside the sandbox) it runs from a fresh temp folder as
-  `--prefix` instead, never the working folder. Claude Code itself keeps the
+  plain command with no pipe. Because it runs unsandboxed, a session never runs
+  npm: `claude-custom install` installs the CLI once from the committed lockfile
+  `shared/ctx7/package-lock.json` with `npm ci --ignore-scripts` into
+  `$HOME/.cache/claude-custom/ctx7` (never an environment variable; no sandbox
+  may write it), and `claude-custom ctx7` execs that binary under an environment
+  allowlist (`PATH`, `HOME`, the proxy and CA variables, `CONTEXT7_API_KEY`), so
+  no registry credential reaches the process, with its stderr still passed
+  through `redact_secrets`. A missing or stale install is refused with one line
+  naming `claude-custom install`. Claude Code itself keeps the
   `claude-custom ctx7 *` exemption narrow: a pipe or `;` segment that does not
   match sends the line back into the sandbox, and a file redirect or command
-  substitution still prompts. The CLI version is pinned once, as `ctx7_version`
-  in `bin/claude-custom`; `bin/check-config` checks the wrapper, the prompt
-  files and both overlays, checks the link, and that `PREFERENCES.md`,
-  `CLAUDE.local.md` and `QWEN.local.md` name the skill.
+  substitution still prompts. The CLI version is pinned as `ctx7_version` in
+  `bin/claude-custom` and in `shared/ctx7/package.json`, and `bin/check-config`
+  checks they agree; it also checks the wrapper, the prompt files and both
+  overlays, checks the link, and that `PREFERENCES.md`, `CLAUDE.local.md` and
+  `QWEN.local.md` name the skill.
 - `bin/pr-review-local --model M [--base-url URL] [--post] [--json] [--color auto|always|never] [--log-dir DIR] [--no-log] [--range BASE..HEAD | PR]`
   reviews a GitHub PR with a local model, or local commits with `--range` (no
   `gh`, no comments or CI, no `--post`): `gh`/`git` gather the PR (no checkout

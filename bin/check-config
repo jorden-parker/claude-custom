@@ -478,11 +478,13 @@ done
 check_that "claude-custom install links the find-docs skill" grep -qF "shared/skills/find-docs" "$repo/bin/claude-custom"
 check_that "claude-custom ctx7 pins one Context7 CLI version" grep -qE '^ctx7_version="[0-9]+\.[0-9]+\.[0-9]+"$' "$repo/bin/claude-custom"
 check_that "claude-custom ctx7 runs only the library and docs lookups" grep -qF 'library|docs) ;;' "$repo/bin/claude-custom"
-check_that "claude-custom ctx7 resolves the CLI from ~/.cache/claude-custom, which no sandbox can write, never from the project" \
-  grep -qF -- "run_pinned_ctx7 \"\$home\" --cache=\"\$home/npm-cache\" \"ctx7@\$ctx7_version\"" "$repo/bin/claude-custom"
-check_that "claude-custom ctx7 pins that folder under the real home, not an environment variable" grep -qF "home=\"\$HOME/.cache/claude-custom/ctx7\"" "$repo/bin/claude-custom"
-check_that "claude-custom ctx7 never resolves the CLI from the working folder: without its cache folder it runs from a fresh temp folder" \
-  grep -qF "scratch=\"\$(mktemp -d \"\${TMPDIR:-/tmp}/claude-custom-ctx7.XXXXXX\")\"" "$repo/bin/claude-custom"
+check_eq "the committed ctx7 lockfile pins the same version as claude-custom" "$(sed -n 's/^ctx7_version="\(.*\)"$/\1/p' "$repo/bin/claude-custom")" "$(jq -r '.packages["node_modules/ctx7"].version' "$repo/shared/ctx7/package-lock.json")"
+check_that "the committed ctx7 lockfile carries an integrity hash for ctx7" jq -e '.packages["node_modules/ctx7"].integrity | startswith("sha512-")' "$repo/shared/ctx7/package-lock.json" >/dev/null
+check_that "the committed ctx7 lockfile resolves from the public registry" jq -e '[.packages[] | select(.resolved) | .resolved | startswith("https://registry.npmjs.org/")] | all' "$repo/shared/ctx7/package-lock.json" >/dev/null
+check_that "claude-custom install installs the ctx7 CLI from the lockfile with scripts off" grep -qF 'npm ci --ignore-scripts --no-audit --no-fund --loglevel=error' "$repo/bin/claude-custom"
+check_that "claude-custom ctx7 runs the installed CLI from ~/.cache/claude-custom, which no sandbox can write" grep -qF "ctx7_home=\"\$HOME/.cache/claude-custom/ctx7\"" "$repo/bin/claude-custom"
+check_that "claude-custom ctx7 runs the CLI under an environment allowlist" grep -qF 'env -i' "$repo/bin/claude-custom"
+check_not "claude-custom never runs npx, so no session fetches a package" grep -q 'npx' "$repo/bin/claude-custom"
 for prompt_file in shared/skills/find-docs/SKILL.md ollama/CLAUDE.local.md ollama/QWEN.local.md; do
   check_that "$prompt_file runs the Context7 CLI through claude-custom ctx7" grep -qF 'claude-custom ctx7 library' "$repo/$prompt_file"
   check_not "$prompt_file never runs npx ctx7, which would resolve a package the session wrote" grep -qF 'npx ctx7' "$repo/$prompt_file"

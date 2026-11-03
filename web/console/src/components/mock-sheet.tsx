@@ -9,7 +9,6 @@ import { ChevronDownIcon } from "lucide-react";
 import { MockFrame } from "@/lib/mock-spike/registry.tsx";
 import { specOutline } from "@/lib/mock-spike/outline.ts";
 import type { MockRun, MockSpikeReport } from "@/lib/mock-spike/reports.ts";
-import { ScrollArea } from "@/components/ui/scroll-area";
 
 export function MockSheet({ report }: { report: MockSpikeReport }) {
   return (
@@ -61,11 +60,11 @@ function MockCell({ run, preset }: { run: MockRun; preset: string | null }) {
           Elements the model produced
         </CollapsibleTrigger>
         <CollapsibleContent keepMounted>
-          <ScrollArea className="mt-2 rounded-md bg-muted">
-            <pre className="max-w-full p-2">
+          <div className="mt-2 rounded-md bg-muted">
+            <pre className="max-w-full whitespace-pre-wrap p-2 [overflow-wrap:anywhere]">
               {specOutline(run.spec).join("\n") || "none"}
             </pre>
-          </ScrollArea>
+          </div>
         </CollapsibleContent>
       </Collapsible>
     </article>

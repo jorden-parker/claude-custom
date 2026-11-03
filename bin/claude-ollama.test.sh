@@ -574,91 +574,71 @@ check_eq "ollama-agent without go exit status" 1 "$?"
 check_that "ollama-agent without go message" grep -qF "ollama-agent: needs Go 1.26+" "$sandbox/err"
 run_capture "$sandbox/repo/bin/claude-custom" agent
 check_that "claude-custom agent runs ollama-agent" grep -qF "ollama-agent: needs Go 1.26+" "$sandbox/err"
-cat > "$sandbox/stubbin/npx" <<EOF
+ctx7_home="$HOME/.cache/claude-custom/ctx7"
+mkdir -p "$ctx7_home/node_modules/.bin" "$ctx7_home/node_modules/ctx7"
+printf '{"version":"0.8.2"}\n' > "$ctx7_home/node_modules/ctx7/package.json"
+cp "$sandbox/repo/shared/ctx7/package-lock.json" "$ctx7_home/package-lock.json"
+cat > "$ctx7_home/node_modules/.bin/ctx7" <<EOF
 #!/bin/sh
-printf '%s\n' "\$*" > "$sandbox/npx-args"
-pwd > "$sandbox/npx-cwd"
+printf '%s\n' "\$*" > "$sandbox/ctx7-args"
+pwd > "$sandbox/ctx7-cwd"
+env | sort > "$sandbox/ctx7-env"
 seq 1 100
 EOF
-chmod +x "$sandbox/stubbin/npx"
-ctx7_home="$HOME/.cache/claude-custom/ctx7"
-run_capture env XDG_CACHE_HOME="$sandbox/elsewhere" "$sandbox/repo/bin/claude-custom" ctx7 library next "server actions"
-check_eq "claude-custom ctx7 runs the pinned CLI from the claude-custom cache folder under the real home, never from the project or an environment variable" \
-  "--yes --prefix=$ctx7_home --cache=$ctx7_home/npm-cache ctx7@0.8.2 library next server actions" "$(cat "$sandbox/npx-args")"
-check_eq "claude-custom ctx7 runs inside that folder" "$ctx7_home" "$(cat "$sandbox/npx-cwd")"
+chmod +x "$ctx7_home/node_modules/.bin/ctx7"
+run_capture env NODE_AUTH_TOKEN=secret-npm NPM_TOKEN=secret-npm2 GH_TOKEN=secret-gh GITHUB_TOKEN=secret-gh2 ANTHROPIC_API_KEY=secret-anthropic HTTPS_PROXY=http://proxy.example.test:3128 NO_PROXY=localhost CONTEXT7_API_KEY=ctx7-key-fixture SSL_CERT_FILE=/etc/certs.pem NODE_EXTRA_CA_CERTS=/etc/extra.pem "$sandbox/repo/bin/claude-custom" ctx7 library next "server actions"
+check_eq "claude-custom ctx7 passes the lookup arguments to the installed CLI" "library next server actions" "$(cat "$sandbox/ctx7-args")"
+check_eq "claude-custom ctx7 runs inside the install folder" "$ctx7_home" "$(cat "$sandbox/ctx7-cwd")"
 check_eq "claude-custom ctx7 prints at most 80 lines" 80 "$(wc -l < "$sandbox/out" | tr -d ' ')"
+check_eq "claude-custom ctx7 hands the CLI exactly the allowlisted variables it was given" 7 \
+  "$(grep -c '^\(PATH\|HOME\|HTTPS_PROXY\|NO_PROXY\|CONTEXT7_API_KEY\|SSL_CERT_FILE\|NODE_EXTRA_CA_CERTS\)=' "$sandbox/ctx7-env")"
+for credential in NODE_AUTH_TOKEN NPM_TOKEN GH_TOKEN GITHUB_TOKEN ANTHROPIC_API_KEY; do
+  check_not "claude-custom ctx7 keeps $credential out of the CLI's environment" grep -q "^$credential=" "$sandbox/ctx7-env"
+done
+check_not "no secret value reaches the CLI" grep -qE 'secret-(npm|npm2|gh|gh2|anthropic)' "$sandbox/ctx7-env"
+check_eq "the CLI keeps the real HOME" "$HOME" "$(sed -n 's/^HOME=//p' "$sandbox/ctx7-env")"
 run_capture "$sandbox/repo/bin/claude-custom" ctx7 docs /vercel/next.js "app router" --language en
-check_eq "claude-custom ctx7 passes the docs arguments through" \
-  "--yes --prefix=$ctx7_home --cache=$ctx7_home/npm-cache ctx7@0.8.2 docs /vercel/next.js app router --language en" "$(cat "$sandbox/npx-args")"
-rm -f "$sandbox/npx-args"
+check_eq "claude-custom ctx7 passes the docs arguments through" "docs /vercel/next.js app router --language en" "$(cat "$sandbox/ctx7-args")"
+rm -f "$sandbox/ctx7-args"
 run_capture "$sandbox/repo/bin/claude-custom" ctx7 login
 check_eq "claude-custom ctx7 refuses every other ctx7 command" 2 "$?"
 check_that "claude-custom ctx7 names the two lookups it runs" grep -qF "claude-custom ctx7 library NAME QUERY" "$sandbox/err"
-check_not "a refused ctx7 command never reaches npx" test -e "$sandbox/npx-args"
-mkdir -p "$sandbox/sealed-home/.cache" "$sandbox/tmp"
-chmod 555 "$sandbox/sealed-home/.cache"
-(cd "$sandbox/repo" && HOME="$sandbox/sealed-home" TMPDIR="$sandbox/tmp" run_capture "$sandbox/repo/bin/claude-custom" ctx7 library react hooks)
-scratch_prefix="$(sed -n 's/^--yes --prefix=\([^ ]*\) .*/\1/p' "$sandbox/npx-args")"
-check_eq "claude-custom ctx7 runs from a fresh temp folder where the cache folder cannot be written, as under Seatbelt, never from the working folder" \
-  "--yes --prefix=$scratch_prefix ctx7@0.8.2 library react hooks" "$(cat "$sandbox/npx-args")"
-check_that "that temp folder is under TMPDIR" contains "$scratch_prefix" "$sandbox/tmp/claude-custom-ctx7."
-check_eq "claude-custom ctx7 runs inside that temp folder" "$scratch_prefix" "$(cat "$sandbox/npx-cwd")"
-check_not "claude-custom ctx7 removes that temp folder afterwards" test -d "$scratch_prefix"
-cat > "$sandbox/stubbin/npx" <<EOF
+check_not "a refused ctx7 command never reaches the CLI" test -e "$sandbox/ctx7-args"
+mkdir -p "$sandbox/empty-home"
+HOME="$sandbox/empty-home" run_capture "$sandbox/repo/bin/claude-custom" ctx7 library react hooks
+check_eq "claude-custom ctx7 without an install exits 1" 1 "$?"
+check_eq "claude-custom ctx7 without an install says how to install" \
+  "claude-custom ctx7: the Context7 CLI is not installed; run: claude-custom install" "$(cat "$sandbox/err")"
+check_eq "claude-custom ctx7 without an install fetches nothing" 0 "$(find "$sandbox/empty-home" -name node_modules | wc -l | tr -d ' ')"
+cat > "$ctx7_home/node_modules/.bin/ctx7" <<EOF
 #!/bin/sh
-printf '%s\n' "\$*" > "$sandbox/npx-args"
 echo "fetching"
-echo "npm error code E401" >&2
-echo "npm error Unable to authenticate, need: Basic realm=\"Artifactory\"" >&2
+echo "Error: request failed" >&2
+echo "GET https://deploy:s3cret-token@api.example.test/v1" >&2
+echo "authorization: Bearer eyJhbGciOiJIUzI1NiJ9.fixture" >&2
+echo "ghp_fixture0123456 in the log" >&2
 exit 1
 EOF
-cat > "$sandbox/stubbin/npm" <<EOF
-#!/bin/sh
-printf '%s\n' "\$*" > "$sandbox/npm-args"
-pwd > "$sandbox/npm-cwd"
-echo "https://npm.example.test/"
-EOF
-chmod +x "$sandbox/stubbin/npx" "$sandbox/stubbin/npm"
-run_capture env XDG_CACHE_HOME="$sandbox/elsewhere" "$sandbox/repo/bin/claude-custom" ctx7 library next "server actions"
-check_eq "a failed ctx7 fetch keeps npx's exit status" 1 "$?"
-check_eq "a failed ctx7 fetch still prints what npx wrote" "fetching" "$(cat "$sandbox/out")"
-check_that "a failed ctx7 fetch keeps npm's own error lines" grep -qF "npm error code E401" "$sandbox/err"
-check_that "a failed ctx7 fetch ends with one line naming the version, the registry npm used and the exit status" \
-  grep -qF "claude-custom ctx7: npm could not fetch ctx7@0.8.2 from https://npm.example.test/ (exit 1)" "$sandbox/err"
-check_that "a failed ctx7 fetch says a project .npmrc is never read here" \
-  grep -qF "claude-custom ctx7: npm reads ~/.npmrc here, never a project .npmrc; put the registry's auth token line in ~/.npmrc" "$sandbox/err"
-check_eq "the registry is read the way npx resolves it, from the same folder" "$ctx7_home" "$(cat "$sandbox/npm-cwd")"
-check_eq "the registry is read with npm config get" "config get registry" "$(cat "$sandbox/npm-args")"
-cat > "$sandbox/stubbin/npm" <<EOF
-#!/bin/sh
-echo "https://deploy:s3cret-token@npm.example.test/api/npm/"
-EOF
-run_capture env XDG_CACHE_HOME="$sandbox/elsewhere" "$sandbox/repo/bin/claude-custom" ctx7 library next "server actions"
-check_that "the failure line drops any user and token the registry URL carries" \
-  grep -qF "could not fetch ctx7@0.8.2 from https://npm.example.test/api/npm/ (exit 1)" "$sandbox/err"
-check_not "the registry's token never reaches the output" grep -qF "s3cret-token" "$sandbox/err"
-cat > "$sandbox/stubbin/npx" <<EOF
-#!/bin/sh
-printf '%s\n' "\$*" > "$sandbox/npx-args"
-echo "npm error code E401" >&2
-echo "npm error 401 Unauthorized - GET https://deploy:s3cret-token@npm.example.test/ctx7" >&2
-echo "npm error config //npm.example.test/:_authToken=npm_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789" >&2
-echo "npm error header authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJkZXBsb3kifQ.signature" >&2
-echo "npm error ghp_fixture0123456 in the log" >&2
-exit 1
-EOF
-run_capture env XDG_CACHE_HOME="$sandbox/elsewhere" "$sandbox/repo/bin/claude-custom" ctx7 library next "server actions"
-check_that "npm's own error lines still name the code" grep -qF "npm error code E401" "$sandbox/err"
-check_that "npm's own URL loses its user and token" grep -qF "GET https://npm.example.test/ctx7" "$sandbox/err"
-check_that "an auth token line in npm's output is masked" grep -qF "_authToken=<redacted>" "$sandbox/err"
-check_that "a bearer header in npm's output is masked" grep -qF "Bearer <redacted>" "$sandbox/err"
-check_that "a GitHub token in npm's output is masked" grep -qF "<redacted> in the log" "$sandbox/err"
-for secret in s3cret-token npm_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789 eyJhbGciOiJIUzI1NiJ9 ghp_fixture0123456; do
-  check_not "no secret from npm's output reaches the model: $secret" grep -qF "$secret" "$sandbox/err"
+chmod +x "$ctx7_home/node_modules/.bin/ctx7"
+run_capture "$sandbox/repo/bin/claude-custom" ctx7 library next "server actions"
+check_eq "a failing CLI keeps its exit status" 1 "$?"
+check_eq "a failing CLI still prints what it wrote" "fetching" "$(cat "$sandbox/out")"
+check_that "a failing CLI keeps its own error line" grep -qF "Error: request failed" "$sandbox/err"
+check_that "the CLI's URL loses its user and token" grep -qF "GET https://api.example.test/v1" "$sandbox/err"
+check_that "a bearer header in the CLI's output is masked" grep -qF "Bearer <redacted>" "$sandbox/err"
+check_that "a GitHub token in the CLI's output is masked" grep -qF "<redacted> in the log" "$sandbox/err"
+for secret in s3cret-token eyJhbGciOiJIUzI1NiJ9 ghp_fixture0123456; do
+  check_not "no secret from the CLI's output reaches the model: $secret" grep -qF "$secret" "$sandbox/err"
 done
-(cd "$sandbox/repo" && HOME="$sandbox/sealed-home" TMPDIR="$sandbox/tmp" run_capture "$sandbox/repo/bin/claude-custom" ctx7 library react hooks)
-check_eq "a failed ctx7 fetch from the temp folder keeps npx's exit status too" 1 "$?"
-check_not "the temp folder is removed after a failure as well" test -d "$(sed -n 's/^--yes --prefix=\([^ ]*\) .*/\1/p' "$sandbox/npx-args")"
+check_not "a failing CLI never mentions npm" grep -qi npm "$sandbox/err"
+cat > "$ctx7_home/node_modules/.bin/ctx7" <<EOF
+#!/bin/sh
+exit 3
+EOF
+chmod +x "$ctx7_home/node_modules/.bin/ctx7"
+run_capture "$sandbox/repo/bin/claude-custom" ctx7 library next "server actions"
+check_eq "claude-custom ctx7 keeps the CLI's exit status" 3 "$?"
+check_not "the wrapper never runs npx" grep -q 'npx' "$sandbox/repo/bin/claude-custom"
 run_capture "$installer" bogus
 check_eq "unknown subcommand exit status" 2 "$?"
 check_that "usage lists the new subcommands" grep -qF "install|update|uninstall|ollama|qwen|tools|agent" "$sandbox/err"

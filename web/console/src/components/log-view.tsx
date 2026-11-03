@@ -64,7 +64,7 @@ export function LogView() {
         value={source}
         onValueChange={(next) => setSource(next as LogSource)}
       >
-        <TabsList className="max-w-full justify-start overflow-x-auto">
+        <TabsList className="max-w-full justify-start overflow-x-auto overflow-y-hidden">
           <TabsTrigger value="server">Ollama server</TabsTrigger>
           <TabsTrigger value="launcher">Launcher</TabsTrigger>
           <TabsTrigger value="incidents">Incidents</TabsTrigger>
@@ -101,6 +101,7 @@ function LogPanel({ source }: { source: LogSource }) {
       )}
       {requests === null ? null : <ProxyHeader requests={requests} />}
       {requests === null ? null : <ProxyRecordHint />}
+      {requests === null ? null : <LedgerPanel requests={requests} />}
       <LogToolbar
         filter={filter}
         onFilter={setFilter}
@@ -111,7 +112,6 @@ function LogPanel({ source }: { source: LogSource }) {
         }
       />
       <LogOutput lines={visibleLines(lines, frozenAt, filter)} />
-      {requests === null ? null : <LedgerPanel requests={requests} />}
     </div>
   );
 }
@@ -355,6 +355,7 @@ function StatusPill({
 function LogOutput({ lines }: { lines: LogFrame[] }) {
   return (
     <StreamOutput
+      live
       lines={lines.map((line, index) => ({
         key: index,
         text: line.text,

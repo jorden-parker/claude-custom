@@ -395,6 +395,7 @@ install_all() {
   check_ollama_profiles
   refresh_ollama_models
   build_go_apps
+  install_ctx7_cli
   restart_stale_ollama_server
   remove_session_packages
   write_launch_beacon
@@ -503,13 +504,41 @@ uninstall_all() {
   remove_stale_hook_links
   remove_import_lines
   remove_retired_imports
+  rm -rf "$ctx7_home"
   echo "open a new terminal; current shells keep the claude function until they exit"
 }
 
 ctx7_version="0.8.2"
+ctx7_home="$HOME/.cache/claude-custom/ctx7"
+ctx7_package_dir="$repo_dir/shared/ctx7"
 
-ctx7_home_writable() {
-  mkdir -p "$1/npm-cache" 2>/dev/null && : > "$1/npm-cache/.writable" 2>/dev/null
+installed_ctx7_version() {
+  sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' "$ctx7_home/node_modules/ctx7/package.json" 2>/dev/null | head -n 1
+}
+
+ctx7_cli_is_current() {
+  [ -x "$ctx7_home/node_modules/.bin/ctx7" ] &&
+    [ "$(installed_ctx7_version)" = "$ctx7_version" ] &&
+    cmp -s "$ctx7_package_dir/package-lock.json" "$ctx7_home/package-lock.json"
+}
+
+make_private_ctx7_home() {
+  mkdir -p "$ctx7_home" || return 1
+  chmod 700 "$HOME/.cache/claude-custom" "$ctx7_home"
+}
+
+install_ctx7_cli() {
+  ctx7_cli_is_current && return 0
+  command -v npm >/dev/null 2>&1 || { echo "skip: npm not installed; claude-custom ctx7 needs it: run claude-custom install after installing Node" >&2; return 0; }
+  make_private_ctx7_home || { echo "fail: cannot create $ctx7_home" >&2; status=1; return 0; }
+  rm -rf "$ctx7_home/node_modules"
+  cp "$ctx7_package_dir/package.json" "$ctx7_package_dir/package-lock.json" "$ctx7_home/" || { echo "fail: cannot copy the ctx7 lockfile" >&2; status=1; return 0; }
+  if (cd "$ctx7_home" && npm ci --ignore-scripts --no-audit --no-fund --loglevel=error >&2); then
+    echo "installed the Context7 CLI ctx7@$ctx7_version into $ctx7_home" >&2
+  else
+    echo "fail: npm ci for ctx7@$ctx7_version in $ctx7_home; /find-docs will not work until it succeeds" >&2
+    status=1
+  fi
 }
 
 redact_secrets() {
@@ -522,39 +551,6 @@ redact_secrets() {
     -e 's#(^|[^A-Za-z0-9+=_-])[A-Za-z0-9+=_-]{40,}#\1<redacted>#g'
 }
 
-ctx7_registry() {
-  (cd "$1" && npm config get registry 2>/dev/null | redact_secrets) || echo "an unknown registry"
-}
-
-explain_ctx7_failure() {
-  local prefix="$1" status="$2"
-  echo "claude-custom ctx7: npm could not fetch ctx7@$ctx7_version from $(ctx7_registry "$prefix") (exit $status)" >&2
-  echo "claude-custom ctx7: npm reads ~/.npmrc here, never a project .npmrc; put the registry's auth token line in ~/.npmrc" >&2
-}
-
-run_pinned_ctx7() {
-  local prefix="$1" output errors status
-  shift
-  output="$(mktemp "${TMPDIR:-/tmp}/claude-custom-ctx7-out.XXXXXX")" || return 1
-  errors="$(mktemp "${TMPDIR:-/tmp}/claude-custom-ctx7-err.XXXXXX")" || { rm -f "$output"; return 1; }
-  (cd "$prefix" && npx --yes --prefix="$prefix" "$@") > "$output" 2> "$errors"
-  status=$?
-  head -n 80 "$output"
-  redact_secrets < "$errors" >&2
-  rm -f "$output" "$errors"
-  [ "$status" -eq 0 ] || explain_ctx7_failure "$prefix" "$status"
-  return "$status"
-}
-
-run_ctx7_from_scratch() {
-  local scratch status
-  scratch="$(mktemp -d "${TMPDIR:-/tmp}/claude-custom-ctx7.XXXXXX")" || exit 1
-  run_pinned_ctx7 "$scratch" "ctx7@$ctx7_version" "$@"
-  status=$?
-  rm -rf "$scratch"
-  return "$status"
-}
-
 check_ctx7_lookup() {
   case "${1:-}" in
     library|docs) ;;
@@ -562,15 +558,33 @@ check_ctx7_lookup() {
   esac
 }
 
+ctx7_env_allowlist="PATH HOME TERM LANG LC_ALL TMPDIR HTTP_PROXY HTTPS_PROXY NO_PROXY http_proxy https_proxy no_proxy SSL_CERT_FILE SSL_CERT_DIR NODE_EXTRA_CA_CERTS CONTEXT7_API_KEY"
+
+run_installed_ctx7() {
+  local name output errors status
+  local -a env_pairs=()
+  for name in $ctx7_env_allowlist; do
+    if [ -n "${!name:-}" ]; then
+      env_pairs+=("$name=${!name}")
+    fi
+  done
+  output="$(mktemp "${TMPDIR:-/tmp}/claude-custom-ctx7-out.XXXXXX")" || return 1
+  errors="$(mktemp "${TMPDIR:-/tmp}/claude-custom-ctx7-err.XXXXXX")" || { rm -f "$output"; return 1; }
+  (cd "$ctx7_home" && env -i "${env_pairs[@]}" "$ctx7_home/node_modules/.bin/ctx7" "$@") > "$output" 2> "$errors"
+  status=$?
+  head -n 80 "$output"
+  redact_secrets < "$errors" >&2
+  rm -f "$output" "$errors"
+  return "$status"
+}
+
 run_ctx7() {
-  local home
   check_ctx7_lookup "$@"
-  home="$HOME/.cache/claude-custom/ctx7"
-  if ctx7_home_writable "$home"; then
-    run_pinned_ctx7 "$home" --cache="$home/npm-cache" "ctx7@$ctx7_version" "$@"
-    return
+  if ! ctx7_cli_is_current; then
+    echo "claude-custom ctx7: the Context7 CLI is not installed; run: claude-custom install" >&2
+    return 1
   fi
-  run_ctx7_from_scratch "$@"
+  run_installed_ctx7 "$@"
 }
 
 update_repo() {

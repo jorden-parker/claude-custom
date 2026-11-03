@@ -291,17 +291,18 @@ reports the same `node` line.
 
 Six command families run outside the sandbox through `excludedCommands`: `cmux`,
 `gh`, `short`, `git push`, `claude-custom ctx7` (the `/find-docs` CLI, which
-then uses your own network, proxy and certificates, and resolves the pinned
-`ctx7` from `~/.cache/claude-custom`, which the sandbox cannot write) and `pnpm`
-(inside the sandbox its hardlinks from the store fail with EPERM and corrupt
-`node_modules/.pnpm`, so installs and tests kept breaking). All but `ctx7` still
-prompt. An exclusion applies only when every segment of the command line
-matches, so a piped `claude-custom ctx7 ... | head` runs inside the sandbox;
-`shared/hooks/dev-server-guard.py` therefore denies a `pnpm` that shares its
-line with `cd &&`, a pipe or `;` and asks for `pnpm -C DIR SCRIPT`, and denies
-`pnpm exec`, `dlx`, `x` and `create`, which would run any package unsandboxed
-(`npx` inside the sandbox covers those). MCP servers and hooks run outside the
-sandbox too, as they do in the personal overlay.
+then uses your own network, proxy and certificates, and runs the ctx7 CLI that
+claude-custom install put in `~/.cache/claude-custom` from the lockfile in
+`shared/ctx7`, which the sandbox cannot write; a session never runs npm) and
+`pnpm` (inside the sandbox its hardlinks from the store fail with EPERM and
+corrupt `node_modules/.pnpm`, so installs and tests kept breaking). All but
+`ctx7` still prompt. An exclusion applies only when every segment of the command
+line matches, so a piped `claude-custom ctx7 ... | head` runs inside the
+sandbox; `shared/hooks/dev-server-guard.py` therefore denies a `pnpm` that
+shares its line with `cd &&`, a pipe or `;` and asks for `pnpm -C DIR SCRIPT`,
+and denies `pnpm exec`, `dlx`, `x` and `create`, which would run any package
+unsandboxed (`npx` inside the sandbox covers those). MCP servers and hooks run
+outside the sandbox too, as they do in the personal overlay.
 
 What this gives up, compared with the older session sandbox:
 

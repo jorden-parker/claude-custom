@@ -1,0 +1,8 @@
+{
+  "name": "claude-custom-ctx7",
+  "private": true,
+  "description": "Pins the Context7 CLI that claude-custom ctx7 runs; installed by claude-custom install into ~/.cache/claude-custom/ctx7",
+  "dependencies": {
+    "ctx7": "0.8.2"
+  }
+}

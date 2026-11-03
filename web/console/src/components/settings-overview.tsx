@@ -62,11 +62,10 @@ function SwitchTable({
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead>Key</TableHead>
-          <TableHead>Label</TableHead>
-          <TableHead>Default</TableHead>
+          <TableHead className="whitespace-normal">Switch</TableHead>
+          <TableHead className="whitespace-normal">Default</TableHead>
           {profiles.map((profile) => (
-            <TableHead key={profile.id}>
+            <TableHead key={profile.id} className="whitespace-normal">
               <Link
                 href={`/profiles/${profile.id}`}
                 className="underline-offset-2 hover:underline"
@@ -80,7 +79,7 @@ function SwitchTable({
       {groups.map(({ group, fields }) => (
         <TableBody key={group}>
           <TableRow className="bg-muted/40">
-            <TableHead colSpan={3 + profiles.length} scope="rowgroup">
+            <TableHead colSpan={2 + profiles.length} scope="rowgroup">
               {group}
             </TableHead>
           </TableRow>
@@ -102,8 +101,12 @@ function SwitchRow({
 }) {
   return (
     <TableRow id={field.key} className="scroll-mt-4">
-      <TableCell className="font-mono text-xs">{field.key}</TableCell>
-      <TableCell>{field.label}</TableCell>
+      <TableCell className="min-w-48 whitespace-normal">
+        <span className="block">{field.label}</span>
+        <span className="block font-mono text-xs text-muted-foreground [overflow-wrap:anywhere]">
+          {field.key}
+        </span>
+      </TableCell>
       <TableCell>{shownValue(field, field.defaultValue)}</TableCell>
       {profiles.map((profile) => (
         <TableCell key={profile.id}>{profileValue(field, profile)}</TableCell>

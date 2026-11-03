@@ -1,5 +1,4 @@
 import type { TelemetryReport } from "@/lib/telemetry";
-import { ScrollArea } from "@/components/ui/scroll-area";
 
 type TelemetryCardProps = { report: TelemetryReport };
 
@@ -24,10 +23,10 @@ export function TelemetryCard({ report }: TelemetryCardProps) {
     return <p className="text-sm text-error-foreground">{report.error}</p>;
   }
   return (
-    <ScrollArea className="rounded-xl bg-muted">
-      <pre className="max-w-full whitespace-pre p-4 font-mono text-xs">
+    <div className="rounded-xl bg-muted">
+      <pre className="max-w-full whitespace-pre-wrap p-4 font-mono text-xs [overflow-wrap:anywhere]">
         {report.output}
       </pre>
-    </ScrollArea>
+    </div>
   );
 }

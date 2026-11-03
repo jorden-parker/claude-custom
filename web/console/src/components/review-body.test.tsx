@@ -30,6 +30,14 @@ function eventsWithFinding(summary: string, why: string) {
   ];
 }
 
+function expectNotCapped(element: Element | null) {
+  expect(element).not.toBeNull();
+  expect(element!.closest('[data-slot="scroll-area"]')).toBeNull();
+  for (let node: Element | null = element; node; node = node.parentElement) {
+    expect(node.className).not.toContain("max-h-");
+  }
+}
+
 describe("ReviewBody", () => {
   it("renders inline markdown in a finding summary", () => {
     const state = reduceEvents(eventsWithFinding("Use `shell=False` and **quote** it", ""));
@@ -202,6 +210,9 @@ describe("ReviewBody review states", () => {
 
     expect(markup).toContain("retried: the answer was not a JSON array");
     expect(markup).toContain("<pre");
+    const container = document.createElement("div");
+    container.innerHTML = markup;
+    expectNotCapped(container.querySelector("pre"));
     expect(markup).toContain("checked 6 findings, kept 4");
   });
 

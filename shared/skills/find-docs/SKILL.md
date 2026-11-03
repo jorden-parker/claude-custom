@@ -47,9 +47,8 @@ A plain `claude-custom ctx7 ...` command runs outside Claude Code's sandbox
 (`excludedCommands` in both overlays), as the user, with their own network,
 proxy and certificates; a pipe or any other command beside it sends the whole
 line back into the sandbox. If it reports `fetch failed`, tell the user rather
-than retrying. When npm cannot fetch the CLI it ends with
-`claude-custom ctx7: npm could not fetch ctx7@VERSION from REGISTRY (exit N)`:
-npm resolved the package from a cache folder, so only `~/.npmrc` applies and a
-project `.npmrc` holding the registry's auth token is never read; tell the user
-to move that token line into `~/.npmrc` rather than retrying. The CLI version is
-pinned as `ctx7_version` in `bin/claude-custom`.
+than retrying. If it prints
+`the Context7 CLI is not installed; run: claude-custom install`, tell the user
+to run that command in their own terminal and answer from memory flagged as
+possibly outdated; the session cannot install it. The CLI version is pinned as
+`ctx7_version` in `bin/claude-custom`.
