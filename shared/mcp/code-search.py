@@ -18,6 +18,9 @@ from pathlib import Path
 
 from mcp_stdio import serve, tool_result
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from relaunch_dir import RelaunchDir
+
 
 def ollama_url():
     url = os.environ.get("CODE_SEARCH_OLLAMA_URL") or os.environ.get("OLLAMA_HOST") or "http://127.0.0.1:11434"
@@ -69,8 +72,8 @@ EMBED_ALLOWED = os.environ.get("CODE_SEARCH_EMBED") == "1"
 
 
 def embed_turned_off():
-    relaunch_dir = os.environ.get("CLAUDE_OLLAMA_RELAUNCH_DIR")
-    return bool(relaunch_dir) and (Path(relaunch_dir) / "embed-off").exists()
+    folder = RelaunchDir.from_env()
+    return folder is not None and folder.has("embed-off")
 
 
 EMBED_OFF = embed_turned_off()

@@ -255,7 +255,7 @@ check "with embeddings allowed there is no words-only note" lacks "$allowed" "wo
 
 model_loaded
 mkdir -p "$tmp/relaunch"
-: > "$tmp/relaunch/embed-off"
+python3 "$(dirname "$server")/../relaunch_dir.py" --dir "$tmp/relaunch" raise embed-off
 rm -f "$tmp/embed.log"
 embed_off="$(CLAUDE_OLLAMA_RELAUNCH_DIR="$tmp/relaunch" CODE_SEARCH_EMBED=1 search "password check" | reply_text)"
 check "an embed-off file in the relaunch dir stops embedding even when allowed and loaded" [ ! -e "$tmp/embed.log" ]
