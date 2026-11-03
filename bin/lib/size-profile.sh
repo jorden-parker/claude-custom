@@ -4,7 +4,8 @@ profile_dir="$repo_dir/ollama"
 profile_overlay="$repo_dir/shared/profile-overlay"
 profiles_dir="${XDG_CONFIG_HOME:-$HOME/.config}/claude-custom/profiles"
 session_config_dir="$HOME/.claude-ollama"
-composed_settings="$session_config_dir/launch-settings.json"
+launch_settings_dir="$session_config_dir/launch-settings"
+composed_settings="$launch_settings_dir/$$.json"
 embedding_model="${CODE_SEARCH_MODEL:-qwen3-embedding:0.6b}"
 fetch_domains_file="${XDG_CONFIG_HOME:-$HOME/.config}/claude-custom/fetch-domains"
 fetch_domain_pattern='^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z][a-z0-9-]*[a-z0-9]$'
@@ -106,11 +107,37 @@ settings_layers() {
   [ -z "${proxy_url:-}" ] || printf -- '--proxy-url\n%s\n' "$proxy_url"
 }
 
+prepare_launch_settings_dir() {
+  local file pid
+  mkdir -p "$launch_settings_dir"
+  chmod 700 "$launch_settings_dir"
+  for file in "$launch_settings_dir"/*.json; do
+    [ -e "$file" ] || continue
+    pid="$(basename "$file" .json)"
+    case "$pid" in
+      *[!0-9]*) continue ;;
+    esac
+    kill -0 "$pid" 2>/dev/null || rm -f "$file"
+  done
+}
+
+remove_composed_settings() {
+  rm -f "$composed_settings"
+}
+
+use_throwaway_settings() {
+  composed_settings="$(mktemp "${TMPDIR:-/tmp}/claude-ollama-settings.XXXXXX")"
+  trap remove_composed_settings EXIT
+}
+
+settings_layer_labels() {
+  settings_layers | awk '/^--/ { sub(/^--/, ""); if (!seen[$0]++) { printf "%s%s", separator, $0; separator = ", " } }'
+}
+
 compose_launch_settings() {
   local layers=() layer
   while IFS= read -r layer; do layers+=("$layer"); done < <(settings_layers)
-  mkdir -p "$session_config_dir"
-  rm -f "$composed_settings"
+  remove_composed_settings
   if [ ${#layers[@]} -eq 0 ]; then
     launch_settings="$settings_file"
     return 0

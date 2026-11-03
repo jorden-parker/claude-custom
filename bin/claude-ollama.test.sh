@@ -1025,7 +1025,7 @@ sleep 1
 check_not "CLAUDE_OLLAMA_INCIDENTS=0 starts no watcher" test -e "$sandbox/watcher-args"
 check_eq "and the session gets no incidents file" "" "$(session_env CLAUDE_OLLAMA_INCIDENTS_FILE)"
 launch_base_url() {
-  jq -r .env.ANTHROPIC_BASE_URL "$(sed -n 's/^ARGS: --settings \([^ ]*\).*/\1/p' "$sandbox/out" | tail -1)"
+  jq -r .env.ANTHROPIC_BASE_URL "$sandbox/settings-seen"
 }
 run_capture env -u CLAUDE_OLLAMA_PROXY "$repo/bin/claude-ollama" 27b -p hi
 proxy_args="$(cat "$sandbox/proxy-args" 2>/dev/null)"
@@ -1164,7 +1164,7 @@ settings_dir="$HOME/.claude-ollama/launch-settings"
 run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "without a fetch list the launch keeps the base tools" grep -qF -- "--tools Bash,Read,Edit,Write,Skill,TaskStop -p hi" "$sandbox/out"
 check_that "without a fetch list the launch keeps the profile settings" grep -qF -- "--settings $repo/ollama/settings.27b.json" "$sandbox/out"
-check_not "without a fetch list no derived settings are written" test -e "$settings_dir"
+check_eq "without a fetch list no derived settings are written" "" "$(ls "$settings_dir")"
 
 new_sandbox
 fetch_list="$HOME/.config/claude-custom/fetch-domains"
@@ -1173,7 +1173,7 @@ settings_dir="$HOME/.claude-ollama/launch-settings"
 write_fetch_list '  \nlocalhost\n127.0.0.1\n*\nhttps://x.org/\nexample.com:8080\n'
 run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "a fetch list with only invalid lines keeps the base tools" grep -qF -- "--tools Bash,Read,Edit,Write,Skill,TaskStop -p hi" "$sandbox/out"
-check_not "a fetch list with only invalid lines writes no derived settings" test -e "$settings_dir"
+check_eq "a fetch list with only invalid lines writes no derived settings" "" "$(ls "$settings_dir")"
 check_that "an invalid fetch line says why it is ignored" grep -qxF "claude-ollama: ignoring fetch domain 'localhost' (expected a hostname like docs.python.org)" "$sandbox/err"
 
 new_sandbox
@@ -1437,7 +1437,6 @@ STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture env STUB_CLAUDE_LA
 check_eq "a ladder file starts claude a second time" 2 "$(grep -c '^ARGS:' "$sandbox/out")"
 check_that "the ladder relaunch names the rung and the reason" grep -qxF "claude-ollama: ladder context-down: 3 truncated prompts within 10 minutes" "$sandbox/err"
 ladder_settings="$(settings_arg | tail -n 1)"
-check_eq "the second run uses the first run's settings file" "$(settings_arg | head -n 1)" "$ladder_settings"
 check_that "the second run uses a per-launch settings file" contains "$ladder_settings" "$HOME/.claude-ollama/launch-settings/"
 check_eq "the ladder settings lower the context budget and keep the headroom" 20480 "$(jq -r .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS "$sandbox/settings-seen")"
 check_that "the second run continues the conversation without the prompt" grep -qF -- "--tools Bash,Read,Edit,Write,Skill,TaskStop --continue" "$sandbox/out"
@@ -1519,7 +1518,7 @@ check_eq "the recovered rung turns the search embeddings back on" 1 "$(cat "$san
 check_not "the recovery removes embed-off" grep -q "embed-off" <<< "$(tail -n 1 "$sandbox/relaunch-entries")"
 check_that "the recovery is recorded as an incident" grep -q '"cause": "recovered", "detail": "embeddings-off: 20 minutes without an incident and the memory fits", "tokens": null, "rule": "ladder/up"' "$(cat "$incidents_dir/current")"
 check_eq "the lease keeps the context-down rung still in effect" context-down "$(last_session_lease | jq -r .rung)"
-check_eq "the third run keeps the ladder settings file" "$(settings_arg | head -n 1)" "$(settings_arg | tail -n 1)"
+check_eq "the third run keeps the ladder settings file" "$(settings_arg | sed -n 2p)" "$(settings_arg | tail -n 1)"
 check_that "the third run resumes the handoff" grep -qF -- "--tools Bash,Read,Edit,Write,Skill,TaskStop /handoff go on" "$sandbox/out"
 
 rm -f "$sandbox/lease-seen" "$sandbox/laddered" "$sandbox/laddered-up" "$sandbox/relaunch-entries"
