@@ -800,16 +800,16 @@ read_relaunch_sentinel() {
 }
 
 relaunch_tokens() {
-  [ -n "$relaunch_percent" ] || { echo null; return; }
+  [ -n "$relaunch_percent" ] || return 0
   jq -n --arg percent "$relaunch_percent" --arg context "$(profile_context_tokens)" \
-    '(($percent | tonumber) * ($context | tonumber) / 100) | floor' 2>/dev/null || echo null
+    '(($percent | tonumber) * ($context | tonumber) / 100) | floor' 2>/dev/null || true
 }
 
 append_incident() {
   local file="${CLAUDE_OLLAMA_INCIDENTS_FILE:-}"
   [ -n "$file" ] && [ -d "${file%/*}" ] || return 0
-  (umask 077; jq -cn --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg cause "$1" --arg detail "$2" --argjson tokens "$3" --arg rule "${4:-}" \
-    '{ts: $ts, cause: $cause, detail: $detail, tokens: $tokens} + (if $rule == "" then {} else {rule: $rule} end)' >> "$file")
+  set -- --file "$file" --cause "$1" --detail "$2" ${3:+--tokens "$3"} ${4:+--rule "$4"}
+  python3 "$repo_dir/ollama/incidents/incident_log.py" append "$@" || true
 }
 
 record_relaunch_incident() {
@@ -935,7 +935,7 @@ apply_ladder_up() {
     *) return 0 ;;
   esac
   echo "claude-ollama: ladder up: $rung recovered ($reason)" >&2
-  append_incident recovered "$rung: $reason" null ladder/up
+  append_incident recovered "$rung: $reason" "" ladder/up
   session_rung="$(remaining_rung)"
   record_session_rung
 }

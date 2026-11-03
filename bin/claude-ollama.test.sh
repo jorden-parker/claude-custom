@@ -166,7 +166,7 @@ EOF
   cat > "$sandbox/stubbin/python3" <<EOF
 #!/bin/sh
 case "\$1" in
-  */shared/relaunch_dir.py) exec "$real_python3" "\$@" ;;
+  */shared/relaunch_dir.py|*/ollama/incidents/incident_log.py) exec "$real_python3" "\$@" ;;
 esac
 echo "\$*" >> "$sandbox/python.log"
 echo "\${CODE_SEARCH_EMBED-unset}" > "$sandbox/indexer-embed-env"
@@ -1507,11 +1507,12 @@ check_not "a sibling dir whose pid is dead is removed" test -e "$relaunch_root/$
 check_that "a sibling dir whose pid runs is kept" test -d "$relaunch_root/$live_pid"
 check_that "a sibling that is not a pid is kept" test -d "$relaunch_root/notes"
 kill "$live_pid" 2>/dev/null
-relaunch_incident="$(grep '"cause":"relaunched"' "$(cat "$incidents_dir/current")")"
+relaunch_incident="$(grep '"cause": "relaunched"' "$(cat "$incidents_dir/current")")"
 check_eq "the relaunch writes one incident line" 1 "$(printf '%s\n' "$relaunch_incident" | grep -c relaunched)"
 check_eq "the incident names the note" note.md "$(printf '%s\n' "$relaunch_incident" | jq -r .detail)"
 check_eq "the incident derives the tokens from the percent" "$(( 71 * $(jq -r .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS "$repo/ollama/settings.27b.json") / 100 ))" "$(printf '%s\n' "$relaunch_incident" | jq -r .tokens)"
 check_that "the incident has a UTC timestamp" grep -qE '^20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$' <<< "$(printf '%s\n' "$relaunch_incident" | jq -r .ts)"
+check_eq "the relaunch is also the latest incident" relaunched "$(jq -r .cause "$(cat "$incidents_dir/current").latest")"
 check_eq "the incidents file is private" 600 "$(stat -f %Lp "$(cat "$incidents_dir/current")")"
 rm -f "$sandbox/relaunched"
 run_capture env STUB_CLAUDE_RELAUNCH_ONCE=1 "$repo/bin/claude-ollama" 27b --continue
@@ -1684,7 +1685,7 @@ check_eq "a ladder-up with a handoff sentinel starts claude a third time" 3 "$(g
 check_that "the handoff relaunch announces the recovered rung" grep -qxF "claude-ollama: ladder up: embeddings-off recovered (20 minutes without an incident and the memory fits)" "$sandbox/err"
 check_eq "the recovered rung turns the search embeddings back on" 1 "$(cat "$sandbox/embed-env")"
 check_not "the recovery removes embed-off" grep -q "embed-off" <<< "$(tail -n 1 "$sandbox/relaunch-entries")"
-check_that "the recovery is recorded as an incident" grep -q '"cause":"recovered","detail":"embeddings-off: 20 minutes without an incident and the memory fits","tokens":null,"rule":"ladder/up"' "$(cat "$incidents_dir/current")"
+check_that "the recovery is recorded as an incident" grep -q '"cause": "recovered", "detail": "embeddings-off: 20 minutes without an incident and the memory fits", "tokens": null, "rule": "ladder/up"' "$(cat "$incidents_dir/current")"
 check_eq "the lease keeps the context-down rung still in effect" context-down "$(last_session_lease | jq -r .rung)"
 check_eq "the third run keeps the ladder settings" "$HOME/.claude-ollama/ladder-settings.json" "$(settings_arg | tail -n 1)"
 check_that "the third run resumes the handoff" grep -qF -- "--tools Bash,Read,Edit,Write,Skill,TaskStop /handoff go on" "$sandbox/out"
