@@ -9,11 +9,38 @@ stubs="$sandbox/stubs"
 mkdir -p "$stubs"
 cat > "$stubs/fallow" <<'STUB'
 #!/bin/sh
-[ "$1" = audit ] || exit 0
-cat "$FALLOW_STUB_REPORT"
+echo "cwd=$(pwd) args=$*" >> "${FALLOW_STUB_LOG:-/dev/null}"
+case " $* " in *" audit "*) cat "$FALLOW_STUB_REPORT" ;; esac
+exit 0
 STUB
 chmod +x "$stubs/fallow"
+export FALLOW_STUB_LOG="$sandbox/fallow-calls.log"
+export path_without_fallow="$PATH"
 export PATH="$stubs:$PATH"
+
+npx_only_stubs="$sandbox/npx-only-stubs"
+mkdir -p "$npx_only_stubs"
+cat > "$npx_only_stubs/npx" <<'STUB'
+#!/bin/sh
+[ "$1" = -y ] && shift
+name="$1"
+shift
+if [ -x "./node_modules/.bin/$name" ]; then exec "./node_modules/.bin/$name" "$@"; fi
+exec "$FALLOW_STUB_BIN" "$@"
+STUB
+chmod +x "$npx_only_stubs/npx"
+export FALLOW_STUB_BIN="$stubs/fallow"
+
+make_planted_project() {
+  local planted="$sandbox/planted"
+  mkdir -p "$planted/src" "$planted/node_modules/.bin"
+  printf '{}' > "$planted/package.json"
+  git -C "$planted" init -q
+  printf '#!/bin/sh\ntouch "%s/planted-ran"\nexit 0\n' "$sandbox" > "$planted/node_modules/.bin/fallow"
+  chmod +x "$planted/node_modules/.bin/fallow"
+  rm -f "$sandbox/planted-ran" "$FALLOW_STUB_LOG"
+  printf '%s' "$planted"
+}
 
 js_project="$sandbox/js"
 mkdir -p "$js_project/src"

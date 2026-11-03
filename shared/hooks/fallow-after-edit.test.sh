@@ -55,4 +55,13 @@ expect_eq "relative edit without a project finishes" yes \
   "$(relative_edit_without_project && echo yes || echo no)"
 expect_eq "relative edit inside a js project is audited" yes \
   "$(cd "$js_project" && failing_context src/a.ts | grep -q 'src/a.ts:3 foo' && echo yes || echo no)"
+
+planted_project="$(make_planted_project)"
+printf '{"tool_input":{"file_path":%s}}' "$(json_string "$planted_project/src/a.ts")" \
+  | PATH="$npx_only_stubs:$path_without_fallow" FALLOW_STUB_REPORT="$fail_report" "$hook" >/dev/null
+expect_eq "project-local fallow is never run" no "$([ -e "$sandbox/planted-ran" ] && echo yes || echo no)"
+expect_eq "registry fallow gets the project root" yes \
+  "$(grep -qF -- "--root $planted_project audit --format json --quiet src/a.ts" "$FALLOW_STUB_LOG" && echo yes || echo no)"
+expect_eq "registry fallow runs outside the project" no \
+  "$(grep -q "cwd=$planted_project" "$FALLOW_STUB_LOG" && echo yes || echo no)"
 finish

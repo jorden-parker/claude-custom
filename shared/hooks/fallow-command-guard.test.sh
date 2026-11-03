@@ -58,4 +58,13 @@ echo_lines="$(printf 'echo x\n%.0s' {1..3000})"
 expect_eq "long word after heredoc opener stays fast" deny "$(timed_decision "cat <<$long_word"$'\n'"$echo_lines"$'\n'"fallow audit")"
 opener_lines="$(printf 'cat <<EOF\n%.0s' {1..6000})"
 expect_eq "many unterminated heredoc openers stay fast" deny "$(timed_decision "$opener_lines"$'\n'"fallow audit")"
+
+planted_project="$(make_planted_project)"
+printf '{"session_id":"s1","cwd":%s,"tool_input":{"command":"git commit -m x"}}' "$(json_string "$planted_project")" \
+  | PATH="$npx_only_stubs:$path_without_fallow" FALLOW_STUB_REPORT="$pass_report" "$hook" >/dev/null
+expect_eq "project-local fallow is never run before a commit" no "$([ -e "$sandbox/planted-ran" ] && echo yes || echo no)"
+expect_eq "registry fallow audits the project root" yes \
+  "$(grep -qF -- "--root $planted_project audit --format json --quiet" "$FALLOW_STUB_LOG" && echo yes || echo no)"
+expect_eq "registry fallow runs outside the project for a commit" no \
+  "$(grep -q "cwd=$planted_project" "$FALLOW_STUB_LOG" && echo yes || echo no)"
 finish
