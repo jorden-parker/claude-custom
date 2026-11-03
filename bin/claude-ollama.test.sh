@@ -106,6 +106,10 @@ if [ -n "\${STUB_CLAUDE_LADDER_ONCE:-}" ] && [ ! -e "$sandbox/laddered" ]; then
   [ -z "\${STUB_CLAUDE_EMBED_OFF:-}" ] || "$real_python3" "$repo/shared/relaunch_dir.py" raise embed-off
   "$real_python3" "$repo/shared/relaunch_dir.py" request ladder '{"rung": "context-down", "context": 32768, "reason": "3 truncated prompts within 10 minutes"}'
 fi
+if [ -n "\${STUB_CLAUDE_LADDER_MALFORMED:-}" ] && [ ! -e "$sandbox/laddered-malformed" ]; then
+  : > "$sandbox/laddered-malformed"
+  echo '{}' > "\$CLAUDE_OLLAMA_RELAUNCH_DIR/ladder"
+fi
 if [ -n "\${STUB_CLAUDE_RELAUNCH_ONCE:-}" ] && [ ! -e "$sandbox/relaunched" ]; then
   : > "$sandbox/relaunched"
   "$real_python3" "$repo/shared/relaunch_dir.py" request relaunch "\$(jq -cn --arg prompt "\${STUB_CLAUDE_RELAUNCH_PROMPT:-}" '{note: "note.md", prompt: \$prompt, percent: 71}')"
@@ -1413,6 +1417,13 @@ check_not "the second run drops the prompt" grep -qF -- "--continue finish the t
 check_eq "the lease records the rung after the relaunch" context-down "$(tail -n 1 "$sandbox/lease-seen" | jq -r .rung)"
 check_eq "an embed-off file turns the search server's embeddings off on relaunch" 0 "$(cat "$sandbox/embed-env")"
 check_not "the ladder file is consumed" test -e "$relaunch_root/$(cat "$sandbox/claude-ppid")/ladder"
+
+new_sandbox
+malformed_status=0
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture env STUB_CLAUDE_LADDER_MALFORMED=1 "$repo/bin/claude-ollama" 27b -p hi || malformed_status=$?
+check_eq "a malformed ladder file does not end the launcher" 0 "$malformed_status"
+check_eq "a malformed ladder file still lets claude run again" 2 "$(grep -c '^ARGS:' "$sandbox/out")"
+check_that "a malformed ladder file is reported as dropped" grep -qF "dropped malformed ladder" "$sandbox/err"
 
 new_sandbox
 pinned_tags | jq '.models |= map(if .name == "qwen3-embedding:0.6b" then . + {size: 644245094} else . end) | .models += [{name: "qwen3.8-27b-cc", size: 17179869184}]' > "$sandbox/tags.json"

@@ -558,7 +558,7 @@ prepare_relaunch_dir() {
 
 read_relaunch_sentinel() {
   local request
-  request="$(relaunch_signal take relaunch)"
+  request="$(relaunch_signal take relaunch)" || request=""
   relaunch_note="$(jq -r '.note // empty' <<< "$request" 2>/dev/null)"
   relaunch_prompt="$(jq -r '.prompt // empty' <<< "$request" 2>/dev/null)"
   relaunch_percent="$(jq -r '.percent // empty' <<< "$request" 2>/dev/null)"
@@ -645,7 +645,7 @@ set_ladder_args() {
 
 read_ladder_file() {
   local request
-  request="$(relaunch_signal take ladder)"
+  request="$(relaunch_signal take ladder)" || request=""
   ladder_rung="$(jq -r '.rung // empty' <<< "$request" 2>/dev/null)"
   ladder_context="$(jq -r '.context // empty' <<< "$request" 2>/dev/null)"
   ladder_reason="$(jq -r '.reason // empty' <<< "$request" 2>/dev/null)"
@@ -653,6 +653,7 @@ read_ladder_file() {
 
 apply_ladder() {
   read_ladder_file
+  [ -n "$ladder_rung" ] || return 0
   session_rung="$ladder_rung"
   echo "claude-ollama: ladder $ladder_rung: $ladder_reason" >&2
   [ -z "$ladder_context" ] || { compose_launch_settings && build_claude_args; }
@@ -681,7 +682,7 @@ restore_context() {
 
 apply_ladder_up() {
   local request rung reason
-  request="$(relaunch_signal take ladder-up)"
+  request="$(relaunch_signal take ladder-up)" || request=""
   rung="$(jq -r '.rung // empty' <<< "$request" 2>/dev/null)"
   reason="$(jq -r '.reason // empty' <<< "$request" 2>/dev/null)"
   case "$rung" in
