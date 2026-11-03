@@ -513,7 +513,7 @@ ctx7_home_writable() {
 }
 
 ctx7_registry() {
-  (cd "$1" && npm config get registry 2>/dev/null) || echo "an unknown registry"
+  (cd "$1" && npm config get registry 2>/dev/null | sed -E 's#(://)[^/@]*@#\1#') || echo "an unknown registry"
 }
 
 explain_ctx7_failure() {

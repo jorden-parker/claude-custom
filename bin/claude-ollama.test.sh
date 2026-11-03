@@ -626,6 +626,14 @@ check_that "a failed ctx7 fetch says a project .npmrc is never read here" \
   grep -qF "claude-custom ctx7: npm reads ~/.npmrc here, never a project .npmrc; put the registry's auth token line in ~/.npmrc" "$sandbox/err"
 check_eq "the registry is read the way npx resolves it, from the same folder" "$ctx7_home" "$(cat "$sandbox/npm-cwd")"
 check_eq "the registry is read with npm config get" "config get registry" "$(cat "$sandbox/npm-args")"
+cat > "$sandbox/stubbin/npm" <<EOF
+#!/bin/sh
+echo "https://deploy:s3cret-token@npm.example.test/api/npm/"
+EOF
+run_capture env XDG_CACHE_HOME="$sandbox/elsewhere" "$sandbox/repo/bin/claude-custom" ctx7 library next "server actions"
+check_that "the failure line drops any user and token the registry URL carries" \
+  grep -qF "could not fetch ctx7@0.8.2 from https://npm.example.test/api/npm/ (exit 1)" "$sandbox/err"
+check_not "the registry's token never reaches the output" grep -qF "s3cret-token" "$sandbox/err"
 (cd "$sandbox/repo" && HOME="$sandbox/sealed-home" TMPDIR="$sandbox/tmp" run_capture "$sandbox/repo/bin/claude-custom" ctx7 library react hooks)
 check_eq "a failed ctx7 fetch from the temp folder keeps npx's exit status too" 1 "$?"
 check_not "the temp folder is removed after a failure as well" test -d "$(sed -n 's/^--yes --prefix=\([^ ]*\) .*/\1/p' "$sandbox/npx-args")"
