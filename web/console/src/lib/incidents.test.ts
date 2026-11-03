@@ -12,6 +12,10 @@ const aborted =
   '{"ts": "2026-11-02T14:01:30.100Z", "cause": "aborted", "detail": "error=\\"context canceled\\"", "tokens": null}';
 const reprefilledAfterEmbed =
   '{"ts": "2026-11-02T14:04:03.000Z", "cause": "reprefilled", "detail": "prompt eval time = 52000.00 ms / 65450 tokens", "tokens": 65450, "rule": "reprefilled/prompt-eval", "preceded_by": {"kind": "embed", "ts": "2026-11-02T14:04:02Z"}}';
+const degraded =
+  '{"ts": "2026-11-02T14:08:00Z", "cause": "degraded", "detail": "embeddings-off: 3 reprefilled after embed within 10 minutes", "tokens": null, "rule": "ladder/embeddings-off"}';
+const recovered =
+  '{"ts": "2026-11-02T14:30:00Z", "cause": "recovered", "detail": "embeddings-off: 20 minutes without an incident and the memory fits", "tokens": null, "rule": "ladder/up"}';
 const health =
   '{"ts": "2026-11-02T14:05:00Z", "kind": "health", "rules": {"aborted/context-canceled": 1, "evicted/unload": 0}, "unmatched": 1, "lines": 36}';
 
@@ -48,6 +52,11 @@ describe("parseIncident", () => {
     });
   });
 
+  it("reads the ladder's degraded and recovered rows under their own cause", () => {
+    expect(parseIncident(degraded)?.cause).toBe("degraded");
+    expect(parseIncident(recovered)?.cause).toBe("recovered");
+  });
+
   it("files a cause it does not know under unknown", () => {
     expect(
       parseIncident(
@@ -77,6 +86,8 @@ describe("incidentCounts", () => {
       reprefilled: 0,
       compacted: 0,
       relaunched: 0,
+      degraded: 0,
+      recovered: 0,
       unknown: 0,
     });
   });
@@ -165,6 +176,18 @@ describe("incidentFrame", () => {
     expect(frame.text).toMatch(
       /^\d\d:\d\d:\d\d relaunched {2}\/repo\/\.git\/handoff\/2026-11-02-1406-tests\.md \(38k tokens\)$/,
     );
+  });
+
+  it("shows a ladder rung going down as a warning", () => {
+    const frame = incidentFrame(parseIncident(degraded)!);
+    expect(frame.level).toBe("warn");
+    expect(frame.text).toMatch(
+      /^\d\d:\d\d:\d\d degraded · ladder\/embeddings-off embeddings-off: 3 reprefilled after embed within 10 minutes$/,
+    );
+  });
+
+  it("shows a ladder rung coming back as information", () => {
+    expect(incidentFrame(parseIncident(recovered)!).level).toBe("info");
   });
 
   it("keeps an unreadable timestamp as it is", () => {

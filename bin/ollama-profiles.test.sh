@@ -39,6 +39,9 @@ cp "$repo/personal/settings.tokens.template.json" "$repo/personal/settings.token
 mkdir -p "$sandbox/docs" "$sandbox/web/console/src/lib"
 cp "$repo/docs/ollama.md" "$sandbox/docs/"
 cp "$repo/web/console/src/lib/profile-env.generated.json" "$sandbox/web/console/src/lib/"
+causes_copy="$sandbox/web/console/src/lib/incident-causes.generated.json"
+mkdir -p "${causes_copy%/*}"
+cp "$repo/web/console/src/lib/incident-causes.generated.json" "$causes_copy"
 
 generate() {
   CLAUDE_CUSTOM_REPO="$sandbox" "$gen" "$@"
@@ -75,6 +78,19 @@ check_eq "Read globs expand in place" "Read(**/dist/**)" "$(jq -r '.permissions.
 check_eq "bare tool denies follow the globs" "Agent" "$(jq -r '.permissions.deny[5]' "$sandbox/ollama/settings.27b.json")"
 check_eq "profile hooks add the tool-nudge entries" 2 "$(jq '[.. | strings | select(contains("tool-nudge"))] | length' "$sandbox/ollama/settings.27b.json")"
 check_that "no placeholder survives" sh -c "! grep -q '{{' '$sandbox/ollama/settings.27b.json' '$sandbox/personal/settings.tokens.json'"
+
+check_eq "the console's cause list is the incidents cause list" "$(jq -cS . "$profiles/incidents/causes.json")" "$(jq -cS . "$causes_copy")"
+jq '.melted = "error"' "$profiles/incidents/causes.json" > "$sandbox/causes.json" && mv "$sandbox/causes.json" "$profiles/incidents/causes.json"
+check_eq "check fails when the console's cause list is stale" 1 "$(exit_status_of --check)"
+check_that "check names the stale cause list" sh -c "CLAUDE_CUSTOM_REPO='$sandbox' '$gen' --check 2>&1 | grep -q 'incident-causes.generated.json'"
+generate >/dev/null
+check_eq "render copies a new cause to the console" error "$(jq -r .melted "$causes_copy")"
+check_eq "render keeps the cause order" "$(jq -r 'keys_unsorted | join(" ")' "$profiles/incidents/causes.json")" "$(jq -r 'keys_unsorted | join(" ")' "$causes_copy")"
+jq '{unknown} + .' "$causes_copy" > "$sandbox/reordered.json" && mv "$sandbox/reordered.json" "$causes_copy"
+check_eq "check fails when the console's cause list is out of order" 1 "$(exit_status_of --check)"
+rm "$causes_copy"
+check_eq "check fails when the console's cause list is missing" 1 "$(exit_status_of --check)"
+generate >/dev/null
 
 sed 's/"timeout": 600/"timeout": 5/' "$sandbox/personal/settings.tokens.json" > "$sandbox/stale.json" && mv "$sandbox/stale.json" "$sandbox/personal/settings.tokens.json"
 check_eq "check fails on a stale personal overlay" 1 "$(exit_status_of --check)"

@@ -994,15 +994,27 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   is skipped. Each rule has an id (`aborted/context-canceled`,
   `truncated/input-prompt`, `evicted/unload`, `evicted/runner-start`,
   `ignored/load-sequence`, `reprefilled/prompt-eval`, `compacted/transcript`).
-  Each incident is one JSON line (`ts`, `cause`, `detail` of 200 chars,
-  `tokens`, `rule`, null for `unknown`) appended to
+  `ollama/incidents/incident_log.py` (stdlib only) owns the record and is the
+  only writer: the watcher, the ladder and the launcher (`append_incident` runs
+  `incident_log.py append --file F --cause C --detail D [--tokens N] [--rule R]`)
+  all append through it. Each incident is one JSON line (`ts`, `cause`, `detail`
+  of 200 chars, `tokens`, `rule`, null for `unknown`) appended to
   `$CLAUDE_CONSOLE_STATE_DIR/incidents/<utc-time>-<pid>.jsonl` (0700/0600), the
   newest also in `<file>.latest`, and `incidents/current` names the running
-  session's file. A `reprefilled` row also carries `preceded_by`, the last
-  `{kind, ts}` event seen in the log before it (`embed`: an `/api/embed`
-  request; `load`: a runner start; `unload`; `expired`: a keep-alive expiry), or
-  null; no other cause has the key. The watcher counts hits per rule, the
-  `unmatched` lines (the `unknown` rows) and the log lines seen, and appends a
+  session's file; rows with a `kind` (`health`, `ladder`) go through
+  `record_kind_row` and never reach `.latest`. A `reprefilled` row also carries
+  `preceded_by`, the last `{kind, ts}` event seen in the log before it (`embed`:
+  an `/api/embed` request; `load`: a runner start; `unload`; `expired`: a
+  keep-alive expiry), or null; no other cause has the key. The causes are the
+  keys of `ollama/incidents/causes.json` (cause to console log level: the
+  watcher's six plus `relaunched` and `recovered` from the launcher and
+  `degraded` from the ladder); appending any other cause raises (the CLI exits
+  2). `bin/ollama-profiles` copies that file, key order kept, to
+  `web/console/src/lib/incident-causes.generated.json`, which `incidents.ts`
+  imports for `INCIDENT_CAUSES` and the levels, and `make check-profiles` fails
+  when the copy is stale. Tests: `ollama/incidents/incident_log.test.sh`. The
+  watcher counts hits per rule, the `unmatched` lines (the `unknown` rows) and
+  the log lines seen, and appends a
   `{"kind": "health", "ts", "rules", "unmatched", "lines"}` row (never to
   `.latest`) every 60 s in follow mode (`--health-interval`) and once at exit
   and in `--once`; every reader skips rows with a `kind`.
@@ -1209,8 +1221,9 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `pgrep`, `ps`, `curl`, `ollama`, `sysctl`, `vm_stat`, a `meminfo` file,
   sleeping pids), `bin/claude-ollama.test.sh` (`STUB_MEMSIZE`, `show-verbose`).
 - Degrade ladder: `ollama/incidents/ladder.py` (stdlib only; it imports
-  `FileTail`, `IncidentLog`, `process_alive` and `now_iso` from `watcher.py`)
-  runs outside the sandbox beside the watcher (`launch_claude` starts it after
+  `FileTail` and `process_alive` from `watcher.py` and `IncidentLog`,
+  `incident`, `incident_rows` and `now_iso` from `incident_log.py`) runs outside
+  the sandbox beside the watcher (`launch_claude` starts it after
   `prepare_relaunch_dir` with
   `--incidents $CLAUDE_OLLAMA_INCIDENTS_FILE --relaunch-dir DIR --watch-pid $$ --context NUM_CTX --model M --embedding E --lease-bin PATH [--rung R]...`;
   `CLAUDE_OLLAMA_LADDER=0` turns it off, `CLAUDE_OLLAMA_LADDER_BIN` overrides it

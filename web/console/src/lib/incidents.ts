@@ -1,16 +1,11 @@
+import causeLevels from "./incident-causes.generated.json";
 import type { LogFrame, LogLevel } from "./log-line";
 
-export const INCIDENT_CAUSES = [
-  "aborted",
-  "evicted",
-  "truncated",
-  "reprefilled",
-  "compacted",
-  "relaunched",
-  "unknown",
-] as const;
+export type IncidentCause = keyof typeof causeLevels;
 
-export type IncidentCause = (typeof INCIDENT_CAUSES)[number];
+const causeLevel = causeLevels as Record<IncidentCause, LogLevel>;
+
+export const INCIDENT_CAUSES = Object.keys(causeLevel) as IncidentCause[];
 
 export type IncidentEvent = {
   kind: string;
@@ -31,16 +26,6 @@ export type ClassifierHealth = {
   rules: Record<string, number>;
   unmatched: number;
   lines: number;
-};
-
-const causeLevel: Record<IncidentCause, LogLevel> = {
-  aborted: "warn",
-  evicted: "error",
-  truncated: "error",
-  reprefilled: "warn",
-  compacted: "info",
-  relaunched: "info",
-  unknown: "debug",
 };
 
 function isCause(value: unknown): value is IncidentCause {

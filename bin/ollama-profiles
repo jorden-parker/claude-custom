@@ -18,6 +18,9 @@ console_env_catalogue="$data_dir/web/console/src/lib/profile-env.generated.json"
 env_docs="$data_dir/docs/ollama.md"
 env_table_start="<!-- profile-env:start -->"
 env_table_end="<!-- profile-env:end -->"
+incident_causes="$data_dir/ollama/incidents/causes.json"
+console_causes="$data_dir/web/console/src/lib/incident-causes.generated.json"
+console_causes_name="${console_causes##*/}"
 
 sizes() {
   jq -r 'keys[]' "$sizes_file"
@@ -132,10 +135,12 @@ render_all() {
   render_personal > "$1/settings.tokens.json"
   cp "$env_catalogue" "$1/profile-env.generated.json"
   render_env_docs > "$1/ollama.md"
+  jq . "$incident_causes" > "$1/$console_causes_name"
 }
 
 same_content() {
   case "$1" in
+    *"$console_causes_name") cmp -s <(jq -c . "$1") <(jq -c . "$2") ;;
     *.json) cmp -s <(jq -S . "$1") <(jq -S . "$2") ;;
     *) cmp -s "$1" "$2" ;;
   esac
@@ -173,6 +178,7 @@ check_profiles() {
   rendered_matches "$1/settings.tokens.json" "$personal_settings" || status=1
   rendered_matches "$1/profile-env.generated.json" "$console_env_catalogue" || status=1
   rendered_matches "$1/ollama.md" "$env_docs" || status=1
+  rendered_matches "$1/$console_causes_name" "$console_causes" || status=1
   return "$status"
 }
 
@@ -199,6 +205,8 @@ write_profiles() {
   cp "$1/settings.tokens.json" "$personal_settings"
   cp "$1/profile-env.generated.json" "$console_env_catalogue"
   cp "$1/ollama.md" "$env_docs"
+  mkdir -p "${console_causes%/*}"
+  cp "$1/$console_causes_name" "$console_causes"
 }
 
 with_rendered() {

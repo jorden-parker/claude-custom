@@ -20,3 +20,14 @@ exists. _Avoid_: sentinel, marker
 **Rung**: One step down the degrade ladder (`embeddings-off`, `heartbeat`,
 `context-down`) that the session runs on to survive memory pressure. Promoting a
 rung means returning to the step above it. _Avoid_: level, mode
+
+### Incidents
+
+**Incident**: One recorded moment the session lost or changed context, named by
+its cause: `aborted` (a request was dropped), `evicted` (the model was unloaded
+or reloaded), `truncated` (the prompt overflowed the context), `reprefilled`
+(the prompt cache was lost and the whole prompt ran again), `compacted` (Claude
+Code summarised the conversation), `relaunched` (the session restarted from a
+handoff), `degraded` (a rung fired), `recovered` (a rung was promoted back up)
+or `unknown` (a log line about the model that fits no rule). _Avoid_: event,
+error

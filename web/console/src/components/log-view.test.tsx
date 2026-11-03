@@ -154,7 +154,7 @@ describe("LogView", () => {
     });
     const counts = screen.getByLabelText("incident counts");
     expect(counts.textContent).toBe(
-      "aborted 2evicted 0truncated 0reprefilled 1compacted 0relaunched 0unknown 0",
+      "aborted 2evicted 0truncated 0reprefilled 1compacted 0relaunched 0degraded 0recovered 0unknown 0",
     );
     expect(
       screen.getByText(/reprefilled prompt eval time .* \(61k tokens\)$/),
@@ -185,7 +185,7 @@ describe("LogView", () => {
       "saw 36 lines, 1 unmatched",
     );
     expect(counts.textContent).toBe(
-      "aborted 2evicted 0truncated 0reprefilled 2compacted 0relaunched 0unknown 0",
+      "aborted 2evicted 0truncated 0reprefilled 2compacted 0relaunched 0degraded 0recovered 0unknown 0",
     );
   });
 
