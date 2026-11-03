@@ -76,7 +76,6 @@ def embed_turned_off():
     return folder is not None and folder.has("embed-off")
 
 
-EMBED_OFF = embed_turned_off()
 WORDS_ONLY_NOTE ="words only: the embedding model is not loaded, so synonyms will not match; use the code's own terms."
 
 TOOL = {
@@ -432,7 +431,7 @@ def build_index(launcher_alive):
 
 
 def embedding_available():
-    if EMBED_OFF:
+    if embed_turned_off():
         return False
     return EMBED_ALLOWED or embedding_loaded()
 
