@@ -2,7 +2,7 @@
 
 import { Monitor, Moon, Sun, type LucideIcon } from "lucide-react";
 import { useTheme } from "next-themes";
-import { useEffect, useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "react";
 import { Kbd } from "@/components/ui/kbd";
 import { SidebarMenuButton } from "@/components/ui/sidebar";
 
@@ -22,18 +22,9 @@ const THEME_ICONS: Record<ThemeChoice, LucideIcon> = {
   dark: Moon,
 };
 
-const TYPING_TAGS = new Set(["INPUT", "TEXTAREA", "SELECT"]);
-
 function nextThemeChoice(current: ThemeChoice): ThemeChoice {
   const index = THEME_CHOICES.indexOf(current);
   return THEME_CHOICES[(index + 1) % THEME_CHOICES.length];
-}
-
-function isTypingTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) {
-    return false;
-  }
-  return TYPING_TAGS.has(target.tagName) || target.isContentEditable;
 }
 
 function isThemeChoice(value: string | undefined): value is ThemeChoice {
@@ -52,30 +43,9 @@ function useMounted(): boolean {
   );
 }
 
-function useDarkShortcut() {
-  const { resolvedTheme, setTheme } = useTheme();
-
-  useEffect(() => {
-    const toggleOnD = (event: KeyboardEvent) => {
-      const isPlainD =
-        event.key.toLowerCase() === "d" &&
-        !event.metaKey &&
-        !event.ctrlKey &&
-        !event.altKey;
-      if (!isPlainD || isTypingTarget(event.target)) {
-        return;
-      }
-      setTheme(resolvedTheme === "dark" ? "light" : "dark");
-    };
-    document.addEventListener("keydown", toggleOnD);
-    return () => document.removeEventListener("keydown", toggleOnD);
-  }, [resolvedTheme, setTheme]);
-}
-
 export function ThemeSwitch() {
   const { theme, setTheme } = useTheme();
   const mounted = useMounted();
-  useDarkShortcut();
 
   const choice: ThemeChoice =
     mounted && isThemeChoice(theme) ? theme : "system";

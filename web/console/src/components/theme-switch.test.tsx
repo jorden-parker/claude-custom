@@ -14,7 +14,6 @@ function renderSwitch() {
     >
       <SidebarProvider>
         <ThemeSwitch />
-        <input aria-label="name" />
       </SidebarProvider>
     </ThemeProvider>,
   );
@@ -66,33 +65,5 @@ describe("ThemeSwitch", () => {
     fireEvent.click(themeButton("Theme: Light"));
 
     expect(document.documentElement.classList.contains("dark")).toBe(true);
-  });
-
-  it("toggles from light to dark when d is pressed", () => {
-    renderSwitch();
-    fireEvent.click(themeButton("Theme: System"));
-    expect(themeButton("Theme: Light")).toBeTruthy();
-
-    fireEvent.keyDown(document.body, { key: "d" });
-
-    expect(themeButton("Theme: Dark")).toBeTruthy();
-  });
-
-  it("ignores d while focus is in an input", () => {
-    renderSwitch();
-    fireEvent.click(themeButton("Theme: System"));
-
-    fireEvent.keyDown(screen.getByLabelText("name"), { key: "d" });
-
-    expect(themeButton("Theme: Light")).toBeTruthy();
-  });
-
-  it("ignores d while a modifier key is held", () => {
-    renderSwitch();
-    fireEvent.click(themeButton("Theme: System"));
-
-    fireEvent.keyDown(document.body, { key: "d", metaKey: true });
-
-    expect(themeButton("Theme: Light")).toBeTruthy();
   });
 });
