@@ -13,6 +13,9 @@ extra_hooks_file="$profile_dir/hooks.extra.json"
 headroom_file="$profile_dir/headroom.json"
 personal_template="$personal_dir/settings.tokens.template.json"
 personal_settings="$personal_dir/settings.tokens.json"
+incident_causes="$data_dir/ollama/incidents/causes.json"
+console_causes="$data_dir/web/console/src/lib/incident-causes.generated.json"
+console_causes_name="${console_causes##*/}"
 
 sizes() {
   jq -r 'keys[]' "$sizes_file"
@@ -95,10 +98,12 @@ render_all() {
     render_modelfile "$size" > "$1/Modelfile.$size"
   done
   render_personal > "$1/settings.tokens.json"
+  jq . "$incident_causes" > "$1/$console_causes_name"
 }
 
 same_content() {
   case "$1" in
+    *"$console_causes_name") cmp -s <(jq -c . "$1") <(jq -c . "$2") ;;
     *.json) cmp -s <(jq -S . "$1") <(jq -S . "$2") ;;
     *) cmp -s "$1" "$2" ;;
   esac
@@ -134,6 +139,7 @@ check_profiles() {
   done
   check_unlisted || status=1
   rendered_matches "$1/settings.tokens.json" "$personal_settings" || status=1
+  rendered_matches "$1/$console_causes_name" "$console_causes" || status=1
   return "$status"
 }
 
@@ -158,6 +164,8 @@ write_profiles() {
   done
   remove_unlisted
   cp "$1/settings.tokens.json" "$personal_settings"
+  mkdir -p "${console_causes%/*}"
+  cp "$1/$console_causes_name" "$console_causes"
 }
 
 with_rendered() {
