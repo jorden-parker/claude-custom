@@ -5,7 +5,7 @@ import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { DoctorChecklist } from "@/components/doctor-checklist";
 import { LiveMockSheet } from "@/components/live-mock-sheet";
-import { useFollowScroll } from "@/components/use-follow-scroll";
+import { StreamOutput } from "@/components/stream-output";
 import { useRunStream } from "@/components/use-run-stream";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -131,26 +131,15 @@ function RunHeader({
 }
 
 export function RunOutputBox({ lines }: { lines: RunState["lines"] }) {
-  const { outputRef, onScroll } = useFollowScroll<HTMLDivElement>(lines.length);
-
   return (
-    <div
-      ref={outputRef}
-      onScroll={onScroll}
-      className="max-h-[60vh] overflow-auto rounded-lg bg-muted/40 p-3 font-mono text-xs"
-    >
-      {lines.map((line, index) => (
-        <div key={index} className={lineClass(line.stream)}>
-          {line.text}
-        </div>
-      ))}
-    </div>
+    <StreamOutput
+      lines={lines.map((line, index) => ({
+        key: index,
+        text: line.text,
+        className: line.stream === "stderr" ? "text-muted-foreground" : "",
+      }))}
+    />
   );
-}
-
-function lineClass(stream: RunState["lines"][number]["stream"]): string {
-  const color = stream === "stderr" ? "text-muted-foreground" : "";
-  return `animate-in fade-in whitespace-pre-wrap break-all ${color}`;
 }
 
 function StageBar({ stage }: { stage: NonNullable<RunState["stage"]> }) {

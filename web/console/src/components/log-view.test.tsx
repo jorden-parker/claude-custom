@@ -23,6 +23,12 @@ class FakeEventSource {
   }
 }
 
+class QuietResizeObserver {
+  observe = vi.fn();
+  unobserve = vi.fn();
+  disconnect = vi.fn();
+}
+
 describe("LogView", () => {
   let fetched: string[];
   let launcherLog: () => Response;
@@ -32,6 +38,7 @@ describe("LogView", () => {
     launcherLog = () => Response.json({ path: "/state/launcher.log" });
     FakeEventSource.opened = [];
     vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("ResizeObserver", QuietResizeObserver);
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
       fetched.push(url);
@@ -70,6 +77,25 @@ describe("LogView", () => {
     expect(FakeEventSource.opened.map((source) => source.url)).toEqual([
       "/api/logs/events?source=server",
     ]);
+  });
+
+  it("holds the followed lines in a log region", async () => {
+    render(<LogView />);
+    await screen.findByText("following /var/log/ollama.log");
+    const source = FakeEventSource.opened[0];
+    act(() => {
+      receive(source, JSON.stringify({ text: "first entry", level: null }));
+      receive(source, JSON.stringify({ text: "second entry", level: null }));
+    });
+    const logRegion = screen.getByRole("log");
+    expect(logRegion.textContent).toContain("first entry");
+    expect(logRegion.textContent).toContain("second entry");
+  });
+
+  it("names the filter control", async () => {
+    render(<LogView />);
+    await screen.findByText("following /var/log/ollama.log");
+    expect(screen.getByRole("searchbox", { name: "Filter lines" })).toBeTruthy();
   });
 
   it("switches to the launcher log and stops the server stream", async () => {

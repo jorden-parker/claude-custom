@@ -6,7 +6,7 @@ import {
   screen,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { FakeRunEventSource } from "./run-stream-test-support";
+import { FakeRunEventSource, stubResizeObserver } from "./run-stream-test-support";
 import { WhyCard } from "./why-card";
 
 vi.mock("next/navigation", () => ({
@@ -31,6 +31,7 @@ describe("WhyCard", () => {
   beforeEach(() => {
     FakeRunEventSource.opened = [];
     vi.stubGlobal("EventSource", FakeRunEventSource);
+    stubResizeObserver();
   });
 
   afterEach(() => {
