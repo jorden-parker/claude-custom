@@ -110,6 +110,36 @@ expect_eq "another tool's fingerprint is its sorted input" \
   "$(fingerprint_of Grep '{"pattern":"x","path":"/p"}')" \
   "$(fingerprint_of Grep '{"path":"/p","pattern":"x"}')"
 
+call_cache() {
+  python3 - "$@" <<'PY'
+import json, os, sys
+sys.path.insert(0, os.environ["HOOKS_DIR"])
+import friction_budget
+operation, session = sys.argv[1:3]
+if operation == "record":
+    print(friction_budget.record_call(session, sys.argv[3], json.loads(sys.argv[4])))
+elif operation == "lookup":
+    print(json.dumps(friction_budget.lookup_call(session, sys.argv[3]), sort_keys=True))
+elif operation == "recorded":
+    print(json.dumps(sorted(entry["tag"] for entry in friction_budget.recorded_calls(session))))
+elif operation == "snapshots":
+    print(friction_budget.call_snapshot_dir(session))
+PY
+}
+
+new_turn c1
+expect_eq "an unrecorded call looks up as nothing" null "$(call_cache lookup c1 Read:a)"
+expect_eq "the first recorded call is number 1" 1 "$(call_cache record c1 Read:a '{"tag":"a"}')"
+expect_eq "the next recorded call is number 2" 2 "$(call_cache record c1 Read:b '{"tag":"b"}')"
+expect_eq "a lookup returns the entry with its number" '{"number": 1, "tag": "a"}' "$(call_cache lookup c1 Read:a)"
+expect_eq "recording a key again renumbers it" 3 "$(call_cache record c1 Read:a '{"tag":"a2"}')"
+expect_eq "recorded calls lists every entry" '["a2", "b"]' "$(call_cache recorded c1)"
+expect_eq "the snapshot folder sits beside the state file" \
+  "$CLAUDE_CONFIG_DIR/cache/friction/c1.snapshots" "$(call_cache snapshots c1)"
+new_turn c1
+expect_eq "a new turn forgets recorded calls" null "$(call_cache lookup c1 Read:a)"
+expect_eq "a new turn restarts the numbering" 1 "$(call_cache record c1 Read:a '{"tag":"a"}')"
+
 expect_eq "prompt submit prints nothing" "" "$(new_turn s3)"
 if printf 'not json' | python3 "$budget"; then :; else
   echo "FAIL: bad input must exit 0"
