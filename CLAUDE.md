@@ -828,8 +828,23 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `warn beacon: none yet`; it never fails doctor. `claude-custom sync-check`
   compares sections by canonical JSON, not by the stored `fingerprint`, so a
   hand-edited beacon still diffs. Nothing is sent over the network.
+- Launch settings: `bin/claude-ollama` keeps each settings layer as a plain
+  variable (the fetch domains, `profile_file` when it exists, the ladder
+  context, the proxy URL) and `compose_launch_settings` turns them into one file
+  through
+  `shared/profile-overlay compose BASE OUT [--fetch-domain HOST]... [--profile FILE] [--context N] [--proxy-url URL]`,
+  which applies them in that fixed order onto `ollama/settings.<size>.json`:
+  fetch domains (lift the bare `WebFetch` deny, allow each host, deny loopback
+  hosts, `skipWebFetchPreflight`), then the profile with `--context` replacing
+  its `context` (the same rules as `settings`, so the headroom margin holds at a
+  lowered context), then `env.ANTHROPIC_BASE_URL`. It runs on every launch,
+  `--print-config` and `doctor`, after the proxy starts, on a ladder
+  context-down and on its recovery. With no layer in effect `claude` gets
+  `ollama/settings.<size>.json` itself; otherwise it gets
+  `~/.claude-ollama/launch-settings.json` (0600), the only derived settings
+  file. Tests: `shared/profile-overlay.test.sh`, `bin/claude-ollama.test.sh`.
 - `bin/claude-ollama` resolves its own symlink to find `ollama/`. It unsets
-  `ANTHROPIC_API_KEY`, passes `--settings ollama/settings.<size>.json`,
+  `ANTHROPIC_API_KEY`, passes `--settings` with the launch settings above,
   `--system-prompt-file ollama/system-prompt.md` (replacing Claude Code's
   default system prompt),
   `--append-system-prompt-file ~/.claude-ollama/append-prompt.md` (written each
@@ -1054,11 +1069,11 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   overrides the script; tests stub it), with `--watch-pid $$`, the log at
   `<console state dir>/proxy/requests.jsonl` (`CLAUDE_CONSOLE_STATE_DIR`, else
   `~/.local/share/claude-custom/console`, the folder the console reads; the
-  proxy creates it 0700), waits for the port file and writes
-  `~/.claude-ollama/proxy-settings.json` with `env.ANTHROPIC_BASE_URL` pointed
-  at the proxy (the settings file `claude` gets); when the port never appears it
-  warns and keeps the direct URL. By default it only observes: no rewriting, no
-  tool pruning. `--stabilize` (the launcher passes it only when
+  proxy creates it 0700), waits for the port file and recomposes the launch
+  settings with `env.ANTHROPIC_BASE_URL` pointed at the proxy (the proxy layer
+  of `compose_launch_settings`); when the port never appears it warns and keeps
+  the direct URL. By default it only observes: no rewriting, no tool pruning.
+  `--stabilize` (the launcher passes it only when
   `CLAUDE_OLLAMA_PROXY_STABILIZE=1`) adds the prefix stabiliser: when two
   consecutive requests differ inside `system` by a span that, widened to whole
   lines, is at most 400 bytes with the rest identical, each changed line's text
@@ -1195,8 +1210,8 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   in the relaunch dir), then
   `claude-ollama: ladder context-down: does not fit at num_ctx N (N GiB short); starting at M`
   (the next lower size's context from `ollama/sizes.json`, else 75% rounded to
-  1024 and never below 16384, through the same `ladder-settings.json` path, one
-  step only;
+  1024 and never below 16384, through the same context layer of the launch
+  settings, one step only;
   `claude-ollama: memory fit: still N GiB short at num_ctx M with the embeddings off`
   when even that is short). The session lease records the rung and the lower
   `num_ctx`, and the ladder is started with one `--rung R` per rung in effect.
@@ -1245,18 +1260,17 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   incident (`detail: "<rung>: <reason>"`, `rule: "ladder/up"`) and re-acquires
   the session lease with the rung still in effect, if any. The launcher's
   relaunch loop also wakes on a `ladder` file: it prints
-  `claude-ollama: ladder <rung>: <reason>`, writes
-  `~/.claude-ollama/ladder-profile.json` (the size's profile plus `context`)
-  through `shared/profile-overlay settings` into `ladder-settings.json`, so
-  `CLAUDE_CODE_MAX_CONTEXT_TOKENS` keeps the headroom margin, re-acquires the
-  session lease with `--rung`, and runs `claude` again with the same flags, a
-  trailing prompt dropped and `--continue` added; a handoff sentinel in the same
-  pass still wins the arguments. Every relaunch exports `CODE_SEARCH_EMBED=0`
-  while `embed-off` exists, and `code-search.py` itself answers words only while
-  that file is in `$CLAUDE_OLLAMA_RELAUNCH_DIR`. Tests:
-  `ollama/incidents/ladder.test.sh` (inline incident rows, a sleeping pid, a
-  stub `ps`, a stub `ollama-lease` with `STUB_FIT`), `bin/claude-ollama.test.sh`
-  (stub ladder, `STUB_CLAUDE_LADDER_ONCE`, `STUB_CLAUDE_LADDER_UP`),
+  `claude-ollama: ladder <rung>: <reason>`, recomposes the launch settings with
+  the rung's `context` as the context layer, so `CLAUDE_CODE_MAX_CONTEXT_TOKENS`
+  keeps the headroom margin, re-acquires the session lease with `--rung`, and
+  runs `claude` again with the same flags, a trailing prompt dropped and
+  `--continue` added; a handoff sentinel in the same pass still wins the
+  arguments. Every relaunch exports `CODE_SEARCH_EMBED=0` while `embed-off`
+  exists, and `code-search.py` itself answers words only while that file is in
+  `$CLAUDE_OLLAMA_RELAUNCH_DIR`. Tests: `ollama/incidents/ladder.test.sh`
+  (inline incident rows, a sleeping pid, a stub `ps`, a stub `ollama-lease` with
+  `STUB_FIT`), `bin/claude-ollama.test.sh` (stub ladder,
+  `STUB_CLAUDE_LADDER_ONCE`, `STUB_CLAUDE_LADDER_UP`),
   `shared/mcp/code-search.test.sh`. The console's Server page has a Residency
   card (`web/console/src/components/residency-card.tsx`,
   `web/console/src/lib/lease.ts`): `GET /api/lease` runs

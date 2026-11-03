@@ -9,7 +9,7 @@ fail() {
 }
 
 usage() {
-  echo "usage: profile-overlay settings BASE PROFILE OUT | tools BASE_LIST PROFILE | env PROFILE | mcp PROFILE NAME | parameters PROFILE < LINES | sandbox-off | summary PROFILE | check PROFILE" >&2
+  echo "usage: profile-overlay settings BASE PROFILE OUT | compose BASE OUT [--fetch-domain HOST]... [--profile FILE] [--context N] [--proxy-url URL] | tools BASE_LIST PROFILE | env PROFILE | mcp PROFILE NAME | parameters PROFILE < LINES | sandbox-off | summary PROFILE | check PROFILE" >&2
   exit 2
 }
 
@@ -38,21 +38,16 @@ headroom_value() {
   jq -r --arg name "$1" '.[$name]' "$(dirname "$0")/../ollama/headroom.json"
 }
 
-write_settings() {
-  settings_base="$1"
-  settings_profile_path="$2"
-  settings_out="$3"
-  profile="$(read_profile "$settings_profile_path")" || exit 1
-  claude=false
-  [ "$(profile_id "$settings_profile_path")" = claude-code ] && claude=true
-  settings_tmp="$settings_out.$$.tmp"
+profile_layer() {
+  layer_profile="$1"
+  claude="$2"
   summary_reserve=0
   default_output_tokens=0
   if [ "$claude" = false ]; then
     summary_reserve="$(headroom_value summary_reserve)"
     default_output_tokens="$(headroom_value output_tokens)"
   fi
-  if (umask 077 && jq --argjson profile "$profile" --argjson claude "$claude" --argjson summaryReserve "$summary_reserve" --argjson defaultOutputTokens "$default_output_tokens" '
+  jq --argjson profile "$layer_profile" --argjson claude "$claude" --argjson summaryReserve "$summary_reserve" --argjson defaultOutputTokens "$default_output_tokens" '
     def clear_rule($name):
       .permissions.allow = ((.permissions.allow // []) - [$name])
       | .permissions.ask = ((.permissions.ask // []) - [$name])
@@ -73,12 +68,89 @@ write_settings() {
       elif ($claude | not) and ($profile | has("output_tokens")) then .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS = (((.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS | tonumber) + $baseOutputTokens - $outputTokens) | tostring)
       else . end
     | if (($claude | not) and $profile.thinking == true) then del(.env.CLAUDE_CODE_EXTRA_BODY) else . end
-  ' "$settings_base" > "$settings_tmp"); then
-    mv -f "$settings_tmp" "$settings_out"
+  '
+}
+
+fetch_domains_layer() {
+  jq --argjson domains "$1" '
+    .permissions.deny = ((.permissions.deny - ["WebFetch"])
+      + ["WebFetch(domain:localhost)", "WebFetch(domain:127.0.0.1)", "WebFetch(domain:0.0.0.0)", "WebFetch(domain:[::1])"])
+    | .permissions.allow += [$domains[] | "WebFetch(domain:\(.))"]
+    | .skipWebFetchPreflight = true
+  '
+}
+
+proxy_url_layer() {
+  jq --arg url "$1" '.env.ANTHROPIC_BASE_URL = $url'
+}
+
+save_settings() {
+  settings_tmp="$2.$$.tmp"
+  if (umask 077 && printf '%s\n' "$1" > "$settings_tmp"); then
+    mv -f "$settings_tmp" "$2"
   else
     rm -f "$settings_tmp"
-    fail "could not write $settings_out"
+    fail "could not write $2"
   fi
+}
+
+is_claude_code_profile() {
+  if [ "$(profile_id "$1")" = claude-code ]; then echo true; else echo false; fi
+}
+
+write_settings() {
+  profile="$(read_profile "$2")" || exit 1
+  settings="$(profile_layer "$profile" "$(is_claude_code_profile "$2")" < "$1")" || fail "could not write $3"
+  save_settings "$settings" "$3"
+}
+
+compose_profile_layer() {
+  profile='{}'
+  claude=false
+  if [ -n "$compose_profile" ]; then
+    profile="$(read_profile "$compose_profile")" || exit 1
+    claude="$(is_claude_code_profile "$compose_profile")"
+  fi
+  if [ -n "$compose_context" ]; then
+    profile="$(printf '%s\n' "$profile" | jq -c --argjson context "$compose_context" '.context = $context' 2>/dev/null)" ||
+      fail "--context needs a whole number, got $compose_context"
+  fi
+  printf '%s\n' "$1" | profile_layer "$profile" "$claude"
+}
+
+compose_settings() {
+  [ $# -ge 2 ] || usage
+  compose_base="$1"
+  compose_out="$2"
+  shift 2
+  compose_domains=""
+  compose_profile=""
+  compose_context=""
+  compose_proxy_url=""
+  while [ $# -gt 0 ]; do
+    [ $# -ge 2 ] || usage
+    case "$1" in
+      --fetch-domain) compose_domains="$compose_domains$2
+" ;;
+      --profile) compose_profile="$2" ;;
+      --context) compose_context="$2" ;;
+      --proxy-url) compose_proxy_url="$2" ;;
+      *) usage ;;
+    esac
+    shift 2
+  done
+  settings="$(jq . "$compose_base")" || fail "could not read $compose_base"
+  if [ -n "$compose_domains" ]; then
+    domains="$(printf '%s' "$compose_domains" | jq -R . | jq -sc .)"
+    settings="$(printf '%s\n' "$settings" | fetch_domains_layer "$domains")" || fail "could not write $compose_out"
+  fi
+  if [ -n "$compose_profile" ] || [ -n "$compose_context" ]; then
+    settings="$(compose_profile_layer "$settings")" || fail "could not write $compose_out"
+  fi
+  if [ -n "$compose_proxy_url" ]; then
+    settings="$(printf '%s\n' "$settings" | proxy_url_layer "$compose_proxy_url")" || fail "could not write $compose_out"
+  fi
+  save_settings "$settings" "$compose_out"
 }
 
 tools_list() {
@@ -161,6 +233,10 @@ case "$1" in
   settings)
     [ $# -eq 4 ] || usage
     write_settings "$2" "$3" "$4"
+    ;;
+  compose)
+    shift
+    compose_settings "$@"
     ;;
   tools)
     [ $# -eq 3 ] || usage
