@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Residency } from "@/lib/lease";
+import type { Residency } from "@/lib/residency";
 import { ResidencyCard } from "./residency-card";
 
 const FIT_LINE =

@@ -2,29 +2,14 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { runOnce } from "./run-once";
+import type { LeaseHolder, Residency } from "./residency";
 import { consoleStateDir } from "./state-dir";
-
-export type LeaseHolder = {
-  state: "live" | "stale";
-  name: string;
-  pid: number;
-  model: string | null;
-  rung: string | null;
-};
-
-export type Residency = {
-  holders: LeaseHolder[];
-  rung: string | null;
-  fit: string | null;
-};
 
 export type ResidencyResult =
   { ok: true; residency: Residency } | { ok: false; message: string };
 
 export type PromoteResult =
   { ok: true; pid: number; rung: string } | { ok: false; message: string };
-
-export const PROMOTABLE_RUNGS = ["embeddings-off", "context-down"] as const;
 
 const HOLDERS_TIMEOUT_MS = 10_000;
 const HOLDERS_MAX_BYTES = 64 * 1024;

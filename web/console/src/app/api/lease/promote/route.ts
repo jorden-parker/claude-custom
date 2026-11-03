@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { loadResidency, PROMOTABLE_RUNGS, promoteSession } from "@/lib/lease";
+import { loadResidency, promoteSession } from "@/lib/lease";
+import { PROMOTABLE_RUNGS } from "@/lib/residency";
 import { consoleRepoDir } from "@/lib/sizes";
 
 const JSON_CONTENT_TYPE = "application/json";

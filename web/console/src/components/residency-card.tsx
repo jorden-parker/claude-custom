@@ -3,8 +3,8 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import type { LeaseHolder, Residency } from "@/lib/lease";
-import { PROMOTABLE_RUNGS } from "@/lib/lease";
+import type { LeaseHolder, Residency } from "@/lib/residency";
+import { PROMOTABLE_RUNGS } from "@/lib/residency";
 
 type PromoteReply = { ok: true; pid: number } | { message: string };
 
