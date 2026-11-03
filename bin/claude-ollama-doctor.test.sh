@@ -253,6 +253,16 @@ fetch_list="$XDG_CONFIG_HOME/claude-custom/fetch-domains"
 printf 'docs.python.org\n' > "$fetch_list"
 run_doctor
 check_that "doctor says web fetch is on for the listed domains" grep -qxF "ok   web fetch on for: docs.python.org" "$sandbox/out"
+settings_dir="$HOME/.claude-ollama/launch-settings"
+mkdir -p "$settings_dir"
+sleep 30 &
+live_pid=$!
+printf '{"live":true}' > "$settings_dir/$live_pid.json"
+cp "$settings_dir/$live_pid.json" "$sandbox/live-before.json"
+run_doctor
+check_eq "doctor leaves a live launch's settings alone" "$(cat "$sandbox/live-before.json")" "$(cat "$settings_dir/$live_pid.json")"
+kill "$live_pid" 2>/dev/null
+wait "$live_pid" 2>/dev/null
 rm -f "$fetch_list"
 run_doctor
 check_that "doctor says web fetch is off without a fetch list" grep -qxF "ok   web fetch off (no domains in $fetch_list)" "$sandbox/out"
