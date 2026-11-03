@@ -42,6 +42,15 @@ describe("ConsoleNav", () => {
     ).toBe(false);
   });
 
+  it("renders menu buttons without the pill shape", () => {
+    renderNav();
+
+    const menuButton = document.querySelector('[data-sidebar="menu-button"]');
+
+    expect(menuButton).not.toBeNull();
+    expect(menuButton?.className).not.toContain("rounded-full");
+  });
+
   it("links to Profiles and to Global tools in the nav", () => {
     renderNav();
 
