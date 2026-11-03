@@ -54,7 +54,7 @@ function ConfigBody({ config, failure }: { config: ConfigResponse | null; failur
     );
   }
   return (
-    <dl className="grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-3 text-sm">
+    <dl className="grid grid-cols-1 sm:grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-3 text-sm">
       {config.entries.map((entry) => (
         <div key={entry.key} className="contents">
           <dt className="font-medium text-muted-foreground">{entry.key}</dt>

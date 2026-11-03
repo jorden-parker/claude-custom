@@ -134,7 +134,7 @@ function VariableRow({
     <li className={`flex flex-col gap-2 rounded-lg border p-3 ${changed ? "bg-muted/60" : ""}`}>
       <VariableHeader variable={variable} />
       <p className="text-sm text-muted-foreground">{variable.summary}</p>
-      <dl className="grid grid-cols-2 gap-x-3 font-mono text-xs">
+      <dl className="grid grid-cols-2 gap-x-3 font-mono text-xs [&>dd]:min-w-0 [&>dd]:break-all">
         <dt className="text-muted-foreground">current</dt>
         <dd>{variable.set ? variable.current : "unset"}</dd>
         <dt className="text-muted-foreground">recommended</dt>

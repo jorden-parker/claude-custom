@@ -1,5 +1,13 @@
 "use client";
 
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -196,40 +204,42 @@ function BudgetTable({ rows }: { rows: ToolBudgetRow[] }) {
   }
   const bars = new Map(budgetBars(rows).map((bar) => [bar.tool, bar.share]));
   return (
-    <div className="flex flex-col gap-1 font-mono text-xs">
-      <div className="grid grid-cols-[minmax(8rem,1fr)_4rem_4rem_5rem_3rem_8rem_3fr] gap-2 text-muted-foreground">
-        <span>tool</span>
-        <span className="text-right">schema</span>
-        <span className="text-right">requests</span>
-        <span className="text-right">per session</span>
-        <span className="text-right">calls</span>
-        <span>cost</span>
-        <span />
-      </div>
-      {rows.map((row) => (
-        <div
-          key={row.tool}
-          data-tool={row.tool}
-          className="grid grid-cols-[minmax(8rem,1fr)_4rem_4rem_5rem_3rem_8rem_3fr] items-center gap-2"
-        >
-          <span className="truncate">{row.tool}</span>
-          <span className="text-right">{row.schema_bytes}</span>
-          <span className="text-right">{row.requests}</span>
-          <span className="text-right">{row.session_bytes}</span>
-          <span className="text-right">{row.calls}</span>
-          <span>{costText(row)}</span>
-          <span className="h-2 rounded bg-muted">
-            <span
-              data-share={bars.get(row.tool) ?? 0}
-              className="block h-2 rounded bg-foreground/60"
-              style={{
-                width: `${Math.round((bars.get(row.tool) ?? 0) * 100)}%`,
-              }}
-            />
-          </span>
-        </div>
-      ))}
-    </div>
+    <Table className="font-mono text-xs">
+      <TableHeader>
+        <TableRow>
+          <TableHead>tool</TableHead>
+          <TableHead className="text-right">schema</TableHead>
+          <TableHead className="text-right">requests</TableHead>
+          <TableHead className="text-right">per session</TableHead>
+          <TableHead className="text-right">calls</TableHead>
+          <TableHead>cost</TableHead>
+          <TableHead className="min-w-24" />
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {rows.map((row) => (
+          <TableRow key={row.tool} data-tool={row.tool}>
+            <TableCell>{row.tool}</TableCell>
+            <TableCell className="text-right">{row.schema_bytes}</TableCell>
+            <TableCell className="text-right">{row.requests}</TableCell>
+            <TableCell className="text-right">{row.session_bytes}</TableCell>
+            <TableCell className="text-right">{row.calls}</TableCell>
+            <TableCell>{costText(row)}</TableCell>
+            <TableCell>
+              <span className="block h-2 rounded bg-muted">
+                <span
+                  data-share={bars.get(row.tool) ?? 0}
+                  className="block h-2 rounded bg-foreground/60"
+                  style={{
+                    width: `${Math.round((bars.get(row.tool) ?? 0) * 100)}%`,
+                  }}
+                />
+              </span>
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
   );
 }
 

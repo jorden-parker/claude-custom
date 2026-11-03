@@ -1,5 +1,13 @@
 "use client";
 
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import Link from "next/link";
 import {
   PROFILE_ENV_FIELDS,
@@ -51,41 +59,37 @@ function SwitchTable({
   groups: GroupedEnvFields[];
 }) {
   return (
-    <table className="w-full text-left text-sm">
-      <thead>
-        <tr className="border-b text-muted-foreground">
-          <th className="py-2 pr-3 font-medium">Key</th>
-          <th className="py-2 pr-3 font-medium">Label</th>
-          <th className="py-2 pr-3 font-medium">Default</th>
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>Key</TableHead>
+          <TableHead>Label</TableHead>
+          <TableHead>Default</TableHead>
           {profiles.map((profile) => (
-            <th key={profile.id} className="py-2 pr-3 font-medium">
+            <TableHead key={profile.id}>
               <Link
                 href={`/profiles/${profile.id}`}
                 className="underline-offset-2 hover:underline"
               >
                 {profile.title}
               </Link>
-            </th>
+            </TableHead>
           ))}
-        </tr>
-      </thead>
+        </TableRow>
+      </TableHeader>
       {groups.map(({ group, fields }) => (
-        <tbody key={group}>
-          <tr className="border-b bg-muted/40">
-            <th
-              colSpan={3 + profiles.length}
-              scope="rowgroup"
-              className="py-2 pr-3 font-medium"
-            >
+        <TableBody key={group}>
+          <TableRow className="bg-muted/40">
+            <TableHead colSpan={3 + profiles.length} scope="rowgroup">
               {group}
-            </th>
-          </tr>
+            </TableHead>
+          </TableRow>
           {fields.map((field) => (
             <SwitchRow key={field.key} field={field} profiles={profiles} />
           ))}
-        </tbody>
+        </TableBody>
       ))}
-    </table>
+    </Table>
   );
 }
 
@@ -97,16 +101,16 @@ function SwitchRow({
   profiles: ProfileSummary[];
 }) {
   return (
-    <tr id={field.key} className="scroll-mt-4 border-b">
-      <td className="py-2 pr-3 font-mono text-xs">{field.key}</td>
-      <td className="py-2 pr-3">{field.label}</td>
-      <td className="py-2 pr-3">{shownValue(field, field.defaultValue)}</td>
+    <TableRow id={field.key} className="scroll-mt-4">
+      <TableCell className="font-mono text-xs">{field.key}</TableCell>
+      <TableCell>{field.label}</TableCell>
+      <TableCell>{shownValue(field, field.defaultValue)}</TableCell>
       {profiles.map((profile) => (
-        <td key={profile.id} className="py-2 pr-3">
+        <TableCell key={profile.id}>
           {profileValue(field, profile)}
-        </td>
+        </TableCell>
       ))}
-    </tr>
+    </TableRow>
   );
 }
 

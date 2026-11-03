@@ -3,6 +3,14 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { PruneConfirm } from "@/components/prune-confirm";
 import { StartRunButton } from "@/components/start-run-button";
@@ -47,11 +55,11 @@ function OllamaDownBanner() {
 function SizesSection({ sizes, flashing }: { sizes: SizeStatus[]; flashing: Set<string> }) {
   return (
     <Section title="Sizes">
-      <Table headers={["Size", "Model", "Base", "Status", "Action"]}>
+      <ModelTable headers={["Size", "Model", "Base", "Status", "Action"]}>
         {sizes.map((size) => (
           <SizeRow key={size.size} size={size} flashing={flashing.has(size.size)} />
         ))}
-      </Table>
+      </ModelTable>
     </Section>
   );
 }
@@ -80,11 +88,11 @@ function InstalledSection({ snapshot, pruneRunning }: { snapshot: ModelsSnapshot
   const prunable = snapshot?.models.filter((model) => snapshot.prunable.includes(model.name)) ?? [];
   return (
     <Section title="Installed models">
-      <Table headers={["Name", "Class", "Size", "Loaded"]}>
+      <ModelTable headers={["Name", "Class", "Size", "Loaded"]}>
         {(snapshot?.models ?? []).map((model) => (
           <ModelRow key={model.name} model={model} />
         ))}
-      </Table>
+      </ModelTable>
       {prunable.length === 0 ? null : <PruneSection models={prunable} disabled={pruneRunning} />}
     </Section>
   );
@@ -99,20 +107,18 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-function Table({ headers, children }: { headers: string[]; children: ReactNode }) {
+function ModelTable({ headers, children }: { headers: string[]; children: ReactNode }) {
   return (
-    <table className="w-full text-left text-sm">
-      <thead className="text-muted-foreground">
-        <tr>
+    <Table>
+      <TableHeader>
+        <TableRow>
           {headers.map((header) => (
-            <th key={header} className="py-1">
-              {header}
-            </th>
+            <TableHead key={header}>{header}</TableHead>
           ))}
-        </tr>
-      </thead>
-      <tbody>{children}</tbody>
-    </table>
+        </TableRow>
+      </TableHeader>
+      <TableBody>{children}</TableBody>
+    </Table>
   );
 }
 
@@ -149,17 +155,17 @@ function SizeRow({ size, flashing }: { size: SizeStatus; flashing: boolean }) {
   const state = sizeStateOf(size);
   const flash = flashing ? "bg-success" : "";
   return (
-    <tr className={`animate-in fade-in transition-colors duration-1000 ${flash}`}>
-      <td className="py-2 font-medium">{size.size}</td>
-      <td className="font-mono text-xs">{size.model ?? "unknown"}</td>
-      <td className="font-mono text-xs">{size.base ?? "unknown"}</td>
-      <td>
+    <TableRow className={`animate-in fade-in transition-colors duration-1000 ${flash}`}>
+      <TableCell className="py-2 font-medium">{size.size}</TableCell>
+      <TableCell className="font-mono text-xs">{size.model ?? "unknown"}</TableCell>
+      <TableCell className="font-mono text-xs">{size.base ?? "unknown"}</TableCell>
+      <TableCell>
         <Badge className={STATE_STYLE[state]}>{state}</Badge>
-      </td>
-      <td>
+      </TableCell>
+      <TableCell>
         <SizeAction size={size} state={state} />
-      </td>
-    </tr>
+      </TableCell>
+    </TableRow>
   );
 }
 
@@ -179,16 +185,16 @@ function SizeAction({ size, state }: { size: SizeStatus; state: SizeState }) {
 
 function ModelRow({ model }: { model: InstalledModel }) {
   return (
-    <tr className="animate-in fade-in">
-      <td className="py-2 font-mono text-xs">{model.name}</td>
-      <td>
+    <TableRow className="animate-in fade-in">
+      <TableCell className="py-2 font-mono text-xs">{model.name}</TableCell>
+      <TableCell>
         <Badge variant="outline">{model.class}</Badge>
-      </td>
-      <td>{gigabytes(model.bytes)} GB</td>
-      <td>
-        {model.loaded ? <span aria-label="loaded" className="inline-block size-2 animate-pulse rounded-full bg-success-foreground" /> : null}
-      </td>
-    </tr>
+      </TableCell>
+      <TableCell>{gigabytes(model.bytes)} GB</TableCell>
+      <TableCell>
+        {model.loaded ? <span aria-label="loaded" className="inline-block size-2 animate-pulse rounded-full bg-success-foreground motion-reduce:animate-none" /> : null}
+      </TableCell>
+    </TableRow>
   );
 }
 

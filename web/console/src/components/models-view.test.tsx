@@ -43,6 +43,9 @@ describe("ModelsView", () => {
     serve(snapshotWith("up"));
     render(<ModelsView />);
     await waitFor(() => expect(screen.getByText("qwen-27b")).toBeTruthy());
+    expect(
+      document.querySelector('[data-slot="table-container"] table'),
+    ).not.toBeNull();
     expect(screen.getAllByText("qwen3.8:27b")).toHaveLength(2);
     expect(screen.queryByText(/Ollama is not running/)).toBeNull();
   });

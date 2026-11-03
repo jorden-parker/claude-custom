@@ -25,6 +25,9 @@ describe("ToolStateTable", () => {
       />,
     );
 
+    expect(
+      document.querySelector('[data-slot="table-container"] table'),
+    ).not.toBeNull();
     expect(screen.getByText("Fetch a web page")).toBeTruthy();
     expect(screen.getByRole("columnheader", { name: "Default" })).toBeTruthy();
     expect(rowFor("WebFetch").getByText("deny")).toBeTruthy();
