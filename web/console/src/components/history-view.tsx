@@ -1,6 +1,16 @@
 "use client";
 
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Empty,
   EmptyDescription,
   EmptyHeader,
@@ -239,20 +249,32 @@ function RestoreConfirm({
   onCancel: () => void;
 }) {
   return (
-    <div className="flex flex-col gap-2 rounded-md border p-3 text-sm">
-      <p>Restore {path} to the version before this change?</p>
-      {kind === "launch-agent" ? (
-        <p className="text-muted-foreground">
-          Then use Apply on the Server page to reload Ollama.
-        </p>
-      ) : null}
-      <div className="flex gap-2">
-        <Button onClick={onConfirm}>Confirm restore</Button>
-        <Button variant="outline" onClick={onCancel}>
-          Cancel
-        </Button>
-      </div>
-    </div>
+    <AlertDialog
+      open
+      onOpenChange={(open) => {
+        if (!open) {
+          onCancel();
+        }
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Restore Settings</AlertDialogTitle>
+          <AlertDialogDescription>
+            {path} returns to the version before this change.
+            {kind === "launch-agent"
+              ? " Then use Apply on the Server page to reload Ollama."
+              : null}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction onClick={onConfirm}>
+            Restore Settings
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 

@@ -1,4 +1,11 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProfileSummary } from "@/lib/profiles";
 import type { ToolBudgetReport } from "@/lib/tool-budget";
@@ -176,13 +183,17 @@ describe("ToolBudgetCard applies", () => {
     await screen.findByText("WebFetch");
 
     fireEvent.click(applyButton());
+    const dialog = within(await screen.findByRole("alertdialog"));
     expect(
-      screen.getByText("Turn these tools off in Ollama 27b?"),
+      dialog.getByRole("heading", { name: "Turn Off Tools" }),
     ).toBeTruthy();
-    expect(screen.getByText("mcp__repo__pr_view")).toBeTruthy();
+    expect(
+      dialog.getByText("These tools turn off in Ollama 27b:"),
+    ).toBeTruthy();
+    expect(dialog.getByText("mcp__repo__pr_view")).toBeTruthy();
     expect(puts).toEqual([]);
 
-    fireEvent.click(screen.getByRole("button", { name: "Turn these off" }));
+    fireEvent.click(dialog.getByRole("button", { name: "Turn Off Tools" }));
 
     expect(
       await screen.findByText(
@@ -203,11 +214,10 @@ describe("ToolBudgetCard applies", () => {
     await screen.findByText("WebFetch");
 
     fireEvent.click(applyButton());
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    const dialog = within(await screen.findByRole("alertdialog"));
+    fireEvent.click(dialog.getByRole("button", { name: "Cancel" }));
 
-    expect(
-      screen.queryByText("Turn these tools off in Ollama 27b?"),
-    ).toBeNull();
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
     expect(puts).toEqual([]);
   });
 
@@ -217,7 +227,8 @@ describe("ToolBudgetCard applies", () => {
     await screen.findByText("WebFetch");
 
     fireEvent.click(applyButton());
-    fireEvent.click(screen.getByRole("button", { name: "Turn these off" }));
+    const dialog = within(await screen.findByRole("alertdialog"));
+    fireEvent.click(dialog.getByRole("button", { name: "Turn Off Tools" }));
 
     expect(await screen.findByText("profiles is a symlink")).toBeTruthy();
   });
