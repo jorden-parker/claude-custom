@@ -8,6 +8,8 @@ from pathlib import Path
 HOOKS_DIR = Path(__file__).resolve().parent
 PROFILE = HOOKS_DIR / "hook-sandbox.sb"
 SANDBOX_ENV = HOOKS_DIR.parent / "sandbox-env"
+DEFAULT_SANDBOX_EXEC = "/usr/bin/sandbox-exec"
+ENV_ALLOWLIST = ("PATH", "HOME", "USER", "LOGNAME", "SHELL", "TERM", "LANG", "CLAUDE_CUSTOM_HOME")
 NOTE = "(ran in the hook sandbox: writes only to the project, temp and ~/.cache/claude-sandbox; no network but localhost)"
 
 
@@ -17,7 +19,7 @@ def enabled():
 
 def sandbox_exec():
     override = os.environ.get("CLAUDE_OLLAMA_SANDBOX_EXEC")
-    candidate = override if override is not None else shutil.which("sandbox-exec")
+    candidate = override or shutil.which("sandbox-exec") or DEFAULT_SANDBOX_EXEC
     return candidate if candidate and os.access(candidate, os.X_OK) else None
 
 
@@ -45,6 +47,15 @@ def sandboxed_argv(argv, project_dir, temp_dir):
     return [sandbox_exec(), "-f", str(profile_copy), *params, str(SANDBOX_ENV), *argv]
 
 
+def confined_env(temp_dir):
+    kept = {
+        name: value
+        for name, value in os.environ.items()
+        if name in ENV_ALLOWLIST or name.startswith("LC_")
+    }
+    return {**kept, "TMPDIR": temp_dir}
+
+
 @contextlib.contextmanager
 def confined(argv, project_dir):
     if not active():
@@ -52,4 +63,4 @@ def confined(argv, project_dir):
         return
     with tempfile.TemporaryDirectory(prefix="hook-sandbox.") as raw_temp_dir:
         temp_dir = os.path.realpath(raw_temp_dir)
-        yield sandboxed_argv(argv, project_dir, temp_dir), {**os.environ, "TMPDIR": temp_dir}
+        yield sandboxed_argv(argv, project_dir, temp_dir), confined_env(temp_dir)
