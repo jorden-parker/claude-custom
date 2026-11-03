@@ -80,9 +80,7 @@ describe("ConsoleNav", () => {
     );
     expect(screen.queryByRole("link", { name: "Runs" })).toBeNull();
 
-    fireEvent.click(
-      screen.getAllByRole("button", { name: /sidebar/i })[0],
-    );
+    fireEvent.click(screen.getAllByRole("button", { name: /sidebar/i })[0]);
     fireEvent.click(await screen.findByRole("link", { name: "Runs" }));
 
     await waitFor(() =>
@@ -108,22 +106,32 @@ describe("ConsoleNav", () => {
 
     const brandText = screen.getByText("claude-ollama");
 
-    expect(brandText.className).toContain("group-data-[collapsible=icon]:hidden");
+    expect(brandText.className).toContain(
+      "group-data-[collapsible=icon]:hidden",
+    );
   });
 
-  it("shows a second toggle in the footer only while collapsed", () => {
+  it("keeps the theme switch in the footer and shows a second toggle there only while collapsed", () => {
     renderNav();
 
-    const sidebarFooter = document.querySelector('[data-sidebar="footer"]');
+    const sidebarFooter = document.querySelector(
+      '[data-sidebar="footer"]',
+    ) as HTMLElement | null;
 
     expect(sidebarFooter).not.toBeNull();
-    expect(sidebarFooter!.className).toContain("hidden");
-    expect(sidebarFooter!.className).toContain("group-data-[collapsible=icon]:flex");
+    expect(sidebarFooter!.className).not.toContain("hidden");
     expect(
-      within(sidebarFooter as HTMLElement).getByRole("button", {
-        name: "Toggle Sidebar",
-      }),
+      within(sidebarFooter!).getByRole("button", { name: "Theme: System" }),
     ).toBeTruthy();
+
+    const collapsedToggle = within(sidebarFooter!)
+      .getByRole("button", { name: "Toggle Sidebar" })
+      .closest("div");
+
+    expect(collapsedToggle!.className).toContain("hidden");
+    expect(collapsedToggle!.className).toContain(
+      "group-data-[collapsible=icon]:flex",
+    );
   });
 
   it("renders menu buttons without the pill shape", () => {
@@ -138,8 +146,12 @@ describe("ConsoleNav", () => {
   it("links to Profiles and to Global tools in the nav", () => {
     renderNav();
 
-    expect(screen.getByRole("link", { name: "Profiles" }).getAttribute("href")).toBe("/profiles");
-    expect(screen.getByRole("link", { name: "Global tools" }).getAttribute("href")).toBe("/tools");
+    expect(
+      screen.getByRole("link", { name: "Profiles" }).getAttribute("href"),
+    ).toBe("/profiles");
+    expect(
+      screen.getByRole("link", { name: "Global tools" }).getAttribute("href"),
+    ).toBe("/tools");
   });
 });
 

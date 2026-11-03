@@ -6,7 +6,8 @@ import { describe, expect, it } from "vitest";
 const sourceRoot = fileURLToPath(new URL("..", import.meta.url));
 const globalsPath = path.join(sourceRoot, "app", "globals.css");
 const vendoredUiDir = path.join(sourceRoot, "components", "ui");
-const semanticDeclaration = /^\s*--(background|foreground|card|primary|secondary|muted|accent|destructive|border|input|ring|radius|sidebar|chart|success|warning|error|info|neutral)[a-z0-9-]*:\s*(.*);$/;
+const semanticDeclaration =
+  /^\s*--(background|foreground|card|primary|secondary|muted|accent|destructive|border|input|ring|radius|sidebar|chart|success|warning|error|info|neutral)[a-z0-9-]*:\s*(.*);$/;
 const rawColourLiteral = /#[0-9a-fA-F]{3,8}\b|oklch\(|hsl\(|rgb\(/;
 
 function sourceFiles(directory: string): string[] {
@@ -20,7 +21,11 @@ function sourceFiles(directory: string): string[] {
 }
 
 function isCheckedSource(filePath: string): boolean {
-  return /\.(ts|tsx|css)$/.test(filePath) && !/\.test\./.test(filePath) && filePath !== globalsPath;
+  return (
+    /\.(ts|tsx|css)$/.test(filePath) &&
+    !/\.test\./.test(filePath) &&
+    filePath !== globalsPath
+  );
 }
 
 const gardenOnlyNames = [
@@ -77,6 +82,16 @@ describe("design tokens", () => {
     }
   });
 
+  it("switches to dark through a class, not the OS media query", () => {
+    const themeCss = consoleThemeCss();
+
+    expect(themeCss).toContain(
+      "@custom-variant dark (&:where(.dark, .dark *));",
+    );
+    expect(themeCss).toMatch(/\.dark \{[^}]*--ds-background-100:/);
+    expect(themeCss).not.toContain("prefers-color-scheme");
+  });
+
   it("keeps the mock-frame presets", () => {
     const css = fs.readFileSync(globalsPath, "utf8");
 
@@ -103,6 +118,8 @@ describe("design tokens", () => {
       rawColourLiteral.test(fs.readFileSync(filePath, "utf8")),
     );
 
-    expect(offenders.map((filePath) => path.relative(sourceRoot, filePath))).toEqual([]);
+    expect(
+      offenders.map((filePath) => path.relative(sourceRoot, filePath)),
+    ).toEqual([]);
   });
 });

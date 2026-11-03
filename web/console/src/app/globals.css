@@ -2,7 +2,7 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
-@custom-variant dark (@media (prefers-color-scheme: dark));
+@custom-variant dark (&:where(.dark, .dark *));
 
 @theme inline {
   --color-background: var(--background);
@@ -63,6 +63,7 @@
 }
 
 :root {
+  color-scheme: light;
   --ds-background-100: hsl(0 0% 100%);
   --ds-background-200: hsl(0 0% 98%);
   --ds-gray-100: hsl(0 0% 95%);
@@ -190,77 +191,76 @@
   --neutral-border: var(--ds-gray-400);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --ds-background-100: hsl(0 0% 4%);
-    --ds-background-200: hsl(0 0% 0%);
-    --ds-gray-100: hsl(0 0% 10%);
-    --ds-gray-200: hsl(0 0% 12%);
-    --ds-gray-300: hsl(0 0% 16%);
-    --ds-gray-400: hsl(0 0% 18%);
-    --ds-gray-500: hsl(0 0% 27%);
-    --ds-gray-600: hsl(0 0% 53%);
-    --ds-gray-700: hsl(0 0% 56%);
-    --ds-gray-800: hsl(0 0% 49%);
-    --ds-gray-900: hsl(0 0% 63%);
-    --ds-gray-1000: hsl(0 0% 93%);
-    --ds-gray-alpha-100: #ffffff0f;
-    --ds-gray-alpha-400: #ffffff24;
-    --ds-gray-alpha-600: #ffffff82;
-    --ds-gray-alpha-900: #ffffff9c;
-    --ds-gray-alpha-1000: #ffffffeb;
-    --ds-blue-100: oklch(22.17% 0.069 259.89);
-    --ds-blue-200: oklch(25.45% 0.0811 255.8);
-    --ds-blue-300: oklch(30.86% 0.1022 255.21);
-    --ds-blue-400: oklch(34.1% 0.121 254.74);
-    --ds-blue-500: oklch(38.5% 0.1403 254.4);
-    --ds-blue-600: oklch(64.94% 0.1982 251.813);
-    --ds-blue-700: oklch(57.61% 0.2321 258.23);
-    --ds-blue-800: oklch(51.51% 0.2307 257.85);
-    --ds-blue-900: oklch(71.7% 0.1648 250.794);
-    --ds-blue-1000: oklch(96.75% 0.0179 242.423);
-    --ds-red-100: oklch(22.1% 0.0657 15.11);
-    --ds-red-200: oklch(25.93% 0.0834 19.02);
-    --ds-red-300: oklch(31.47% 0.1105 20.96);
-    --ds-red-400: oklch(35.27% 0.1273 21.23);
-    --ds-red-500: oklch(40.68% 0.1479 23.16);
-    --ds-red-600: oklch(62.56% 0.2277 23.03);
-    --ds-red-700: oklch(62.56% 0.2234 23.03);
-    --ds-red-800: oklch(58.01% 0.227 25.12);
-    --ds-red-900: oklch(69.96% 0.2136 22.03);
-    --ds-red-1000: oklch(95.6% 0.0293 6.61);
-    --ds-amber-100: oklch(22.46% 0.0538 76.04);
-    --ds-amber-200: oklch(24.95% 0.0642 64.78);
-    --ds-amber-300: oklch(32.34% 0.0837 63.83);
-    --ds-amber-400: oklch(35.53% 0.0903 66.2971);
-    --ds-amber-500: oklch(41.55% 0.1044 67.98);
-    --ds-amber-600: oklch(75.04% 0.1737 74.49);
-    --ds-amber-700: oklch(81.87% 0.1969 76.46);
-    --ds-amber-800: oklch(77.21% 0.1991 64.28);
-    --ds-amber-900: oklch(77.21% 0.1991 64.28);
-    --ds-amber-1000: oklch(96.7% 0.0418 84.59);
-    --ds-green-100: oklch(23.09% 0.0716 149.68);
-    --ds-green-200: oklch(27.12% 0.0895 150.09);
-    --ds-green-300: oklch(29.84% 0.096 149.25);
-    --ds-green-400: oklch(34.39% 0.1039 147.78);
-    --ds-green-500: oklch(44.19% 0.1484 147.2);
-    --ds-green-600: oklch(58.11% 0.1815 146.55);
-    --ds-green-700: oklch(64.58% 0.199 147.27);
-    --ds-green-800: oklch(57.81% 0.1776 147.5);
-    --ds-green-900: oklch(73.1% 0.2158 148.29);
-    --ds-green-1000: oklch(96.76% 0.056 154.18);
-    --ds-teal-100: oklch(22.1% 0.0544 178.74);
-    --ds-teal-200: oklch(25.06% 0.062 178.76);
-    --ds-teal-300: oklch(31.5% 0.0767 180.99);
-    --ds-teal-400: oklch(32.43% 0.0763 180.13);
-    --ds-teal-500: oklch(43.35% 0.1055 180.97);
-    --ds-teal-600: oklch(60.71% 0.1485 180.24);
-    --ds-teal-700: oklch(64.92% 0.1403 181.95);
-    --ds-teal-800: oklch(57.53% 0.1392 181.66);
-    --ds-teal-900: oklch(74.56% 0.1765 182.8);
-    --ds-teal-1000: oklch(96.46% 0.056 180.29);
-    --ds-focus-color: var(--ds-blue-900);
-  }
+.dark {
+  color-scheme: dark;
+  --ds-background-100: hsl(0 0% 4%);
+  --ds-background-200: hsl(0 0% 0%);
+  --ds-gray-100: hsl(0 0% 10%);
+  --ds-gray-200: hsl(0 0% 12%);
+  --ds-gray-300: hsl(0 0% 16%);
+  --ds-gray-400: hsl(0 0% 18%);
+  --ds-gray-500: hsl(0 0% 27%);
+  --ds-gray-600: hsl(0 0% 53%);
+  --ds-gray-700: hsl(0 0% 56%);
+  --ds-gray-800: hsl(0 0% 49%);
+  --ds-gray-900: hsl(0 0% 63%);
+  --ds-gray-1000: hsl(0 0% 93%);
+  --ds-gray-alpha-100: #ffffff0f;
+  --ds-gray-alpha-400: #ffffff24;
+  --ds-gray-alpha-600: #ffffff82;
+  --ds-gray-alpha-900: #ffffff9c;
+  --ds-gray-alpha-1000: #ffffffeb;
+  --ds-blue-100: oklch(22.17% 0.069 259.89);
+  --ds-blue-200: oklch(25.45% 0.0811 255.8);
+  --ds-blue-300: oklch(30.86% 0.1022 255.21);
+  --ds-blue-400: oklch(34.1% 0.121 254.74);
+  --ds-blue-500: oklch(38.5% 0.1403 254.4);
+  --ds-blue-600: oklch(64.94% 0.1982 251.813);
+  --ds-blue-700: oklch(57.61% 0.2321 258.23);
+  --ds-blue-800: oklch(51.51% 0.2307 257.85);
+  --ds-blue-900: oklch(71.7% 0.1648 250.794);
+  --ds-blue-1000: oklch(96.75% 0.0179 242.423);
+  --ds-red-100: oklch(22.1% 0.0657 15.11);
+  --ds-red-200: oklch(25.93% 0.0834 19.02);
+  --ds-red-300: oklch(31.47% 0.1105 20.96);
+  --ds-red-400: oklch(35.27% 0.1273 21.23);
+  --ds-red-500: oklch(40.68% 0.1479 23.16);
+  --ds-red-600: oklch(62.56% 0.2277 23.03);
+  --ds-red-700: oklch(62.56% 0.2234 23.03);
+  --ds-red-800: oklch(58.01% 0.227 25.12);
+  --ds-red-900: oklch(69.96% 0.2136 22.03);
+  --ds-red-1000: oklch(95.6% 0.0293 6.61);
+  --ds-amber-100: oklch(22.46% 0.0538 76.04);
+  --ds-amber-200: oklch(24.95% 0.0642 64.78);
+  --ds-amber-300: oklch(32.34% 0.0837 63.83);
+  --ds-amber-400: oklch(35.53% 0.0903 66.2971);
+  --ds-amber-500: oklch(41.55% 0.1044 67.98);
+  --ds-amber-600: oklch(75.04% 0.1737 74.49);
+  --ds-amber-700: oklch(81.87% 0.1969 76.46);
+  --ds-amber-800: oklch(77.21% 0.1991 64.28);
+  --ds-amber-900: oklch(77.21% 0.1991 64.28);
+  --ds-amber-1000: oklch(96.7% 0.0418 84.59);
+  --ds-green-100: oklch(23.09% 0.0716 149.68);
+  --ds-green-200: oklch(27.12% 0.0895 150.09);
+  --ds-green-300: oklch(29.84% 0.096 149.25);
+  --ds-green-400: oklch(34.39% 0.1039 147.78);
+  --ds-green-500: oklch(44.19% 0.1484 147.2);
+  --ds-green-600: oklch(58.11% 0.1815 146.55);
+  --ds-green-700: oklch(64.58% 0.199 147.27);
+  --ds-green-800: oklch(57.81% 0.1776 147.5);
+  --ds-green-900: oklch(73.1% 0.2158 148.29);
+  --ds-green-1000: oklch(96.76% 0.056 154.18);
+  --ds-teal-100: oklch(22.1% 0.0544 178.74);
+  --ds-teal-200: oklch(25.06% 0.062 178.76);
+  --ds-teal-300: oklch(31.5% 0.0767 180.99);
+  --ds-teal-400: oklch(32.43% 0.0763 180.13);
+  --ds-teal-500: oklch(43.35% 0.1055 180.97);
+  --ds-teal-600: oklch(60.71% 0.1485 180.24);
+  --ds-teal-700: oklch(64.92% 0.1403 181.95);
+  --ds-teal-800: oklch(57.53% 0.1392 181.66);
+  --ds-teal-900: oklch(74.56% 0.1765 182.8);
+  --ds-teal-1000: oklch(96.46% 0.056 180.29);
+  --ds-focus-color: var(--ds-blue-900);
 }
 
 @utility text-heading-32 {

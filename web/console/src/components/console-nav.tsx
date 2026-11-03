@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BrandMark } from "@/components/brand-mark";
 import { SectionIcon } from "@/components/section-icon";
+import { ThemeSwitch } from "@/components/theme-switch";
 import {
   SidebarContent,
   SidebarFooter,
@@ -76,8 +77,15 @@ export function ConsoleNav() {
           </SidebarGroup>
         ))}
       </SidebarContent>
-      <SidebarFooter className="hidden group-data-[collapsible=icon]:flex">
-        <SidebarTrigger />
+      <SidebarFooter>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <ThemeSwitch />
+          </SidebarMenuItem>
+        </SidebarMenu>
+        <div className="hidden group-data-[collapsible=icon]:flex">
+          <SidebarTrigger />
+        </div>
       </SidebarFooter>
     </>
   );
