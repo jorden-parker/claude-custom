@@ -9,6 +9,8 @@ describe("ProgressBar", () => {
     );
 
     expect(markup).toContain("width:45%");
+    expect(markup).toContain('role="progressbar"');
+    expect(markup).toContain('aria-valuenow="45"');
     expect(markup).toContain("pulling");
     expect(markup).toContain("animate-pulse");
   });

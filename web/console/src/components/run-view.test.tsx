@@ -30,4 +30,15 @@ describe("RunView", () => {
     expect(logRegion.textContent).toContain("first line");
     expect(logRegion.textContent).toContain("second line");
   });
+
+  it("shows the stage as a progress bar", async () => {
+    render(<RunView id="run-2" />);
+    const source = FakeRunEventSource.opened[0];
+    act(() => {
+      source.start("speed-check", "Speed check");
+      source.lines(["[2/4] Warm up"]);
+    });
+    const bar = await screen.findByRole("progressbar");
+    expect(bar.getAttribute("aria-valuenow")).toBe("50");
+  });
 });

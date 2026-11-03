@@ -5,6 +5,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LogView } from "./log-view";
@@ -231,6 +232,11 @@ describe("LogView", () => {
     expect(names).toEqual(["bash=1300", "read_file=300"]);
     expect(ledger.textContent).toContain("system 900");
     expect(ledger.textContent).toContain("messages 2800");
+    const bars = within(ledger).getAllByRole("progressbar");
+    expect(bars.map((bar) => bar.getAttribute("aria-label"))).toEqual([
+      "bash",
+      "read_file",
+    ]);
   });
 
   it("shows why the launcher log is missing", async () => {

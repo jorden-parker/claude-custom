@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import { StreamOutput } from "@/components/stream-output";
 import { Input } from "@/components/ui/input";
+import { Progress } from "@/components/ui/progress";
 import {
   INCIDENT_CAUSES,
   healthSummary,
@@ -206,12 +207,10 @@ function LedgerBars({ ledger }: { ledger: ProxyLedger }) {
         >
           <span className="truncate">{tool.name}</span>
           <span className="text-right">{tool.bytes}</span>
-          <span className="h-2 rounded bg-muted">
-            <span
-              className="block h-2 rounded bg-foreground/60"
-              style={{ width: `${Math.round(tool.share * 100)}%` }}
-            />
-          </span>
+          <Progress
+            value={Math.round(tool.share * 100)}
+            aria-label={tool.name}
+          />
         </div>
       ))}
     </>

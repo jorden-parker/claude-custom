@@ -1,15 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { DoctorChecklist } from "@/components/doctor-checklist";
 import { LiveMockSheet } from "@/components/live-mock-sheet";
 import { StreamOutput } from "@/components/stream-output";
 import { useRunStream } from "@/components/use-run-stream";
+import { Loader } from "@/components/ai-elements/loader";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
 import { checksFromLines } from "@/lib/doctor-checks";
 import { percentFrom, phaseFrom } from "@/lib/pull-progress";
 import { elapsedSeconds, formatElapsed, statusOf } from "@/lib/run-display";
@@ -150,12 +151,7 @@ function StageBar({ stage }: { stage: NonNullable<RunState["stage"]> }) {
       <p className="text-sm">
         Stage {stage.number} of {stage.total} — {stage.title}
       </p>
-      <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-        <div
-          className="h-full rounded-full bg-info-foreground transition-[width] duration-500"
-          style={{ width: `${percent}%` }}
-        />
-      </div>
+      <Progress value={percent} aria-label="Stage progress" />
     </div>
   );
 }
@@ -181,7 +177,7 @@ function ProgressLines({ progress }: { progress: RunState["progress"] }) {
     <div className="flex flex-col gap-1 text-sm text-muted-foreground">
       {texts.map((text, index) => (
         <p key={index} className="flex items-center gap-2 font-mono text-xs">
-          <Loader2 className="size-3 animate-spin" />
+          <Loader size={12} />
           {text}
         </p>
       ))}
