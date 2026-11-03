@@ -22,6 +22,7 @@ fast_marker=""
 embedding_model=""
 meminfo="${CLAUDE_OLLAMA_MEMINFO:-/proc/meminfo}"
 rough_kv_share=0.25
+rough_kv_context=65536
 
 usage() {
   cat >&2 <<'EOF'
@@ -284,7 +285,14 @@ exact_kv_bytes() {
 }
 
 rough_kv_bytes() {
-  awk -v bytes="$1" -v share="$rough_kv_share" 'BEGIN { printf "%.0f", bytes * share }'
+  awk -v bytes="$1" -v share="$rough_kv_share" -v ctx="$num_ctx" -v reference="$rough_kv_context" \
+    'BEGIN { printf "%.0f", bytes * share * ctx / reference }'
+}
+
+resident_bytes() {
+  curl -s -m 10 "$ollama_url/api/ps" 2>/dev/null | jq -r --args '[.models[]? | select((.name // .model) as $loaded
+    | $ARGS.positional | any(. as $wanted | $loaded == $wanted or $loaded == ($wanted + ":latest"))) | .size] | add // 0' "$@" 2>/dev/null \
+    | awk '/^[0-9]+$/ { found = $0 } END { print found + 0 }'
 }
 
 free_bytes_linux() {
@@ -315,6 +323,7 @@ fit() {
   kv_bytes="$(exact_kv_bytes)" || { kv_bytes="$(rough_kv_bytes "$model_bytes")"; estimate=rough; }
   [ -z "$embedding_model" ] || embedding_bytes="$(model_bytes_of "$embedding_model")" || exit 1
   free="$(free_bytes)" || exit 1
+  free=$(( free + $(resident_bytes "$model" ${embedding_model:+"$embedding_model"}) ))
   jq -cn --argjson model "$model_bytes" --argjson kv "$kv_bytes" --argjson embedding "$embedding_bytes" \
     --argjson free "$free" --arg estimate "$estimate" \
     '{model_bytes: $model, kv_bytes: $kv, embedding_bytes: $embedding, total_bytes: ($model + $kv + $embedding),

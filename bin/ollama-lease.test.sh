@@ -192,7 +192,7 @@ chmod +x "$tmp/stubbin/ollama" "$tmp/stubbin/sysctl" "$tmp/stubbin/vm_stat"
 cat > "$tmp/stubbin/curl" <<EOF
 #!/bin/sh
 echo "\$*" >> "$tmp/curl.log"
-case "\$*" in *api/tags*) cat "$tmp/tags.json" ;; esac
+case "\$*" in *api/tags*) cat "$tmp/tags.json" ;; *api/ps*) [ ! -f "$tmp/ps.json" ] || cat "$tmp/ps.json" ;; esac
 EOF
 printf '{"models":[{"name":"qwen3.8-27b-cc","size":17179869184},{"name":"qwen3-embedding:0.6b","size":644245094}]}\n' > "$tmp/tags.json"
 cat > "$tmp/show-output" <<'EOF'
@@ -242,6 +242,13 @@ printf '  Model\n    architecture        qwen3\n    parameters          27.4B\n'
 STUB_OLLAMA_ENV="OLLAMA_KV_CACHE_TYPE=q8_0" run "$lease" fit --model qwen3.8-27b-cc --num-ctx 65536
 check_eq "without the metadata fields the KV cache is a quarter of the model" 4294967296 "$(fit_field kv_bytes)"
 check_eq "and the estimate is rough" rough "$(fit_field estimate)"
+STUB_OLLAMA_ENV="OLLAMA_KV_CACHE_TYPE=q8_0" run "$lease" fit --model qwen3.8-27b-cc --num-ctx 32768
+check_eq "the rough KV cache shrinks with num_ctx, a quarter of the model at 65536" 2147483648 "$(fit_field kv_bytes)"
+
+printf '{"models":[{"name":"qwen3.8-27b-cc:latest","model":"qwen3.8-27b-cc:latest","size":17179869184},{"name":"other:1b","size":1000}]}\n' > "$tmp/ps.json"
+STUB_OLLAMA_ENV="OLLAMA_KV_CACHE_TYPE=q8_0" run "$lease" fit --model qwen3.8-27b-cc --num-ctx 65536
+check_eq "a model already loaded counts as free memory, since its pages are already active or wired" $((31082938368 + 17179869184)) "$(fit_field free_bytes)"
+rm -f "$tmp/ps.json"
 
 mkdir -p "$tmp/proc"
 printf 'MemTotal:       65536000 kB\nMemFree:         1000000 kB\nMemAvailable:   30000000 kB\n' > "$tmp/proc/meminfo"

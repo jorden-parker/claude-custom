@@ -1280,12 +1280,14 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   the model and embedding bytes are the `size` of each in `/api/tags`; the KV
   bytes are `num_ctx * block_count * 2 * head_count_kv * key_length * bytes`
   from the `Metadata` of `ollama show M --verbose` with `OLLAMA_KV_CACHE_TYPE`
-  of the running server as the bytes per element (f16 2, q8_0 1, q4_0 0.5), or a
-  flat 25% of the model bytes with `estimate: rough` when a field is missing;
-  the free bytes are `sysctl -n hw.memsize` minus the active and wired pages of
-  `vm_stat` on macOS, or `MemAvailable` from `/proc/meminfo`
-  (`CLAUDE_OLLAMA_MEMINFO` overrides the path) when that file is readable. It
-  exits 1 with `ollama lease: /api/tags lists no M` or
+  of the running server as the bytes per element (f16 2, q8_0 1, q4_0 0.5), or
+  25% of the model bytes scaled by `num_ctx / 65536` with `estimate: rough` when
+  a field is missing (so a context-down rung lowers the estimate too); the free
+  bytes are `sysctl -n hw.memsize` minus the active and wired pages of `vm_stat`
+  on macOS, or `MemAvailable` from `/proc/meminfo` (`CLAUDE_OLLAMA_MEMINFO`
+  overrides the path) when that file is readable, plus the `/api/ps` size of the
+  model and embedding model when already loaded, since their pages are already
+  counted as used. It exits 1 with `ollama lease: /api/tags lists no M` or
   `ollama lease: cannot read the free memory`. `bin/claude-ollama` runs it
   before claiming the session lease (`CLAUDE_OLLAMA_FIT=0` skips it; a fit that
   fails prints `claude-ollama: memory fit: unknown (<reason>)` and the launch
