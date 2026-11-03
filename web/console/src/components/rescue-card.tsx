@@ -89,7 +89,7 @@ function RescueRunResult({ id }: { id: string }) {
             The run printed no report path (exit {state.ended.code}).
           </p>
         )}
-        <RunOutputBox lines={state.lines} />
+        <RunOutputBox lines={state.lines} live={state.ended === null} />
       </div>
     );
   }

@@ -15,14 +15,16 @@ type StreamLine = {
 
 type StreamOutputProps = {
   lines: readonly StreamLine[];
+  live?: boolean;
   className?: string;
 };
 
-export function StreamOutput({ lines, className }: StreamOutputProps) {
+export function StreamOutput({ lines, live, className }: StreamOutputProps) {
   return (
     <Conversation
       className={cn(
-        "flex max-h-[70dvh] min-h-40 flex-col rounded-lg bg-muted/40 font-mono text-xs",
+        "flex min-h-40 flex-col rounded-lg bg-muted/40 font-mono text-xs",
+        live && "max-h-[calc(100dvh-6rem)]",
         className,
       )}
     >

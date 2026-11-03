@@ -64,7 +64,7 @@ function WhyRunResult({ id }: { id: string }) {
           The run printed no report (exit {state.ended.code}).
         </p>
       ) : null}
-      {showLines ? <RunOutputBox lines={state.lines} /> : null}
+      {showLines ? <RunOutputBox lines={state.lines} live={state.ended === null} /> : null}
       <RunLinks
         id={id}
         state={state}

@@ -248,6 +248,11 @@ describe("LogView", () => {
       "bash",
       "read_file",
     ]);
+    const log = screen.getByRole("log");
+    expect(
+      ledger.compareDocumentPosition(log) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(log.className).toContain("max-h-[calc(100dvh-6rem)]");
   });
 
   it("shows why the launcher log is missing", async () => {

@@ -34,6 +34,33 @@ describe("RunView", () => {
     expect(logRegion.textContent).toContain("second line");
   });
 
+  it("caps the output at one screen while the run is going and shows every line once it ends", async () => {
+    render(<RunView id="run-4" />);
+    const source = FakeRunEventSource.opened[0];
+    act(() => {
+      source.start("doctor-free", "Check things");
+      source.lines(["first line"]);
+    });
+    expect((await screen.findByRole("log")).className).toContain(
+      "max-h-[calc(100dvh-6rem)]",
+    );
+    act(() => {
+      source.end(0);
+    });
+    await screen.findAllByText("done");
+    expect(screen.getByRole("log").className).not.toContain("max-h-");
+  });
+
+  it("names the run with a second level heading under the page title", async () => {
+    render(<RunView id="run-5" />);
+    act(() => {
+      FakeRunEventSource.opened[0].start("doctor-free", "Check things");
+    });
+    expect(
+      await screen.findByRole("heading", { level: 2, name: /Check things/ }),
+    ).toBeTruthy();
+  });
+
   it("shows no petals when a run ends ok", async () => {
     const { container } = render(<RunView id="run-3" />);
     const source = FakeRunEventSource.opened[0];
