@@ -541,10 +541,6 @@ install_ctx7_cli() {
   fi
 }
 
-ctx7_home_writable() {
-  mkdir -p "$1/npm-cache" 2>/dev/null && : > "$1/npm-cache/.writable" 2>/dev/null
-}
-
 redact_secrets() {
   sed -E \
     -e 's#(://)[^/@[:space:]]*@#\1#g' \
@@ -555,39 +551,6 @@ redact_secrets() {
     -e 's#(^|[^A-Za-z0-9+=_-])[A-Za-z0-9+=_-]{40,}#\1<redacted>#g'
 }
 
-ctx7_registry() {
-  (cd "$1" && npm config get registry 2>/dev/null | redact_secrets) || echo "an unknown registry"
-}
-
-explain_ctx7_failure() {
-  local prefix="$1" status="$2"
-  echo "claude-custom ctx7: npm could not fetch ctx7@$ctx7_version from $(ctx7_registry "$prefix") (exit $status)" >&2
-  echo "claude-custom ctx7: npm reads ~/.npmrc here, never a project .npmrc; put the registry's auth token line in ~/.npmrc" >&2
-}
-
-run_pinned_ctx7() {
-  local prefix="$1" output errors status
-  shift
-  output="$(mktemp "${TMPDIR:-/tmp}/claude-custom-ctx7-out.XXXXXX")" || return 1
-  errors="$(mktemp "${TMPDIR:-/tmp}/claude-custom-ctx7-err.XXXXXX")" || { rm -f "$output"; return 1; }
-  (cd "$prefix" && npx --yes --prefix="$prefix" "$@") > "$output" 2> "$errors"
-  status=$?
-  head -n 80 "$output"
-  redact_secrets < "$errors" >&2
-  rm -f "$output" "$errors"
-  [ "$status" -eq 0 ] || explain_ctx7_failure "$prefix" "$status"
-  return "$status"
-}
-
-run_ctx7_from_scratch() {
-  local scratch status
-  scratch="$(mktemp -d "${TMPDIR:-/tmp}/claude-custom-ctx7.XXXXXX")" || exit 1
-  run_pinned_ctx7 "$scratch" "ctx7@$ctx7_version" "$@"
-  status=$?
-  rm -rf "$scratch"
-  return "$status"
-}
-
 check_ctx7_lookup() {
   case "${1:-}" in
     library|docs) ;;
@@ -595,15 +558,33 @@ check_ctx7_lookup() {
   esac
 }
 
+ctx7_env_allowlist="PATH HOME TERM LANG LC_ALL TMPDIR HTTP_PROXY HTTPS_PROXY NO_PROXY http_proxy https_proxy no_proxy SSL_CERT_FILE SSL_CERT_DIR NODE_EXTRA_CA_CERTS CONTEXT7_API_KEY"
+
+run_installed_ctx7() {
+  local name output errors status
+  local -a env_pairs=()
+  for name in $ctx7_env_allowlist; do
+    if [ -n "${!name:-}" ]; then
+      env_pairs+=("$name=${!name}")
+    fi
+  done
+  output="$(mktemp "${TMPDIR:-/tmp}/claude-custom-ctx7-out.XXXXXX")" || return 1
+  errors="$(mktemp "${TMPDIR:-/tmp}/claude-custom-ctx7-err.XXXXXX")" || { rm -f "$output"; return 1; }
+  (cd "$ctx7_home" && env -i "${env_pairs[@]}" "$ctx7_home/node_modules/.bin/ctx7" "$@") > "$output" 2> "$errors"
+  status=$?
+  head -n 80 "$output"
+  redact_secrets < "$errors" >&2
+  rm -f "$output" "$errors"
+  return "$status"
+}
+
 run_ctx7() {
-  local home
   check_ctx7_lookup "$@"
-  home="$HOME/.cache/claude-custom/ctx7"
-  if ctx7_home_writable "$home"; then
-    run_pinned_ctx7 "$home" --cache="$home/npm-cache" "ctx7@$ctx7_version" "$@"
-    return
+  if ! ctx7_cli_is_current; then
+    echo "claude-custom ctx7: the Context7 CLI is not installed; run: claude-custom install" >&2
+    return 1
   fi
-  run_ctx7_from_scratch "$@"
+  run_installed_ctx7 "$@"
 }
 
 update_repo() {
