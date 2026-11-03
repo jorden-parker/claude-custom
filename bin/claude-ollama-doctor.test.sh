@@ -158,6 +158,15 @@ printf -- '---\ntriggers:\n  - suffix: .sh\n---\nshell\n' > "$sandbox/cards/shel
 run_doctor "${real_watcher[@]}" CLAUDE_OLLAMA_RULE_CARDS_DIR="$sandbox/cards"
 check_eq "doctor with a malformed rule card exit status" 0 "$?"
 check_that "doctor warns about a malformed rule card" grep -qxF "warn rule cards: 1 ok, skipping broken.md: no triggers" "$sandbox/out"
+check_that "doctor says the session's skills fit the listing budget" grep -qE '^ok   skill listing: fits: [0-9]+ of [0-9]+ chars, [0-9]+ skills$' "$sandbox/out"
+mkdir -p "$HOME/.claude/skills/wordy"
+printf -- '---\nname: wordy\ndescription: %s\n---\nbody\n' "$(printf 'w%.0s' $(seq 1 1600))" > "$HOME/.claude/skills/wordy/SKILL.md"
+for i in $(seq 12); do cp -R "$HOME/.claude/skills/wordy" "$HOME/.claude/skills/wordy$i" && sed -i.bak "s/^name: wordy$/name: wordy$i/" "$HOME/.claude/skills/wordy$i/SKILL.md"; done
+run_doctor "${real_watcher[@]}"
+check_eq "doctor with too many skills for the listing exit status" 0 "$?"
+check_that "doctor warns when the session's skills overflow the listing budget" \
+  grep -qE '^warn skill listing: over: [0-9]+ of [0-9]+ chars, [0-9]+ skills; some reach the model as a bare name \(remove skills from ~/.claude/skills\)$' "$sandbox/out"
+rm -rf "$HOME/.claude/skills"
 for i in $(seq 60); do
   printf 'time=2026-11-02T15:00:%02d.000Z level=INFO source=sched.go:1 msg="runner did a new thing" model=qwen3.8-27b-cc\n' "$((i % 60))"
 done > "$sandbox/brew/var/log/ollama.log"

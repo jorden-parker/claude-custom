@@ -1,0 +1,120 @@
+#!/usr/bin/env python3
+import argparse
+import math
+import re
+import sys
+from pathlib import Path
+
+MAX_DESCRIPTION_CHARS = 1536
+CHARS_PER_TOKEN = 4
+KEY_LINE = re.compile(r"^([A-Za-z_][\w-]*):\s?(.*)$")
+BLOCK_INDICATOR = re.compile(r"^[>|][+-]?$")
+
+
+def front_matter_lines(text):
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return []
+    for index, line in enumerate(lines[1:], start=1):
+        if line.strip() == "---":
+            return lines[1:index]
+    return []
+
+
+def unquote(value):
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+        return value[1:-1]
+    return value
+
+
+def join_block(continuation):
+    return " ".join(line.strip() for line in continuation if line.strip())
+
+
+def parse_front_matter(text):
+    fields = {}
+    key, first, continuation = None, "", []
+
+    def flush():
+        if key is None:
+            return
+        if BLOCK_INDICATOR.match(first):
+            fields[key] = join_block(continuation)
+        else:
+            fields[key] = " ".join([unquote(first)] + [line.strip() for line in continuation]).strip()
+
+    for line in front_matter_lines(text):
+        match = KEY_LINE.match(line)
+        if match and not line[:1].isspace():
+            flush()
+            key, first, continuation = match.group(1), match.group(2).strip(), []
+        elif key is not None:
+            continuation.append(line)
+    flush()
+    return fields
+
+
+def listed_description(fields):
+    description = fields.get("description", "")
+    when_to_use = fields.get("when_to_use", "")
+    return f"{description} - {when_to_use}" if when_to_use else description
+
+
+def capped(description):
+    if len(description) > MAX_DESCRIPTION_CHARS:
+        return description[: MAX_DESCRIPTION_CHARS - 1] + "…"
+    return description
+
+
+def listing_entries(skill_dirs):
+    seen = {}
+    for skills_root in skill_dirs:
+        root = Path(skills_root)
+        if not root.is_dir():
+            continue
+        for skill_file in sorted(root.glob("*/SKILL.md")):
+            fields = parse_front_matter(skill_file.read_text(errors="replace"))
+            name = fields.get("name") or skill_file.parent.name
+            if name in seen:
+                continue
+            seen[name] = fields
+    return [
+        f"- {name}: {capped(listed_description(fields))}"
+        for name, fields in sorted(seen.items())
+        if fields.get("disable-model-invocation", "").lower() != "true"
+    ]
+
+
+def budget_report(entries, context_tokens, fraction):
+    budget = math.floor(context_tokens * CHARS_PER_TOKEN * fraction)
+    total = len("\n".join(entries))
+    if total <= budget:
+        return 0, f"fits: {total} of {budget} chars, {len(entries)} skills"
+    return 1, (
+        f"over: {total} of {budget} chars, {len(entries)} skills; "
+        "some reach the model as a bare name"
+    )
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Size the skill listing Claude Code sends the model against its budget."
+    )
+    parser.add_argument("skill_dirs", nargs="+")
+    parser.add_argument("--entries", action="store_true")
+    parser.add_argument("--context", type=int)
+    parser.add_argument("--fraction", type=float, default=0.01)
+    args = parser.parse_args()
+    entries = listing_entries(args.skill_dirs)
+    if args.entries:
+        print("\n".join(entries))
+        return 0
+    if args.context is None:
+        parser.error("--context is required unless --entries is given")
+    status, line = budget_report(entries, args.context, args.fraction)
+    print(line)
+    return status
+
+
+if __name__ == "__main__":
+    sys.exit(main())

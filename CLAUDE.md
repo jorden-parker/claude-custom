@@ -169,6 +169,17 @@ before changing how any file gets applied.
   `make test-tasks`)
 - Config check: `bin/check-config` (prints `all passed`; static checks that the
   `ollama/` and `personal/` config files agree with each other)
+- Skill listing: Claude Code lists skills for the model within
+  `CLAUDE_CODE_MAX_CONTEXT_TOKENS × 4 × skillListingBudgetFraction` characters
+  (default 1%), ranks them by recent use, and cuts the rest to a bare name, so a
+  small model never picks them. The Ollama profiles set the fraction to 0.06.
+  `bin/skill-listing --context N [--fraction F] DIR...` sizes the listing of
+  those skill folders (first folder wins a name, `disable-model-invocation`
+  skipped, descriptions cut at 1536) and prints `fits: ...` or `over: ...` (exit
+  1); `--entries` prints the lines. `bin/check-config` fails when the shipped
+  skills (`shared/skills`, `ollama/skills`) overflow any size's budget, and
+  `doctor` prints `ok`/`warn skill listing:` for `~/.claude/skills` plus
+  `ollama/skills`. Tests: `bin/skill-listing.test.sh`.
 - Sync check: `claude-custom sync-check [--write] [--against FILE]` prints the
   local fingerprint summary, one `section: <short>` line each (`commit`,
   `dirty`, `claude_version`, `models`, `server_env`, `hooks`, `sandbox`,

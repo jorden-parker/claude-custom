@@ -4,6 +4,7 @@
   "apiKeyHelper": "",
   "disableClaudeAiConnectors": true,
   "disableBundledSkills": true,
+  "skillListingBudgetFraction": 0.06,
   "autoMemoryEnabled": false,
   "includeGitInstructions": false,
   "promptSuggestionEnabled": false,

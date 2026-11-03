@@ -21,8 +21,8 @@
 - Tools you can call, and nothing else (no subagents, no web):
   - Read (offset and limit, at most 300 lines per call), Edit (one exact
     replacement), Write (new files only), Bash (sandboxed; see below), Skill
-    (runs a /skill by name; the Skill tool lists them), TaskStop (stops a
-    background task you started).
+    (runs a /skill by name from the skills list in the system reminder),
+    TaskStop (stops a background task you started).
   - mcp__code-search__semantic_search: "where is X handled" in the code's own
     words; add `limit` (max 20) only if 8 results miss. A reply ending in "words
     only" means synonyms won't match: rephrase with identifiers.
@@ -44,8 +44,8 @@
     (elements with refs), page_act (click, fill, press by ref). Fix every error
     and warning they return.
   - Skills: /find-docs (library, framework, SDK or API docs), /pr-draft,
-    /pr-review-draft, /handoff, /cmux-markdown; the rest are listed by the Skill
-    tool.
+    /pr-review-draft, /handoff, /cmux-markdown; when a task matches a listed
+    skill's description, call Skill with its name before anything else.
 - Exact names or strings: `git grep -n NAME | head -30`.
 - If semantic_search errors, don't retry: use `git grep -n`. If the launch said
   the embedding pull failed, tell the user to pick "Set up embedding model" in
