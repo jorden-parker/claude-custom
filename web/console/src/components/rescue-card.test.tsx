@@ -86,6 +86,37 @@ describe("RescueCard", () => {
     expect(screen.getByText("all fine")).toBeTruthy();
   });
 
+  it("shows the second run's report, not the first run's", async () => {
+    const secondRunId = "20261102-150000-rescue-cd34";
+    const secondSummary = [
+      "~/.claude-ollama/rescue/20261102T150000Z.md",
+      ...SUMMARY.slice(1),
+    ];
+    vi.mocked(fetch).mockImplementation(async () =>
+      Response.json({ id: secondRunId }, { status: 201 }),
+    );
+    render(<RescueCard sizes={["27b"]} initialRunId={RUN_ID} />);
+    const first = FakeRunEventSource.opened[0]!;
+    act(() => {
+      first.start("rescue", "Rescue report (27b)");
+      first.lines(SUMMARY);
+      first.end();
+    });
+    expect(screen.getByLabelText("report path").textContent).toBe(SUMMARY[0]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Write rescue report" }));
+    await waitFor(() => expect(FakeRunEventSource.opened).toHaveLength(2));
+    const second = FakeRunEventSource.opened[1]!;
+    act(() => {
+      second.start("rescue", "Rescue report (27b)");
+      second.lines(secondSummary);
+      second.end();
+    });
+    expect(screen.getByLabelText("report path").textContent).toBe(
+      secondSummary[0],
+    );
+  });
+
   it("reports a missing report when the copy fails", async () => {
     vi.mocked(fetch).mockResolvedValue(
       Response.json(

@@ -68,7 +68,7 @@ export function RescueCard({ sizes, initialRunId }: RescueCardProps) {
         {runId === null ? (
           <p className="text-sm text-muted-foreground">No rescue report yet.</p>
         ) : (
-          <RescueRunResult id={runId} />
+          <RescueRunResult key={runId} id={runId} />
         )}
       </CardContent>
     </Card>

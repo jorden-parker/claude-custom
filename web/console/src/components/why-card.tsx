@@ -41,7 +41,7 @@ export function WhyCard({ initialRunId }: { initialRunId: string | null }) {
         {runId === null ? (
           <p className="text-sm text-muted-foreground">No why run yet.</p>
         ) : (
-          <WhyRunResult id={runId} />
+          <WhyRunResult key={runId} id={runId} />
         )}
       </CardContent>
     </Card>

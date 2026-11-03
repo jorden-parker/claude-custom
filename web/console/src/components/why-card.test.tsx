@@ -4,6 +4,7 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -85,6 +86,34 @@ describe("WhyCard", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Raw output" }));
     expect(screen.getByText("reading the proxy log")).toBeTruthy();
+  });
+
+  it("shows the second run's verdict, not the first run's", async () => {
+    const secondRunId = "20261102-150000-why-cd34";
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+      Response.json({ id: secondRunId }, { status: 201 }),
+    );
+    render(<WhyCard initialRunId={RUN_ID} />);
+    const first = FakeRunEventSource.opened[0]!;
+    act(() => {
+      first.start("why", "Why did the last run go wrong?");
+      first.lines(WHY_JSON);
+      first.end();
+    });
+    expect(screen.getByLabelText("verdict").textContent).toContain("evicted");
+
+    fireEvent.click(screen.getByRole("button", { name: "Explain the last run" }));
+    await waitFor(() => expect(FakeRunEventSource.opened).toHaveLength(2));
+    const second = FakeRunEventSource.opened[1]!;
+    act(() => {
+      second.start("why", "Why did the last run go wrong?");
+      second.lines(
+        WHY_JSON.map((line) => line.replace("evicted", "truncated")),
+      );
+      second.end();
+    });
+    expect(screen.getByLabelText("verdict").textContent).toContain("truncated");
+    vi.restoreAllMocks();
   });
 
   it("reports a run that printed no report", () => {
