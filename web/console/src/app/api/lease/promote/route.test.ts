@@ -28,6 +28,11 @@ function writeLeaseScript(repo: string, body: string): void {
   fs.chmodSync(script, 0o755);
 }
 
+const RELAUNCH_MODULE = path.resolve(
+  __dirname,
+  "../../../../../../../shared/relaunch_dir.py",
+);
+
 function relaunchDir(home: string, pid: number): string {
   return path.join(home, ".claude-ollama", "relaunch", String(pid));
 }
@@ -43,6 +48,11 @@ function useTempDirs(): TempDirs {
     process.env.HOME = dirs.home;
     process.env.CLAUDE_CUSTOM_HOME = dirs.repo;
     writeLeaseScript(dirs.repo, SESSION_LINE);
+    fs.mkdirSync(path.join(dirs.repo, "shared"), { recursive: true });
+    fs.symlinkSync(
+      RELAUNCH_MODULE,
+      path.join(dirs.repo, "shared", "relaunch_dir.py"),
+    );
   });
 
   afterEach(() => {

@@ -1,5 +1,4 @@
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { runOnce } from "./run-once";
 import type { LeaseHolder, Residency } from "./residency";
@@ -16,9 +15,9 @@ const HOLDERS_MAX_BYTES = 64 * 1024;
 const LAUNCHER_LOG_MAX_BYTES = 1024 * 1024;
 const FIT_PREFIX = "claude-ollama: memory fit: ";
 const SESSION_HOLDER = "session";
-const SESSION_DIR_NAME = ".claude-ollama";
-const RELAUNCH_DIR_NAME = "relaunch";
-const LADDER_UP_FILE = "ladder-up";
+const RELAUNCH_TIMEOUT_MS = 10_000;
+const RELAUNCH_MAX_BYTES = 16 * 1024;
+const PYTHON = "python3";
 const PROMOTE_REASON = "promoted from the console";
 const HOLDER_LINE =
   /^(live|stale) (\S+) pid (\d+) model (\S+)(?: rung (\S+))?$/;
@@ -109,10 +108,11 @@ function readLauncherLogTail(): string {
   }
 }
 
-export function promoteSession(
+export async function promoteSession(
+  repoDir: string,
   holders: LeaseHolder[],
   rung: string,
-): PromoteResult {
+): Promise<PromoteResult> {
   const session = liveSession(holders);
   if (session === undefined) {
     return { ok: false, message: "No live session lease to promote" };
@@ -123,22 +123,22 @@ export function promoteSession(
       message: `The session is on the ${session.rung ?? "no"} rung, not ${rung}`,
     };
   }
-  const relaunchDir = path.join(
-    os.homedir(),
-    SESSION_DIR_NAME,
-    RELAUNCH_DIR_NAME,
-    String(session.pid),
+  const result = await runOnce(
+    [
+      PYTHON,
+      path.join(repoDir, "shared", "relaunch_dir.py"),
+      "request",
+      "ladder-up",
+      "--pid",
+      String(session.pid),
+      JSON.stringify({ rung, reason: PROMOTE_REASON }),
+    ],
+    { timeoutMs: RELAUNCH_TIMEOUT_MS, maxBytes: RELAUNCH_MAX_BYTES },
   );
-  if (!fs.existsSync(relaunchDir)) {
-    return {
-      ok: false,
-      message: `No relaunch dir for pid ${session.pid} (${relaunchDir}); that session cannot relaunch`,
-    };
+  if (result.code !== 0) {
+    const reason =
+      result.stderr.trim() || `relaunch_dir.py exited ${result.code}`;
+    return { ok: false, message: `${reason}; that session cannot relaunch` };
   }
-  fs.writeFileSync(
-    path.join(relaunchDir, LADDER_UP_FILE),
-    JSON.stringify({ rung, reason: PROMOTE_REASON }),
-    { mode: 0o600 },
-  );
   return { ok: true, pid: session.pid, rung };
 }

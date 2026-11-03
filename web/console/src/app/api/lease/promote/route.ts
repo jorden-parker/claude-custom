@@ -16,11 +16,16 @@ export async function POST(request: Request) {
   if (rung === null) {
     return failure(RUNG_MESSAGE, 400);
   }
-  const loaded = await loadResidency(consoleRepoDir());
+  const repoDir = consoleRepoDir();
+  const loaded = await loadResidency(repoDir);
   if (!loaded.ok) {
     return failure(loaded.message, 502);
   }
-  const promoted = promoteSession(loaded.residency.holders, rung);
+  const promoted = await promoteSession(
+    repoDir,
+    loaded.residency.holders,
+    rung,
+  );
   if (!promoted.ok) {
     return failure(promoted.message, 409);
   }

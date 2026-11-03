@@ -59,6 +59,16 @@ function writeLeaseScript(repo: string, body: string): void {
   fs.chmodSync(script, 0o755);
 }
 
+const RELAUNCH_MODULE = path.resolve(
+  __dirname,
+  "../../../../shared/relaunch_dir.py",
+);
+
+function linkRelaunchModule(repo: string): void {
+  fs.mkdirSync(path.join(repo, "shared"), { recursive: true });
+  fs.symlinkSync(RELAUNCH_MODULE, path.join(repo, "shared", "relaunch_dir.py"));
+}
+
 function relaunchDir(home: string, pid: number): string {
   return path.join(home, ".claude-ollama", "relaunch", String(pid));
 }
@@ -171,11 +181,19 @@ describe("loadResidency", () => {
 describe("promoteSession", () => {
   const dirs = useTempDirs();
 
-  it("writes ladder-up into the live session's relaunch dir", () => {
+  beforeEach(() => {
+    linkRelaunchModule(dirs.repo);
+  });
+
+  it("writes ladder-up into the live session's relaunch dir", async () => {
     const target = relaunchDir(dirs.home, 4242);
     fs.mkdirSync(target, { recursive: true });
 
-    const result = promoteSession(parseHolders(HOLDERS_TEXT), "context-down");
+    const result = await promoteSession(
+      dirs.repo,
+      parseHolders(HOLDERS_TEXT),
+      "context-down",
+    );
 
     expect(result).toEqual({ ok: true, pid: 4242, rung: "context-down" });
     const ladderUp = path.join(target, "ladder-up");
@@ -186,30 +204,40 @@ describe("promoteSession", () => {
     expect(fs.statSync(ladderUp).mode & 0o777).toBe(0o600);
   });
 
-  it("refuses without a live session", () => {
-    expect(promoteSession([], "context-down")).toEqual({
+  it("refuses without a live session", async () => {
+    expect(await promoteSession(dirs.repo, [], "context-down")).toEqual({
       ok: false,
       message: "No live session lease to promote",
     });
   });
 
-  it("refuses a rung the session is not on", () => {
+  it("refuses a rung the session is not on", async () => {
     fs.mkdirSync(relaunchDir(dirs.home, 4242), { recursive: true });
 
     expect(
-      promoteSession(parseHolders(HOLDERS_TEXT), "embeddings-off"),
+      await promoteSession(
+        dirs.repo,
+        parseHolders(HOLDERS_TEXT),
+        "embeddings-off",
+      ),
     ).toEqual({
       ok: false,
       message: "The session is on the context-down rung, not embeddings-off",
     });
   });
 
-  it("refuses a session that has no relaunch dir", () => {
+  it("refuses a session that has no relaunch dir", async () => {
     const missing = relaunchDir(dirs.home, 4242);
 
-    expect(promoteSession(parseHolders(HOLDERS_TEXT), "context-down")).toEqual({
+    expect(
+      await promoteSession(
+        dirs.repo,
+        parseHolders(HOLDERS_TEXT),
+        "context-down",
+      ),
+    ).toEqual({
       ok: false,
-      message: `No relaunch dir for pid 4242 (${missing}); that session cannot relaunch`,
+      message: `relaunch dir: no relaunch dir at ${missing}; that session cannot relaunch`,
     });
   });
 });
