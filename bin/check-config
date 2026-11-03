@@ -276,7 +276,11 @@ for settings in "$repo"/ollama/settings.*.json; do
   check_that "${settings##*/} allows the read-only repo tools without a prompt" allows_repo_tools "$settings"
   check_that "${settings##*/} allows the read-only dev tools without a prompt" allows_read_only_dev_tools "$settings"
   check_that "${settings##*/} asks before dev_start and dev_stop" asks_before_dev_start "$settings"
+  check_eq "${settings##*/} confines the hook subprocesses" 1 \
+    "$(jq -r '.env.CLAUDE_CUSTOM_HOOK_SANDBOX' "$settings")"
 done
+check_eq "settings.tokens.json leaves the hook subprocesses unconfined" null \
+  "$(jq -r '.env.CLAUDE_CUSTOM_HOOK_SANDBOX' "$repo/personal/settings.tokens.json")"
 
 modelfile_num_ctx_for() {
   sed -n 's/^PARAMETER num_ctx //p' "$repo/ollama/Modelfile.$1"
