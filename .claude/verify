@@ -27,10 +27,10 @@ tests_for() {
     personal/* | shared/settings/* | shared/agents/*) printf '%s\n' personal/install.test.sh ;;
     shared/hooks/fallow-lib.sh | shared/hooks/fallow-test-lib.sh) printf '%s\n' shared/hooks/fallow-*.test.sh ;;
     shared/hooks/test_scope.py) printf '%s\n' shared/hooks/test_scope.test.sh shared/hooks/tdd-guard.test.sh shared/hooks/test-after-edit.test.sh ;;
-    shared/hooks/hook_telemetry.py) printf '%s\n' shared/hooks/test-after-edit.test.sh shared/hooks/bash-output-guard.test.sh shared/hooks/read-range-guard.test.sh shared/hooks/tool-nudge.test.sh shared/hooks/git-push-guard.test.sh shared/hooks/dev-server-guard.test.sh shared/hooks/context-budget.test.sh shared/hooks/friction_budget.test.sh shared/hooks/repeat-call-cache.test.sh ;;
+    shared/hooks/hook_telemetry.py) printf '%s\n' shared/hooks/test-after-edit.test.sh shared/hooks/bash-output-guard.test.sh shared/hooks/read-range-guard.test.sh shared/hooks/git-push-guard.test.sh shared/hooks/dev-server-guard.test.sh shared/hooks/context-budget.test.sh shared/hooks/friction_budget.test.sh shared/hooks/repeat-call-cache.test.sh ;;
     shared/hooks/profile_env.py) printf '%s\n' shared/hooks/profile_env.test.sh shared/hooks/context-budget.test.sh shared/hooks/test-after-edit.test.sh ;;
     shared/profile-env.json) printf '%s\n' shared/profile-overlay.test.sh shared/hooks/profile_env.test.sh shared/hooks/context-budget.test.sh shared/hooks/test-after-edit.test.sh bin/ollama-profiles.test.sh ;;
-    shared/hooks/friction_budget.py) printf '%s\n' shared/hooks/friction_budget.test.sh shared/hooks/repeat-call-cache.test.sh shared/hooks/bash-output-guard.test.sh shared/hooks/read-range-guard.test.sh shared/hooks/tool-nudge.test.sh ;;
+    shared/hooks/friction_budget.py) printf '%s\n' shared/hooks/friction_budget.test.sh shared/hooks/repeat-call-cache.test.sh shared/hooks/bash-output-guard.test.sh shared/hooks/read-range-guard.test.sh ;;
     *) sibling_test "$1" ;;
   esac
 }

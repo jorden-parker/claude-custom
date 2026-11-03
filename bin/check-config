@@ -311,14 +311,6 @@ for settings in "$repo"/ollama/settings.*.json; do
   check_that "${settings##*/} leaves room under num_ctx for the output and the compaction summary" leaves_headroom "$settings"
 done
 
-gates_node_modules_bash() {
-  jq -e '[.hooks.PreToolUse[] | select(.matcher | test("Bash")) | .hooks[].command] | any(test("tool-nudge"))' "$1" >/dev/null
-}
-
-gates_node_modules_reads() {
-  jq -e '[.hooks.PreToolUse[] | select(.matcher | test("Read") and test("Skill")) | .hooks[].command] | any(test("tool-nudge"))' "$1" >/dev/null
-}
-
 watches_context_budget() {
   jq -e '[.hooks.PostToolUse[] | select(has("matcher") | not) | .hooks[].command] | any(test("context-budget"))' "$1" >/dev/null
 }
@@ -404,8 +396,6 @@ for settings in "$repo"/ollama/settings.*.json; do
   check_that "${settings##*/} runs friction_budget.py on each prompt" resets_friction_budget "$settings"
   check_that "${settings##*/} runs repeat-call-cache.py before Read, git_status and semantic_search" caches_repeat_calls "$settings" PreToolUse
   check_that "${settings##*/} runs repeat-call-cache.py after Read, git_status and semantic_search" caches_repeat_calls "$settings" PostToolUse
-  check_that "${settings##*/} runs tool-nudge.py before Bash" gates_node_modules_bash "$settings"
-  check_that "${settings##*/} runs tool-nudge.py before Read and Skill" gates_node_modules_reads "$settings"
   check_that "${settings##*/} runs context-budget.py after every tool" watches_context_budget "$settings"
   check_that "${settings##*/} runs handoff-relaunch.py on Stop" relaunches_on_handoff "$settings"
   check_that "${settings##*/} runs incident-note.py on each prompt" notes_incidents "$settings"
@@ -440,7 +430,7 @@ PYTHON
 }
 
 check_eq "every recovery recipe names a hook, compiles its match and lists one to three steps" "" "$(recipe_problems)"
-for hook in bash-output-guard read-range-guard tool-nudge tdd-guard; do
+for hook in bash-output-guard read-range-guard tdd-guard; do
   check_that "ollama/recipes/$hook.json exists for the guard that uses it" test -f "$repo/ollama/recipes/$hook.json"
 done
 

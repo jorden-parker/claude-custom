@@ -550,17 +550,6 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   report, and each preset's `--mock-*` palette lives in `globals.css` as
   `.mock-frame[data-preset=ID]`, since no TS file may hold a raw colour. The
   Mockups run card has a Preset select.
-- `shared/hooks/tool-nudge.py` is wired only in the Ollama profiles
-  (UserPromptSubmit resets its per-session state under
-  `${CLAUDE_CONFIG_DIR:-~/.claude}/cache/tool-nudge/`). Text searches (`grep`,
-  `rg`, `find`, `git grep`) and every other Bash command (`ls -la node_modules`
-  included) are never gated. As PreToolUse on Read it denies a Read inside
-  `node_modules` until the `find-docs` skill or a `ctx7` Bash command ran in the
-  turn (Next's generated `AGENTS.md` sends models to
-  `node_modules/next/dist/docs` otherwise); a package's own
-  `node_modules/<name>/package.json` is an install check, not docs, and always
-  passes. The profiles allow `Skill(find-docs)` without a prompt;
-  `bin/check-config` checks it.
 - `shared/hooks/tdd-guard.py` enforces the TDD rule in both overlays. As
   PreToolUse on Edit, Write and MultiEdit it denies an edit to a code file (by
   suffix, or a shebang) that is not itself a test until, in this session, a test
@@ -633,16 +622,16 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `bin/check-config` fails when an Ollama profile lacks the hook. Tests:
   `shared/hooks/test-after-edit.test.sh`, `shared/hooks/test_scope.test.sh`.
 - `shared/hooks/friction_budget.py` is the friction budget the efficiency guards
-  share (`bash-output-guard.py`, `read-range-guard.py`, `tool-nudge.py`; never
-  the safety guards or `tdd-guard.py`, which has its own strikes). Each of them
-  passes its denial through `deny_reason(hook, event, reason, alternative)`,
-  which keys it by hook, tool and a fingerprint (Bash: the command minus digits,
-  quoted strings and each path's last segment; Read: the path plus a 300-line
-  bucket of `offset` and `limit`; otherwise the sorted input JSON) and counts it
-  in `${CLAUDE_CONFIG_DIR:-~/.claude}/cache/friction/<session_id>.json`. The
-  first three denials of one fingerprint keep their reason; the fourth and later
-  get a plan reset instead (one line naming what the model keeps trying, the
-  hook's one allowed alternative, and an order to stop retrying) and write a
+  share (`bash-output-guard.py`, `read-range-guard.py`; never the safety guards
+  or `tdd-guard.py`, which has its own strikes). Each of them passes its denial
+  through `deny_reason(hook, event, reason, alternative)`, which keys it by
+  hook, tool and a fingerprint (Bash: the command minus digits, quoted strings
+  and each path's last segment; Read: the path plus a 300-line bucket of
+  `offset` and `limit`; otherwise the sorted input JSON) and counts it in
+  `${CLAUDE_CONFIG_DIR:-~/.claude}/cache/friction/<session_id>.json`. The first
+  three denials of one fingerprint keep their reason; the fourth and later get a
+  plan reset instead (one line naming what the model keeps trying, the hook's
+  one allowed alternative, and an order to stop retrying) and write a
   `"kind": "friction"` telemetry line with the fingerprint's hash, never the
   command. As a UserPromptSubmit hook (Ollama-only, in
   `ollama/hooks.extra.json`) it resets that file each turn; without that reset
@@ -667,7 +656,7 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `showing only A-C (read on from C+1 for the rest)` when cut); a file with no
   snapshot passes through whole. Recovery recipes are data:
   `ollama/recipes/<hook>.json` holds `{"match": regex, "steps": [...]}` entries
-  for `bash-output-guard`, `read-range-guard`, `tool-nudge` and `tdd-guard`;
+  for `bash-output-guard`, `read-range-guard` and `tdd-guard`;
   `shared/hooks/recovery_recipes.py` appends the first match's steps (numbered,
   at most 3, `Recovery: 1. ...; 2. ...`) to the plan-reset line, and
   `tdd-guard.py` appends them to the `additionalContext` it returns on the
@@ -694,7 +683,7 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `path: web/console/`, `command: git commit`, `tool: Write`; a value list is
   comma-separated). A file tool matches by the `file_path` suffix or by a path
   prefix (relative to the event's `cwd`); Bash matches when a trigger's words
-  head any command segment, split like `tool-nudge.py`; `tool` matches the tool
+  head any command segment, split on shell separators; `tool` matches the tool
   name. The hook never denies: it returns one `additionalContext` with the
   bodies of the matching cards not yet delivered this session (state
   `${CLAUDE_CONFIG_DIR:-~/.claude}/cache/rule-cards/<session_id>.json`, so a
@@ -808,21 +797,21 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `bin/ollama-profiles` splices them into every rendered settings file
   (`ollama/settings.<size>.json`, `personal/settings.tokens.json`). Edit the
   fragment, run `bin/ollama-profiles`, commit. The Ollama-only hooks
-  (`tool-nudge.py`) are in `ollama/hooks.extra.json` and follow the shared hooks
-  for each event. `bin/check-config` fails when an Ollama profile lacks a hook
-  the personal overlay has. `ollama/settings.*.json` also deny unused tools by
-  bare name, so their schemas never reach the local model's context. `--tools`
-  in `bin/claude-ollama` is the primary allowlist and that deny list is the
-  backstop. `bin/check-config` fails when the Ollama deny lists differ. A local
-  model's weights are not trusted, so Bash runs in Claude Code's own sandbox,
-  configured by the `sandbox` block in `ollama/profile-template.json` (rendered
-  per size). Sandboxed commands write the project, a temp dir and
-  `~/.cache/claude-sandbox`, reach loopback addresses, `github.com`, the npm, Go
-  and PyPI registries and GitHub downloads, and cannot read credentials or
-  `~/.claude`. The launcher execs `claude` and `qwen` through
-  `shared/sandbox-env`, which points Go, npm, pip, uv, yarn, bun and pnpm's
-  metadata caches at caches under that one folder, so no cache an unsandboxed
-  process executes from (`~/.npm/_npx`, `~/go/pkg/mod`,
+  (`repeat-call-cache.py`) are in `ollama/hooks.extra.json` and follow the
+  shared hooks for each event. `bin/check-config` fails when an Ollama profile
+  lacks a hook the personal overlay has. `ollama/settings.*.json` also deny
+  unused tools by bare name, so their schemas never reach the local model's
+  context. `--tools` in `bin/claude-ollama` is the primary allowlist and that
+  deny list is the backstop. `bin/check-config` fails when the Ollama deny lists
+  differ. A local model's weights are not trusted, so Bash runs in Claude Code's
+  own sandbox, configured by the `sandbox` block in
+  `ollama/profile-template.json` (rendered per size). Sandboxed commands write
+  the project, a temp dir and `~/.cache/claude-sandbox`, reach loopback
+  addresses, `github.com`, the npm, Go and PyPI registries and GitHub downloads,
+  and cannot read credentials or `~/.claude`. The launcher execs `claude` and
+  `qwen` through `shared/sandbox-env`, which points Go, npm, pip, uv, yarn, bun
+  and pnpm's metadata caches at caches under that one folder, so no cache an
+  unsandboxed process executes from (`~/.npm/_npx`, `~/go/pkg/mod`,
   `~/.cache/claude-custom`) is writable. pnpm's content store is never moved: a
   `node_modules` remembers the store it was linked from, and pnpm pointed at
   another one asks to wipe and reinstall it, a prompt a Bash tool never answers.
@@ -930,9 +919,9 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `ANTHROPIC_DEFAULT_HAIKU_MODEL` to its own main model, has no `modelOverrides`
   and no subagent model, and denies `Agent` (it is not in `--tools` either),
   since a subagent would only rerun the main model. Wide searches go through
-  `semantic_search` instead (`tool-nudge.py`). Never map a Claude ID to the main
-  model in `modelOverrides`: Claude Code then names it after that ID, so the
-  banner says Haiku or Sonnet. `bin/check-config` checks all of this.
+  `semantic_search` instead. Never map a Claude ID to the main model in
+  `modelOverrides`: Claude Code then names it after that ID, so the banner says
+  Haiku or Sonnet. `bin/check-config` checks all of this.
   `personal/settings.tokens.json` keeps `CLAUDE_CODE_SUBAGENT_MODEL=haiku` with
   `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1` (Claude Code v2.1.257 or later).
 - `bin/claude-ollama` puts nvm's Node first on the session's PATH, since nvm is
@@ -1080,9 +1069,9 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `server_log_path` and fails when the classifier is blind (`rules: N` counts
   the rules that hit). The launcher exports `CLAUDE_OLLAMA_INCIDENTS_FILE` to
   the session, and `shared/hooks/incident-note.py` (UserPromptSubmit, in
-  `ollama/hooks.extra.json` after `tool-nudge.py`; `bin/check-config` fails when
-  an Ollama profile lacks it) adds one `additionalContext` line naming the last
-  incident and the counts per cause when new ones appeared, remembering the
+  `ollama/hooks.extra.json` after `friction_budget.py`; `bin/check-config` fails
+  when an Ollama profile lacks it) adds one `additionalContext` line naming the
+  last incident and the counts per cause when new ones appeared, remembering the
   reported count under `${CLAUDE_CONFIG_DIR:-~/.claude}/cache/incident-note/`.
   The console's Logs page has an Incidents tab (`source=incidents` on
   `/api/logs/path` and `/api/logs/events`, which read only the file

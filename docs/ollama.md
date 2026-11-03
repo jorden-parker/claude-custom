@@ -429,12 +429,10 @@ check or scroll one ref, then the errors it caused). `dev_start`, `dev_stop` and
 `dev_install` ask before they run; the others do not. Bash
 `pnpm -C DIR install|add|test` runs outside the sandbox after the Bash prompt
 (see `excludedCommands` above), so the model may use either, and `dev_deps`
-replaces listing `node_modules`; `tool-nudge.py` refuses only a Read inside
-`node_modules` until `/find-docs` ran (a package's own
-`node_modules/<name>/package.json` is exempt), and Bash is never gated there.
-Servers a session starts stop when it ends. The server reads `.next/dev/lock`
-for its port and `/_next/mcp` on Next.js 16+; other frameworks get log errors
-only. The tools keep the scheme the server prints, so a server started with
+replaces listing `node_modules`; Read and Bash are never gated there. Servers a
+session starts stop when it ends. The server reads `.next/dev/lock` for its port
+and `/_next/mcp` on Next.js 16+; other frameworks get log errors only. The tools
+keep the scheme the server prints, so a server started with
 `--experimental-https` (or whose `.next/dev/lock` `appUrl` is `https://`) is
 probed and opened over `https://localhost:PORT`; when a candidate does not
 answer over one scheme the other is tried, so an https server with no https hint
