@@ -31,8 +31,17 @@ describe("ConsoleShell", () => {
     );
     const headerBanner = screen.getByRole("banner");
     expect(
-      within(headerBanner).getByRole("button", { name: /sidebar/i }),
+      within(headerBanner).getByRole("button", { name: "Toggle Sidebar" }),
     ).toBeTruthy();
+  });
+
+  it("shows the header only on phones", () => {
+    render(
+      <ConsoleShell>
+        <p>page body</p>
+      </ConsoleShell>,
+    );
+    expect(screen.getByRole("banner").className).toContain("md:hidden");
   });
 
   it("shows the brand link in the header for small screens", () => {
@@ -47,7 +56,6 @@ describe("ConsoleShell", () => {
     });
 
     expect(brandLink.getAttribute("href")).toBe("/");
-    expect(brandLink.className).toContain("md:hidden");
   });
 
   it("fills the page width token with padding", () => {

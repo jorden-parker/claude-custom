@@ -4,6 +4,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -79,12 +80,50 @@ describe("ConsoleNav", () => {
     );
     expect(screen.queryByRole("link", { name: "Runs" })).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: /sidebar/i }));
+    fireEvent.click(
+      screen.getAllByRole("button", { name: /sidebar/i })[0],
+    );
     fireEvent.click(await screen.findByRole("link", { name: "Runs" }));
 
     await waitFor(() =>
       expect(screen.queryByRole("link", { name: "Runs" })).toBeNull(),
     );
+  });
+
+  it("puts a sidebar toggle in the sidebar header", () => {
+    renderNav();
+
+    const sidebarHeader = document.querySelector('[data-sidebar="header"]');
+
+    expect(sidebarHeader).not.toBeNull();
+    expect(
+      within(sidebarHeader as HTMLElement).getByRole("button", {
+        name: "Toggle Sidebar",
+      }),
+    ).toBeTruthy();
+  });
+
+  it("hides the brand text while the sidebar is collapsed to icons", () => {
+    renderNav();
+
+    const brandText = screen.getByText("claude-ollama");
+
+    expect(brandText.className).toContain("group-data-[collapsible=icon]:hidden");
+  });
+
+  it("shows a second toggle in the footer only while collapsed", () => {
+    renderNav();
+
+    const sidebarFooter = document.querySelector('[data-sidebar="footer"]');
+
+    expect(sidebarFooter).not.toBeNull();
+    expect(sidebarFooter!.className).toContain("hidden");
+    expect(sidebarFooter!.className).toContain("group-data-[collapsible=icon]:flex");
+    expect(
+      within(sidebarFooter as HTMLElement).getByRole("button", {
+        name: "Toggle Sidebar",
+      }),
+    ).toBeTruthy();
   });
 
   it("renders menu buttons without the pill shape", () => {

@@ -20,11 +20,11 @@ export function ConsoleShell({ children }: Readonly<{ children: ReactNode }>) {
         <SidebarRail />
       </Sidebar>
       <SidebarInset>
-        <header className="sticky top-0 z-10 flex h-12 items-center gap-2 border-b bg-background/80 px-3 backdrop-blur supports-[backdrop-filter]:bg-background/60 sm:px-4">
+        <header className="sticky top-0 z-10 flex h-12 md:hidden items-center gap-2 border-b bg-background/80 px-3 backdrop-blur supports-[backdrop-filter]:bg-background/60 sm:px-4">
           <SidebarTrigger />
           <Link
             href="/"
-            className="flex items-center gap-2 text-sm font-semibold md:hidden"
+            className="flex items-center gap-2 text-sm font-semibold"
           >
             <BrandMark />
             claude-ollama

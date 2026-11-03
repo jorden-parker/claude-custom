@@ -6,12 +6,14 @@ import { BrandMark } from "@/components/brand-mark";
 import { SectionIcon } from "@/components/section-icon";
 import {
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarTrigger,
   useSidebar,
 } from "@/components/ui/sidebar";
 import {
@@ -39,13 +41,18 @@ export function ConsoleNav() {
   return (
     <>
       <SidebarHeader>
-        <Link
-          href="/"
-          className="flex items-center gap-2 px-2 py-1.5 text-sm font-semibold"
-        >
-          <BrandMark />
-          claude-ollama
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/"
+            className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-sm font-semibold"
+          >
+            <BrandMark />
+            <span className="truncate group-data-[collapsible=icon]:hidden">
+              claude-ollama
+            </span>
+          </Link>
+          <SidebarTrigger className="shrink-0 group-data-[collapsible=icon]:hidden" />
+        </div>
       </SidebarHeader>
       <SidebarContent>
         {CONSOLE_SECTION_GROUPS.map((group) => (
@@ -69,6 +76,9 @@ export function ConsoleNav() {
           </SidebarGroup>
         ))}
       </SidebarContent>
+      <SidebarFooter className="hidden group-data-[collapsible=icon]:flex">
+        <SidebarTrigger />
+      </SidebarFooter>
     </>
   );
 }
