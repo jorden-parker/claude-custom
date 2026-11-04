@@ -18,7 +18,10 @@ import urllib.request
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 
-DEFAULT_BASE_URL = "http://localhost:11434"
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "shared"))
+
+import model_server
+
 DEFAULT_AUTH_TOKEN = "local"
 DEFAULT_MAX_TOKENS = 1500
 DEFAULT_FULL_FILE_LINES = 400
@@ -273,7 +276,7 @@ def parse_args(argv):
     )
     parser.add_argument("--range", dest="commit_range", help="review local commits BASE..HEAD instead")
     parser.add_argument("--model", required=True)
-    parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
+    parser.add_argument("--base-url", default=model_server.server_url())
     parser.add_argument("--auth-token", default=DEFAULT_AUTH_TOKEN)
     parser.add_argument("--full-file-lines", type=positive_int, default=DEFAULT_FULL_FILE_LINES)
     parser.add_argument("--prompt-chars", type=positive_int, default=DEFAULT_PROMPT_CHARS)

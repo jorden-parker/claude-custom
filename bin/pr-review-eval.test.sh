@@ -8,6 +8,7 @@ failures=0
 mkdir -p "$sandbox/tmp"
 export TMPDIR="$sandbox/tmp"
 export STUB_DIR="$sandbox"
+unset LLAMA_SERVER_URL
 scenarios="$sandbox/scenarios"
 
 check() {
@@ -69,6 +70,12 @@ JSON
 rm -f "$sandbox/reviewer.args"
 "$eval_script" --model stub --reviewer "$sandbox/reviewer" --scenarios "$scenarios" --scenario buggy -- --full-file-lines 200 >/dev/null 2>"$sandbox/buggy.err"
 check "reviewer got --model stub" grep -qF -- '--model stub' "$sandbox/reviewer.args"
+check "reviewer defaults to the llama-server URL" grep -qF -- '--base-url http://127.0.0.1:11435' "$sandbox/reviewer.args"
+rm -f "$sandbox/reviewer.args"
+LLAMA_SERVER_URL=http://127.0.0.1:9999 "$eval_script" --model stub --reviewer "$sandbox/reviewer" --scenarios "$scenarios" --scenario buggy >/dev/null 2>&1
+check "reviewer follows LLAMA_SERVER_URL" grep -qF -- '--base-url http://127.0.0.1:9999' "$sandbox/reviewer.args"
+rm -f "$sandbox/reviewer.args"
+"$eval_script" --model stub --reviewer "$sandbox/reviewer" --scenarios "$scenarios" --scenario buggy -- --full-file-lines 200 >/dev/null 2>"$sandbox/buggy.err"
 check "reviewer got --range main..change" grep -qF -- '--range main..change' "$sandbox/reviewer.args"
 check "reviewer got --json" grep -qF -- '--json' "$sandbox/reviewer.args"
 check "extra args after -- reach the reviewer" grep -qF -- '--full-file-lines 200' "$sandbox/reviewer.args"
