@@ -142,7 +142,7 @@ describe("SettingsOverview", () => {
     }
     expect(
       screen.getAllByRole("row", {
-        name: /^(Prompt and context|Guards|Ollama residency|Diagnostics|Browser)$/,
+        name: /^(Prompt and context|Guards|Model residency|Diagnostics|Browser)$/,
       }),
     ).toHaveLength(5);
   });

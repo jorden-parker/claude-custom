@@ -5,7 +5,7 @@
     "kind": "switch",
     "default": "1",
     "label": "Observe prompt drift through the messages proxy",
-    "help": "A proxy between claude and Ollama logs where each request's prompt diverged from the last one, so a cache miss has a cause.",
+    "help": "A proxy between claude and llama-server logs where each request's prompt diverged from the last one, so a cache miss has a cause.",
     "ollamaOnly": true
   },
   {
@@ -131,7 +131,7 @@
   },
   {
     "key": "CLAUDE_OLLAMA_LEASE",
-    "group": "Ollama residency",
+    "group": "Model residency",
     "kind": "switch",
     "default": "1",
     "label": "Hold a residency lease",
@@ -140,11 +140,11 @@
   },
   {
     "key": "CLAUDE_OLLAMA_FIT",
-    "group": "Ollama residency",
+    "group": "Model residency",
     "kind": "switch",
     "default": "1",
     "label": "Check memory fit before launch",
-    "help": "The launch stops with a reason when the model plus its context will not fit in memory, instead of Ollama swapping mid-session.",
+    "help": "The launch stops with a reason when the model plus its context will not fit in memory, instead of the server swapping mid-session.",
     "ollamaOnly": true
   },
   {
@@ -161,7 +161,7 @@
     "group": "Diagnostics",
     "kind": "switch",
     "default": "1",
-    "label": "Record Ollama incidents",
+    "label": "Record llama-server incidents",
     "help": "Logs page, Incidents tab.",
     "ollamaOnly": true
   },

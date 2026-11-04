@@ -36,7 +36,7 @@ export const LOCAL_MCP_SERVERS = ["code-search", "repo", "dev"] as const;
 export const PROFILE_ENV_GROUPS = [
   "Prompt and context",
   "Guards",
-  "Ollama residency",
+  "Model residency",
   "Diagnostics",
   "Browser",
 ] as const;

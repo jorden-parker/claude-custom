@@ -358,7 +358,7 @@ remove_model_server() {
 }
 
 sync_fingerprint="$repo_dir/bin/sync-fingerprint"
-sync_sections="commit dirty claude_version models server_env hooks sandbox"
+sync_sections="commit dirty claude_version models server hooks sandbox"
 sync_beacon_file="${XDG_CONFIG_HOME:-$HOME/.config}/claude-custom/beacon.json"
 
 launch_beacon_file() {

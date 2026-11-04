@@ -1003,10 +1003,6 @@ check_not "the proxy records nothing by default" contains "$(cat "$sandbox/proxy
 cat > "$sandbox/stubbin/rescue" <<EOF
 #!/bin/sh
 printf '%s\n' "\$*" > "$sandbox/rescue-args"
-while [ \$# -gt 0 ]; do
-  [ "\$1" = --server-env ] && cp "\$2" "$sandbox/rescue-server-env"
-  shift
-done
 echo "~/.claude-ollama/rescue/x.md"
 EOF
 chmod +x "$sandbox/stubbin/rescue"
@@ -1018,9 +1014,9 @@ check_that "rescue hands the script the fingerprint tool" contains "$rescue_args
 check_that "rescue hands the script the lease tool" contains "$rescue_args" "--lease-bin "
 check_that "rescue hands the script the session dir" contains "$rescue_args" "--session-dir $session_config"
 check_that "rescue hands the script the console state dir" contains "$rescue_args" "--state-dir "
-check_that "rescue hands the script the server URL" contains "$rescue_args" "--ollama-url $stub_url"
+check_not "rescue hands over no Ollama URL" contains "$rescue_args" "--ollama-url"
+check_not "rescue hands over no server env file" contains "$rescue_args" "--server-env"
 check_that "rescue passes its own flags through" contains "$rescue_args" "--since 30 --out $sandbox/rescue.md"
-check_that "rescue hands over the server settings" grep -qx "models-max=2" "$sandbox/rescue-server-env"
 check_that "rescue prints the script's output" grep -q "rescue/x.md" "$sandbox/out"
 check_not "rescue does not launch claude" grep -q '^ARGS:' "$sandbox/out"
 rm -f "$sandbox/rescue-args"
@@ -1540,7 +1536,7 @@ zeros="$(printf '0%.0s' $(seq 64))"
 ones="$(printf '1%.0s' $(seq 64))"
 jq --arg zeros "$zeros" --arg ones "$ones" --arg ts "$(jq -rn 'now - 7200 | todate')" \
   '.host = "work-laptop" | .ts = $ts | .commit = "abc1234def5678" | .hooks["tdd-guard.py"] = $zeros | .hooks["only-there.sh"] = $ones
-   | .models["27b"].digest = "sha256:theirs" | .server_env = {OLLAMA_KV_CACHE_TYPE: "f16"}' "$sync_beacon" > "$sandbox/theirs.json"
+   | .models["27b"].digest = "sha256:theirs" | .server = {build: 1, settings: {"cache-type-k": "f16"}}' "$sync_beacon" > "$sandbox/theirs.json"
 run_capture "$sandbox/repo/bin/claude-custom" sync-check --against "$sandbox/theirs.json"
 check_eq "sync-check against a differing beacon exits 1" 1 "$?"
 check_that "a differing commit is listed" grep -qxF "commit: local $short_head vs beacon abc1234 (work-laptop, 2h)" "$sandbox/out"
@@ -1549,7 +1545,7 @@ check_that "the changed hook is named" grep -qxF "  tdd-guard.py: local $(shasum
 check_that "a hook only in the beacon is named" grep -qxF "  only-there.sh: local none vs beacon 111111111111" "$sandbox/out"
 check_that "differing models are listed" grep -qE "^models: local [0-9a-f]{12} vs beacon [0-9a-f]{12} \(work-laptop, 2h\)$" "$sandbox/out"
 check_that "the changed model is spelled out" grep -qxF "  27b: local qwen3.8-27b-cc mismatch vs beacon qwen3.8-27b-cc sha256:theirs" "$sandbox/out"
-check_that "a differing server env is listed" grep -qE "^server_env: local [0-9a-f]{12} vs beacon [0-9a-f]{12} \(work-laptop, 2h\)$" "$sandbox/out"
+check_that "a differing server section is listed" grep -qE "^server: local [0-9a-f]{12} vs beacon [0-9a-f]{12} \(work-laptop, 2h\)$" "$sandbox/out"
 check_not "an equal section is not listed" grep -q '^sandbox: local' "$sandbox/out"
 check_not "an equal model is not spelled out" grep -q '^  35b:' "$sandbox/out"
 run_capture "$sandbox/repo/bin/claude-custom" sync-check --against

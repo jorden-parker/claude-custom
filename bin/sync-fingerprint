@@ -3,7 +3,7 @@ set -u
 
 repo_dir="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 . "$repo_dir/bin/lib/model-server.sh"
-summary_sections="commit dirty claude_version models server_env hooks sandbox fingerprint"
+summary_sections="commit dirty claude_version models server hooks sandbox fingerprint"
 
 usage() {
   echo "usage: sync-fingerprint [--out FILE] | --summary FILE | --age FILE" >&2
@@ -103,10 +103,10 @@ claude_version() {
 fingerprint_json() {
   local body
   body="$(jq -n --arg commit "$(head_commit)" --argjson dirty "$(tracked_tree_is_dirty)" \
-    --argjson models "$(models_json)" --argjson server_env "$(server_json)" --argjson hooks "$(hooks_json)" \
+    --argjson models "$(models_json)" --argjson server "$(server_json)" --argjson hooks "$(hooks_json)" \
     --arg sandbox "$(sandbox_hash)" --arg claude_version "$(claude_version)" \
     'def present: if . == "" then null else . end;
-     {commit: ($commit | present), dirty: $dirty, models: $models, server_env: $server_env, hooks: $hooks,
+     {commit: ($commit | present), dirty: $dirty, models: $models, server: $server, hooks: $hooks,
       sandbox: $sandbox, claude_version: ($claude_version | present)}')"
   jq -S --arg host "$(hostname -s)" --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --arg fingerprint "$(jq -cS . <<< "$body" | sha256_stdin)" \

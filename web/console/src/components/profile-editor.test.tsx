@@ -13,7 +13,7 @@ import { ProfileEditor } from "./profile-editor";
 const labelOf = (key: string) =>
   PROFILE_ENV_FIELDS.find((field) => field.key === key)?.label ?? key;
 const RESIDENCY_FIELDS = PROFILE_ENV_FIELDS.filter(
-  (field) => field.group === "Ollama residency",
+  (field) => field.group === "Model residency",
 );
 
 const TOOL = (name: string, permission: string, description: string) => ({
@@ -259,7 +259,7 @@ describe("ProfileEditor", () => {
     });
     expect(screen.getByRole("heading", { name: "Guards" })).toBeTruthy();
     expect(
-      screen.queryByRole("heading", { name: "Ollama residency" }),
+      screen.queryByRole("heading", { name: "Model residency" }),
     ).toBeNull();
     for (const label of [
       "Observe prompt drift through the messages proxy",
@@ -292,12 +292,12 @@ describe("ProfileEditor", () => {
     expect(headings).toEqual([
       "Prompt and context",
       "Guards",
-      "Ollama residency",
+      "Model residency",
       "Diagnostics",
       "Browser",
     ]);
     const residency = screen
-      .getByRole("heading", { name: "Ollama residency" })
+      .getByRole("heading", { name: "Model residency" })
       .closest("section");
     expect(residency).not.toBeNull();
     expect(

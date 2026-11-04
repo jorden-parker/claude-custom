@@ -929,26 +929,14 @@ run_review() {
   exec "${CLAUDE_OLLAMA_REVIEWER:-$repo_dir/bin/pr-review-local}" --model "$model" --base-url "$(server_url)" "$@" "$target"
 }
 
-server_settings() {
-  echo "models-max=$(models_max)"
-  [ -r "$user_presets_file" ] || return 0
-  awk '/^\[/ { star = ($0 == "[*]"); next } star && /=/ { line = $0; sub(/[ \t]*=[ \t]*/, "=", line); print line }' "$user_presets_file"
-}
-
 rescue_bin() {
   echo "${CLAUDE_OLLAMA_RESCUE_BIN:-$profile_dir/rescue.py}"
 }
 
 run_rescue() {
-  local env_file status=0
-  env_file="$(mktemp "${TMPDIR:-/tmp}/claude-ollama-rescue-env.XXXXXX")"
-  server_settings > "$env_file" 2>/dev/null || true
-  "$(rescue_bin)" --launcher "$repo_dir/bin/claude-ollama" --size "$size" \
+  exec "$(rescue_bin)" --launcher "$repo_dir/bin/claude-ollama" --size "$size" \
     --fingerprint-bin "$repo_dir/bin/sync-fingerprint" --lease-bin "$lease_bin" \
-    --session-dir "$session_config_dir" --state-dir "$console_state_dir" \
-    --ollama-url "$(server_url)" --server-env "$env_file" "$@" || status=$?
-  rm -f "$env_file"
-  exit "$status"
+    --session-dir "$session_config_dir" --state-dir "$console_state_dir" "$@"
 }
 
 run_mock_spike() {

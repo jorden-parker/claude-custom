@@ -628,7 +628,7 @@ console's copy.
 | `CLAUDE_OLLAMA_LEASE`           | 1       | Hold a residency lease                                               |
 | `CLAUDE_OLLAMA_FIT`             | 1       | Check memory fit before launch                                       |
 | `CLAUDE_OLLAMA_TELEMETRY`       | 0       | Session telemetry                                                    |
-| `CLAUDE_OLLAMA_INCIDENTS`       | 1       | Record Ollama incidents                                              |
+| `CLAUDE_OLLAMA_INCIDENTS`       | 1       | Record llama-server incidents                                        |
 | `CLAUDE_OLLAMA_PROXY_RECORD`    | 0       | Record every request body for replay benches                         |
 | `CLAUDE_OLLAMA_BEACON`          | 1       | Write a machine beacon at launch                                     |
 | `CLAUDE_OLLAMA_OPEN_DRAFTS`     | 1       | Open drafts in the browser                                           |

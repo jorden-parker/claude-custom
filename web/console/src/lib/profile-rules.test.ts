@@ -277,8 +277,8 @@ describe("validateProfileOverride", () => {
     ["CLAUDE_CUSTOM_FRICTION", "1", "Guards", false],
     ["CLAUDE_OLLAMA_LADDER", "1", "Guards", true],
     ["CLAUDE_OLLAMA_EDIT_NUDGE", "1", "Guards", true],
-    ["CLAUDE_OLLAMA_LEASE", "1", "Ollama residency", true],
-    ["CLAUDE_OLLAMA_FIT", "1", "Ollama residency", true],
+    ["CLAUDE_OLLAMA_LEASE", "1", "Model residency", true],
+    ["CLAUDE_OLLAMA_FIT", "1", "Model residency", true],
     ["CLAUDE_OLLAMA_PROXY_STABILIZE", "0", "Prompt and context", true],
     ["CLAUDE_OLLAMA_PROXY_RECORD", "0", "Diagnostics", true],
     ["CLAUDE_OLLAMA_BEACON", "1", "Diagnostics", true],
@@ -431,7 +431,7 @@ describe("validateProfileOverride", () => {
     expect(PROFILE_ENV_GROUPS).toEqual([
       "Prompt and context",
       "Guards",
-      "Ollama residency",
+      "Model residency",
       "Diagnostics",
       "Browser",
     ]);

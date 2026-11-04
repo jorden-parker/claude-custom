@@ -216,8 +216,10 @@ check "a missing launcher log is unavailable" section_has "$tmp/bare.md" "Launch
 check "no git repo makes the handoff note unavailable" section_has "$tmp/bare.md" "Newest handoff note" "^unavailable: "
 check "a bare machine prints the summary" [ "$(wc -l < "$tmp/bare.out" | tr -d ' ')" -eq 6 ]
 
-run_rescue --ollama-url http://127.0.0.1:11434 --server-env "$tmp/missing.env" --out "$tmp/compat.md" > /dev/null 2>&1
-check "the launcher's older server flags are still accepted" [ $? -eq 0 ]
+run_rescue --ollama-url http://127.0.0.1:11434 --out "$tmp/compat.md" > /dev/null 2>&1
+check "the old --ollama-url flag is refused" [ $? -eq 2 ]
+run_rescue --server-env "$tmp/missing.env" --out "$tmp/compat.md" > /dev/null 2>&1
+check "the old --server-env flag is refused" [ $? -eq 2 ]
 
 run_rescue --out "$tmp/no-such-dir/report.md" > /dev/null 2> "$tmp/unwritable.err"
 check "an unwritable --out exits 1" [ $? -eq 1 ]

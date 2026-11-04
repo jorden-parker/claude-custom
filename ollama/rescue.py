@@ -44,8 +44,6 @@ def parse_args(argv):
     parser.add_argument("--lease-bin", required=True)
     parser.add_argument("--session-dir", required=True)
     parser.add_argument("--state-dir", required=True)
-    parser.add_argument("--ollama-url", help=argparse.SUPPRESS)
-    parser.add_argument("--server-env", help=argparse.SUPPRESS)
     parser.add_argument("--out")
     parser.add_argument("--since", type=int, default=DEFAULT_SINCE_MINUTES, help="minutes of proxy log to summarise")
     return parser.parse_args(argv)

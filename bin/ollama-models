@@ -2,14 +2,14 @@
 set -euo pipefail
 
 repo_dir="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
-profile_dir="${OLLAMA_PROFILE_DIR:-$repo_dir/ollama}"
+profile_dir="${CLAUDE_OLLAMA_PROFILE_DIR:-$repo_dir/ollama}"
 sizes_file="$profile_dir/sizes.json"
 embedding_file="$profile_dir/embedding.json"
 digests_file="$profile_dir/model-digests.json"
 weights_dir="${CLAUDE_OLLAMA_WEIGHTS_DIR:-$HOME/.claude-ollama/weights}"
 sha_cache="${CLAUDE_OLLAMA_SHA_CACHE:-$HOME/.claude-ollama/cache/weights-sha256.tsv}"
 hf_endpoint="${HF_ENDPOINT:-https://huggingface.co}"
-profiles_bin="${OLLAMA_PROFILES_BIN:-$repo_dir/bin/ollama-profiles}"
+profiles_bin="${CLAUDE_OLLAMA_PROFILES_BIN:-$repo_dir/bin/ollama-profiles}"
 embedding_name=embedding
 
 usage() {

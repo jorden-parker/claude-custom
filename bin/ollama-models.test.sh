@@ -20,11 +20,11 @@ sha_of() {
 }
 
 mkdir -p "$sandbox/stubbin" "$sandbox/profile" "$sandbox/weights" "$sandbox/hf"
-export OLLAMA_PROFILE_DIR="$sandbox/profile"
+export CLAUDE_OLLAMA_PROFILE_DIR="$sandbox/profile"
 export CLAUDE_OLLAMA_WEIGHTS_DIR="$sandbox/weights"
 export CLAUDE_OLLAMA_SHA_CACHE="$sandbox/cache/weights-sha256.tsv"
 export HF_ENDPOINT="https://hf.test"
-export OLLAMA_PROFILES_BIN="$sandbox/stubbin/ollama-profiles"
+export CLAUDE_OLLAMA_PROFILES_BIN="$sandbox/stubbin/ollama-profiles"
 export PATH="$sandbox/stubbin:$PATH"
 
 cat >"$sandbox/profile/sizes.json" <<'EOF'
