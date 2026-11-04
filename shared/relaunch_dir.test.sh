@@ -75,7 +75,7 @@ expect "prepare removes a dead launcher's folder" no "$([ -d "$root/$dead" ] && 
 expect "prepare keeps a live launcher's folder" yes "$([ -d "$root/$live" ] && echo yes || echo no)"
 expect "prepare keeps a folder that is not a pid" yes "$([ -d "$root/not-a-pid" ] && echo yes || echo no)"
 
-for name in relaunch ladder ladder-up embed-off heartbeat-fast; do : > "$dir/$name"; done
+for name in relaunch ladder ladder-up embed-off; do : > "$dir/$name"; done
 cli prepare --root "$root" --pid "$own" >/dev/null
 leftover="$(ls "$dir")"
 expect "prepare clears every signal file" "" "$leftover"
@@ -129,7 +129,9 @@ expect "lower clears a flag" 1 "$?"
 cli --dir "$dir" raise ladder 2>/dev/null
 expect "raise refuses a request" 2 "$?"
 
-expect "path names a signal file" "$dir/heartbeat-fast" "$(cli --dir "$dir" path heartbeat-fast)"
+expect "path names a signal file" "$dir/embed-off" "$(cli --dir "$dir" path embed-off)"
+cli --dir "$dir" raise heartbeat-fast 2>/dev/null
+expect "the retired heartbeat-fast flag is refused" 2 "$?"
 
 cli --root "$root" --pid "$live" request ladder-up '{"rung":"embeddings-off","reason":"promoted"}'
 expect "root and pid name another launcher's folder" yes "$([ -e "$root/$live/ladder-up" ] && echo yes || echo no)"
