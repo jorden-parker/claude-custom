@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -u
 repo="$(cd "$(dirname "$0")/.." && pwd -P)"
+# shellcheck source=../shared/testing/stub-llama-lib.sh
+. "$repo/shared/testing/stub-llama-lib.sh"
 launcher="${CONSOLE_SMOKE_LAUNCHER:-$repo/bin/claude-ollama}"
 app_dir="$repo/web/console/src/app"
 port=8790
@@ -11,6 +13,7 @@ scratch=""
 token=""
 curl_config=""
 keeping=""
+smoke_model=""
 
 parse_args() {
   while [ $# -gt 0 ]; do
@@ -63,6 +66,16 @@ server_alive() {
   return 0
 }
 
+start_model_server() {
+  smoke_model="$(jq -r '.model // empty' "$repo/ollama/settings.27b.json")"
+  if [ -z "$smoke_model" ]; then
+    echo "console-smoke: ollama/settings.27b.json names no model" >&2
+    exit 1
+  fi
+  jq -n --arg id "$smoke_model" '{models: {($id): {size: 1000000, n_ctx: 65536}}}' > "$scratch/model-server.json"
+  start_stub_llama "$scratch/model-server.json" || exit 1
+}
+
 start_console() {
   set -m
   "$launcher" ui --port "$port" < /dev/null > "$scratch/launcher.log" 2>&1 &
@@ -105,6 +118,12 @@ write_curl_config() {
 
 fetch_status() {
   curl -s -K "$curl_config" -o "$scratch/body" -w '%{http_code}' --max-time 120 "http://127.0.0.1:$port$1" 2>/dev/null
+}
+
+post_status() {
+  curl -s -K "$curl_config" -o "$scratch/body" -w '%{http_code}' --max-time 120 -X POST \
+    -H "Origin: http://127.0.0.1:$port" -H 'Content-Type: application/json' --data "$2" \
+    "http://127.0.0.1:$port$1" 2>/dev/null
 }
 
 report_ok() {
@@ -191,17 +210,53 @@ check_apis() {
 /api/tool-budget
 /api/speed-reports
 /api/server
-/api/server/ping
 /api/logs/path
 /api/machine
 /api/workspaces
 APIS
 }
 
+check_ping() {
+  local status state
+  status="$(fetch_status /api/server/ping)"
+  state="$(jq -r '.state // empty' "$scratch/body" 2>/dev/null)"
+  if [ "$status" = 200 ] && [ "$state" = up ]; then
+    report_ok "api /api/server/ping"
+  else
+    report_fail "api /api/server/ping (status $status, state ${state:-none}, want up)"
+  fi
+}
+
+stub_model_status() {
+  curl -s --max-time 10 "$LLAMA_SERVER_URL/models" |
+    jq -r --arg id "$smoke_model" '.data[] | select(.id == $id) | .status.value' 2>/dev/null
+}
+
+check_model_route() {
+  local action="$1" want="$2" status got
+  status="$(post_status "/api/models/$action" "$(jq -cn --arg id "$smoke_model" '{model: $id}')")"
+  if [ "$status" != 200 ]; then
+    report_fail "api /api/models/$action (status $status)"
+    return
+  fi
+  got="$(stub_model_status)"
+  if [ "$got" = "$want" ]; then
+    report_ok "api /api/models/$action"
+  else
+    report_fail "api /api/models/$action ($smoke_model is ${got:-missing}, want $want)"
+  fi
+}
+
+check_model_routes() {
+  check_model_route load loaded
+  check_model_route unload unloaded
+}
+
 keep_console() {
   keeping=1
   echo "console kept running: http://127.0.0.1:$port/?token=$token"
-  echo "stop it with: kill -TERM -- -$server_pid (scratch dir: $scratch)"
+  echo "model server stub: $LLAMA_SERVER_URL (pid $stub_llama_pid)"
+  echo "stop it with: kill -TERM -- -$server_pid; kill $stub_llama_pid (scratch dir: $scratch)"
 }
 
 finish() {
@@ -225,6 +280,7 @@ stop_console() {
 cleanup() {
   if [ -z "$keeping" ]; then
     stop_console
+    stop_stub_llama
     [ -z "$scratch" ] || rm -rf "$scratch"
   fi
 }
@@ -233,6 +289,7 @@ main() {
   parse_args "$@"
   refuse_busy_port
   prepare_scratch
+  start_model_server
   start_console
   if ! wait_for_console; then
     show_log_tail
@@ -243,6 +300,8 @@ main() {
   check_origin_guard
   check_pages
   check_apis
+  check_ping
+  check_model_routes
   finish
 }
 
