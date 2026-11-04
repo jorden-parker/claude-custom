@@ -69,12 +69,13 @@ describe("LogView", () => {
     vi.restoreAllMocks();
   });
 
-  it("follows the Ollama server log first", async () => {
+  it("follows the model server log first, under a Model server tab", async () => {
     render(<LogView />);
     expect(
       await screen.findByText("following /var/log/ollama.log"),
     ).toBeTruthy();
     expect(fetched).toEqual(["/api/logs/path?source=server"]);
+    expect(screen.getByRole("tab", { name: "Model server" })).toBeTruthy();
     expect(FakeEventSource.opened.map((source) => source.url)).toEqual([
       "/api/logs/events?source=server",
     ]);

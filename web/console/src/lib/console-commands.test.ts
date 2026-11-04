@@ -8,6 +8,11 @@ import {
   findCommand,
   toolsReportArgv,
 } from "./console-commands";
+import { SERVER_SETTINGS, type ServerSetting } from "./server-vars";
+
+function sampleValue(setting: ServerSetting): string {
+  return setting.input.kind === "number" ? String(setting.input.min) : setting.input.choices[0];
+}
 
 describe("console commands", () => {
   let repo: string;
@@ -57,7 +62,6 @@ describe("console commands", () => {
       "models-outdated",
       "qwen-doctor",
       "model-upgrade",
-      "model-pin",
       "mock-spike",
       "why",
       "rescue",
@@ -214,54 +218,45 @@ describe("console commands", () => {
 
   it("builds one -set pair per assignment", () => {
     expect(
-      serverSet()?.argv(
-        { assignments: "OLLAMA_KEEP_ALIVE=1h,OLLAMA_DEBUG=1" },
-        repo,
-      ),
-    ).toEqual([
-      agent(),
-      "-set",
-      "OLLAMA_KEEP_ALIVE=1h",
-      "-set",
-      "OLLAMA_DEBUG=1",
-    ]);
+      serverSet()?.argv({ assignments: "models-max=2,cache-type-k=q4_0" }, repo),
+    ).toEqual([agent(), "-set", "models-max=2", "-set", "cache-type-k=q4_0"]);
   });
 
   it("labels server-set with its assignments", () => {
     expect(
-      serverSet()?.label({
-        assignments: "OLLAMA_KEEP_ALIVE=1h,OLLAMA_DEBUG=1",
-      }),
-    ).toBe("Set OLLAMA_KEEP_ALIVE=1h, OLLAMA_DEBUG=1");
+      serverSet()?.label({ assignments: "models-max=2,flash-attn=auto" }),
+    ).toBe("Set models-max=2, flash-attn=auto");
   });
 
-  it("refuses server-set with an invalid, read-only, duplicate or empty assignment", () => {
+  it("refuses server-set with an invalid, unknown, duplicate or empty assignment", () => {
     for (const assignments of [
-      "OLLAMA_KEEP_ALIVE=30x",
-      "OLLAMA_HOST=0.0.0.0",
-      "OLLAMA_ORIGINS=*",
-      "OLLAMA_DEBUG=1,OLLAMA_DEBUG=0",
-      "OLLAMA_DEBUG",
+      "models-max=9",
+      "cache-type-k=q5_1",
+      "n-gpu-layers=99",
+      "jinja=false",
+      "models-max=2,models-max=3",
+      "models-max",
       "",
     ]) {
       expect(serverSet()?.argv({ assignments }, repo)).toBeNull();
     }
   });
 
-  it("refuses server-set with more than eight assignments", () => {
-    const nine = Array.from({ length: 9 }, () => "OLLAMA_DEBUG=1");
-    expect(serverSet()?.argv({ assignments: nine.join(",") }, repo)).toBeNull();
+  it("takes a change to every setting at once, and refuses more", () => {
+    const every = SERVER_SETTINGS.map((setting) => `${setting.key}=${sampleValue(setting)}`);
+    expect(serverSet()?.argv({ assignments: every.join(",") }, repo)).toHaveLength(1 + 2 * every.length);
+    expect(serverSet()?.argv({ assignments: [...every, "models-max=1"].join(",") }, repo)).toBeNull();
   });
 
   it("refuses server-set with an extra key", () => {
     expect(
-      serverSet()?.argv({ assignments: "OLLAMA_DEBUG=1", size: "27b" }, repo),
+      serverSet()?.argv({ assignments: "models-max=2", size: "27b" }, repo),
     ).toBeNull();
   });
 
   it("builds the server-apply argv with no parameters", () => {
     expect(serverApply()?.argv({}, repo)).toEqual([agent(), "-apply"]);
-    expect(serverApply()?.label({})).toBe("Apply server.env");
+    expect(serverApply()?.label({})).toBe("Apply recommended settings");
     expect(serverApply()?.argv({ size: "27b" }, repo)).toBeNull();
   });
 
@@ -320,29 +315,8 @@ describe("console commands", () => {
     ).toBeNull();
   });
 
-  it("builds the model-pin argv for an Ollama library model name", () => {
-    expect(
-      findCommand("model-pin")?.argv({ name: "qwen3.6:35b-mlx" }, repo),
-    ).toEqual([`${repo}/bin/ollama-models`, "pin", "qwen3.6:35b-mlx"]);
-    expect(findCommand("model-pin")?.label({ name: "qwen3.6:35b-mlx" })).toBe(
-      "Pin qwen3.6:35b-mlx",
-    );
-    expect(
-      findCommand("model-pin")?.argv({ name: "qwen3-embedding" }, repo),
-    ).toEqual([`${repo}/bin/ollama-models`, "pin", "qwen3-embedding"]);
-  });
-
-  it("refuses a model-pin name that is not a plain library model", () => {
-    expect(
-      findCommand("model-pin")?.argv({ name: "hf.co/a/b:c" }, repo),
-    ).toBeNull();
-    expect(findCommand("model-pin")?.argv({ name: "--help" }, repo)).toBeNull();
-    expect(findCommand("model-pin")?.argv({ name: "a b" }, repo)).toBeNull();
-    expect(findCommand("model-pin")?.argv({ name: "" }, repo)).toBeNull();
-    expect(findCommand("model-pin")?.argv({}, repo)).toBeNull();
-    expect(
-      findCommand("model-pin")?.argv({ name: "qwen3", size: "27b" }, repo),
-    ).toBeNull();
+  it("has no model-pin command, since GGUF pins come from Hugging Face", () => {
+    expect(findCommand("model-pin")).toBeUndefined();
   });
 
   it("builds the qwen-doctor argv for a configured size", () => {

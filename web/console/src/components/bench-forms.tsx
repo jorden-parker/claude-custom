@@ -9,7 +9,7 @@ export function BenchForms({ sizes }: BenchFormsProps) {
     <div className="grid gap-4">
       <BenchCard
         title="Messages bench"
-        description="TTFT, prefill, decode and tool-call checks against the local Ollama"
+        description="TTFT, prefill, decode and tool-call checks against the local model server"
         command="messages-bench"
         fields={[
           sizeField,
@@ -19,7 +19,7 @@ export function BenchForms({ sizes }: BenchFormsProps) {
       />
       <BenchCard
         title="Cache probe"
-        description="Measures prompt-cache reuse on the local Ollama"
+        description="Measures prompt-cache reuse on the local model server"
         command="cache-probe"
         fields={[sizeField]}
       />

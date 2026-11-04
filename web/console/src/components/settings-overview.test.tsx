@@ -1,6 +1,10 @@
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { PROFILE_ENV_FIELDS } from "@/lib/profile-rules";
 import { SettingsOverview } from "./settings-overview";
+
+const labelOf = (key: string) =>
+  PROFILE_ENV_FIELDS.find((field) => field.key === key)?.label ?? key;
 
 const PROFILES = [
   {
@@ -21,7 +25,7 @@ const PROFILES = [
     overrides: 2,
     env: {
       CLAUDE_OLLAMA_LEASE: "0",
-      CLAUDE_OLLAMA_LEASE_HEARTBEAT: "60",
+      CLAUDE_OLLAMA_HANDOFF_PCT: "60",
       CLAUDE_OLLAMA_TEST_AFTER_EDIT: "0",
     },
   },
@@ -58,25 +62,25 @@ describe("SettingsOverview", () => {
     );
     render(<SettingsOverview />);
 
-    await screen.findByText("Hold an Ollama residency lease and heartbeat");
+    await screen.findByText(labelOf("CLAUDE_OLLAMA_LEASE"));
     expect(
       document.querySelector('[data-slot="table-container"] table'),
     ).not.toBeNull();
     const lease = rowFor("CLAUDE_OLLAMA_LEASE");
     expect(lease.getAllByRole("cell").map((cell) => cell.textContent)).toEqual([
-      "Hold an Ollama residency lease and heartbeatCLAUDE_OLLAMA_LEASE",
+      `${labelOf("CLAUDE_OLLAMA_LEASE")}CLAUDE_OLLAMA_LEASE`,
       "on",
       "n/a",
       "off",
       "default",
     ]);
     expect(
-      rowFor("CLAUDE_OLLAMA_LEASE_HEARTBEAT")
+      rowFor("CLAUDE_OLLAMA_HANDOFF_PCT")
         .getAllByRole("cell")
         .map((cell) => cell.textContent),
     ).toEqual([
-      "Seconds between keep-alive heartbeatsCLAUDE_OLLAMA_LEASE_HEARTBEAT",
-      "120",
+      `${labelOf("CLAUDE_OLLAMA_HANDOFF_PCT")}CLAUDE_OLLAMA_HANDOFF_PCT`,
+      "70",
       "n/a",
       "60",
       "default",

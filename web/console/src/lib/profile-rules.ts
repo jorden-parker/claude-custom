@@ -32,7 +32,7 @@ export const OUTPUT_TOKENS_RANGE: NumberRange = {
   max: 16384,
   step: 1024,
 };
-export const OLLAMA_MCP_SERVERS = ["code-search", "repo", "dev"] as const;
+export const LOCAL_MCP_SERVERS = ["code-search", "repo", "dev"] as const;
 export const PROFILE_ENV_GROUPS = [
   "Prompt and context",
   "Guards",
@@ -145,7 +145,7 @@ const TOP_LEVEL_KEYS = [
   "mcp",
   "env",
 ];
-const OLLAMA_ONLY_KEYS = [
+const LOCAL_ONLY_KEYS = [
   "context",
   "output_tokens",
   "thinking",
@@ -220,7 +220,7 @@ function keyProblem(
     return "sandbox is always on for Ollama profiles";
   }
   if (rules.kind === "claude-code") {
-    const misplaced = OLLAMA_ONLY_KEYS.find((key) => Object.hasOwn(body, key));
+    const misplaced = LOCAL_ONLY_KEYS.find((key) => Object.hasOwn(body, key));
     return misplaced === undefined
       ? null
       : `${misplaced} only applies to Ollama profiles`;
@@ -366,7 +366,7 @@ function mcpProblem(mcp: unknown): string | null {
 }
 
 function mcpEntryProblem(name: string, enabled: unknown): string | null {
-  if (!(OLLAMA_MCP_SERVERS as readonly string[]).includes(name)) {
+  if (!(LOCAL_MCP_SERVERS as readonly string[]).includes(name)) {
     return `unknown MCP server ${name}`;
   }
   return typeof enabled === "boolean" ? null : `${name} must be true or false`;

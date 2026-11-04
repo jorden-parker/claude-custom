@@ -1,35 +1,39 @@
+export type FileState = "pinned" | "mismatch" | "orphan" | "partial";
+
 export type SizeStatus = {
   size: string;
   model: string | null;
-  base: string | null;
-  installed: boolean;
-  class: string | null;
+  file: string | null;
+  state: FileState | null;
 };
 
-export type InstalledModel = {
+export type WeightFile = {
   name: string;
-  class: string;
+  state: FileState;
+  size: string | null;
   bytes: number;
-  loaded: boolean;
 };
 
-export type SizeState = "installed" | "missing" | "mismatch";
+export type SizeState = "installed" | "missing" | "partial" | "mismatch";
 
 export function sizeStateOf(size: SizeStatus): SizeState {
-  if (!size.installed) {
-    return "missing";
+  if (size.state === "pinned") {
+    return "installed";
   }
-  return size.class === "mismatch" ? "mismatch" : "installed";
+  if (size.state === "mismatch" || size.state === "partial") {
+    return size.state;
+  }
+  return "missing";
 }
 
-export function namesToRemove(models: readonly InstalledModel[]): string[] {
-  return models.map((model) => model.name);
+export function namesToRemove(files: readonly WeightFile[]): string[] {
+  return files.map((file) => file.name);
 }
 
 export function gigabytes(bytes: number): string {
   return (bytes / 1e9).toFixed(1);
 }
 
-export function totalBytes(models: readonly InstalledModel[]): number {
-  return models.reduce((total, model) => total + model.bytes, 0);
+export function totalBytes(files: readonly WeightFile[]): number {
+  return files.reduce((total, file) => total + file.bytes, 0);
 }

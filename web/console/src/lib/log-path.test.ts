@@ -44,7 +44,7 @@ describe("readLogPath", () => {
     writeLauncher("exit 0");
     expect(await readLogPath(repo)).toEqual({
       ok: false,
-      message: "No Ollama log found",
+      message: "No model server log found",
     });
   });
 });

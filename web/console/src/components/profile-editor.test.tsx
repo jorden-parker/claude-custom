@@ -7,7 +7,14 @@ import {
   within,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { PROFILE_ENV_FIELDS } from "@/lib/profile-rules";
 import { ProfileEditor } from "./profile-editor";
+
+const labelOf = (key: string) =>
+  PROFILE_ENV_FIELDS.find((field) => field.key === key)?.label ?? key;
+const RESIDENCY_FIELDS = PROFILE_ENV_FIELDS.filter(
+  (field) => field.group === "Ollama residency",
+);
 
 const TOOL = (name: string, permission: string, description: string) => ({
   name,
@@ -38,7 +45,7 @@ const CLAUDE_CODE_DETAIL = {
   },
 };
 
-const OLLAMA_DETAIL = {
+const LOCAL_MODEL_DETAIL = {
   ...CLAUDE_CODE_DETAIL,
   id: "ollama-27b",
   title: "Ollama 27b",
@@ -172,7 +179,7 @@ describe("ProfileEditor", () => {
   });
 
   it("shows context and parameter fields for an Ollama profile, with the base as placeholders", async () => {
-    mockProfileApi(OLLAMA_DETAIL);
+    mockProfileApi(LOCAL_MODEL_DETAIL);
     render(<ProfileEditor id="ollama-27b" />);
     await screen.findByText("Fetch a web page");
 
@@ -202,7 +209,7 @@ describe("ProfileEditor", () => {
   });
 
   it("offers a thinking switch for an Ollama profile that is off by default", async () => {
-    mockProfileApi(OLLAMA_DETAIL);
+    mockProfileApi(LOCAL_MODEL_DETAIL);
     render(<ProfileEditor id="ollama-27b" />);
     await screen.findByText("Fetch a web page");
 
@@ -256,29 +263,27 @@ describe("ProfileEditor", () => {
     ).toBeNull();
     for (const label of [
       "Observe prompt drift through the messages proxy",
-      "Hold an Ollama residency lease and heartbeat",
+      labelOf("CLAUDE_OLLAMA_LEASE"),
       "Degrade rung by rung on incident evidence",
       "After each edit: suggest the test, or run it",
       "Write a machine beacon at launch",
     ]) {
       expect(screen.queryByRole("combobox", { name: label })).toBeNull();
     }
-    expect(
-      screen.queryByRole("spinbutton", {
-        name: "Seconds between keep-alive heartbeats",
-      }),
-    ).toBeNull();
+    for (const field of RESIDENCY_FIELDS) {
+      expect(screen.queryByRole("spinbutton", { name: field.label })).toBeNull();
+    }
   });
 
   it("groups the Ollama env fields under the settings headings in order", async () => {
-    mockProfileApi(OLLAMA_DETAIL);
+    mockProfileApi(LOCAL_MODEL_DETAIL);
     render(<ProfileEditor id="ollama-27b" />);
     await screen.findByText("Fetch a web page");
 
     fireEvent.click(screen.getByRole("tab", { name: "Env" }));
 
     const lease = (await screen.findByRole("combobox", {
-      name: "Hold an Ollama residency lease and heartbeat",
+      name: labelOf("CLAUDE_OLLAMA_LEASE"),
     })) as HTMLSelectElement;
     expect(lease.options[lease.selectedIndex].text).toBe("default (on)");
     const headings = screen
@@ -299,16 +304,22 @@ describe("ProfileEditor", () => {
       within(residency as HTMLElement)
         .getAllByRole("combobox")
         .map((box) => box.getAttribute("aria-label")),
-    ).toEqual([
-      "Hold an Ollama residency lease and heartbeat",
-      "Check memory fit before launch",
-    ]);
-    const heartbeat = within(residency as HTMLElement).getByRole("spinbutton", {
-      name: "Seconds between keep-alive heartbeats",
-    });
-    expect(heartbeat.getAttribute("placeholder")).toBe("120");
-    expect(heartbeat.getAttribute("min")).toBe("30");
-    expect(heartbeat.getAttribute("max")).toBe("600");
+    ).toEqual(
+      RESIDENCY_FIELDS.filter((field) => field.kind !== "number").map(
+        (field) => field.label,
+      ),
+    );
+    for (const field of RESIDENCY_FIELDS) {
+      if (field.kind !== "number") {
+        continue;
+      }
+      const spinner = within(residency as HTMLElement).getByRole("spinbutton", {
+        name: field.label,
+      });
+      expect(spinner.getAttribute("placeholder")).toBe(field.defaultValue);
+      expect(spinner.getAttribute("min")).toBe(String(field.range.min));
+      expect(spinner.getAttribute("max")).toBe(String(field.range.max));
+    }
     expect(screen.getByText(/so a cache miss has a cause/)).toBeTruthy();
     const record = (await screen.findByRole("combobox", {
       name: "Record every request body for replay benches",
@@ -317,7 +328,7 @@ describe("ProfileEditor", () => {
   });
 
   it("saves the handoff percent as a string and removes the key when cleared", async () => {
-    const fetchMock = mockProfileApi(OLLAMA_DETAIL, () =>
+    const fetchMock = mockProfileApi(LOCAL_MODEL_DETAIL, () =>
       jsonResponse({ override: { env: { CLAUDE_OLLAMA_HANDOFF_PCT: "60" } } }),
     );
     render(<ProfileEditor id="ollama-27b" />);
@@ -353,7 +364,7 @@ describe("ProfileEditor", () => {
   });
 
   it("offers off, suggest and run for the after-edit test and saves the choice", async () => {
-    const fetchMock = mockProfileApi(OLLAMA_DETAIL);
+    const fetchMock = mockProfileApi(LOCAL_MODEL_DETAIL);
     render(<ProfileEditor id="ollama-27b" />);
     await screen.findByText("Fetch a web page");
 
@@ -388,7 +399,7 @@ describe("ProfileEditor", () => {
   });
 
   it("saves the relaunch switch as 0 when turned off", async () => {
-    const fetchMock = mockProfileApi(OLLAMA_DETAIL);
+    const fetchMock = mockProfileApi(LOCAL_MODEL_DETAIL);
     render(<ProfileEditor id="ollama-27b" />);
     await screen.findByText("Fetch a web page");
 
@@ -412,7 +423,7 @@ describe("ProfileEditor", () => {
   });
 
   it("lists the hooks read-only and toggles the Ollama MCP servers", async () => {
-    mockProfileApi(OLLAMA_DETAIL);
+    mockProfileApi(LOCAL_MODEL_DETAIL);
     render(<ProfileEditor id="ollama-27b" />);
     await screen.findByText("Fetch a web page");
 
@@ -425,11 +436,11 @@ describe("ProfileEditor", () => {
 
   it("offers only default and off for Agent on an Ollama profile", async () => {
     mockProfileApi({
-      ...OLLAMA_DETAIL,
+      ...LOCAL_MODEL_DETAIL,
       base: {
-        ...OLLAMA_DETAIL.base,
+        ...LOCAL_MODEL_DETAIL.base,
         tools: [
-          ...OLLAMA_DETAIL.base.tools,
+          ...LOCAL_MODEL_DETAIL.base.tools,
           TOOL("Agent", "deny", "Spawn a subagent"),
         ],
       },

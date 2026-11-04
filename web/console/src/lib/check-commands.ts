@@ -10,14 +10,14 @@ export const CHECK_COMMANDS: readonly CheckCommand[] = [
     command: "doctor",
     title: "Doctor",
     description:
-      "Models, context sizes, hooks, Ollama and the server env for one size.",
+      "Weights, context sizes, hooks, the model server and its settings for one size.",
     needsSize: true,
   },
   {
     command: "thinking-check",
     title: "Thinking check",
     description:
-      "Confirms thinking is off on the MLX sizes. Pulls them first, so it can take a while.",
+      "Confirms thinking is off on the chat presets. Loads them first, so it can take a while.",
     needsSize: false,
   },
   {
@@ -31,7 +31,7 @@ export const CHECK_COMMANDS: readonly CheckCommand[] = [
     command: "models-outdated",
     title: "Outdated models",
     description:
-      "Compares each pinned model with the registry: current, behind or unpinned.",
+      "Compares each size's pinned GGUF revision with Hugging Face: current or behind.",
     needsSize: false,
   },
   {

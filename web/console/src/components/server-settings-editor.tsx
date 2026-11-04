@@ -1,6 +1,7 @@
 "use client";
 
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import Link from "next/link";
 import { Lock } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
@@ -9,15 +10,13 @@ import { StartRunButton } from "@/components/start-run-button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import type { ServerSnapshot, ServerVariable } from "@/lib/server-snapshot";
-import { EDITABLE_VARIABLES, validServerValue } from "@/lib/server-vars";
-
-const APP_CONFLICT_MARKER = "the Ollama app is running";
+import { serverSetting, validServerValue, type ServerSetting } from "@/lib/server-vars";
 
 type Edits = Record<string, string>;
 
 type Change = { name: string; value: string };
 
-export function ServerEnvEditor() {
+export function ServerSettingsEditor() {
   const [reloadCount, setReloadCount] = useState(0);
   const [snapshot, setSnapshot] = useState<ServerSnapshot | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -49,7 +48,7 @@ export function ServerEnvEditor() {
     );
   }
   return (
-    <ServerEnvForm
+    <ServerSettingsForm
       snapshot={snapshot}
       edits={edits}
       onEdit={(name, value) =>
@@ -62,7 +61,7 @@ export function ServerEnvEditor() {
   );
 }
 
-type ServerEnvFormProps = {
+type ServerSettingsFormProps = {
   snapshot: ServerSnapshot;
   edits: Edits;
   onEdit: (name: string, value: string) => void;
@@ -71,20 +70,17 @@ type ServerEnvFormProps = {
   onBack: () => void;
 };
 
-function ServerEnvForm({
+function ServerSettingsForm({
   snapshot,
   edits,
   onEdit,
   runId,
   onStarted,
   onBack,
-}: ServerEnvFormProps) {
+}: ServerSettingsFormProps) {
   const changes = changesOf(snapshot.variables, edits);
   const hasInvalid = changes.some(
     ({ name, value }) => !validServerValue(name, value),
-  );
-  const appRunning = snapshot.conflicts.some((text) =>
-    text.includes(APP_CONFLICT_MARKER),
   );
   const assignments = changes
     .map(({ name, value }) => `${name}=${value}`)
@@ -124,7 +120,7 @@ function ServerEnvForm({
           command="server-set"
           params={{ assignments }}
           stay
-          disabled={changes.length === 0 || hasInvalid || appRunning}
+          disabled={changes.length === 0 || hasInvalid}
           onStarted={onStarted}
         >
           Save and reload
@@ -133,7 +129,6 @@ function ServerEnvForm({
           command="server-apply"
           params={{}}
           stay
-          disabled={appRunning}
           onStarted={onStarted}
         >
           Apply recommended
@@ -153,42 +148,55 @@ function VariableRow({
   value: string;
   onEdit: (name: string, value: string) => void;
 }) {
-  const editable = EDITABLE_VARIABLES.has(variable.name);
-  const changed = editable && value !== currentText(variable);
+  const setting = serverSetting(variable.name);
+  const changed = setting !== undefined && value !== currentText(variable);
 
   return (
     <li
       className={`flex flex-col gap-2 rounded-lg border p-3 ${changed ? "bg-muted/60" : ""}`}
     >
-      <VariableHeader variable={variable} />
-      <p className="text-sm text-muted-foreground">{variable.summary}</p>
+      <VariableHeader variable={variable} setting={setting} />
+      <p className="text-sm text-muted-foreground">
+        {setting?.help ?? variable.summary}
+      </p>
       <dl className="grid grid-cols-2 gap-x-3 font-mono text-xs [&>dd]:min-w-0 [&>dd]:break-all">
         <dt className="text-muted-foreground">current</dt>
         <dd>{variable.set ? variable.current : "unset"}</dd>
         <dt className="text-muted-foreground">recommended</dt>
         <dd>{variable.recommended || "none"}</dd>
       </dl>
-      {editable ? (
-        <ValueInput
-          name={variable.name}
-          value={value}
-          invalid={changed && !validServerValue(variable.name, value)}
-          onEdit={onEdit}
-        />
-      ) : (
+      {setting === undefined ? (
         <p className="flex items-center gap-2 text-xs text-muted-foreground">
           <Lock className="size-3" />
-          edit with `claude-custom agent`
+          edit ollama/server.ini
         </p>
+      ) : (
+        <SettingInput
+          setting={setting}
+          value={value}
+          invalid={changed && !validServerValue(setting.key, value)}
+          onEdit={onEdit}
+        />
       )}
     </li>
   );
 }
 
-function VariableHeader({ variable }: { variable: ServerVariable }) {
+function VariableHeader({
+  variable,
+  setting,
+}: {
+  variable: ServerVariable;
+  setting: ServerSetting | undefined;
+}) {
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <span className="font-mono text-sm font-medium">{variable.name}</span>
+      {setting === undefined ? null : (
+        <span className="text-sm font-medium">{setting.label}</span>
+      )}
+      <span className="font-mono text-xs text-muted-foreground">
+        {variable.name}
+      </span>
       {isDifferent(variable) ? (
         <Badge variant="outline" className="text-warning-foreground">
           differs
@@ -198,24 +206,47 @@ function VariableHeader({ variable }: { variable: ServerVariable }) {
   );
 }
 
-function ValueInput({
-  name,
+function SettingInput({
+  setting,
   value,
   invalid,
   onEdit,
 }: {
-  name: string;
+  setting: ServerSetting;
   value: string;
   invalid: boolean;
   onEdit: (name: string, value: string) => void;
 }) {
+  const invalidRing = invalid ? "ring-2 ring-error-border" : "";
+  if (setting.input.kind === "choice") {
+    const choices = value === "" ? ["", ...setting.input.choices] : setting.input.choices;
+    return (
+      <Select
+        aria-label={setting.key}
+        aria-invalid={invalid}
+        value={value}
+        onChange={(event) => onEdit(setting.key, event.target.value)}
+        className={`font-mono ${invalidRing}`}
+      >
+        {choices.map((choice) => (
+          <option key={choice} value={choice}>
+            {choice === "" ? "unset" : choice}
+          </option>
+        ))}
+      </Select>
+    );
+  }
   return (
     <Input
-      aria-label={name}
+      type="number"
+      aria-label={setting.key}
       aria-invalid={invalid}
+      min={setting.input.min}
+      max={setting.input.max}
+      step={1}
       value={value}
-      onChange={(event) => onEdit(name, event.target.value)}
-      className={`font-mono ${invalid ? "ring-2 ring-error-border" : ""}`}
+      onChange={(event) => onEdit(setting.key, event.target.value)}
+      className={`font-mono ${invalidRing}`}
     />
   );
 }
@@ -234,7 +265,7 @@ function currentText(variable: ServerVariable): string {
 function changesOf(variables: ServerVariable[], edits: Edits): Change[] {
   return variables.flatMap((variable) => {
     const value = edits[variable.name];
-    return EDITABLE_VARIABLES.has(variable.name) &&
+    return serverSetting(variable.name) !== undefined &&
       value !== undefined &&
       value !== currentText(variable)
       ? [{ name: variable.name, value }]

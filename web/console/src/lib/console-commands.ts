@@ -8,7 +8,7 @@ import {
 import { configuredSizes } from "./sizes";
 import { modelForSize } from "./size-models";
 import { PR_NUMBER_PATTERN } from "./pr-number";
-import { validServerValue } from "./server-vars";
+import { SERVER_SETTINGS, validServerValue } from "./server-vars";
 import { presetIds } from "./mock-spike/presets";
 
 export type CommandParams = Record<string, string>;
@@ -26,7 +26,7 @@ export type ConsoleQuery = {
 
 type Assignment = { name: string; value: string };
 
-const MAX_ASSIGNMENTS = 8;
+const MAX_ASSIGNMENTS = SERVER_SETTINGS.length;
 
 const NAME_PATTERN = /^[A-Za-z0-9._:/-]{1,128}$/;
 
@@ -158,7 +158,7 @@ const serverSet: ConsoleCommand = {
 
 const serverApply: ConsoleCommand = {
   name: "server-apply",
-  label: () => "Apply server.env",
+  label: () => "Apply recommended settings",
   argv: (params, repoDir) =>
     hasExactKeys(params, []) ? [ollamaAgentPath(repoDir), "-apply"] : null,
 };
@@ -249,18 +249,6 @@ const rescue: ConsoleCommand = {
   name: "rescue",
   label: (params) => `Rescue report (${params.size})`,
   argv: sizeArgv("rescue"),
-};
-
-const LIBRARY_MODEL_PATTERN =
-  /^[a-z0-9][a-z0-9._-]{0,63}(:[A-Za-z0-9._-]{1,63})?$/;
-
-const modelPin: ConsoleCommand = {
-  name: "model-pin",
-  label: (params) => `Pin ${params.name}`,
-  argv: (params, repoDir) =>
-    hasExactKeys(params, ["name"]) && LIBRARY_MODEL_PATTERN.test(params.name)
-      ? [`${repoDir}/bin/ollama-models`, "pin", params.name]
-      : null,
 };
 
 export const CONSOLE_QUERIES = {
@@ -420,7 +408,6 @@ export const CONSOLE_COMMANDS: readonly ConsoleCommand[] = [
   modelsOutdated,
   qwenDoctor,
   modelUpgrade,
-  modelPin,
   mockSpike,
   why,
   rescue,

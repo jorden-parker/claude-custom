@@ -13,7 +13,7 @@ import {
 import type { ReviewEvent } from "./review-event";
 
 const events: ReviewEvent[] = [
-  { kind: "start", name: "PR #7", title: "Fix parser", model: "qwen", base_url: "http://localhost:11434" },
+  { kind: "start", name: "PR #7", title: "Fix parser", model: "qwen", base_url: "http://127.0.0.1:11435" },
   { kind: "stage", message: "fetching diff", t: 1 },
   { kind: "file_start", index: 1, total: 2, path: "src/a.ts", chars: 120 },
   { kind: "waiting", seconds: 3 },

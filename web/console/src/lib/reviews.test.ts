@@ -15,7 +15,7 @@ const COMPLETE_ID = "20261021-174512-pr-7";
 const RUNNING_ID = "20261021-180000-main..widget";
 
 const completeLog = [
-  { t: 0, kind: "start", name: "PR #7", title: "Fix parser", model: "qwen", base_url: "http://localhost:11434" },
+  { t: 0, kind: "start", name: "PR #7", title: "Fix parser", model: "qwen", base_url: "http://127.0.0.1:11435" },
   { t: 1, kind: "file_start", index: 1, total: 1, path: "src/a.ts", chars: 120 },
   { t: 2, kind: "finding", index: 1, path: "src/a.ts", finding: { label: "issue", blocking: true, path: "src/a.ts", line: 3, summary: "Null deref <b>x</b>", why: "x can be null", confidence: "high" } },
   { t: 3, kind: "file_done", index: 1, total: 1, path: "src/a.ts", outcome: "ok", seconds: 2 },
@@ -24,7 +24,7 @@ const completeLog = [
 ];
 
 const runningLog = [
-  { t: 0, kind: "start", name: "main..widget", title: "Widget", model: "qwen", base_url: "http://localhost:11434" },
+  { t: 0, kind: "start", name: "main..widget", title: "Widget", model: "qwen", base_url: "http://127.0.0.1:11435" },
   { t: 1, kind: "stage", message: "fetching diff" },
 ];
 

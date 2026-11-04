@@ -1,74 +1,88 @@
 import { describe, expect, it } from "vitest";
-import { EDITABLE_VARIABLES, validServerValue } from "./server-vars";
+import { SERVER_SETTINGS, serverSetting, validServerValue } from "./server-vars";
 
-describe("EDITABLE_VARIABLES", () => {
-  it("leaves the host, origins and models folder read-only", () => {
-    for (const name of ["OLLAMA_HOST", "OLLAMA_ORIGINS", "OLLAMA_MODELS"]) {
-      expect(EDITABLE_VARIABLES.has(name)).toBe(false);
+describe("SERVER_SETTINGS", () => {
+  it("lists the preset keys of the server settings, in order", () => {
+    expect(SERVER_SETTINGS.map((setting) => setting.key)).toEqual([
+      "models-max",
+      "ctx-checkpoints",
+      "checkpoint-min-step",
+      "cache-ram",
+      "cache-type-k",
+      "cache-type-v",
+      "flash-attn",
+      "parallel",
+      "batch-size",
+      "ubatch-size",
+      "cache-reuse",
+      "prio",
+      "sleep-idle-seconds",
+    ]);
+  });
+
+  it("gives every setting a label, a help sentence and an input kind", () => {
+    for (const setting of SERVER_SETTINGS) {
+      expect(setting.label).not.toBe("");
+      expect(setting.help).toMatch(/\.$/);
+      expect(["number", "choice"]).toContain(setting.input.kind);
     }
   });
 
-  it("lists the eight tuning variables", () => {
-    expect([...EDITABLE_VARIABLES.keys()].sort()).toEqual([
-      "OLLAMA_CONTEXT_LENGTH",
-      "OLLAMA_DEBUG",
-      "OLLAMA_FLASH_ATTENTION",
-      "OLLAMA_KEEP_ALIVE",
-      "OLLAMA_KV_CACHE_TYPE",
-      "OLLAMA_MAX_LOADED_MODELS",
-      "OLLAMA_MAX_QUEUE",
-      "OLLAMA_NUM_PARALLEL",
-    ]);
+  it("takes models-max and ctx-checkpoints as numbers in their ranges", () => {
+    expect(serverSetting("models-max")?.input).toEqual({ kind: "number", min: 1, max: 4 });
+    expect(serverSetting("ctx-checkpoints")?.input).toEqual({ kind: "number", min: 0, max: 256 });
+  });
+
+  it("takes the cache types and flash attention as choices", () => {
+    for (const key of ["cache-type-k", "cache-type-v"]) {
+      expect(serverSetting(key)?.input).toEqual({ kind: "choice", choices: ["f16", "q8_0", "q4_0"] });
+    }
+    expect(serverSetting("flash-attn")?.input).toEqual({ kind: "choice", choices: ["on", "off", "auto"] });
+  });
+
+  it("knows no other key", () => {
+    expect(serverSetting("n-gpu-layers")).toBeUndefined();
+    expect(serverSetting("constructor")).toBeUndefined();
   });
 });
 
 describe("validServerValue", () => {
   it.each([
-    ["OLLAMA_KEEP_ALIVE", "-1"],
-    ["OLLAMA_KEEP_ALIVE", "30m"],
-    ["OLLAMA_KEEP_ALIVE", "500ms"],
-    ["OLLAMA_KEEP_ALIVE", "1h"],
-    ["OLLAMA_KEEP_ALIVE", "120"],
-    ["OLLAMA_MAX_LOADED_MODELS", "1"],
-    ["OLLAMA_MAX_LOADED_MODELS", "16"],
-    ["OLLAMA_NUM_PARALLEL", "4"],
-    ["OLLAMA_MAX_QUEUE", "100000"],
-    ["OLLAMA_CONTEXT_LENGTH", "2048"],
-    ["OLLAMA_CONTEXT_LENGTH", "262144"],
-    ["OLLAMA_FLASH_ATTENTION", "1"],
-    ["OLLAMA_DEBUG", "0"],
-    ["OLLAMA_KV_CACHE_TYPE", "f16"],
-    ["OLLAMA_KV_CACHE_TYPE", "q8_0"],
-    ["OLLAMA_KV_CACHE_TYPE", "q4_0"],
+    ["models-max", "1"],
+    ["models-max", "4"],
+    ["ctx-checkpoints", "0"],
+    ["ctx-checkpoints", "256"],
+    ["cache-type-k", "q8_0"],
+    ["cache-type-v", "f16"],
+    ["flash-attn", "auto"],
+    ["sleep-idle-seconds", "-1"],
+    ["prio", "2"],
   ])("accepts %s=%s", (name, value) => {
     expect(validServerValue(name, value)).toBe(true);
   });
 
   it.each([
-    ["OLLAMA_KEEP_ALIVE", "30x"],
-    ["OLLAMA_KEEP_ALIVE", "1000000h"],
-    ["OLLAMA_MAX_LOADED_MODELS", "0"],
-    ["OLLAMA_MAX_LOADED_MODELS", "17"],
-    ["OLLAMA_NUM_PARALLEL", "2.5"],
-    ["OLLAMA_MAX_QUEUE", "100001"],
-    ["OLLAMA_CONTEXT_LENGTH", "2047"],
-    ["OLLAMA_CONTEXT_LENGTH", "262145"],
-    ["OLLAMA_FLASH_ATTENTION", "true"],
-    ["OLLAMA_DEBUG", "2"],
-    ["OLLAMA_KV_CACHE_TYPE", "q5_0"],
-    ["OLLAMA_KV_CACHE_TYPE", ""],
+    ["models-max", "0"],
+    ["models-max", "5"],
+    ["models-max", "2.5"],
+    ["models-max", ""],
+    ["ctx-checkpoints", "257"],
+    ["ctx-checkpoints", "-1"],
+    ["cache-type-k", "q5_0"],
+    ["flash-attn", "1"],
+    ["sleep-idle-seconds", "-2"],
+    ["prio", "-01"],
   ])("rejects %s=%s", (name, value) => {
     expect(validServerValue(name, value)).toBe(false);
   });
 
   it("rejects a value with a comma or an equals sign", () => {
-    expect(validServerValue("OLLAMA_KEEP_ALIVE", "1h,OLLAMA_DEBUG=1")).toBe(false);
-    expect(validServerValue("OLLAMA_KEEP_ALIVE", "1h=2")).toBe(false);
+    expect(validServerValue("models-max", "2,parallel=4")).toBe(false);
+    expect(validServerValue("flash-attn", "on=2")).toBe(false);
   });
 
-  it("rejects a variable that is not editable", () => {
-    expect(validServerValue("OLLAMA_HOST", "0.0.0.0")).toBe(false);
-    expect(validServerValue("OLLAMA_ORIGINS", "*")).toBe(false);
+  it("rejects a key that is not a setting", () => {
+    expect(validServerValue("n-gpu-layers", "99")).toBe(false);
     expect(validServerValue("constructor", "1")).toBe(false);
   });
 });

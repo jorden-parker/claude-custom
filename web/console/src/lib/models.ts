@@ -1,161 +1,121 @@
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
-import { baseModelForSize, modelForSize } from "./size-models";
+import { embeddingPreset, modelForSize, weightsFileForSize } from "./size-models";
 import { configuredSizes, consoleRepoDir } from "./sizes";
 import { runOnce, type RunOnceOptions, type RunOnceResult } from "./run-once";
-import { CONSOLE_QUERIES } from "./console-commands";
-import { parsePrintConfig } from "./print-config";
+import {
+  findServerModel,
+  listServerModels,
+  modelServerUrl,
+  type ServerModel,
+  type ServerModelStatus,
+} from "./model-server";
+import type { FileState, SizeStatus, WeightFile } from "./model-display";
 
-const DEFAULT_OLLAMA_URL = "http://localhost:11434";
-const PROBE_TIMEOUT_MS = 3000;
 const LIST_OPTIONS: RunOnceOptions = { timeoutMs: 10_000, maxBytes: 1024 * 1024 };
-const PRUNABLE_CLASSES = new Set(["third-party", "orphan"]);
-const LIST_LINE = /^(\S+)\s+(\S+)\s*$/;
-const EMBEDDING_KEY = "embedding model";
-
-type FetchLike = (url: string, init: { signal: AbortSignal }) => Promise<Response>;
+const PRUNABLE_STATES = new Set<FileState>(["orphan", "partial"]);
+const LIST_LINE = /^(pinned|mismatch|orphan|partial)\s+(\S+)(?:\s+(\S+))?\s*$/;
+const PARTIAL_SUFFIX = ".part";
 
 export type ModelsDeps = {
   repoDir: string;
-  ollamaUrl: string;
+  serverUrl: string;
+  weightsDir: string;
   runOnce: (argv: readonly string[], options: RunOnceOptions) => Promise<RunOnceResult>;
-  fetch: FetchLike;
 };
 
-import type { InstalledModel, SizeStatus } from "./model-display";
-
 export type EmbeddingStatus = {
-  name: string | null;
-  installed: boolean;
+  model: string | null;
+  file: string | null;
+  state: FileState | null;
+  status: ServerModelStatus | null;
 };
 
 export type ModelsSnapshot = {
-  ollama: "up" | "down";
+  server: "up" | "down";
+  serverUrl: string;
   sizes: SizeStatus[];
-  models: InstalledModel[];
+  presets: ServerModel[];
+  files: WeightFile[];
   prunable: string[];
   embedding: EmbeddingStatus;
 };
 
+type ListedFile = { name: string; state: FileState; size: string | null };
+
 export function modelsDeps(): ModelsDeps {
   return {
     repoDir: consoleRepoDir(),
-    ollamaUrl: ollamaUrl(),
+    serverUrl: modelServerUrl(),
+    weightsDir: weightsDir(),
     runOnce,
-    fetch: (url, init) => fetch(url, init),
   };
 }
 
-function ollamaUrl(): string {
-  const host = process.env.OLLAMA_HOST ?? "";
-  if (host === "") {
-    return DEFAULT_OLLAMA_URL;
-  }
-  return /^https?:\/\//.test(host) ? host : `http://${host}`;
+function weightsDir(): string {
+  return process.env.CLAUDE_OLLAMA_WEIGHTS_DIR || path.join(os.homedir(), ".claude-ollama", "weights");
 }
 
 export async function modelsSnapshot(deps: ModelsDeps): Promise<ModelsSnapshot> {
-  const tags = await getJson(deps, "/api/tags");
-  if (tags === null) {
-    return { ollama: "down", sizes: [], models: [], prunable: [], embedding: { name: null, installed: false } };
-  }
-  const [running, listing, embeddingName] = await Promise.all([
-    getJson(deps, "/api/ps"),
+  const [presets, listing] = await Promise.all([
+    listServerModels(deps.serverUrl),
     deps.runOnce([path.join(deps.repoDir, "bin", "ollama-models"), "list"], LIST_OPTIONS),
-    embeddingModelName(deps),
   ]);
-  const classes = classesFrom(listing.stdout);
-  const sizes = bytesByName(tags);
-  const loaded = new Set(entriesOf(running).map((entry) => String(entry.name)));
-  const models = [...classes].map(([name, modelClass]) => ({
-    name,
-    class: modelClass,
-    bytes: sizes.get(name) ?? 0,
-    loaded: loaded.has(name),
-  }));
+  const listed = parseWeightsListing(listing.stdout);
+  const files = listed.map((file) => ({ ...file, bytes: fileBytes(path.join(deps.weightsDir, file.name)) }));
   return {
-    ollama: "up",
-    sizes: configuredSizes(deps.repoDir).map((size) => sizeStatus(deps.repoDir, size, classes)),
-    models,
-    prunable: models.filter((model) => PRUNABLE_CLASSES.has(model.class)).map((model) => model.name),
-    embedding: embeddingStatus(embeddingName, sizes),
+    server: presets === null ? "down" : "up",
+    serverUrl: deps.serverUrl,
+    sizes: configuredSizes(deps.repoDir).map((size) => sizeStatus(deps.repoDir, size, listed)),
+    presets: presets ?? [],
+    files,
+    prunable: files.filter((file) => PRUNABLE_STATES.has(file.state)).map((file) => file.name),
+    embedding: embeddingStatus(deps.repoDir, listed, presets ?? []),
   };
 }
 
-const embeddingNameByRepo = new Map<string, Promise<string | null>>();
-
-async function embeddingModelName(deps: ModelsDeps): Promise<string | null> {
-  const cached = embeddingNameByRepo.get(deps.repoDir);
-  if (cached !== undefined) {
-    return cached;
-  }
-  const pending = readEmbeddingModelName(deps);
-  embeddingNameByRepo.set(deps.repoDir, pending);
-  const name = await pending;
-  if (name === null) {
-    embeddingNameByRepo.delete(deps.repoDir);
-  }
-  return name;
+function parseWeightsListing(stdout: string): ListedFile[] {
+  return stdout.split("\n").flatMap((line) => {
+    const match = LIST_LINE.exec(line.trim());
+    return match === null ? [] : [{ name: match[2], state: match[1] as FileState, size: match[3] ?? null }];
+  });
 }
 
-async function readEmbeddingModelName(deps: ModelsDeps): Promise<string | null> {
-  const [size] = configuredSizes(deps.repoDir);
-  const argv = size === undefined ? null : CONSOLE_QUERIES.printConfig.argv({ size }, deps.repoDir);
-  if (argv === null) {
+function stateOfFile(listed: readonly ListedFile[], file: string | null): FileState | null {
+  if (file === null) {
     return null;
   }
-  const result = await deps.runOnce(argv, LIST_OPTIONS);
-  const entry = parsePrintConfig(result.stdout).find((item) => item.key === EMBEDDING_KEY);
-  return entry?.value || null;
+  const found = listed.find((entry) => entry.name === file || entry.name === `${file}${PARTIAL_SUFFIX}`);
+  return found?.state ?? null;
 }
 
-function embeddingStatus(name: string | null, installedSizes: Map<string, number>): EmbeddingStatus {
-  const installed = name !== null && (installedSizes.has(name) || installedSizes.has(`${name}:latest`));
-  return { name, installed };
-}
-
-async function getJson(deps: ModelsDeps, route: string): Promise<unknown> {
+function fileBytes(file: string): number {
   try {
-    const response = await deps.fetch(`${deps.ollamaUrl}${route}`, {
-      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
-    });
-    return response.ok ? await response.json() : null;
+    return fs.statSync(file).size;
   } catch {
-    return null;
+    return 0;
   }
 }
 
-function classesFrom(stdout: string): Map<string, string> {
-  const classes = new Map<string, string>();
-  for (const line of stdout.split("\n")) {
-    const match = LIST_LINE.exec(line);
-    if (match) {
-      classes.set(match[2], match[1]);
-    }
+function sizeStatus(repoDir: string, size: string, listed: readonly ListedFile[]): SizeStatus {
+  const file = weightsFileForSize(repoDir, size);
+  return { size, model: modelForSize(repoDir, size), file, state: stateOfFile(listed, file) };
+}
+
+function embeddingStatus(
+  repoDir: string,
+  listed: readonly ListedFile[],
+  presets: readonly ServerModel[],
+): EmbeddingStatus {
+  const preset = embeddingPreset(repoDir);
+  if (preset === null) {
+    return { model: null, file: null, state: null, status: null };
   }
-  return classes;
-}
-
-function bytesByName(tags: unknown): Map<string, number> {
-  return new Map(
-    entriesOf(tags).map((entry) => [String(entry.name), typeof entry.size === "number" ? entry.size : 0]),
-  );
-}
-
-function entriesOf(body: unknown): Record<string, unknown>[] {
-  if (typeof body !== "object" || body === null || !("models" in body) || !Array.isArray(body.models)) {
-    return [];
-  }
-  return body.models.filter((entry): entry is Record<string, unknown> => typeof entry === "object" && entry !== null);
-}
-
-function sizeStatus(repoDir: string, size: string, classes: Map<string, string>): SizeStatus {
-  const model = modelForSize(repoDir, size);
-  const modelClass = model === null ? undefined : (classes.get(model) ?? classes.get(`${model}:latest`));
   return {
-    size,
-    model,
-    base: baseModelForSize(repoDir, size),
-    installed: modelClass !== undefined,
-    class: modelClass ?? null,
+    model: preset.model,
+    file: preset.file,
+    state: stateOfFile(listed, preset.file),
+    status: findServerModel(presets, preset.model)?.status ?? null,
   };
 }

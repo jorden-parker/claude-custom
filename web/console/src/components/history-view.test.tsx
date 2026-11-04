@@ -179,7 +179,7 @@ describe("HistoryView", () => {
     expect((restore as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("tells a launch agent restore to reload Ollama from the Server page", async () => {
+  it("tells a launch agent restore to reload the model server from the Server page", async () => {
     render(<HistoryView />);
     fireEvent.click(
       (await screen.findAllByRole("button", { name: /launch-agent/ }))[0],
@@ -192,7 +192,7 @@ describe("HistoryView", () => {
 
     const dialog = within(await screen.findByRole("alertdialog"));
     expect(
-      dialog.getByText(/use Apply on the Server page to reload Ollama/),
+      dialog.getByText(/use Apply on the Server page to reload the model server/),
     ).toBeTruthy();
   });
 });

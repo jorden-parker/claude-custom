@@ -6,7 +6,7 @@ import { consoleStateDir } from "./state-dir";
 
 const LOG_PATH_TIMEOUT_MS = 5_000;
 const LOG_PATH_MAX_BYTES = 4096;
-const NO_LOG_MESSAGE = "No Ollama log found";
+const NO_LOG_MESSAGE = "No model server log found";
 const NO_LAUNCHER_LOG_MESSAGE =
   "No launcher log yet; it starts with the next claude-ollama launch";
 const NO_INCIDENTS_MESSAGE =

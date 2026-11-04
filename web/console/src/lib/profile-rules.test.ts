@@ -317,12 +317,6 @@ describe("validateProfileOverride", () => {
     expect(labelOf("CLAUDE_CUSTOM_FRICTION")).toBe(
       "Reset a looping guard after three identical denials",
     );
-    expect(labelOf("CLAUDE_OLLAMA_LEASE")).toBe(
-      "Hold an Ollama residency lease and heartbeat",
-    );
-    expect(labelOf("CLAUDE_OLLAMA_LEASE_HEARTBEAT")).toBe(
-      "Seconds between keep-alive heartbeats",
-    );
     expect(labelOf("CLAUDE_OLLAMA_LADDER")).toBe(
       "Degrade rung by rung on incident evidence",
     );
@@ -334,32 +328,6 @@ describe("validateProfileOverride", () => {
       "Deliver rule cards just in time",
     );
     expect(labelOf("CLAUDE_OLLAMA_EDIT_NUDGE")).toBe("Nudge wasteful edits");
-  });
-
-  it("takes the lease heartbeat as whole seconds from 30 to 600", () => {
-    expect(
-      PROFILE_ENV_FIELDS.find(
-        (field) => field.key === "CLAUDE_OLLAMA_LEASE_HEARTBEAT",
-      ),
-    ).toMatchObject({
-      kind: "number",
-      range: { min: 30, max: 600, step: 10 },
-      defaultValue: "120",
-      group: "Ollama residency",
-      ollamaOnly: true,
-    });
-    expect(
-      accepted({ env: { CLAUDE_OLLAMA_LEASE_HEARTBEAT: "60" } }, OLLAMA),
-    ).toEqual({
-      env: { CLAUDE_OLLAMA_LEASE_HEARTBEAT: "60" },
-    });
-    const message =
-      "CLAUDE_OLLAMA_LEASE_HEARTBEAT must be a whole number from 30 to 600";
-    for (const value of ["29", "601", "1.5", "fast", 120]) {
-      expect(
-        rejected({ env: { CLAUDE_OLLAMA_LEASE_HEARTBEAT: value } }, OLLAMA),
-      ).toBe(message);
-    }
   });
 
   it("takes the after-edit test mode as off, suggest or run", () => {

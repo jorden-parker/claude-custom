@@ -66,7 +66,7 @@ function usePingState(runStatus: RunStatus | null, onBack: () => void): PingStat
     const deadline = Date.now() + PING_DEADLINE_MS;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const check = async () => {
-      if (await isOllamaUp()) {
+      if (await isServerUp()) {
         setPingState("back");
         onBack();
         return;
@@ -83,11 +83,11 @@ function usePingState(runStatus: RunStatus | null, onBack: () => void): PingStat
   return pingState;
 }
 
-async function isOllamaUp(): Promise<boolean> {
+async function isServerUp(): Promise<boolean> {
   try {
     const response = await fetch("/api/server/ping", { cache: "no-store" });
-    const body = (await response.json()) as { up: boolean };
-    return body.up;
+    const body = (await response.json()) as { state: string };
+    return body.state === "up";
   } catch {
     return false;
   }
@@ -98,17 +98,17 @@ function RestartNotice({ phase }: { phase: RestartPhase }) {
     return null;
   }
   if (phase === "failed") {
-    return <p className="text-sm text-error-foreground">The run did not finish, so Ollama was not restarted.</p>;
+    return <p className="text-sm text-error-foreground">The run did not finish, so the model server was not restarted.</p>;
   }
   if (phase === "restarting") {
-    return <p className="animate-pulse text-sm text-muted-foreground">Ollama restarting…</p>;
+    return <p className="animate-pulse text-sm text-muted-foreground">Model server restarting…</p>;
   }
   if (phase === "back") {
-    return <p className="text-sm text-success-foreground">Ollama is back up.</p>;
+    return <p className="text-sm text-success-foreground">The model server is back up.</p>;
   }
   return (
     <p className="text-sm text-error-foreground">
-      Ollama did not come back in 30 s — see{" "}
+      The model server did not come back in 30 s — see{" "}
       <Link href="/logs" className="underline">
         Logs
       </Link>
