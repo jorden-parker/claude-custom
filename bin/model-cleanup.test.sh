@@ -84,6 +84,9 @@ seed() {
   printf 'jan' >"$HOME/Library/Application Support/Jan/m.gguf"
   printf 'cache' >"$HOME/Library/Caches/other.gguf"
   printf 'dep' >"$HOME/project/node_modules/pkg/model.onnx"
+  mkdir -p "$HOME/Downloads/proj"
+  printf 'keep' >"$HOME/Downloads/proj/keep.txt"
+  printf 'trap' >"$HOME/Downloads/proj"$'\n'"x.gguf"
 }
 
 seed
@@ -112,6 +115,8 @@ check "dry run finds a model in Application Support" contains "$dry_output" "App
 check "dry run skips files that are not models" lacks "$dry_output" "notes.txt"
 check "dry run skips the rest of Library" lacks "$dry_output" "Caches/other.gguf"
 check "dry run skips node_modules" lacks "$dry_output" "model.onnx"
+check "dry run reports a name with a newline instead of offering it" contains "$dry_output" "skipped a name with a newline or tab"
+check "dry run never offers the folder such a name points into" lacks "$dry_output" "^ +$HOME/Downloads/proj$"
 check "dry run sums what it found" contains "$dry_output" "would free up to"
 check "dry run removes no file" present "$OLLAMA_PROFILE_DIR/weights/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf"
 check "dry run removes no Ollama model" test -z "$(removed_models)"
@@ -175,6 +180,7 @@ check "answering no keeps the bench-off folder" present "$BENCH_MODELS/qwen-mlx"
 check "answering no keeps a found store" present "$HOME/.lmstudio/models/pub/repo/a.gguf"
 check "answering yes removes that folder's model files" absent "$HOME/Downloads/loose.gguf"
 check "removing a folder's model files keeps its other files" present "$HOME/Downloads/notes.txt"
+check "a name with a newline never removes the folder it names" present "$HOME/Downloads/proj/keep.txt"
 check "answering no keeps the last folder" present "$HOME/Library/Application Support/Jan/m.gguf"
 
 if [ "$failures" -eq 0 ]; then

@@ -158,8 +158,11 @@ before changing how any file gets applied.
   `~/Library/Application Support`, grouped by folder, skipping the rest of
   `~/Library`, the Trash, `node_modules`, `.git` and the folders above. `--yes`
   removes every group except the Ollama models you pulled and the scanned files,
-  which always ask. When Ollama does not answer it says so and skips its models.
-  Tests: `bin/model-cleanup.test.sh` (stub `ollama`, `curl`)
+  which always ask. Paths come from `find -print0`: a name with a newline or tab
+  is skipped with a line naming it, and a found file is removed with `rm -f`
+  only while it is still a regular file, never a symlink or folder. When Ollama
+  does not answer it says so and skips its models. Tests:
+  `bin/model-cleanup.test.sh` (stub `ollama`, `curl`)
 - Model upgrade: `bin/model-upgrade SIZE [--eval] [--keep] [--force]` pulls a
   behind base into `MODEL-next`, runs `speed-check --thinking-only --model`, the
   cache probe and (with `--eval`) `pr-review-eval` and `task-eval`, saves

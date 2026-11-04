@@ -87,6 +87,28 @@ remove_paths() {
   rm -rf -- "$@"
 }
 
+remove_files() {
+  local path
+  for path in "$@"; do
+    if [ -f "$path" ] && [ ! -L "$path" ]; then
+      rm -f -- "$path"
+    fi
+  done
+}
+
+safe_paths() {
+  local path
+  while IFS= read -r -d '' path; do
+    case "$path" in
+      *$'\n'* | *$'\t'*)
+        printf 'skipped a name with a newline or tab: %q (remove it by hand)\n' "$path" >&2
+        continue
+        ;;
+    esac
+    printf '%s\n' "$path"
+  done
+}
+
 remove_ollama_models() {
   ollama rm "$@"
 }
@@ -115,16 +137,16 @@ offer() {
   freed_kb=$((freed_kb + kb))
 }
 
-offer_paths() {
+offer_files() {
   local policy="$1" label="$2"
   shift 2
-  offer "$policy" "$label" "$(kb_of "$@")" remove_paths "$@"
+  offer "$policy" "$label" "$(kb_of "$@")" remove_files "$@"
 }
 
 offer_folder() {
   [ -d "$2" ] || return 0
   [ -n "$(ls -A "$2" 2>/dev/null)" ] || return 0
-  offer_paths auto "$1" "$2"
+  offer auto "$1" "$(kb_of "$2")" remove_paths "$2"
 }
 
 offer_repo_weights() {
@@ -133,9 +155,9 @@ offer_repo_weights() {
   [ -d "$repo_weights_dir" ] || return 0
   while IFS= read -r path; do
     paths+=("$path")
-  done < <(find "$repo_weights_dir" -mindepth 1 -maxdepth 1 -type f | LC_ALL=C sort)
+  done < <(find "$repo_weights_dir" -mindepth 1 -maxdepth 1 -type f -print0 | safe_paths | LC_ALL=C sort)
   [ "${#paths[@]}" -gt 0 ] || return 0
-  offer_paths auto "GGUFs left in ollama/weights (Ollama keeps its own copy once imported)" "${paths[@]}"
+  offer_files auto "GGUFs left in ollama/weights (Ollama keeps its own copy once imported)" "${paths[@]}"
 }
 
 ollama_models_kb() {
@@ -225,24 +247,24 @@ scan_model_files() {
     find "$root" \( "${prune_tests[@]}" \) -prune -o -type f \
       \( -name '*.gguf' -o -name '*.ggml' -o -name '*.safetensors' -o -name '*.ckpt' -o -name '*.pt' \
       -o -name '*.pth' -o -name '*.onnx' -o -name 'pytorch_model*.bin' -o -name 'ggml-*.bin' \) \
-      -size +"$min_kb"k -print 2>/dev/null || true
+      -size +"$min_kb"k -print0 2>/dev/null || true
   done
 }
 
 offer_scanned_files() {
   local found dir path current=""
   local paths=()
-  found="$(scan_model_files | awk '{ dir = $0; sub("/[^/]*$", "", dir); print dir "\t" $0 }' | LC_ALL=C sort)"
+  found="$(scan_model_files | safe_paths | awk '{ dir = $0; sub("/[^/]*$", "", dir); print dir "\t" $0 }' | LC_ALL=C sort)"
   [ -n "$found" ] || return 0
   while IFS=$'\t' read -r dir path; do
     if [ "$dir" != "$current" ] && [ "${#paths[@]}" -gt 0 ]; then
-      offer_paths ask "model files in $current" "${paths[@]}"
+      offer_files ask "model files in $current" "${paths[@]}"
       paths=()
     fi
     current="$dir"
     paths+=("$path")
   done <<<"$found"
-  offer_paths ask "model files in $current" "${paths[@]}"
+  offer_files ask "model files in $current" "${paths[@]}"
 }
 
 free_space() {
