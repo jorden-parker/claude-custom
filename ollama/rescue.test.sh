@@ -4,9 +4,9 @@ repo_dir="$(cd "$(dirname "$0")/.." && pwd)"
 rescue="$repo_dir/ollama/rescue.py"
 tmp="$(mktemp -d)"
 failures=0
-ps_stub_pid=""
+. "$repo_dir/shared/testing/stub-llama-lib.sh"
 
-trap 'stop_ps_stub; rm -rf "$tmp"' EXIT
+trap 'stop_stub_llama; rm -rf "$tmp"' EXIT
 
 check() {
   local label="$1"
@@ -24,48 +24,12 @@ section_lacks() { ! section "$1" "$2" | grep -q -- "$3"; }
 section_lines() { section "$1" "$2" | grep -c -- "$3"; }
 lacks_text() { ! grep -q -- "$1" "$2"; }
 
-stop_ps_stub() {
-  [ -n "$ps_stub_pid" ] || return 0
-  kill "$ps_stub_pid" 2>/dev/null
-  wait "$ps_stub_pid" 2>/dev/null
-  ps_stub_pid=""
-}
-
-cat > "$tmp/ps_server.py" <<'PY'
-import json
-import sys
-from http.server import BaseHTTPRequestHandler, HTTPServer
-from pathlib import Path
-
-
-class Handler(BaseHTTPRequestHandler):
-    def log_message(self, format, *args):
-        return
-
-    def do_GET(self):
-        if self.path != "/api/ps":
-            self.send_error(404)
-            return
-        payload = json.dumps({"models": [{"name": "qwen3.8-27b-cc", "size_vram": 17000000000, "context_length": 65536}]}).encode()
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(payload)))
-        self.end_headers()
-        self.wfile.write(payload)
-
-
-server = HTTPServer(("127.0.0.1", 0), Handler)
-Path(sys.argv[1]).write_text(str(server.server_port))
-server.serve_forever()
-PY
-
-python3 "$tmp/ps_server.py" "$tmp/ps.port" &
-ps_stub_pid=$!
-for _ in $(seq 100); do
-  [ -s "$tmp/ps.port" ] && break
-  sleep 0.05
-done
-ollama_url="http://127.0.0.1:$(cat "$tmp/ps.port")"
+cat > "$tmp/stub-state.json" <<'JSON'
+{"models": {"qwen3.8-27b-cc": {"n_ctx": 65536, "size": 17179869184}, "qwen3-embedding-0.6b": {"aliases": ["qwen3-embedding:0.6b"]}},
+ "loaded": ["qwen3.8-27b-cc"], "build": 11429, "models_max": 2}
+JSON
+start_stub_llama "$tmp/stub-state.json" || exit 1
+fake_token="ghp_""ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcd"
 
 home="$tmp/home"
 session="$home/.claude-ollama"
@@ -82,8 +46,8 @@ case "\$1" in
   doctor)
     echo "ok   jq on PATH"
     echo "ok   profile $home/.config/claude-custom/profiles/ollama-\$2.json: none"
-    echo "warn token ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcd seen"
-    echo "fail server env OLLAMA_FLASH_ATTENTION=1 not set on the running server"
+    echo "warn token $fake_token seen"
+    echo "fail llama-server is not answering"
     exit 1 ;;
   --print-config)
     seq 1 120 | sed 's/^/config line /'
@@ -104,7 +68,6 @@ echo "live session pid 4242 model qwen3.8-27b-cc rung context-down"
 echo "live embedding pid 4300 model qwen3-embedding:0.6b rung -"
 EOF
 chmod +x "$tmp/stubbin"/*
-printf 'OLLAMA_KEEP_ALIVE=30m\nOLLAMA_MAX_LOADED_MODELS=2\nGITHUB_TOKEN=ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcd\n' > "$tmp/server.env"
 
 incidents_file="$state/incidents/20261102-100000-7.jsonl"
 python3 - "$incidents_file" <<'PY'
@@ -114,7 +77,7 @@ import sys
 rows = []
 for index in range(60):
     cause = ["reprefilled", "truncated", "evicted"][index % 3]
-    rows.append({"ts": f"2026-11-02T10:{index:02d}:00Z", "cause": cause, "detail": f"row {index} secret sk-abcdefghijklmnopqrstuvwxyz", "tokens": None, "rule": None})
+    rows.append({"ts": f"2026-11-02T10:{index:02d}:00Z", "cause": cause, "detail": f"row {index} secret sk" + "-abcdefghijklmnopqrstuvwxyz", "tokens": None, "rule": None})
 rows.insert(30, {"kind": "health", "ts": "2026-11-02T10:30:30Z", "rules": {}, "unmatched": 0, "lines": 5})
 with open(sys.argv[1], "w") as handle:
     for row in rows:
@@ -122,8 +85,9 @@ with open(sys.argv[1], "w") as handle:
 PY
 printf '%s\n' "$incidents_file" > "$state/incidents/current"
 
-python3 - "$state/proxy/requests.jsonl" <<'PY'
+FAKE_TOKEN="$fake_token" python3 - "$state/proxy/requests.jsonl" <<'PY'
 import json
+import os
 import sys
 from datetime import datetime, timedelta, timezone
 
@@ -140,7 +104,7 @@ rows = [
     row(50, "system", 0, "Today is Monday"),
     row(40, "system", 0, "Today is Tuesday"),
     row(30, "tools", 1, "tool list changed"),
-    row(20, "message:5", 5, "newest user turn with token ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcd"),
+    row(20, "message:5", 5, "newest user turn with token " + os.environ["FAKE_TOKEN"]),
     row(10, None, 6, None),
     row(5, "message:2", 2, "an older turn changed"),
 ]
@@ -160,7 +124,7 @@ run_rescue() {
   (cd "$tmp/project" && HOME="$home" python3 "$rescue" \
     --launcher "$tmp/stubbin/claude-ollama" --size 27b \
     --fingerprint-bin "$tmp/stubbin/sync-fingerprint" --lease-bin "$tmp/stubbin/ollama-lease" \
-    --session-dir "$session" --state-dir "$state" --ollama-url "$ollama_url" --server-env "$tmp/server.env" "$@")
+    --session-dir "$session" --state-dir "$state" "$@")
 }
 
 run_rescue > "$tmp/stdout" 2> "$tmp/stderr"
@@ -181,7 +145,7 @@ check "the summary names memory" grep -q '^memory:' "$tmp/stdout"
 check "the rescue folder is private" [ "$(mode_of "$session/rescue")" = 700 ]
 check "the report file is private" [ "$(mode_of "$report_path")" = 600 ]
 
-for heading in "Doctor" "Print config" "Sync fingerprint" "Server env and runners" "Lease holders and rung" "Incidents" "Messages proxy" "Launcher log tail" "Ollama server log tail" "Newest handoff note" "Free memory"; do
+for heading in "Doctor" "Print config" "Sync fingerprint" "Server and models" "Lease holders and rung" "Incidents" "Messages proxy" "Launcher log tail" "Server log tail" "Newest handoff note" "Free memory"; do
   check "the report has a $heading section" grep -q "^## $heading" "$report_path"
 done
 
@@ -190,8 +154,11 @@ check "doctor's exit status is noted" section_has "$report_path" "Doctor" "exit 
 check "print-config output is capped" [ "$(section_lines "$report_path" "Print config" '^config line')" -le 80 ]
 check "a capped section says how many lines were hidden" section_has "$report_path" "Print config" "more lines hidden"
 check "the fingerprint host is included" section_has "$report_path" "Sync fingerprint" "work-laptop"
-check "the server env is included" section_has "$report_path" "Server env and runners" "OLLAMA_KEEP_ALIVE=30m"
-check "the loaded runners are included" section_has "$report_path" "Server env and runners" "qwen3.8-27b-cc"
+check "the server build comes from /props" section_has "$report_path" "Server and models" "build: b11429-d81235049"
+check "the router's models-max comes from /props" section_has "$report_path" "Server and models" "max_instances: 2"
+check "a loaded model shows its context and size" section_has "$report_path" "Server and models" "qwen3.8-27b-cc loaded (n_ctx 65536, 16.0 GiB)"
+check "an unloaded model is listed with its status" section_has "$report_path" "Server and models" "qwen3-embedding-0.6b unloaded"
+check "no Ollama endpoint is asked" lacks_text "/api/" "$STUB_LLAMA_LOG"
 check "the lease holders are included" section_has "$report_path" "Lease holders and rung" "live session pid 4242"
 check "the current rung is named" section_has "$report_path" "Lease holders and rung" "rung: context-down"
 check "the incidents keep the last 50 rows" [ "$(section_lines "$report_path" "Incidents" '"cause"')" -eq 50 ]
@@ -209,8 +176,8 @@ check "at most three diverging sections are listed" [ "$(section_lines "$report_
 check "the record dir and its count are named" section_has "$report_path" "Messages proxy" "record dir: ~/.claude-ollama/proxy/record (3 requests)"
 check "the launcher log tail keeps 60 lines" [ "$(section_lines "$report_path" "Launcher log tail" 'launcher')" -eq 60 ]
 check "the launcher log tail ends with the newest line" section_has "$report_path" "Launcher log tail" "launcher saw Bearer <redacted>"
-check "the server log tail keeps 60 lines" [ "$(section_lines "$report_path" "Ollama server log tail" '^server line')" -eq 60 ]
-check "the server log tail ends with the newest line" section_has "$report_path" "Ollama server log tail" "server line 100"
+check "the server log tail keeps 60 lines" [ "$(section_lines "$report_path" "Server log tail" '^server line')" -eq 60 ]
+check "the server log tail ends with the newest line" section_has "$report_path" "Server log tail" "server line 100"
 check "the newest handoff note is included" section_has "$report_path" "Newest handoff note" "newest note line"
 check "the older handoff note is skipped" section_lacks "$report_path" "Newest handoff note" "older note line"
 check "the handoff note keeps 20 lines" [ "$(section_lines "$report_path" "Newest handoff note" 'newest note line')" -eq 20 ]
@@ -232,23 +199,25 @@ check "the window is named in the heading" grep -q "^## Messages proxy (last 15 
 
 rm "$state/incidents/current"
 STUB_NO_SERVER_LOG=1 run_rescue --launcher "$tmp/stubbin/claude-ollama" --out "$tmp/noserver.md" > /dev/null 2>&1
-check "a missing server log becomes unavailable" section_has "$tmp/noserver.md" "Ollama server log tail" "^unavailable: "
+check "a missing server log becomes unavailable" section_has "$tmp/noserver.md" "Server log tail" "^unavailable: "
 check "a missing incidents file becomes unavailable" section_has "$tmp/noserver.md" "Incidents" "^unavailable: "
 
-(cd "$tmp" && HOME="$home" python3 "$rescue" --launcher "$tmp/missing-launcher" --size 27b \
+(cd "$tmp" && HOME="$home" LLAMA_SERVER_URL=http://127.0.0.1:9 python3 "$rescue" --launcher "$tmp/missing-launcher" --size 27b \
   --fingerprint-bin "$tmp/missing-fp" --lease-bin "$tmp/missing-lease" \
-  --session-dir "$tmp/empty-session" --state-dir "$tmp/empty-state" --ollama-url http://127.0.0.1:9 \
-  --server-env "$tmp/missing.env" --out "$tmp/bare.md" > "$tmp/bare.out" 2> "$tmp/bare.err")
+  --session-dir "$tmp/empty-session" --state-dir "$tmp/empty-state" --out "$tmp/bare.md" > "$tmp/bare.out" 2> "$tmp/bare.err")
 check "a bare machine still exits 0" [ $? -eq 0 ]
 check "a bare machine writes the report" [ -f "$tmp/bare.md" ]
 check "a missing launcher makes doctor unavailable" section_has "$tmp/bare.md" "Doctor" "^unavailable: "
 check "a missing fingerprint tool is unavailable" section_has "$tmp/bare.md" "Sync fingerprint" "^unavailable: "
 check "a missing lease tool is unavailable" section_has "$tmp/bare.md" "Lease holders and rung" "^unavailable: "
-check "an unreachable ollama is unavailable" section_has "$tmp/bare.md" "Server env and runners" "^unavailable: "
+check "an unreachable llama-server is unavailable" section_has "$tmp/bare.md" "Server and models" "^unavailable: "
 check "a missing proxy log is unavailable" section_has "$tmp/bare.md" "Messages proxy" "^unavailable: "
 check "a missing launcher log is unavailable" section_has "$tmp/bare.md" "Launcher log tail" "^unavailable: "
 check "no git repo makes the handoff note unavailable" section_has "$tmp/bare.md" "Newest handoff note" "^unavailable: "
 check "a bare machine prints the summary" [ "$(wc -l < "$tmp/bare.out" | tr -d ' ')" -eq 6 ]
+
+run_rescue --ollama-url http://127.0.0.1:11434 --server-env "$tmp/missing.env" --out "$tmp/compat.md" > /dev/null 2>&1
+check "the launcher's older server flags are still accepted" [ $? -eq 0 ]
 
 run_rescue --out "$tmp/no-such-dir/report.md" > /dev/null 2> "$tmp/unwritable.err"
 check "an unwritable --out exits 1" [ $? -eq 1 ]
