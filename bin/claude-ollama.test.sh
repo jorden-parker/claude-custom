@@ -1455,9 +1455,19 @@ check_eq "the lease records the lower num_ctx" 32768 "$(last_session_lease | jq 
 ladder_args="$(for _ in $(seq 25); do [ -s "$sandbox/ladder-args" ] && break; sleep 0.2; done; cat "$sandbox/ladder-args" 2>/dev/null)"
 check_that "the ladder is told both rungs in effect" contains "$ladder_args" "--rung embeddings-off --rung context-down"
 check_that "the ladder keeps the full context as its recovery target" contains "$ladder_args" "--context 65536"
-STUB_MEMSIZE=21276800000 run_capture "$repo/bin/claude-ollama" 27b -p hi
-check_that "a launch nothing fits warns and still starts" grep -qxF "claude-ollama: memory fit: still 3.2 GiB short at num_ctx 32768 with the embeddings off" "$sandbox/err"
-check_that "the launch nothing fits still runs claude" grep -q '^ARGS:' "$sandbox/out"
+nothing_fits_status=0
+STUB_MEMSIZE=21276800000 run_capture "$repo/bin/claude-ollama" 27b -p hi || nothing_fits_status=$?
+check_that "a launch nothing fits names the shortfall" grep -qxF "claude-ollama: memory fit: still 3.2 GiB short at num_ctx 32768 with the embeddings off" "$sandbox/err"
+check_that "a launch nothing fits says how to override" grep -qxF "claude-ollama: not starting: the model does not fit in memory (set CLAUDE_OLLAMA_FIT=0 to start anyway)" "$sandbox/err"
+check_eq "a launch nothing fits exits 1" 1 "$nothing_fits_status"
+check_not "a launch nothing fits never runs claude" grep -q '^ARGS:' "$sandbox/out"
+STUB_MEMSIZE=21276800000 CLAUDE_OLLAMA_FIT=0 run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_that "CLAUDE_OLLAMA_FIT=0 starts a launch that does not fit" grep -q '^ARGS:' "$sandbox/out"
+unfit_spike_status=0
+STUB_MEMSIZE=21276800000 CLAUDE_OLLAMA_MOCK_SPIKE="$sandbox/stubbin/mock-spike" run_capture "$repo/bin/claude-ollama" mock-spike 27b --runs 2 </dev/null || unfit_spike_status=$?
+check_eq "a mock-spike whose model does not fit exits 1" 1 "$unfit_spike_status"
+check_that "a mock-spike whose model does not fit says why" grep -qxF "claude-ollama: not starting: the model does not fit in memory (set CLAUDE_OLLAMA_FIT=0 to start anyway)" "$sandbox/err"
+check_not "a mock-spike whose model does not fit never runs the spike" grep -q '^SPIKE:' "$sandbox/out"
 rm -f "$sandbox/stubbin/sysctl"
 run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "a fit that cannot be computed is reported, not fatal" grep -qxF "claude-ollama: memory fit: unknown (ollama lease: cannot read the free memory)" "$sandbox/err"

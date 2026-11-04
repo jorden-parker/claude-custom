@@ -213,8 +213,23 @@ start_on_lower_context() {
   ladder_context="$(lower_context_of "$(preset_ctx_size)")"
   session_rung=context-down
   echo "claude-ollama: ladder context-down: does not fit at num_ctx $(preset_ctx_size) ($(fit_shortfall) short); starting at $ladder_context" >&2
-  measure_fit "$ladder_context" "" || return 1
-  fit_fits "$fit_result" || echo "claude-ollama: memory fit: still $(fit_shortfall) short at num_ctx $ladder_context with the embeddings off" >&2
+  measure_fit "$ladder_context" "" || return 0
+  fit_fits "$fit_result" && return 0
+  echo "claude-ollama: memory fit: still $(fit_shortfall) short at num_ctx $ladder_context with the embeddings off" >&2
+  return 1
+}
+
+require_model_fits() {
+  fit_on || return 0
+  measure_fit "$(preset_ctx_size)" "" || return 0
+  fit_fits "$fit_result" && return 0
+  echo "claude-ollama: memory fit: $(fit_summary)" >&2
+  refuse_unfit_launch
+}
+
+refuse_unfit_launch() {
+  echo "claude-ollama: not starting: the model does not fit in memory (set CLAUDE_OLLAMA_FIT=0 to start anyway)" >&2
+  exit 1
 }
 
 check_memory_fit() {
@@ -227,7 +242,7 @@ check_memory_fit() {
   if [ -n "$embedding" ]; then
     start_without_embeddings && return 0
   fi
-  start_on_lower_context || true
+  start_on_lower_context || refuse_unfit_launch
 }
 
 end_launch() {
@@ -909,6 +924,7 @@ run_review() {
   shift
   acquire_lease review --model "$model" || exit 3
   ensure_weights
+  require_model_fits
   warm_model "$model"
   exec "${CLAUDE_OLLAMA_REVIEWER:-$repo_dir/bin/pr-review-local}" --model "$model" --base-url "$(server_url)" "$@" "$target"
 }
@@ -938,6 +954,7 @@ run_rescue() {
 run_mock_spike() {
   acquire_lease mock-spike --model "$model" || exit 3
   ensure_weights
+  require_model_fits
   warm_model "$model"
   exec "${CLAUDE_OLLAMA_MOCK_SPIKE:-$repo_dir/bin/mock-spike}" --model "$model" --base-url "$(server_url)" "$@"
 }
@@ -945,6 +962,7 @@ run_mock_spike() {
 run_task_eval() {
   acquire_lease task-eval --model "$model" || exit 3
   ensure_weights
+  require_model_fits
   warm_model "$model"
   exec "${CLAUDE_OLLAMA_TASK_EVAL:-$repo_dir/bin/task-eval}" "$size" --launcher "$repo_dir/bin/claude-ollama" "$@"
 }
