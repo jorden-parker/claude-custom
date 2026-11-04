@@ -75,5 +75,4 @@ profile's), then the messages proxy URL onto `ollama/settings.<size>.json`, in
 that order, into `~/.claude-ollama/launch-settings/<launcher pid>.json` (0600,
 removed when the launch ends; `doctor` and `--print-config` compose into a temp
 file; the base file itself when no layer applies). The profile also reaches the
-`--tools` list, the MCP servers and the Modelfile parameters. See
-`docs/ollama.md` for the keys.
+`--tools` list and the Modelfile parameters. See `docs/ollama.md` for the keys.

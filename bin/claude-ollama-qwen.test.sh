@@ -109,7 +109,8 @@ new_project "$sandbox/qwen-project"
 SANDBOX=outer OPENAI_API_KEY=outer CLAUDE_OLLAMA_SANDBOX_EXEC=/usr/bin/true GH_TOKEN=secret SHORTCUT_API_TOKEN=secret run_capture "$qwen_script" launch 27b -p hi
 check_eq "qwen launch exit status" 0 "$?"
 check_that "qwen launch passes the model and args to qwen" grep -qF -- "-m qwen3.8-27b-cc --approval-mode auto-edit" "$sandbox/out"
-check_that "qwen launch passes the MCP servers" grep -qF -- 'repo-tools.py"]}' "$sandbox/out"
+check_not "qwen launch passes no MCP config" grep -qF -- '--mcp-config' "$sandbox/out"
+check_eq "the rendered settings start no MCP server" null "$(jq -c '.mcpServers' "$qwen_home/settings.json")"
 check_that "and the user's args last" grep -q -- '-p hi$' "$sandbox/out"
 check_eq "qwen launch gives Qwen Code its own home under the session folder" "QWEN_HOME=$qwen_home" "$(grep '^QWEN_HOME=' "$sandbox/qwen-env")"
 check_that "and turns usage statistics off" grep -qx 'QWEN_USAGE_STATISTICS_ENABLED=false' "$sandbox/qwen-env"
@@ -130,7 +131,7 @@ check_eq "and ask Ollama for no thinking" none "$(jq -r '.modelProviders.openai[
 check_eq "and turn cross-session messaging off, whose socket the sandbox would refuse" false "$(jq -r '.agents.crossSessionMessaging' "$qwen_home/settings.json")"
 check_that "the global QWEN.md starts with the preferences" \
   test "$(head -1 "$qwen_home/QWEN.md")" = "$(head -1 "$repo/shared/preferences/PREFERENCES.md")"
-check_that "and carries the Qwen rules" grep -qF 'mcp__code-search__semantic_search answers' "$qwen_home/QWEN.md"
+check_that "and carries the Qwen rules" grep -qxF -e "$(head -n 1 "$repo/ollama/QWEN.local.md")" "$qwen_home/QWEN.md"
 check_that "the rendered settings keep QWEN_SYSTEM_MD out of a project .env" \
   jq -e '.advanced.excludedEnvVars | index("QWEN_SYSTEM_MD")' "$qwen_home/settings.json"
 check_that "qwen launch asks Qwen Code for its Seatbelt sandbox" grep -qx 'QWEN_SANDBOX=sandbox-exec' "$sandbox/qwen-env"
@@ -185,6 +186,7 @@ check_that "qwen print-config shows the model" grep -qxF "model: qwen3.6-35b-cc"
 check_that "qwen print-config shows the context window" grep -qxF "context window: 98304" "$sandbox/out"
 check_that "qwen print-config names the Qwen sandbox" grep -q '^sandbox: ' "$sandbox/out"
 check_that "qwen print-config shows the qwen command" grep -q '^command: qwen --auth-type openai ' "$sandbox/out"
+check_not "the printed qwen command starts no MCP server" grep -qF -- '--mcp-config' "$sandbox/out"
 
 STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_server_env" run_capture "$qwen_script" doctor 27b
 check_eq "qwen doctor exit status" 0 "$?"

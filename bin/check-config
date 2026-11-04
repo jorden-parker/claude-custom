@@ -108,8 +108,8 @@ check_that "the Qwen Seatbelt profile closes outbound TCP except loopback, 443 a
   closes_outbound_tcp_except_loopback_and_web "$qwen_profile"
 check_eq "the Qwen Seatbelt profile writes under the home folder only in the sandbox cache, like the Claude profiles" '"/.cache/claude-sandbox"' \
   "$(sed -n '/^(allow file-write\*/,/^)/p' "$qwen_profile" | sed -n 's/.*(param "HOME_DIR") \("[^"]*"\).*/\1/p' | sort -u | tr '\n' ' ' | sed 's/ $//')"
-check_eq "the Qwen Code profile allows semantic_search and the repo tools without a prompt, like the Claude profiles" true \
-  "$(jq '(.permissions.allow | index("mcp__code-search__semantic_search") != null) and (.permissions.allow | index("mcp__repo") != null)' "$qwen_template")"
+check_eq "the Qwen Code profile names no MCP server or MCP tool, like the Claude profiles" "0 null" \
+  "$(jq -r '[([.. | strings | select(startswith("mcp__"))] | length), .mcpServers] | map(tostring) | join(" ")' "$qwen_template")"
 check_eq "the Qwen Code profile keeps a project .env, which the session can write, from choosing the next session's system prompt, model, key or Seatbelt profile, or claiming a sandbox" true \
   "$(jq '(["QWEN_SYSTEM_MD", "SEATBELT_PROFILE", "OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_MODEL", "QWEN_MODEL", "SANDBOX"] - .advanced.excludedEnvVars) == []' "$qwen_template")"
 check_eq "the Qwen Code profile turns cross-session messaging off, since no second session should drive this one" false \
@@ -180,15 +180,14 @@ check_eq "shared/host-env unsets every cache variable shared/sandbox-env sets, s
   "$(sed -n 's/^ *unset //p' "$repo/shared/host-env" | tr ' ' '\n' | sort | tr '\n' ' ')"
 check_eq "every hook command runs through shared/host-env" 0 \
   "$(jq -r '.[][].hooks[].command' "$repo/shared/settings/hooks.json" "$repo/ollama/hooks.extra.json" | grep -vcF "/shared/host-env \"\$CLAUDE_CUSTOM_HOME\"/shared/hooks/")"
-check_eq "claude-ollama starts its three MCP servers through shared/host-env" 3 \
-  "$(grep -oF "\"\$repo_dir/shared/host-env\" " "$repo/bin/lib/size-profile.sh" | wc -l | tr -d ' ')"
+check_that "claude-ollama runs claude with --strict-mcp-config, so no user or project MCP server loads" \
+  grep -qF -- '--strict-mcp-config' "$repo/bin/claude-ollama"
+check_not "claude-ollama starts no MCP server" grep -qF -- '--mcp-config' "$repo/bin/claude-ollama" "$repo/bin/claude-ollama-qwen" "$repo/bin/lib/size-profile.sh"
 check_that "claude-ollama starts the incident watcher tied to its own pid" \
   grep -qF -- '--model "$model" --out "$incidents_file" --watch-pid "$$"' "$repo/bin/claude-ollama"
 check_that "claude-ollama starts the degrade ladder beside the watcher, tied to its own pid" \
   grep -qF -- '--watch-pid "$$" --context "$(modelfile_num_ctx)"' "$repo/bin/claude-ollama"
 check_that "claude-ollama lets CLAUDE_OLLAMA_LADDER=0 turn the ladder off" grep -qF '"${CLAUDE_OLLAMA_LADDER:-}" = 0' "$repo/bin/claude-ollama"
-check_that "claude-ollama holds a session lease before it starts the indexer" \
-  test "$(grep -n '^ *claim_session$' "$repo/bin/claude-ollama" | cut -d: -f1)" -lt "$(grep -n '^ *warm_search_index$' "$repo/bin/claude-ollama" | cut -d: -f1)"
 
 denies_tool() {
   jq -e --arg tool "$2" '.permissions.deny | index($tool) != null' "$1" >/dev/null
@@ -214,46 +213,20 @@ default_embedding() {
   grep -c 'qwen3-embedding:0.6b' "$1"
 }
 
-for source in bin/lib/size-profile.sh shared/mcp/code-search.py go/internal/picker/profiles/embedding.go; do
+for source in bin/lib/size-profile.sh go/internal/picker/profiles/embedding.go; do
   check_eq "$source names the default embedding model once" 1 "$(default_embedding "$repo/$source")"
 done
 
-check_that "CLAUDE.local.md tells the model to use semantic_search" grep -qF 'semantic_search' "$repo/ollama/CLAUDE.local.md"
-check_that "CLAUDE.local.md names the embedding setup row" grep -qF 'Set up embedding model' "$repo/ollama/CLAUDE.local.md"
-
-allows_semantic_search() {
-  jq -e '.permissions.allow | index("mcp__code-search__semantic_search") != null' "$1" >/dev/null
+allows_no_mcp_tool() {
+  jq -e '[.permissions.allow[] | select(startswith("mcp__"))] == []' "$1" >/dev/null
 }
 
-allows_repo_tools() {
-  jq -e '.permissions.allow | index("mcp__repo") != null' "$1" >/dev/null
-}
-
-allows_read_only_dev_tools() {
-  jq -e '.permissions.allow as $allowed | all(["mcp__dev__dev_status", "mcp__dev__dev_logs", "mcp__dev__dev_errors", "mcp__dev__dev_deps", "mcp__dev__page_check", "mcp__dev__page_snapshot", "mcp__dev__page_act"][]; . as $tool | any($allowed[]; . == $tool))' "$1" >/dev/null
-}
-
-asks_before_dev_start() {
-  jq -e '.permissions.allow | all(. != "mcp__dev" and . != "mcp__dev__dev_start" and . != "mcp__dev__dev_stop" and . != "mcp__dev__dev_install")' "$1" >/dev/null
-}
-
-check_that "CLAUDE.local.md tells the model to use the repo tools" grep -qF 'mcp__repo__' "$repo/ollama/CLAUDE.local.md"
-check_that "CLAUDE.local.md tells the model to use the dev tools" grep -qF 'mcp__dev__dev_status' "$repo/ollama/CLAUDE.local.md"
+check_not "CLAUDE.local.md names no MCP tool" grep -qF 'mcp__' "$repo/ollama/CLAUDE.local.md"
+check_not "QWEN.local.md names no MCP tool" grep -qF 'mcp__' "$repo/ollama/QWEN.local.md"
+check_not "system-prompt.md names no MCP tool" grep -qF 'mcp__' "$repo/ollama/system-prompt.md"
 
 session_tool_names() {
-  python3 - "$repo" <<'PYTHON'
-import re
-import sys
-from pathlib import Path
-
-repo = Path(sys.argv[1])
-names = set(re.findall(r'tools="([A-Za-z,]+)"', (repo / "bin" / "claude-ollama").read_text())[0].split(","))
-for server in ("dev-server.py", "repo-tools.py"):
-    names.update(re.findall(r'\btool\(\s*"([a-z_]+)"', (repo / "shared" / "mcp" / server).read_text()))
-for server in ("github_tools.py", "draft_store.py", "code-search.py"):
-    names.update(re.findall(r'"name": "([a-z_]+)"', (repo / "shared" / "mcp" / server).read_text()))
-print("\n".join(sorted(names)))
-PYTHON
+  sed -n 's/^ *tools="\([A-Za-z,]*\)".*/\1/p' "$repo/bin/claude-ollama" | head -1 | tr ',' '\n' | sort -u
 }
 
 prompt_names_every_tool() {
@@ -278,11 +251,8 @@ shipped_skills_fit_listing() {
 }
 
 for settings in "$repo"/ollama/settings.*.json; do
-  check_that "${settings##*/} allows semantic_search" allows_semantic_search "$settings"
+  check_that "${settings##*/} allows no MCP tool" allows_no_mcp_tool "$settings"
   check_that "${settings##*/} allows the find-docs skill without a prompt" allows_find_docs_skill "$settings"
-  check_that "${settings##*/} allows the read-only repo tools without a prompt" allows_repo_tools "$settings"
-  check_that "${settings##*/} allows the read-only dev tools without a prompt" allows_read_only_dev_tools "$settings"
-  check_that "${settings##*/} asks before dev_start and dev_stop" asks_before_dev_start "$settings"
   check_eq "${settings##*/} confines the hook subprocesses" 1 \
     "$(jq -r '.env.CLAUDE_CUSTOM_HOOK_SANDBOX' "$settings")"
   check_that "${settings##*/} lists every shipped skill with its description" \
@@ -338,7 +308,7 @@ resets_friction_budget() {
 }
 
 caches_repeat_calls() {
-  jq -e --arg event "$2" '[.hooks[$event][] | select((.matcher // "") | test("Read") and test("mcp__code-search__semantic_search")) | .hooks[].command] | any(test("repeat-call-cache"))' "$1" >/dev/null
+  jq -e --arg event "$2" '[.hooks[$event][] | select((.matcher // "") | test("Read")) | .hooks[].command] | any(test("repeat-call-cache"))' "$1" >/dev/null
 }
 
 suggests_tests_after_edits() {
@@ -404,8 +374,8 @@ nudges_wasteful_edits() {
 for settings in "$repo"/ollama/settings.*.json; do
   check_that "${settings##*/} runs edit-nudge.py before Edit, Write and MultiEdit" nudges_wasteful_edits "$settings"
   check_that "${settings##*/} runs friction_budget.py on each prompt" resets_friction_budget "$settings"
-  check_that "${settings##*/} runs repeat-call-cache.py before Read and semantic_search" caches_repeat_calls "$settings" PreToolUse
-  check_that "${settings##*/} runs repeat-call-cache.py after Read and semantic_search" caches_repeat_calls "$settings" PostToolUse
+  check_that "${settings##*/} runs repeat-call-cache.py before Read" caches_repeat_calls "$settings" PreToolUse
+  check_that "${settings##*/} runs repeat-call-cache.py after Read" caches_repeat_calls "$settings" PostToolUse
   check_that "${settings##*/} runs context-budget.py after every tool" watches_context_budget "$settings"
   check_that "${settings##*/} runs handoff-relaunch.py on Stop" relaunches_on_handoff "$settings"
   check_that "${settings##*/} runs incident-note.py on each prompt" notes_incidents "$settings"
@@ -473,10 +443,6 @@ check_that "pr-review agent names the 250-line Read window" grep -q '250' "$agen
 check_that "pr-review agent posts only a comment review" grep -qF -- '--comment --body-file' "$agent"
 check_that "pr-review agent removes its worktree" grep -qF 'worktree remove --force' "$agent"
 
-for draft_skill in pr-draft pr-review-draft; do
-  check_that "the $draft_skill skill saves through its MCP tool" grep -qF "mcp__repo__draft_" "$repo/shared/skills/$draft_skill/SKILL.md"
-  check_that "claude-custom install links the $draft_skill skill" grep -qF "shared/skills/$draft_skill" "$repo/bin/claude-custom"
-done
 check_that "claude-custom install links the find-docs skill" grep -qF "shared/skills/find-docs" "$repo/bin/claude-custom"
 check_that "claude-custom ctx7 pins one Context7 CLI version" grep -qE '^ctx7_version="[0-9]+\.[0-9]+\.[0-9]+"$' "$repo/bin/claude-custom"
 check_that "claude-custom ctx7 runs only the library and docs lookups" grep -qF 'library|docs) ;;' "$repo/bin/claude-custom"
@@ -498,8 +464,6 @@ done
 check_that "CLAUDE.local.md points the model at the find-docs skill" grep -qF "/find-docs" "$repo/ollama/CLAUDE.local.md"
 check_that "QWEN.local.md points the model at the find-docs skill" grep -qF "/find-docs" "$repo/ollama/QWEN.local.md"
 check_that "PREFERENCES.md points the model at the find-docs skill" grep -qF "/find-docs" "$repo/shared/preferences/PREFERENCES.md"
-check_that "the pr-review-draft skill finds the PR from the current branch" grep -qF 'head:BRANCH' "$repo/shared/skills/pr-review-draft/SKILL.md"
-check_that "CLAUDE.local.md points the model at the draft skills" grep -qF "/pr-draft" "$repo/ollama/CLAUDE.local.md"
 for env_key in $(jq -r '.[].key' "$repo/shared/profile-env.json"); do
   check_that "CLAUDE.md names the profile env key $env_key" grep -qF "\`$env_key\`" "$repo/CLAUDE.md"
 done

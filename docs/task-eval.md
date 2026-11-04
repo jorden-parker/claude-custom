@@ -15,7 +15,7 @@ bin/task-eval --task shell-fix --task go-table
 ```
 
 Each run copies a task's fixture to a temp folder, commits it, runs
-`claude-ollama <size> -p "<prompt>"` there (no indexer, beacon, proxy, drafts or
+`claude-ollama <size> -p "<prompt>"` there (no beacon, proxy, drafts or
 incidents; telemetry to a temp file), then runs the task's test command. The
 scorecard has one line per run (`task result seconds calls denials`), a `total:`
 line (`N/M green, median seconds S, p90 P`, over the green runs) and a block to

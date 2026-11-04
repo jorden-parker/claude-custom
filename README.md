@@ -39,4 +39,3 @@ changes are in [install](docs/install.md).
 - [Work harness (Ollama)](docs/ollama.md)
 - [Tools TUI](docs/tools-tui.md)
 - [Prompt-cache probe](docs/cache-probe.md)
-- [Semantic code search](docs/code-search.md)

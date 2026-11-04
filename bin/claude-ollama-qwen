@@ -9,7 +9,7 @@ qwen_home="$session_config_dir/qwen"
 qwen_profile_name="claude-ollama"
 
 qwen_args() {
-  printf '%s\n' --auth-type openai --openai-base-url "$ollama_url/v1" --openai-api-key ollama -m "$model" --approval-mode auto-edit --mcp-config "$(mcp_config)"
+  printf '%s\n' --auth-type openai --openai-base-url "$ollama_url/v1" --openai-api-key ollama -m "$model" --approval-mode auto-edit
 }
 
 qwen_command() {

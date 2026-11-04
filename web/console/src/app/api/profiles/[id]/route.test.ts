@@ -58,10 +58,10 @@ describe("/api/profiles/[id]", () => {
     expect(body.title).toBe("Claude Code");
     expect(body.override).toEqual({});
     expect(body.base.tools.map((tool: { name: string }) => tool.name)).toEqual(["Bash", "WebFetch", "Agent"]);
-    expect(body.base.mcpServers).toEqual([]);
+    expect(body.base).not.toHaveProperty("mcpServers");
   });
 
-  it("returns the Ollama base with context, parameters, hooks and MCP servers", async () => {
+  it("returns the Ollama base with context, parameters and hooks", async () => {
     const response = await GET(new Request(ORIGIN), context("ollama-27b"));
     const body = await response.json();
 
@@ -70,7 +70,7 @@ describe("/api/profiles/[id]", () => {
     expect(body.base.outputTokens).toBe(8192);
     expect(body.base.parameters).toEqual({ temperature: 0.7 });
     expect(body.base.hooks).toEqual([{ event: "Stop", matcher: "*", command: "stop-verify.py" }]);
-    expect(body.base.mcpServers).toEqual(["code-search", "repo", "dev"]);
+    expect(body.base).not.toHaveProperty("mcpServers");
   });
 
   it("answers 404 for a profile that is not configured", async () => {
@@ -86,6 +86,16 @@ describe("/api/profiles/[id]", () => {
     expect(JSON.parse(fs.readFileSync(profileFilePath("claude-code"), "utf8"))).toEqual({
       tools: { WebFetch: "deny" },
     });
+  });
+
+  it("saves an old profile that still carries an mcp key, without the key", async () => {
+    const response = await PUT(
+      putRequest("ollama-27b", { mcp: { dev: false }, thinking: true }),
+      context("ollama-27b"),
+    );
+
+    expect(response.status).toBe(200);
+    expect(JSON.parse(fs.readFileSync(profileFilePath("ollama-27b"), "utf8"))).toEqual({ thinking: true });
   });
 
   it("deletes the file when the body is empty", async () => {

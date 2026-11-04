@@ -40,12 +40,16 @@ expect allow "{\"file_path\": \"$tmp/image.png\"}"
 expect allow "{\"file_path\": \"$tmp/missing.py\"}"
 
 reason="$(reason_for "{\"file_path\": \"$tmp/big.py\"}")"
-for expected in "1000 lines" "semantic_search" "offset" "limit"; do
+for expected in "1000 lines" "Grep -n" "offset" "limit"; do
   if ! printf '%s' "$reason" | grep -qF -- "$expected"; then
     echo "FAIL: deny reason should mention: $expected"
     failures=$((failures + 1))
   fi
 done
+if printf '%s' "$reason" | grep -qF -- "semantic_search"; then
+  echo "FAIL: deny reason should not name semantic_search"
+  failures=$((failures + 1))
+fi
 
 telemetry_log="$tmp/telemetry.jsonl"
 

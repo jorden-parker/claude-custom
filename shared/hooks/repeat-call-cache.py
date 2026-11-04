@@ -11,8 +11,7 @@ from friction_budget import call_snapshot_dir, lookup_call, record_call, recorde
 from hook_telemetry import record_hook_event
 
 HOOK = "repeat-call-cache"
-SEARCH_TOOL = "mcp__code-search__semantic_search"
-CACHED_TOOLS = {"Read", SEARCH_TOOL}
+CACHED_TOOL = "Read"
 ERROR_FLAGS = ("is_error", "isError")
 SNAPSHOT_BYTE_LIMIT = 64 * 1024
 NARROWING_MARGIN = 3
@@ -48,10 +47,7 @@ def file_stamp(tool_input):
 
 
 def invalidation_stamp(event):
-    tool_name = event.get("tool_name", "")
-    if tool_name == "Read":
-        return file_stamp(event.get("tool_input") or {})
-    return ""
+    return file_stamp(event.get("tool_input") or {})
 
 
 def call_key(event):
@@ -89,7 +85,7 @@ def remember_result(session_id, event):
     key = call_key(event)
     entry = {"sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(), "bytes": size, "stamp": stamp}
     snapshots = call_snapshot_dir(session_id)
-    if event.get("tool_name") == "Read" and size <= SNAPSHOT_BYTE_LIMIT:
+    if size <= SNAPSHOT_BYTE_LIMIT:
         entry["snapshot"] = snapshot_name(key)
         entry["realpath"] = os.path.realpath((event.get("tool_input") or {}).get("file_path", ""))
         save_snapshot(snapshots, snapshot_name(key), text)
@@ -180,9 +176,7 @@ def repeat_decision(session_id, event):
         reason = pointer(earlier)
         record_hook_event(HOOK, event, "friction", reason, {"saved_bytes": earlier["bytes"]})
         return deny(reason)
-    if event.get("tool_name") == "Read":
-        return narrowed_read(earlier, event, call_snapshot_dir(session_id))
-    return None
+    return narrowed_read(earlier, event, call_snapshot_dir(session_id))
 
 
 def main():
@@ -190,7 +184,7 @@ def main():
         event = json.load(sys.stdin)
     except ValueError:
         return
-    if event.get("tool_name") not in CACHED_TOOLS:
+    if event.get("tool_name") != CACHED_TOOL:
         return
     session_id = event.get("session_id")
     if event.get("hook_event_name") == "PostToolUse":

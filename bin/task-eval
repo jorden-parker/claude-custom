@@ -22,7 +22,6 @@ TEST_TIMEOUT_SECONDS = 120
 STOP_GRACE_SECONDS = 5
 GIT_IDENTITY = ("-c", "user.name=task-eval", "-c", "user.email=task-eval@example.invalid")
 LAUNCH_ENV = {
-    "CLAUDE_OLLAMA_NO_INDEX": "1",
     "CLAUDE_OLLAMA_BEACON": "0",
     "CLAUDE_OLLAMA_PROXY": "0",
     "CLAUDE_OLLAMA_TELEMETRY": "1",

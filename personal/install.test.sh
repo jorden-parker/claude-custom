@@ -298,6 +298,10 @@ check_not "quote in repo path writes no zshrc" test -e "$HOME/.zshrc"
 check_that "quote in repo path message" grep -q "claude-custom path must not contain a single quote" "$sandbox/err"
 
 new_sandbox
+mkdir -p "$HOME/.claude/skills"
+for retired_skill in pr-draft pr-review-draft; do
+  ln -s "$repo/shared/skills/$retired_skill" "$HOME/.claude/skills/$retired_skill"
+done
 run_capture "$installer" install
 check_that "claude-ollama link" test "$(readlink "$HOME/.local/bin/claude-ollama")" = "$repo/bin/claude-ollama"
 check_eq "claude-custom link" "$repo/bin/claude-custom" "$(readlink "$HOME/.local/bin/claude-custom")"
@@ -306,8 +310,8 @@ check_eq "ollama-agent link" "$repo/bin/ollama-agent" "$(readlink "$HOME/.local/
 check_eq "pr-review agent link" "$repo/shared/agents/pr-review.md" "$(readlink "$HOME/.claude/agents/pr-review.md")"
 check_eq "handoff skill link" "$repo/shared/skills/handoff" "$(readlink "$HOME/.claude/skills/handoff")"
 check_eq "find-docs skill link" "$repo/shared/skills/find-docs" "$(readlink "$HOME/.claude/skills/find-docs")"
-for draft_skill in pr-draft pr-review-draft; do
-  check_eq "$draft_skill skill link" "$repo/shared/skills/$draft_skill" "$(readlink "$HOME/.claude/skills/$draft_skill")"
+for retired_skill in pr-draft pr-review-draft; do
+  check_not "install removes the retired $retired_skill skill link" test -L "$HOME/.claude/skills/$retired_skill"
 done
 check_not "install creates no hook links" test -e "$HOME/.claude/hooks"
 for settings in "$repo"/personal/settings.tokens.json "$repo"/ollama/settings.*.json; do
@@ -454,9 +458,6 @@ check_not "round trip removes ollama-agent link" test -L "$HOME/.local/bin/ollam
 check_not "round trip removes pr-review agent link" test -L "$HOME/.claude/agents/pr-review.md"
 check_not "round trip removes handoff skill link" test -L "$HOME/.claude/skills/handoff"
 check_not "round trip removes find-docs skill link" test -L "$HOME/.claude/skills/find-docs"
-for draft_skill in pr-draft pr-review-draft; do
-  check_not "round trip removes $draft_skill skill link" test -L "$HOME/.claude/skills/$draft_skill"
-done
 
 new_sandbox
 mkdir -p "$HOME/.local/bin" "$HOME/.claude/hooks"

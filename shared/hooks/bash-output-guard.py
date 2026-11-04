@@ -48,7 +48,7 @@ UNBOUNDED_COMMANDS = [
     needs_bounding_flag(
         r"git\s+" + GIT_GLOBAL_OPTIONS + r"log",
         (r"\s-n\s*\d", r"\s-\d+", "--max-count"),
-        "Unbounded git log. Use the mcp__repo__git_log tool when the session has it, else: git log --oneline -n 20",
+        "Unbounded git log. Run git log -n 20 --oneline, or git show --stat REV for one commit.",
     ),
     must_not_open(
         ("cat", "less", "more", "bat"),

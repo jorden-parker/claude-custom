@@ -28,16 +28,6 @@ missing_server_env() {
   done < "$profile_dir/server.env"
 }
 
-server_max_loaded_models() {
-  running_server_env 2>/dev/null | sed -n 's/^OLLAMA_MAX_LOADED_MODELS=//p' | head -n 1
-}
-
-embedding_model_fits() {
-  local cap
-  cap="$(server_max_loaded_models)"
-  [ -n "$cap" ] && [ "$cap" -ge 2 ] 2>/dev/null
-}
-
 plist_log_path() {
   local plist="$HOME/Library/LaunchAgents/$1.plist"
   [ -f "$plist" ] || return 0

@@ -80,9 +80,9 @@ check_browser() {
   if [ "${CLAUDE_OLLAMA_CMUX:-}" = 0 ]; then
     report ok "browser tools off (CLAUDE_OLLAMA_CMUX=0)"
   elif in_cmux_terminal; then
-    report ok "browser tools on (cmux terminal; the dev MCP server runs cmux browser repl)"
+    report ok "browser tools on (cmux terminal)"
   else
-    report warn "browser tools off: not a cmux terminal (CMUX_SOCKET_PATH unset or cmux missing); page_check will say so"
+    report warn "browser tools off: not a cmux terminal (CMUX_SOCKET_PATH unset or cmux missing)"
   fi
 }
 
@@ -159,10 +159,9 @@ check_skill_listing() {
 }
 
 fit_report() {
-  local embedding="" fit_result
+  local fit_result
   fit_on || return 0
-  ! embedding_model_fits || embedding="$embedding_model"
-  if ! fit_result="$(run_fit "$(modelfile_num_ctx)" "$embedding" 2>&1)"; then
+  if ! fit_result="$(run_fit "$(modelfile_num_ctx)" 2>&1)"; then
     report warn "memory fit: $fit_result"
     return 0
   fi
@@ -203,7 +202,6 @@ doctor() {
   check_leases
   fit_report
   check_model_present model "$model" "run claude-ollama $size to pull and create it" || status=1
-  check_model_present "embedding model" "$embedding_model" "pick 'Set up embedding model' in claude-ollama" || status=1
   check_digests || status=1
   check_context_sizes || status=1
   check_hooks_present || status=1

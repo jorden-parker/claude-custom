@@ -22,7 +22,7 @@ add_test() {
 for test in shared/hooks/edit-check.test.sh shared/hooks/fallow-a.test.sh shared/hooks/fallow-b.test.sh \
   personal/install.test.sh bin/claude-ollama.test.sh bin/claude-ollama-doctor.test.sh bin/claude-ollama-qwen.test.sh bin/ollama-profiles.test.sh .claude/verify.test.sh \
   shared/hooks/hook_state.test.sh shared/hooks/tdd-guard.test.sh shared/hooks/context-budget.test.sh \
-  ollama/drafts/opener.test.sh ollama/incidents/watcher.test.sh ollama/incidents/incident_log.test.sh shared/mcp/repo-tools.test.sh ollama/rescue.test.sh bin/ollama-lease.test.sh \
+  ollama/drafts/opener.test.sh ollama/incidents/watcher.test.sh ollama/incidents/incident_log.test.sh ollama/rescue.test.sh bin/ollama-lease.test.sh \
   shared/hooks/hook_sandbox.test.sh shared/hooks/stop-verify.test.sh; do
   add_test "$test"
 done
@@ -73,7 +73,6 @@ check_ran 'shared settings run install tests' "$checks|personal/install.test.sh|
 check_ran 'draft opener runs its tests and the launcher tests' "$checks|bin/claude-ollama.test.sh|ollama/drafts/opener.test.sh|" ollama/drafts/opener.py
 check_ran 'incident watcher runs its tests and the launcher tests' "$checks|bin/claude-ollama.test.sh|ollama/incidents/incident_log.test.sh|ollama/incidents/watcher.test.sh|" ollama/incidents/watcher.py
 check_ran 'incident log runs the incidents tests and the launcher tests' "$checks|bin/claude-ollama.test.sh|ollama/incidents/incident_log.test.sh|ollama/incidents/watcher.test.sh|" ollama/incidents/incident_log.py
-check_ran 'draft store runs the repo tools tests' "$checks|shared/mcp/repo-tools.test.sh|" shared/mcp/draft_store.py
 check_ran 'verify runs its own test' "$checks|.claude/verify.test.sh|" .claude/verify
 check_ran 'makefile runs everything' 'make test|' Makefile README.md
 

@@ -2,9 +2,9 @@
   {
     "match": "git log",
     "steps": [
-      "call mcp__repo__git_log (it is bounded) when the session has it",
-      "else run git log --oneline -n 20",
-      "open one commit with mcp__repo__git_show, never the whole log"
+      "run git log -n 20 --oneline",
+      "narrow it to one path with git log -n 20 --oneline -- PATH",
+      "open one commit with git show --stat REV, never the whole log"
     ]
   },
   {
@@ -12,7 +12,7 @@
     "steps": [
       "Grep the lockfile for the package name with -n",
       "Read only those lines with offset and limit",
-      "for the installed version call mcp__dev__dev_deps instead"
+      "for the installed version run jq -r .version node_modules/PKG/package.json instead"
     ]
   },
   {

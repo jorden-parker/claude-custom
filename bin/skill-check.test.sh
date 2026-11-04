@@ -23,7 +23,7 @@ cat >"$sandbox/bin/claude" <<'EOF'
 EOF
 cat >"$sandbox/bin/launcher" <<'EOF'
 #!/usr/bin/env bash
-printf '%s\n' "$PWD" "$*" "no-index=${CLAUDE_OLLAMA_NO_INDEX:-}" "drafts=${CLAUDE_OLLAMA_OPEN_DRAFTS:-}" >"$LAUNCH_RECORD"
+printf '%s\n' "$PWD" "$*" "drafts=${CLAUDE_OLLAMA_OPEN_DRAFTS:-}" >"$LAUNCH_RECORD"
 echo '{"type":"system","subtype":"hook_started"}'
 echo '{"type":"system","subtype":"init","skills":["deploy","handoff",7]}'
 echo "launcher keeps running" >&2
@@ -56,7 +56,7 @@ check "the launcher runs in the folder" [ "$(sed -n 1p "$LAUNCH_RECORD")" = "$pr
 check "the launcher gets the size and the print flags" \
   [ "$(sed -n 2p "$LAUNCH_RECORD")" = "35b -p hi --max-turns 1 --output-format stream-json --verbose" ]
 check "the launch skips the indexer and the draft opener" \
-  [ "$(sed -n 3,4p "$LAUNCH_RECORD" | tr '\n' ' ')" = "no-index=1 drafts=0 " ]
+  [ "$(sed -n 3p "$LAUNCH_RECORD")" = "drafts=0" ]
 check "the launcher is stopped once the init line arrived" [ "$elapsed" -lt 20 ]
 launcher_stopped() {
   ! pgrep -f "$sandbox/bin/launcher" >/dev/null

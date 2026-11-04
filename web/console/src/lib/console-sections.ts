@@ -85,7 +85,7 @@ export const CONSOLE_SECTIONS: readonly ConsoleSection[] = [
   {
     href: "/profiles",
     title: "Profiles",
-    summary: "Per-profile tools, sandbox, model, MCP servers and env",
+    summary: "Per-profile tools, sandbox, model and env",
     group: "Configure",
   },
   {

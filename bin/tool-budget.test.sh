@@ -44,9 +44,9 @@ telemetry_row() {
 
 {
   for _ in $(seq 25); do
-    proxy_row "$(iso_days_ago 1)" '{"Bash":1500,"Read":900,"WebFetch":2048,"TaskStop":150,"mcp__code-search__semantic_search":700,"mcp__repo__pr_view":1024}'
+    proxy_row "$(iso_days_ago 1)" '{"Bash":1500,"Read":900,"WebFetch":2048,"TaskStop":150,"Edit":700,"mcp__repo__pr_view":1024}'
   done
-  proxy_row "$(iso_days_ago 2)" '{"Bash":1400,"Read":900,"WebFetch":2000,"TaskStop":150,"mcp__code-search__semantic_search":700,"mcp__repo__pr_view":1024,"NotebookEdit":5000}'
+  proxy_row "$(iso_days_ago 2)" '{"Bash":1400,"Read":900,"WebFetch":2000,"TaskStop":150,"Edit":700,"mcp__repo__pr_view":1024,"NotebookEdit":5000}'
   for _ in $(seq 30); do
     proxy_row "$(iso_days_ago 20)" '{"Bash":1500,"Read":900,"WebSearch":3000}'
   done
@@ -79,13 +79,13 @@ check_not "a tool under 20 requests is not suggested" \
 check_not "a tool under 200 schema bytes is not suggested" \
   grep -Eq '^suggest: drop: .*TaskStop' <<<"$output"
 check_not "the protected harness tools are never suggested" \
-  grep -Eq '^suggest: drop: .*semantic_search' <<<"$output"
+  grep -Eq '^suggest: drop: .*Edit' <<<"$output"
 check "the suggestion names the drops and the KiB saved per request" \
   grep -qxF 'suggest: drop: WebFetch (saves 2.0 KiB per request)' <<<"$output"
 check "the keep line lists the rest" \
-  grep -qxF 'keep: Bash, mcp__repo__pr_view, Read, mcp__code-search__semantic_search, NotebookEdit, TaskStop, Grep' <<<"$output"
+  grep -qxF 'keep: Bash, mcp__repo__pr_view, Read, Edit, NotebookEdit, TaskStop, Grep' <<<"$output"
 check "the protected list says where it comes from" \
-  grep -qxF 'protected (built-in list in bin/tool-budget): Bash, Read, Edit, Write, Skill, mcp__code-search__semantic_search' <<<"$output"
+  grep -qxF 'protected (built-in list in bin/tool-budget): Bash, Read, Edit, Write, Skill' <<<"$output"
 check "the window is named" \
   grep -qxF 'window: last 14 days, 26 requests' <<<"$output"
 
@@ -106,7 +106,7 @@ json="$("$budget" --proxy-log "$proxy_log" --telemetry "$telemetry_log" --json)"
 check "--json prints the rows" \
   python3 -c 'import json, sys; report = json.load(sys.stdin); rows = {row["tool"]: row for row in report["rows"]}; sys.exit(0 if rows["WebFetch"] == {"tool": "WebFetch", "schema_bytes": 2048, "requests": 26, "session_bytes": 53248, "calls": 0, "bytes_per_call": None} and rows["Bash"]["bytes_per_call"] == 9750 else 1)' <<<"$json"
 check "--json prints the suggestion and the protected list" \
-  python3 -c 'import json, sys; report = json.load(sys.stdin); sys.exit(0 if report["suggest"] == {"drop": ["WebFetch"], "keep": ["Bash", "mcp__repo__pr_view", "Read", "mcp__code-search__semantic_search", "NotebookEdit", "TaskStop", "Grep"], "saves_bytes": 2048} and report["protected"][0] == "Bash" and report["protected_source"] == "built-in list in bin/tool-budget" and report["since_days"] == 14 and report["requests"] == 26 else 1)' <<<"$json"
+  python3 -c 'import json, sys; report = json.load(sys.stdin); sys.exit(0 if report["suggest"] == {"drop": ["WebFetch"], "keep": ["Bash", "mcp__repo__pr_view", "Read", "Edit", "NotebookEdit", "TaskStop", "Grep"], "saves_bytes": 2048} and report["protected"][0] == "Bash" and report["protected_source"] == "built-in list in bin/tool-budget" and report["since_days"] == 14 and report["requests"] == 26 else 1)' <<<"$json"
 
 if "$budget" --proxy-log "$proxy_log" --telemetry "$telemetry_log" --since 0 >/dev/null 2>"$sandbox/err"; then
   check "--since 0 is refused" false

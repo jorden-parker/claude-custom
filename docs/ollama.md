@@ -63,7 +63,7 @@ launch.
 
 There is no side model. Claude Code's Haiku slot uses the main model, and the
 profiles deny `Agent`: a subagent would only rerun the main model on a fresh
-context. Use `semantic_search` for wide searches instead; `grep`, `rg` and
+context. Wide searches use Grep and `git grep -n` instead; `grep`, `rg` and
 `find` stay allowed for exact names. The profiles map no Claude ID to the main
 model: Claude Code names the model after the ID that maps to it, so the banner
 would say Haiku or Sonnet.
@@ -127,7 +127,7 @@ launch.
 `go/cmd/model-picker/` is the terminal menu `claude-ollama` opens to choose a
 size. Each `settings.<size>.json` in `ollama/` with a matching
 `Modelfile.<size>` is one entry, showing the size, its `-cc` model and its base
-model. A last row "Set up embedding model" pulls the `semantic_search` model and
+model. A last row "Set up embedding model" pulls the pinned embedding model and
 stays in the menu.
 
 ```sh
@@ -151,15 +151,13 @@ waits for the server. It refuses while the Ollama menu-bar app runs; quit it
 first. On a failure the launch goes on with a warning. The launcher also sends a
 warm-up request with `keep_alive` 30m (`CLAUDE_OLLAMA_KEEP_ALIVE` overrides) so
 the first prompt doesn't wait for the model to load.
-`OLLAMA_MAX_LOADED_MODELS=2` (the shipped value) keeps the main and embedding
-models loaded: the launcher exports `CODE_SEARCH_EMBED=1` so `semantic_search`
-loads and uses `qwen3-embedding:0.6b` (about 2.2 GB), and warms it before
-starting the indexer. At 1 the embedding model would evict the main model, so
-searches rank by words only. `OLLAMA_NUM_PARALLEL=1` gives the main model one
-request slot: Ollama allocates one KV cache per slot, so the default of up to
-four would hold four times the context in memory and crowd out the second model.
-The Homebrew service (`brew services start ollama`) uses these paths; add any
-`server.env` value it lacks with `claude-custom agent`:
+`OLLAMA_MAX_LOADED_MODELS=2` (the shipped value) lets a second model stay loaded
+beside the session's; the residency lease reads it. `OLLAMA_NUM_PARALLEL=1`
+gives the main model one request slot: Ollama allocates one KV cache per slot,
+so the default of up to four would hold four times the context in memory and
+crowd out a second model. The Homebrew service (`brew services start ollama`)
+uses these paths; add any `server.env` value it lacks with
+`claude-custom agent`:
 
 | What        | Homebrew value                                |
 | ----------- | --------------------------------------------- |
@@ -186,8 +184,8 @@ service itself.
 `claude-ollama doctor [size]` checks the environment without pulling or
 launching anything (the checks live in `bin/claude-ollama-doctor`, which the
 launcher runs with the resolved size). It needs `jq` on PATH
-(`brew install jq`); without it the launcher exits with an error. It reports
-each model (main, embedding), whether `num_ctx` in the Modelfile covers
+(`brew install jq`); without it the launcher exits with an error. It reports the
+main model, every pinned digest, whether `num_ctx` in the Modelfile covers
 `CLAUDE_CODE_MAX_CONTEXT_TOKENS` (with the token count where Claude Code will
 compact), whether each hook named in `ollama/settings.<size>.json` exists and is
 executable under `shared/hooks/`, whether Ollama answers at `OLLAMA_HOST`, and
@@ -196,8 +194,8 @@ missing exits 1. The server-env check is how to confirm `server.env` is applied.
 The server's environment is read with `pgrep`/`ps` (or `/proc` on Linux).
 
 `claude-ollama --print-config [size]` prints the resolved values (model, base
-model, embedding model, context sizes, settings path, tools) and the exact
-`claude` command, without launching.
+model, context sizes, settings path, tools) and the exact `claude` command,
+without launching.
 
 `claude-ollama logs [-n LINES]` follows the Ollama server log with `tail -F` (50
 lines of history by default). It reads the log path from the `local.ollama`
@@ -226,7 +224,6 @@ Sample `doctor` output (all healthy):
 ```
 ok   jq on PATH
 ok   model qwen3.8-27b-cc
-ok   embedding model qwen3-embedding:0.6b
 ok   digest qwen3.8:27b-mlx matches its pin
 ok   num_ctx 65536 matches CLAUDE_CODE_MAX_CONTEXT_TOKENS 65536; Claude Code compacts at 44344 tokens
 ok   hook bash-output-guard.py present
@@ -331,15 +328,15 @@ caches under `~/.cache/claude-sandbox`, so `go test` and `pnpm install` work
 inside the sandbox while the caches your own shell and the hooks execute from
 (`~/.npm/_npx`, `~/Library/pnpm`, `~/go/pkg/mod`, `~/.cache/claude-custom`,
 which holds the Stop hook's log and the machine copy of the personal overlay)
-stay unwritable. Hooks and the MCP servers run outside the sandbox through
-`shared/host-env`, which drops those cache variables again, so a hook's
-`go test` or `npx fallow` never executes from the sandbox's cache (a
-`GOMODCACHE` of your own is dropped with them for that one process). Sandboxed
-commands run without a prompt (`autoAllowBashIfSandboxed: true`), which is what
-lets a skill's `!` commands such as `git status` run; `git commit`, `git push`
-and `Bash(dangerouslyDisableSandbox:true)`, a retry outside the sandbox, still
-ask, and `git-push-guard.py` denies a push written as `git -C`, `--git-dir` or a
-path to `git`, which that ask would miss.
+stay unwritable. Hooks run outside the sandbox through `shared/host-env`, which
+drops those cache variables again, so a hook's `go test` or `npx fallow` never
+executes from the sandbox's cache (a `GOMODCACHE` of your own is dropped with
+them for that one process). Sandboxed commands run without a prompt
+(`autoAllowBashIfSandboxed: true`), which is what lets a skill's `!` commands
+such as `git status` run; `git commit`, `git push` and
+`Bash(dangerouslyDisableSandbox:true)`, a retry outside the sandbox, still ask,
+and `git-push-guard.py` denies a push written as `git -C`, `--git-dir` or a path
+to `git`, which that ask would miss.
 
 The launcher also puts nvm's Node first on PATH before the hand-off. nvm is a
 shell function loaded from `.zshrc` or `.bashrc`, so a session started from
@@ -366,22 +363,18 @@ of the command line matches, so a piped `claude-custom ctx7 ... | head` runs
 inside the sandbox; `shared/hooks/dev-server-guard.py` therefore denies a `pnpm`
 that shares its line with `cd &&`, a pipe or `;` and asks for
 `pnpm -C DIR SCRIPT`, and denies `pnpm exec`, `dlx`, `x` and `create`, which
-would run any package unsandboxed (`npx` inside the sandbox covers those). MCP
-servers and hooks run outside the sandbox too, as they do in the personal
-overlay.
+would run any package unsandboxed (`npx` inside the sandbox covers those). Hooks
+run outside the sandbox too, as they do in the personal overlay. The harness
+starts no MCP server (`--strict-mcp-config` with no `--mcp-config`).
 
 What this gives up, compared with the older session sandbox:
 
-- The browser is not locked to localhost. `page_check` opens only loopback URLs
-  and every page tool sends the browser back to the dev server when the page has
-  left it (and refuses when it cannot), but the page itself may load anything:
-  cmux's WKWebView does not support request routes, so there is no allowlist.
-  The page opens in a cmux browser profile named `claude-ollama` (its own
-  cookies and storage, added when missing), never in your own.
-- The GitHub read tools reach the project's `origin` and the repositories listed
-  one `owner/name` per line in `~/.config/claude-custom/gh-repos` (`#` starts a
-  comment; the sandboxed session cannot write the file). Writes such as
-  `gh pr comment` are plain Bash commands behind the `Bash` prompt.
+- The browser is not locked to localhost. The session drives the cmux browser
+  with `cmux browser` commands (outside the sandbox, after the `Bash` prompt),
+  and the page may load anything: cmux's WKWebView does not support request
+  routes, so there is no allowlist.
+- `gh` runs outside the sandbox with your own credentials after the `Bash`
+  prompt, for reads and writes alike, on any repository.
 - `short` runs as the user's own command after the `Bash` prompt.
 - `git fetch`, `pull` and `push` use the user's own git credentials.
 - Loopback is open on every port, so a session can call Ollama's API (pull or
@@ -424,10 +417,10 @@ To compare Ollama with other servers, see [backend-bench](backend-bench.md).
 
 `claude-ollama qwen [size] [qwen args...]` (or `claude-custom qwen ...`) runs
 Qwen Code (`brew install qwen-code`) instead of Claude Code on the size's `-cc`
-model: same model preparation and warm-up, same `semantic_search`, `repo` and
-`dev` MCP servers. `claude-ollama qwen --print-config [size]` prints the
-command. The point is a comparison: Qwen Code keeps its own system prompt and
-tool schemas, which are written for Qwen models.
+model: same model preparation and warm-up, and no MCP servers either.
+`claude-ollama qwen --print-config [size]` prints the command. The point is a
+comparison: Qwen Code keeps its own system prompt and tool schemas, which are
+written for Qwen models.
 
 Qwen Code reads `~/.claude-ollama/qwen` as its home (`QWEN_HOME`), never your
 `~/.qwen`, which the policy also hides from both harnesses. Each launch rewrites
@@ -473,47 +466,21 @@ so and Qwen Code runs as you. `claude-ollama qwen --print-config` and
 
 ### Dev servers and the browser
 
-The `dev` MCP server gives the session ten tools: `dev_status` (which dev
-servers answer, at which URL and pid), `dev_start` (runs a `dev` or `start`
-script in the background and returns its real URL), `dev_logs` (the server's
-output, optionally only errors with their stacks), `dev_errors` (Next.js 16+
-`get_errors`, or the log's errors otherwise), `dev_stop`, `dev_deps` (whether a
-package dir's `node_modules` is installed and newer than its lockfile, and the
-installed version of each named package or of every dependency), `dev_install`
-(runs the lockfile's package manager: `install` with no packages, or `add` of
-the named packages, `dev: true` for devDependencies, then `dev_deps` for them),
-`page_check` (opens or reloads a page in the cmux browser and returns its
-browser errors, console warnings and Next.js errors), `page_snapshot` (the open
-page's elements with refs) and `page_act` (click, fill, type, press, select,
-check or scroll one ref, then the errors it caused). `dev_start`, `dev_stop` and
-`dev_install` ask before they run; the others do not. Bash
+A session starts a dev server as Bash `pnpm -C DIR dev` with
+`run_in_background: true` and reads the URL and errors from its output.
+`shared/hooks/dev-server-guard.py` lets that through and denies the same start
+in the foreground (a dev server never exits, so the Bash tool would hang),
+telling the model to rerun it in the background. Bash
 `pnpm -C DIR install|add|test` runs outside the sandbox after the Bash prompt
-(see `excludedCommands` above), so the model may use either, and `dev_deps`
-replaces listing `node_modules`; Read and Bash are never gated there. Servers a
-session starts stop when it ends. The server reads `.next/dev/lock` for its port
-and `/_next/mcp` on Next.js 16+; other frameworks get log errors only. The tools
-keep the scheme the server prints, so a server started with
-`--experimental-https` (or whose `.next/dev/lock` `appUrl` is `https://`) is
-probed and opened over `https://localhost:PORT`; when a candidate does not
-answer over one scheme the other is tried, so an https server with no https hint
-is still found; the probe accepts the local self-signed certificate, and
-candidates are still `localhost` only. `page_check` also takes `url`, any
-`http://` or `https://` URL on `localhost`, `127.0.0.1` or `[::1]`, and opens it
-without probing, for servers `dev_status` cannot see. Bash `open` on a local URL
-is denied by `shared/hooks/dev-server-guard.py`, which points the model at
-`page_check`. `dev_status` also finds servers listening from the project folder
-through `lsof`, whatever their port; those listeners never block `dev_start`.
-The page tools run plain `cmux browser` commands: the first `page_check` opens a
-browser split beside the terminal without taking focus, in the `claude-ollama`
-browser profile, later calls navigate that surface (or open a new one when it
-was closed), and the tools read its `console list`, `errors list` and
-`snapshot --interactive`. Before a snapshot or an action, and after one, the
-tools check the page is still on a loopback URL and send it back to the dev
-server otherwise; selectors and text go to cmux as `--selector=` and `--text=`
-so a value can never be read as an option. They need a cmux terminal
-(`CMUX_SOCKET_PATH` set and `cmux` on `PATH`); `CLAUDE_OLLAMA_CMUX=0` turns them
-off. In claude-ollama sessions the Bash guard denies `pnpm dev` and similar
-starts, and only there.
+(see `excludedCommands` above); to see whether a package is installed the model
+reads `node_modules/<name>/package.json` instead of listing `node_modules`.
+Pages are checked in the cmux browser through the `/cmux-browser` skill
+(`cmux browser open URL`, a snapshot, clicks, the console's errors); the guard
+denies Bash `open` on a loopback URL and points the model at that skill. The
+browser needs a cmux terminal (`CMUX_SOCKET_PATH` set and `cmux` on `PATH`),
+where the launcher appends `ollama/CLAUDE.cmux.md` to the prompt;
+`CLAUDE_OLLAMA_CMUX=0` turns that off. The guard runs in claude-ollama sessions
+only.
 
 The appended prompt (`ollama/CLAUDE.local.md`) carries only what every turn
 needs; the situational rules live in `ollama/rule-cards/<id>.md`, and
@@ -638,14 +605,14 @@ button (an untrusted folder gets none, and the API refuses it, since a print
 mode session runs the folder's own hooks without the trust dialog) runs
 `bin/skill-check --size SIZE FOLDER`, which starts `claude-ollama` there in
 print mode (`-p hi --max-turns 1 --output-format stream-json --verbose`, with
-the indexer, draft opener and telemetry off), reads the `init` event's `skills`
-array, stops the launch, and prints JSON with the Claude Code version, that
-array and any error (the stderr tail when no session started within `--timeout`
-seconds, 120 by default); `CLAUDE_OLLAMA_LAUNCHER` and `CLAUDE_BIN` override the
-commands in tests. The page compares the array with the skills it found in the
-folder and names the ones Claude Code skipped, which points at a `SKILL.md`
-frontmatter Claude Code rejects (an unquoted colon in the description, a name
-with spaces or capitals). A per-size profile,
+the draft opener and telemetry off), reads the `init` event's `skills` array,
+stops the launch, and prints JSON with the Claude Code version, that array and
+any error (the stderr tail when no session started within `--timeout` seconds,
+120 by default); `CLAUDE_OLLAMA_LAUNCHER` and `CLAUDE_BIN` override the commands
+in tests. The page compares the array with the skills it found in the folder and
+names the ones Claude Code skipped, which points at a `SKILL.md` frontmatter
+Claude Code rejects (an unquoted colon in the description, a name with spaces or
+capitals). A per-size profile,
 `~/.config/claude-custom/profiles/ollama-<size>.json`, overrides that size's
 launch (every key optional):
 
@@ -682,7 +649,6 @@ console's copy.
 | `CLAUDE_CODE_EFFORT_LEVEL`      | xhigh   | Thinking effort when thinking is on (`low`, `medium`, `xhigh`)       |
 | `CLAUDE_OLLAMA_RELAUNCH`        | 1       | Hand off before the context fills                                    |
 | `CLAUDE_OLLAMA_HANDOFF_PCT`     | 70      | Hand off at (% of context), 30 to 85                                 |
-| `CLAUDE_OLLAMA_NO_INDEX`        | 0       | Skip the code search index                                           |
 | `CLAUDE_CUSTOM_FRICTION`        | 1       | Reset a looping guard after three identical denials                  |
 | `CLAUDE_OLLAMA_LADDER`          | 1       | Degrade rung by rung on incident evidence                            |
 | `CLAUDE_OLLAMA_TEST_AFTER_EDIT` | suggest | After each edit: suggest the test, or run it (`0`, `suggest`, `run`) |
@@ -722,12 +688,12 @@ session's folder.
 The Profiles page's Env tab shows each one by that label with its default and a
 help sentence, grouped under Prompt and context, Guards, Ollama residency,
 Diagnostics and Browser; the `claude-code` profile sees only the fields that
-apply to plain `claude` (telemetry, the index, drafts, cmux and the friction
-guard). The `/settings` page tables every switch with its default and each
-profile's value, linking to the editors; it changes nothing. Its Actions row
-leads to `/diagnose`, where one click runs `claude-ollama why` and shows the
-verdict, evidence, fix and prefix hit rate, one click writes a rescue report for
-a size and offers Copy report and Open for the newest file in
+apply to plain `claude` (telemetry, drafts, cmux and the friction guard). The
+`/settings` page tables every switch with its default and each profile's value,
+linking to the editors; it changes nothing. Its Actions row leads to
+`/diagnose`, where one click runs `claude-ollama why` and shows the verdict,
+evidence, fix and prefix hit rate, one click writes a rescue report for a size
+and offers Copy report and Open for the newest file in
 `~/.claude-ollama/rescue/`, and two read-only cards list the rule cards (with a
 link to the `CLAUDE_OLLAMA_RULE_CARDS` switch that turns their delivery off) and
 the recovery recipes. The Logs page's Proxy tab links to the
@@ -921,10 +887,10 @@ its class, size on disk and whether Ollama has it loaded. It refreshes every 5
 seconds and shows an Ollama-not-running banner when the server does not answer.
 Prepare starts `claude-ollama prepare SIZE` as a run and shows its progress bar;
 a missing size can take many gigabytes to download. The "Embedding model" card
-shows the `semantic_search` model's name from `--print-config` and whether
-Ollama has it; its "Set up" button runs `claude-ollama prepare-embedding` the
-same way. Remove unused models opens a panel that lists exactly the third-party
-and orphan models it would remove, with their total size, and starts
+shows the pinned embedding model and whether Ollama has it (no session uses it
+now); its "Set up" button runs `claude-ollama prepare-embedding` the same way.
+Remove unused models opens a panel that lists exactly the third-party and orphan
+models it would remove, with their total size, and starts
 `ollama-models prune --yes --only NAME...` only after you press Remove these.
 The page only previews: the script re-checks each name when it removes it, so a
 model that stopped being prunable is skipped. The Models page shows each model

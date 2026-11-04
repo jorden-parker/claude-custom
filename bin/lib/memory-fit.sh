@@ -14,11 +14,7 @@ fit_on() {
 }
 
 run_fit() {
-  if [ -n "$2" ]; then
-    "$lease_bin" fit --model "${model:?}" --num-ctx "$1" --embedding "$2"
-  else
-    "$lease_bin" fit --model "${model:?}" --num-ctx "$1"
-  fi
+  "$lease_bin" fit --model "${model:?}" --num-ctx "$1"
 }
 
 gib() {
@@ -31,10 +27,10 @@ read_fit() {
 }
 
 fit_summary() {
-  local model_bytes kv_bytes embedding_bytes total_bytes free_bytes
-  IFS=$'\t' read -r model_bytes kv_bytes embedding_bytes total_bytes free_bytes < <(
-    jq -r '[.model_bytes, .kv_bytes, .embedding_bytes, .total_bytes, .free_bytes] | @tsv' <<< "$fit_json")
-  echo "model $(gib "$model_bytes") + kv $(gib "$kv_bytes") + embedding $(gib "$embedding_bytes") = $(gib "$total_bytes") of $(gib "$free_bytes") free"
+  local model_bytes kv_bytes total_bytes free_bytes
+  IFS=$'\t' read -r model_bytes kv_bytes total_bytes free_bytes < <(
+    jq -r '[.model_bytes, .kv_bytes, .total_bytes, .free_bytes] | @tsv' <<< "$fit_json")
+  echo "model $(gib "$model_bytes") + kv $(gib "$kv_bytes") = $(gib "$total_bytes") of $(gib "$free_bytes") free"
 }
 
 fit_fits() {

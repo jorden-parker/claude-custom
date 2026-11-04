@@ -171,16 +171,3 @@ compose_launch_settings() {
   ! external_backend_on || apply_external_backend "$base_settings"
   launch_settings="$composed_settings"
 }
-
-add_mcp_server() {
-  [ "$("$profile_overlay" mcp "$profile_file" "$1")" = true ] || return 0
-  servers="${servers:+$servers,}\"$1\":{\"command\":\"$2\",\"args\":[\"python3\",\"$3\"]}"
-}
-
-mcp_config() {
-  servers=""
-  add_mcp_server code-search "$repo_dir/shared/host-env" "$repo_dir/shared/mcp/code-search.py"
-  add_mcp_server repo "$repo_dir/shared/host-env" "$repo_dir/shared/mcp/repo-tools.py"
-  add_mcp_server dev "$repo_dir/shared/host-env" "$repo_dir/shared/mcp/dev-server.py"
-  printf '{"mcpServers":{%s}}' "$servers"
-}

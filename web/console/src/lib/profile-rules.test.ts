@@ -159,19 +159,25 @@ describe("validateProfileOverride", () => {
     );
   });
 
-  it("accepts MCP toggles only for the three launcher servers on Ollama", () => {
-    expect(accepted({ mcp: { dev: false, repo: true } }, OLLAMA)).toEqual({
-      mcp: { dev: false, repo: true },
+  it("drops the retired mcp key from an old profile file on any profile", () => {
+    expect(accepted({ mcp: { dev: false }, thinking: true }, OLLAMA)).toEqual({
+      thinking: true,
     });
-    expect(rejected({ mcp: { github: true } }, OLLAMA)).toBe(
-      "unknown MCP server github",
-    );
-    expect(rejected({ mcp: { dev: true } }, CLAUDE_CODE)).toBe(
-      "mcp only applies to Ollama profiles",
-    );
-    expect(rejected({ mcp: { dev: "yes" } }, OLLAMA)).toBe(
-      "dev must be true or false",
-    );
+    expect(accepted({ mcp: "anything" }, CLAUDE_CODE)).toEqual({});
+  });
+
+  it("drops the retired code search index switch from an old profile's env", () => {
+    expect(
+      accepted(
+        {
+          env: { CLAUDE_OLLAMA_NO_INDEX: "1", CLAUDE_OLLAMA_TELEMETRY: "1" },
+        },
+        OLLAMA,
+      ),
+    ).toEqual({ env: { CLAUDE_OLLAMA_TELEMETRY: "1" } });
+    expect(
+      accepted({ env: { CLAUDE_OLLAMA_NO_INDEX: "0" } }, OLLAMA),
+    ).toEqual({});
   });
 
   it("accepts a boolean thinking switch for Ollama profiles only", () => {
@@ -508,9 +514,8 @@ describe("overrideCount", () => {
         output_tokens: 4096,
         thinking: true,
         parameters: { temperature: 0.6 },
-        mcp: { dev: false },
         env: { CLAUDE_OLLAMA_CMUX: "0" },
       }),
-    ).toBe(9);
+    ).toBe(8);
   });
 });

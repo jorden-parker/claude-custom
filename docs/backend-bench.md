@@ -176,7 +176,8 @@ metadata) in the cell's `weights_revision`.
   Subagents and the Haiku slot use it, and Claude Code sends both models to the
   same `ANTHROPIC_BASE_URL`, so the winning server must serve it too, under the
   name every profile uses: `qwen3-4b-cc`.
-- The embedding model (`qwen3-embedding:0.6b`) is not benchmarked.
+- The embedding model (`qwen3-embedding:0.6b`) is not benchmarked; no session
+  uses it.
 
 ## MTP
 

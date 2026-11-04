@@ -23,7 +23,7 @@ from the settings file, and the `FROM` line of the Modelfile. A settings file
 with no `model` is an error, and a settings file with no Modelfile is skipped.
 
 The last row is always "Set up embedding model". Enter on it runs `ollama pull`
-for the model `semantic_search` uses: `CODE_SEARCH_MODEL` when set, otherwise
+for the pinned embedding model: `CODE_SEARCH_MODEL` when set, otherwise
 `qwen3-embedding:0.6b`. It needs no config file. The output goes to stderr, and
 the menu stays open with a ready or failed status.
 

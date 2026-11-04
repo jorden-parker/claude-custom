@@ -147,12 +147,11 @@ expect_eq "a new prompt clears the cache" allow "$(decision Read "$read_input")"
 after Read "$read_input" "$read_response"
 expect_eq "a record after the new prompt drops the stale snapshots" 1 "$(find "$snapshot_dir" -type f | wc -l | tr -d ' ')"
 
-after mcp__repo__git_status '{}' '[{"type":"text","text":"## main\n M notes.txt"}]'
-expect_eq "a repeated git_status is never served from the cache" allow "$(decision mcp__repo__git_status '{}')"
+after Grep '{"pattern":"auth"}' '{"content":"src/auth.ts:1"}'
+expect_eq "a repeated Grep is never served from the cache" allow "$(decision Grep '{"pattern":"auth"}')"
 
 after mcp__code-search__semantic_search '{"query":"where is auth"}' '{"content":[{"type":"text","text":"src/auth.ts:1"}]}'
-expect_eq "a repeated search is denied" deny "$(decision mcp__code-search__semantic_search '{"query":"where is auth"}')"
-expect_eq "another query passes" allow "$(decision mcp__code-search__semantic_search '{"query":"where is billing"}')"
+expect_eq "only Read is cached" allow "$(decision mcp__code-search__semantic_search '{"query":"where is auth"}')"
 
 after Bash '{"command":"ls"}' '{"stdout":"a","stderr":""}'
 expect_eq "a tool outside the list is never cached" allow "$(decision Bash '{"command":"ls"}')"

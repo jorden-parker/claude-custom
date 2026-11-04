@@ -3,10 +3,14 @@ set -u
 guard="$(cd "$(dirname "$0")" && pwd)/dev-server-guard.py"
 failures=0
 
+guard_output() {
+  printf '{"tool_name":"Bash","tool_input":{"command":%s%s}}' \
+    "$(printf '%s' "$1" | python3 -c 'import json,sys;print(json.dumps(sys.stdin.read()))')" "${2:-}" \
+    | python3 "$guard"
+}
+
 decision_for() {
-  printf '{"tool_name":"Bash","tool_input":{"command":%s}}' \
-    "$(printf '%s' "$1" | python3 -c 'import json,sys;print(json.dumps(sys.stdin.read()))')" \
-    | python3 "$guard" | grep -o '"permissionDecision": *"deny"' >/dev/null && echo deny || echo allow
+  guard_output "$@" | grep -o '"permissionDecision": *"deny"' >/dev/null && echo deny || echo allow
 }
 
 expect() {
@@ -14,6 +18,23 @@ expect() {
   got="$(decision_for "$command")"
   if [ "$got" != "$want" ]; then
     echo "FAIL: expected $want for: $command (got $got)"
+    failures=$((failures + 1))
+  fi
+}
+
+expect_in_background() {
+  local want="$1" command="$2" got
+  got="$(decision_for "$command" ',"run_in_background":true')"
+  if [ "$got" != "$want" ]; then
+    echo "FAIL: expected $want in the background for: $command (got $got)"
+    failures=$((failures + 1))
+  fi
+}
+
+expect_reason() {
+  local label="$1" command="$2" needle="$3"
+  if ! guard_output "$command" | grep -qF -- "$needle"; then
+    echo "FAIL: $label"
     failures=$((failures + 1))
   fi
 }
@@ -34,6 +55,24 @@ expect deny  'pnpm --filter web dev'
 expect deny  'pnpm -C web/pr-review dev'
 expect deny  'PORT=3001 pnpm dev'
 expect deny  'pnpm dev &'
+expect_in_background allow 'pnpm dev'
+expect_in_background allow 'pnpm -C web/console dev'
+expect_in_background allow 'npx next dev --turbo'
+expect_in_background allow 'vite dev --port 5174'
+expect_in_background deny  'cd web/pr-review && pnpm dev'
+expect_in_background deny  'pnpm exec vite'
+expect_reason "a foreground start asks for run_in_background" 'pnpm dev' 'run_in_background: true'
+expect_reason "a foreground start names no dev tool" 'pnpm dev' 'same command'
+expect_reason "a local open points at the cmux browser skill" 'open http://localhost:4000' '/cmux-browser'
+expect_reason "a local open names cmux browser open" 'open http://localhost:4000' 'cmux browser open'
+if guard_output 'pnpm dev' | grep -qF 'mcp__dev'; then
+  echo "FAIL: the start reason names no mcp__dev tool"
+  failures=$((failures + 1))
+fi
+if guard_output 'open http://localhost:4000' | grep -qF 'mcp__dev'; then
+  echo "FAIL: the open reason names no mcp__dev tool"
+  failures=$((failures + 1))
+fi
 expect allow 'pnpm install'
 expect allow 'pnpm i'
 expect allow 'pnpm add zod'

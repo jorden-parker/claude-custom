@@ -74,10 +74,10 @@ check_eq "tools without a profile prints the base list" "Bash,Read,Edit" "$("$sc
 printf '%s' '{"tools":{"Read":"allow"}}' > "$tmp/profiles/read.json"
 check_eq "tools does not repeat a tool already listed" "Bash,Read,Edit" "$("$script" tools "Bash,Read,Edit" "$tmp/profiles/read.json")"
 
-printf '%s' '{"env":{"CLAUDE_OLLAMA_TELEMETRY":"0","CLAUDE_OLLAMA_NO_INDEX":1,"NOT_ALLOWED":"x"}}' > "$tmp/profiles/env.json"
-env_out="$(env -u CLAUDE_OLLAMA_TELEMETRY -u CLAUDE_OLLAMA_NO_INDEX "$script" env "$tmp/profiles/env.json")"
+printf '%s' '{"env":{"CLAUDE_OLLAMA_TELEMETRY":"0","CLAUDE_OLLAMA_BEACON":1,"NOT_ALLOWED":"x"}}' > "$tmp/profiles/env.json"
+env_out="$(env -u CLAUDE_OLLAMA_TELEMETRY -u CLAUDE_OLLAMA_BEACON "$script" env "$tmp/profiles/env.json")"
 check_eq "env exports an allowlisted key" "export CLAUDE_OLLAMA_TELEMETRY='0'" "$(printf '%s\n' "$env_out" | grep CLAUDE_OLLAMA_TELEMETRY)"
-check_eq "env exports a numeric value as a string" "export CLAUDE_OLLAMA_NO_INDEX='1'" "$(printf '%s\n' "$env_out" | grep CLAUDE_OLLAMA_NO_INDEX)"
+check_eq "env exports a numeric value as a string" "export CLAUDE_OLLAMA_BEACON='1'" "$(printf '%s\n' "$env_out" | grep CLAUDE_OLLAMA_BEACON)"
 check_eq "env skips keys outside the allowlist" "" "$(printf '%s\n' "$env_out" | grep NOT_ALLOWED)"
 check_eq "a variable already set in the environment wins" "" "$(CLAUDE_OLLAMA_TELEMETRY=1 "$script" env "$tmp/profiles/env.json" | grep CLAUDE_OLLAMA_TELEMETRY)"
 printf '%s' '{"env":{"CLAUDE_OLLAMA_HANDOFF_PCT":"60","CLAUDE_OLLAMA_RELAUNCH":"0","CLAUDE_OLLAMA_INCIDENTS":"0","HANDOFF_UNKNOWN":"1"}}' > "$tmp/profiles/handoff.json"
@@ -113,9 +113,9 @@ printf '%s' '{"env":{"CLAUDE_OLLAMA_NEW_SWITCH":"0","CLAUDE_OLLAMA_CMUX":"0"}}' 
 check_eq "env allows exactly the keys in profile-env.json" "export CLAUDE_OLLAMA_NEW_SWITCH='0'" "$(env -u CLAUDE_OLLAMA_NEW_SWITCH -u CLAUDE_OLLAMA_CMUX "$tmp/catalogue/shared/profile-overlay" env "$tmp/profiles/catalogue.json")"
 
 printf '%s' '{"mcp":{"dev":false}}' > "$tmp/profiles/mcp.json"
-check_eq "a disabled MCP server reports false" false "$("$script" mcp "$tmp/profiles/mcp.json" dev)"
-check_eq "an MCP server not named stays enabled" true "$("$script" mcp "$tmp/profiles/mcp.json" repo)"
-check_eq "without a profile every MCP server stays enabled" true "$("$script" mcp "$tmp/profiles/absent.json" dev)"
+check_eq "the retired mcp subcommand is a usage error" 2 "$(status_of "$script" mcp "$tmp/profiles/mcp.json" dev)"
+check_eq "a profile that still carries an mcp key passes check" 0 "$(status_of "$script" check "$tmp/profiles/mcp.json")"
+check_eq "a profile that still carries an mcp key still renders settings" 0 "$(status_of "$script" settings "$base" "$tmp/profiles/mcp.json" "$tmp/out-mcp.json")"
 
 printf '%s' '{"context":32768,"parameters":{"temperature":0.6,"min_p":0.05}}' > "$tmp/profiles/params.json"
 check_eq "parameters merge over the Modelfile values and add new keys" "num_ctx 32768
@@ -139,7 +139,7 @@ check_eq "sandbox-off is true when the sandbox-off file exists" true "$(XDG_CONF
 rm -f "$xdg/claude-custom/sandbox-off"
 
 printf '%s' '{"tools":{"Glob":"allow"},"thinking":true,"output_tokens":4096,"mcp":{"dev":false}}' > "$tmp/profiles/summary.json"
-check_eq "summary lists the overrides in effect" "tools.Glob=allow, thinking=true, output_tokens=4096, mcp.dev=false" "$("$script" summary "$tmp/profiles/summary.json")"
+check_eq "summary lists the overrides in effect and ignores a retired mcp key" "tools.Glob=allow, thinking=true, output_tokens=4096" "$("$script" summary "$tmp/profiles/summary.json")"
 check_eq "summary says none without a profile" none "$("$script" summary "$tmp/profiles/absent.json")"
 
 check_eq "check accepts a missing profile" 0 "$(status_of "$script" check "$tmp/profiles/absent.json")"

@@ -30,7 +30,6 @@ ladder_rung=""
 ladder_context=""
 ladder_reason=""
 session_rung=""
-fit_embed_off=""
 append_prompt="$session_config_dir/append-prompt.md"
 proxy_port_file="$session_config_dir/proxy.port"
 proxy_record_dir="${CLAUDE_OLLAMA_PROXY_RECORD_DIR:-$session_config_dir/proxy/record}"
@@ -109,11 +108,8 @@ verify_installed() {
   [ -z "$actual" ] || check_pin "$1" "$actual"
 }
 
-verify_installed_models() {
-  local name
-  for name in $(pinned_models); do
-    verify_installed "$name" || exit 1
-  done
+verify_installed_model() {
+  verify_installed "$(base_model)" || exit 1
 }
 
 gguf_source() {
@@ -178,12 +174,6 @@ ensure_model() {
   refresh_parameters "$model"
 }
 
-ensure_embedding_model() {
-  ollama show "$embedding_model" >/dev/null 2>&1 && return 0
-  ollama pull "$embedding_model" ||
-    echo "claude-ollama: could not pull $embedding_model; semantic_search will fail until you run claude-ollama and pick 'Set up embedding model'" >&2
-}
-
 prepare_embedding() {
   ollama show "$embedding_model" >/dev/null 2>&1 && exit 0
   exec ollama pull "$embedding_model"
@@ -193,26 +183,6 @@ warm_model() {
   command -v curl >/dev/null 2>&1 || return 0
   curl -s -o /dev/null -m 2 -X POST "$ollama_url/api/generate" \
     -d "{\"model\":\"$model\",\"keep_alive\":\"$keep_alive\"}" >/dev/null 2>&1 &
-}
-
-embeddings_wanted() {
-  [ -z "$fit_embed_off" ] && embedding_model_fits
-}
-
-allow_search_embeddings() {
-  if [ -n "$fit_embed_off" ]; then
-    export CODE_SEARCH_EMBED=0
-    return 0
-  fi
-  embedding_model_fits || return 0
-  export CODE_SEARCH_EMBED=1
-}
-
-warm_embedding_model() {
-  embeddings_wanted || return 0
-  command -v curl >/dev/null 2>&1 || return 0
-  curl -s -o /dev/null -m 30 -X POST "$ollama_url/api/embed" \
-    -d "{\"model\":\"$embedding_model\",\"input\":\"warm up\",\"keep_alive\":\"$keep_alive\"}" >/dev/null 2>&1 || true
 }
 
 acquire_lease() {
@@ -258,33 +228,21 @@ lower_context_of() {
   awk -v current="$1" 'BEGIN { rounded = int(current * 0.75 / 1024) * 1024; print (rounded < 16384 ? 16384 : rounded) }'
 }
 
-start_without_embeddings() {
-  fit_embed_off=1
-  session_rung=embeddings-off
-  echo "claude-ollama: ladder embeddings-off: does not fit with the embedding model ($(fit_shortfall) short)" >&2
-  measure_fit "$(modelfile_num_ctx)" "" || return 1
-  fit_fits "$fit_result"
-}
-
 start_on_lower_context() {
   ladder_rung=context-down
   ladder_context="$(lower_context_of "$(modelfile_num_ctx)")"
   session_rung=context-down
   echo "claude-ollama: ladder context-down: does not fit at num_ctx $(modelfile_num_ctx) ($(fit_shortfall) short); starting at $ladder_context" >&2
-  measure_fit "$ladder_context" "" || return 1
-  fit_fits "$fit_result" || echo "claude-ollama: memory fit: still $(fit_shortfall) short at num_ctx $ladder_context with the embeddings off" >&2
+  measure_fit "$ladder_context" || return 1
+  fit_fits "$fit_result" || echo "claude-ollama: memory fit: still $(fit_shortfall) short at num_ctx $ladder_context" >&2
 }
 
 check_memory_fit() {
-  local embedding="" fit_result
+  local fit_result
   fit_on || return 0
-  ! embedding_model_fits || embedding="$embedding_model"
-  measure_fit "$(modelfile_num_ctx)" "$embedding" || return 0
+  measure_fit "$(modelfile_num_ctx)" || return 0
   echo "claude-ollama: memory fit: $(fit_summary)" >&2
   fit_fits "$fit_result" && return 0
-  if [ -n "$embedding" ]; then
-    start_without_embeddings && return 0
-  fi
   start_on_lower_context || true
 }
 
@@ -305,31 +263,11 @@ end_launch() {
   remove_composed_settings
 }
 
-leased_indexer() {
-  if lease_on && embeddings_wanted; then
-    cat <<'SH'
-"$1" acquire embedding --model "$2" --pid $$ >/dev/null 2>&1 || export CODE_SEARCH_EMBED=0
-exec python3 "$3" --index --watch-pid "$4"
-SH
-  else
-    cat <<'SH'
-exec python3 "$3" --index --watch-pid "$4"
-SH
-  fi
-}
-
-warm_search_index() {
-  [ -z "${CLAUDE_OLLAMA_NO_INDEX:-}" ] || return 0
-  git rev-parse --show-toplevel >/dev/null 2>&1 || return 0
-  nohup sh -c "$(leased_indexer)" indexer "$lease_bin" "$embedding_model" "$repo_dir/shared/mcp/code-search.py" "$$" >/dev/null 2>&1 &
-}
-
 ladder_bin() {
   echo "${CLAUDE_OLLAMA_LADDER_BIN:-$profile_dir/incidents/ladder.py}"
 }
 
 ladder_rung_args() {
-  [ -z "$fit_embed_off" ] || printf -- '--rung\nembeddings-off\n'
   [ -z "$ladder_context" ] || printf -- '--rung\ncontext-down\n'
 }
 
@@ -339,7 +277,7 @@ start_ladder() {
   [ -n "${CLAUDE_OLLAMA_INCIDENTS_FILE:-}" ] || return 0
   while IFS= read -r arg; do rung_args+=("$arg"); done < <(ladder_rung_args)
   nohup "$(ladder_bin)" --incidents "$CLAUDE_OLLAMA_INCIDENTS_FILE" --relaunch-dir "$relaunch_dir" \
-    --watch-pid "$$" --context "$(modelfile_num_ctx)" --model "$model" --embedding "$embedding_model" \
+    --watch-pid "$$" --context "$(modelfile_num_ctx)" --model "$model" \
     --lease-bin "$lease_bin" ${rung_args[@]+"${rung_args[@]}"} >/dev/null 2>&1 &
 }
 
@@ -532,8 +470,8 @@ copy_vendored_skills() {
 }
 
 claude_command() {
-  printf 'claude --settings %s --system-prompt-file %s --append-system-prompt-file %s --strict-mcp-config --mcp-config %s --model %s --tools %s' \
-    "$launch_settings" "$profile_dir/system-prompt.md" "$append_prompt" "$(mcp_config)" "$model" "$(launch_tools)"
+  printf 'claude --settings %s --system-prompt-file %s --append-system-prompt-file %s --strict-mcp-config --model %s --tools %s' \
+    "$launch_settings" "$profile_dir/system-prompt.md" "$append_prompt" "$model" "$(launch_tools)"
 }
 
 write_append_prompt() {
@@ -552,7 +490,6 @@ remove_relaunch_dir() {
 
 prepare_relaunch_dir() {
   relaunch_dir="$(python3 "$repo_dir/shared/relaunch_dir.py" prepare --root "$relaunch_root" --pid "$$")"
-  [ -z "$fit_embed_off" ] || relaunch_signal raise embed-off
   trap end_launch EXIT
   export CLAUDE_OLLAMA_RELAUNCH_DIR="$relaunch_dir"
 }
@@ -662,16 +599,7 @@ apply_ladder() {
 }
 
 remaining_rung() {
-  if [ -n "$ladder_context" ]; then echo context-down
-  elif relaunch_signal has embed-off; then echo embeddings-off
-  fi
-}
-
-restore_embeddings() {
-  relaunch_signal lower embed-off
-  fit_embed_off=""
-  unset CODE_SEARCH_EMBED
-  allow_search_embeddings
+  [ -z "$ladder_context" ] || echo context-down
 }
 
 restore_context() {
@@ -686,20 +614,12 @@ apply_ladder_up() {
   request="$(relaunch_signal take ladder-up)" || request=""
   rung="$(jq -r '.rung // empty' <<< "$request" 2>/dev/null)"
   reason="$(jq -r '.reason // empty' <<< "$request" 2>/dev/null)"
-  case "$rung" in
-    embeddings-off) restore_embeddings ;;
-    context-down) restore_context ;;
-    *) return 0 ;;
-  esac
+  [ "$rung" = context-down ] || return 0
+  restore_context
   echo "claude-ollama: ladder up: $rung recovered ($reason)" >&2
   append_incident recovered "$rung: $reason" "" ladder/up
   session_rung="$(remaining_rung)"
   record_session_rung
-}
-
-honour_embed_off() {
-  relaunch_signal has embed-off || return 0
-  export CODE_SEARCH_EMBED=0
 }
 
 relaunch_pending() {
@@ -717,7 +637,6 @@ prepare_relaunch() {
   else
     set_ladder_args "$@"
   fi
-  honour_embed_off
 }
 
 launch_claude() {
@@ -745,7 +664,6 @@ print_config() {
   echo "size: $size"
   echo "model: $model"
   echo "base: $(base_model)"
-  echo "embedding model: $embedding_model"
   echo "num_ctx: $(modelfile_num_ctx)"
   echo "max context tokens: $(profile_context_tokens)"
   echo "max output tokens: $(profile_output_tokens)"
@@ -756,6 +674,7 @@ print_config() {
   echo "fetch domains: $(fetch_domains_label)"
   echo "profile: $profile_file"
   echo "overrides: $(profile_summary)"
+  echo "embedding model: $embedding_model"
   echo "tools: $(launch_tools)"
   echo "command: $(claude_command)"
 }
@@ -914,7 +833,7 @@ serve_console() {
 case "${1:-}" in
   -h|--help)
     echo "usage: claude-ollama [size] [claude args...]"
-    echo "qwen [size] [qwen args...]: launch Qwen Code (brew install qwen-code) on the size's model, in macOS Seatbelt with ollama/qwen-sandbox.sb, with the same MCP servers"
+    echo "qwen [size] [qwen args...]: launch Qwen Code (brew install qwen-code) on the size's model, in macOS Seatbelt with ollama/qwen-sandbox.sb"
     echo "qwen --print-config [size]: print the resolved settings and the qwen command"
     echo "qwen doctor [size]: check qwen, the model, context sizes, the settings template and Ollama"
     echo "sizes: $(configured_sizes | tr '\n' ' ' | sed 's/ $//')"
@@ -934,7 +853,7 @@ case "${1:-}" in
     echo "reviews [--port N]: serve live and past reviews at http://127.0.0.1:8765/"
     echo "fetch domains: list hostnames in ~/.config/claude-custom/fetch-domains to give sessions WebFetch for them"
     echo "prepare [size]: pull or import the size's model and stop, without starting claude"
-    echo "prepare-embedding: pull the semantic_search embedding model and stop, without starting claude"
+    echo "prepare-embedding: pull the pinned embedding model and stop, without starting claude"
     echo "speed-check: check thinking is off and bench the GGUF sizes against the MLX ones, then print a verdict"
     echo "thinking-check: check thinking is off on the MLX sizes and print PASS or FAIL"
     exit 0 ;;
@@ -1042,20 +961,15 @@ use_external_backend() {
   model="$CLAUDE_OLLAMA_EXTERNAL_MODEL"
   CLAUDE_OLLAMA_LEASE=0
   CLAUDE_OLLAMA_LADDER=0
-  export CODE_SEARCH_EMBED=0
   echo "claude-ollama: external backend: $model at $CLAUDE_OLLAMA_EXTERNAL_URL" >&2
 }
 
 prepare_ollama_backend() {
   apply_server_env
   ensure_model
-  ensure_embedding_model
-  verify_installed_models
+  verify_installed_model
   check_memory_fit
   claim_session
-  allow_search_embeddings
-  warm_embedding_model
-  warm_search_index
   warm_model
 }
 
@@ -1132,7 +1046,6 @@ build_claude_args() {
     --system-prompt-file "$profile_dir/system-prompt.md"
     --append-system-prompt-file "$append_prompt"
     --strict-mcp-config
-    --mcp-config "$(mcp_config)"
     --model "$model"
     --tools "$(launch_tools)"
   )

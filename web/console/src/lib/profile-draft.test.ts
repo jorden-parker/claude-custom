@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   withContext,
   withEnv,
-  withMcp,
   withOutputTokens,
   withParameter,
   withSandbox,
@@ -44,9 +43,7 @@ describe("profile drafts", () => {
     expect(withThinking({ thinking: true }, null)).toEqual({ thinking: undefined });
   });
 
-  it("toggles an MCP server and an env key", () => {
-    expect(withMcp({}, "dev", false)).toEqual({ mcp: { dev: false } });
-    expect(withMcp({ mcp: { dev: false } }, "dev", null)).toEqual({});
+  it("sets and clears an env key", () => {
     expect(withEnv({}, "CLAUDE_OLLAMA_CMUX", "0")).toEqual({ env: { CLAUDE_OLLAMA_CMUX: "0" } });
     expect(withEnv({ env: { CLAUDE_OLLAMA_CMUX: "0" } }, "CLAUDE_OLLAMA_CMUX", null)).toEqual({});
   });

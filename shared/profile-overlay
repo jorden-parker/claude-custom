@@ -9,7 +9,7 @@ fail() {
 }
 
 usage() {
-  echo "usage: profile-overlay settings BASE PROFILE OUT | compose BASE OUT [--fetch-domain HOST]... [--profile FILE] [--context N] [--proxy-url URL] | tools BASE_LIST PROFILE | env PROFILE | mcp PROFILE NAME | parameters PROFILE < LINES | sandbox-off | summary PROFILE | check PROFILE" >&2
+  echo "usage: profile-overlay settings BASE PROFILE OUT | compose BASE OUT [--fetch-domain HOST]... [--profile FILE] [--context N] [--proxy-url URL] | tools BASE_LIST PROFILE | env PROFILE | parameters PROFILE < LINES | sandbox-off | summary PROFILE | check PROFILE" >&2
   exit 2
 }
 
@@ -178,11 +178,6 @@ print_env() {
   done
 }
 
-mcp_enabled() {
-  profile="$(read_profile "$1")" || exit 1
-  printf '%s\n' "$profile" | jq -r --arg name "$2" 'if .mcp[$name] == false then "false" else "true" end'
-}
-
 merge_parameters() {
   profile="$(read_profile "$1")" || exit 1
   jq -Rrn --argjson profile "$profile" '
@@ -218,7 +213,6 @@ summary() {
       (if has("thinking") then "thinking=\(.thinking)" else empty end),
       (if has("output_tokens") then "output_tokens=\(.output_tokens)" else empty end),
       (.parameters // {} | to_entries[] | "parameters.\(.key)=\(.value)"),
-      (.mcp // {} | to_entries[] | "mcp.\(.key)=\(.value)"),
       (.env // {} | to_entries[] | "env.\(.key)=\(.value)")
     ]
     | if length == 0 then "none" else join(", ") end
@@ -243,10 +237,6 @@ case "$1" in
   env)
     [ $# -eq 2 ] || usage
     print_env "$2"
-    ;;
-  mcp)
-    [ $# -eq 3 ] || usage
-    mcp_enabled "$2" "$3"
     ;;
   parameters)
     [ $# -eq 2 ] || usage

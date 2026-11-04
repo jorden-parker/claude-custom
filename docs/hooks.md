@@ -62,7 +62,7 @@ has a `test` script). An empty `.claude/no-verify` file turns the fallback off.
   passes it the edited files so it runs only their tests)
 - One suite: `make test-hooks`, `make test-install`, `make test-launcher`,
   `make check-config`, `make check-profiles`, `make test-profiles`,
-  `make test-probe`, `make test-search`, `make test-go`
+  `make test-probe`, `make test-go`
 - Installer: `personal/install.test.sh`; launcher: `bin/claude-ollama.test.sh`;
   config invariants: `bin/check-config`
 - Lint: `make shellcheck`, `make check-json`

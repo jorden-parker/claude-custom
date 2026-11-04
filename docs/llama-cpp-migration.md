@@ -3,6 +3,10 @@
 Researched 2026-11-03. Depth: thorough (WebSearch plus page reads; Firecrawl's
 key was rejected). Scope: replace Ollama fully.
 
+Historical: the call sites below include `shared/mcp/code-search.py` and the
+embedding warm-up, which have since been removed; the harness starts no MCP
+server.
+
 ## Executive summary
 
 llama.cpp's `llama-server` now covers everything the harness needs from Ollama:

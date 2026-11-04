@@ -34,7 +34,6 @@ const CLAUDE_CODE_DETAIL = {
     context: null,
     parameters: {},
     hooks: [{ event: "Stop", matcher: "*", command: "stop-verify.py" }],
-    mcpServers: [],
   },
 };
 
@@ -51,7 +50,6 @@ const OLLAMA_DETAIL = {
     context: 65536,
     outputTokens: 8192,
     parameters: { temperature: 0.7 },
-    mcpServers: ["code-search", "repo", "dev"],
   },
 };
 
@@ -411,16 +409,16 @@ describe("ProfileEditor", () => {
     );
   });
 
-  it("lists the hooks read-only and toggles the Ollama MCP servers", async () => {
+  it("lists the hooks read-only and offers no MCP server switches", async () => {
     mockProfileApi(OLLAMA_DETAIL);
     render(<ProfileEditor id="ollama-27b" />);
     await screen.findByText("Fetch a web page");
 
-    fireEvent.click(screen.getByRole("tab", { name: "MCP & hooks" }));
+    expect(screen.queryByRole("tab", { name: "MCP & hooks" })).toBeNull();
+    fireEvent.click(screen.getByRole("tab", { name: "Hooks" }));
 
     expect(await screen.findByText("stop-verify.py")).toBeTruthy();
-    fireEvent.click(screen.getByRole("switch", { name: "MCP dev" }));
-    expect(screen.getByText("Unsaved changes")).toBeTruthy();
+    expect(screen.queryByRole("switch", { name: /^MCP / })).toBeNull();
   });
 
   it("offers only default and off for Agent on an Ollama profile", async () => {

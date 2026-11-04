@@ -2,7 +2,7 @@
   {
     "match": "has [0-9]+ lines",
     "steps": [
-      "call semantic_search with plain words for what you need, or Grep -n the exact name",
+      "Grep -n the exact name you need, or git grep -n it",
       "take the line number from the result",
       "Read again with that offset and limit 300 or less"
     ]

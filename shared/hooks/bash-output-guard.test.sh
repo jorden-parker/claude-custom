@@ -125,6 +125,12 @@ if ! grep -qF '"permissionDecision": "deny"' <<<"$blocked_output" || [ "$blocked
   failures=$((failures + 1))
 fi
 
+git_log_reason="$(printf '{"tool_name":"Bash","tool_input":{"command":"git log"}}' | env -u CLAUDE_TOOL_TELEMETRY python3 "$guard")"
+if ! grep -qF 'git log -n 20 --oneline' <<<"$git_log_reason" || grep -qF 'mcp__' <<<"$git_log_reason"; then
+  echo "FAIL: the git log reason names plain git log -n 20 --oneline and no MCP tool"
+  failures=$((failures + 1))
+fi
+
 if [ "$failures" -eq 0 ]; then
   echo "all passed"
 else

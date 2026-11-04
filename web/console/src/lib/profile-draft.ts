@@ -9,10 +9,6 @@ export function withParameter(override: ProfileOverride, name: string, value: nu
   return { ...override, parameters: mapWith(override.parameters, name, value) };
 }
 
-export function withMcp(override: ProfileOverride, name: string, enabled: boolean | null): ProfileOverride {
-  return { ...override, mcp: mapWith(override.mcp, name, enabled) };
-}
-
 export function withEnv(override: ProfileOverride, name: string, value: string | null): ProfileOverride {
   return { ...override, env: mapWith(override.env, name, value) };
 }

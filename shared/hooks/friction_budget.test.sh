@@ -59,7 +59,8 @@ expect_eq "the reset names the one allowed alternative" yes "$(mentions "$reset_
 expect_eq "the reset orders the model to stop retrying" yes "$(mentions "$reset_line" 'top retrying')"
 expect_eq "a fifth call stays reset" yes "$(mentions "$(bash_deny s1 'git log src/e.py')" 'add | head -50')"
 expect_eq "the reset ends with the matching recovery recipe, numbered" yes "$(mentions "$reset_line" 'Recovery: 1. ')"
-expect_eq "the recipe names the git_log tool" yes "$(mentions "$reset_line" 'mcp__repo__git_log')"
+expect_eq "the recipe names the bounded git log" yes "$(mentions "$reset_line" 'git log -n 20 --oneline')"
+expect_eq "the recipe names no MCP tool" no "$(mentions "$reset_line" 'mcp__')"
 expect_eq "the recipe has at most three steps" no "$(mentions "$reset_line" '4. ')"
 new_turn s4
 for _ in 1 2 3; do deny_via s4 bash-output-guard "add | head -50" Bash '{"command":"foo"}' "No recipe matches this." >/dev/null; done

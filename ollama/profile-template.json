@@ -75,19 +75,7 @@
       "Bash(git push *)",
       "Bash(dangerouslyDisableSandbox:true)"
     ],
-    "allow": [
-      "mcp__code-search__semantic_search",
-      "mcp__repo",
-      "mcp__dev__dev_status",
-      "mcp__dev__dev_logs",
-      "mcp__dev__dev_errors",
-      "mcp__dev__dev_deps",
-      "mcp__dev__page_check",
-      "mcp__dev__page_snapshot",
-      "mcp__dev__page_act",
-      "Skill(find-docs)",
-      "Bash(claude-custom ctx7 *)"
-    ]
+    "allow": ["Skill(find-docs)", "Bash(claude-custom ctx7 *)"]
   },
   "sandbox": {
     "enabled": true,

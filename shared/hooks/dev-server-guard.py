@@ -17,9 +17,8 @@ PNPM_ARBITRARY_CODE = {"exec", "dlx", "x", "create"}
 BROWSER_OPENERS = {"open", "xdg-open", "start"}
 LOOPBACK_URL = re.compile(r"^https?://(?:localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)(?::\d+)?(?:/|$)")
 REASON = (
-    "Start dev servers with mcp__dev__dev_start: it runs the server in the background, "
-    "returns the real URL and keeps the log. Check one with mcp__dev__dev_status; "
-    "read errors with mcp__dev__dev_errors or mcp__dev__page_check."
+    "A dev server never exits, so a foreground start hangs the Bash tool: rerun the same command "
+    "with run_in_background: true, then read its output for the URL and errors."
 )
 PNPM_REASON = (
     "pnpm runs outside the sandbox only as one plain command: write `pnpm -C DIR SCRIPT ...` "
@@ -30,9 +29,8 @@ PNPM_EXEC_REASON = (
     "run the project's own scripts with `pnpm -C DIR SCRIPT`, or run the binary with npx inside the sandbox."
 )
 OPEN_REASON = (
-    "Open local pages with mcp__dev__page_check (pass url for a full URL such as "
-    "https://127.0.0.1:4000/): it uses the cmux browser and returns the page's errors. "
-    "Then mcp__dev__page_snapshot lists its elements and mcp__dev__page_act drives them."
+    "Open local pages in the cmux browser: call the /cmux-browser skill and use "
+    "`cmux browser open URL`, then read the page's console and errors there."
 )
 
 
@@ -153,10 +151,17 @@ def deny(reason):
     }
 
 
+def starts_foreground_dev_server(tool_input, command):
+    if tool_input.get("run_in_background") is True:
+        return False
+    return any(starts_dev_server(segment) for segment in segments(command))
+
+
 def main():
     payload = json.load(sys.stdin)
-    command = (payload.get("tool_input") or {}).get("command") or ""
-    if any(starts_dev_server(segment) for segment in segments(command)):
+    tool_input = payload.get("tool_input") or {}
+    command = tool_input.get("command") or ""
+    if starts_foreground_dev_server(tool_input, command):
         record_denial("dev-server-guard", payload, REASON)
         print(json.dumps(deny(REASON)))
     elif any(runs_arbitrary_pnpm_code(segment) for segment in segments_with_quoted_words(command)):

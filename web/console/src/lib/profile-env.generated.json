@@ -71,15 +71,6 @@
     "ollamaOnly": true
   },
   {
-    "key": "CLAUDE_OLLAMA_NO_INDEX",
-    "group": "Prompt and context",
-    "kind": "switch",
-    "default": "0",
-    "label": "Skip the code search index",
-    "help": "Off indexes the project in the background at launch; on leaves semantic_search ranking by words only.",
-    "ollamaOnly": false
-  },
-  {
     "key": "CLAUDE_CUSTOM_FRICTION",
     "group": "Guards",
     "kind": "switch",
@@ -210,7 +201,7 @@
     "kind": "switch",
     "default": "1",
     "label": "cmux browser tools",
-    "help": "The dev server's page tools drive a cmux browser split when the session runs in a cmux terminal.",
+    "help": "The browser skill and markdown panels use a cmux split when the session runs in a cmux terminal.",
     "ollamaOnly": false
   }
 ]

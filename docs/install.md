@@ -5,7 +5,7 @@
 | Tool                                        | Needed by                                                                                                       | Without it                                                              |
 | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
 | `bash`                                      | `bin/claude-custom`, `bin/claude-ollama`, `bin/claude-tools` and every hook (macOS `/bin/bash` 3.2 is enough)   | nothing starts                                                          |
-| `python3`                                   | every `.py` hook, `shared/mcp/code-search.py`, the Python tests                                                 | hooks fail to start; no semantic search                                 |
+| `python3`                                   | every `.py` hook, the Python tests                                                                              | hooks fail to start                                                     |
 | `jq`                                        | `bin/claude-custom`, `bin/claude-ollama` (`doctor` needs it), `personal/settings-path`, the `fallow-*.sh` hooks | the fallow hooks exit silently and allow everything; `doctor` won't run |
 | `go` 1.26+                                  | `go/`: the model picker (`claude-ollama` with no size) and `claude-tools`                                       | `claude-ollama <size>` still works; the menu and `claude-tools` don't   |
 | `ollama`                                    | the work harness: `claude-ollama`, `bin/ollama-cache-probe`                                                     | the work harness can't run a model                                      |
@@ -68,8 +68,8 @@ git clone <remote> ~/src/.claude-custom
 After that, `claude-custom update` pulls (fast-forward only) and re-runs
 install. Most changes are live after a plain `git pull`, because every link and
 rc block points into the repo. `update` also picks up new links and rebuilds
-changed Ollama models. The session browser is a plain cmux browser surface in
-the `claude-ollama` browser profile; `page_check` opens only localhost URLs.
+changed Ollama models. A session checks pages in the cmux browser through the
+`/cmux-browser` skill.
 
 ## Is the other machine running the same thing?
 

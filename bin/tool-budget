@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 DEFAULT_SINCE_DAYS = 14
 DROP_MIN_REQUESTS = 20
 DROP_MIN_SCHEMA_BYTES = 200
-PROTECTED_TOOLS = ["Bash", "Read", "Edit", "Write", "Skill", "mcp__code-search__semantic_search"]
+PROTECTED_TOOLS = ["Bash", "Read", "Edit", "Write", "Skill"]
 PROTECTED_SOURCE = "built-in list in bin/tool-budget"
 KIB = 1024
 

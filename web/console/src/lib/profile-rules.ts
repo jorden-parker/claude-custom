@@ -10,7 +10,6 @@ export type ProfileOverride = {
   output_tokens?: number;
   thinking?: boolean;
   parameters?: Record<string, number>;
-  mcp?: Record<string, boolean>;
   env?: Record<string, string>;
 };
 
@@ -32,7 +31,6 @@ export const OUTPUT_TOKENS_RANGE: NumberRange = {
   max: 16384,
   step: 1024,
 };
-export const OLLAMA_MCP_SERVERS = ["code-search", "repo", "dev"] as const;
 export const PROFILE_ENV_GROUPS = [
   "Prompt and context",
   "Guards",
@@ -142,16 +140,11 @@ const TOP_LEVEL_KEYS = [
   "output_tokens",
   "thinking",
   "parameters",
-  "mcp",
   "env",
 ];
-const OLLAMA_ONLY_KEYS = [
-  "context",
-  "output_tokens",
-  "thinking",
-  "parameters",
-  "mcp",
-];
+const RETIRED_KEYS = ["mcp"];
+const RETIRED_ENV_KEYS = ["CLAUDE_OLLAMA_NO_INDEX"];
+const OLLAMA_ONLY_KEYS = ["context", "output_tokens", "thinking", "parameters"];
 const SWITCH_VALUES = ["0", "1"];
 
 export function validateProfileOverride(
@@ -161,17 +154,36 @@ export function validateProfileOverride(
   if (!isRecord(body)) {
     return { ok: false, message: "Expected a profile object" };
   }
-  const problem = keyProblem(body, rules) ?? sectionProblem(body, rules);
+  const current = withoutRetiredKeys(body);
+  const problem = keyProblem(current, rules) ?? sectionProblem(current, rules);
   if (problem !== null) {
     return { ok: false, message: problem };
   }
-  return { ok: true, override: normalizeOverride(body as ProfileOverride) };
+  return { ok: true, override: normalizeOverride(current as ProfileOverride) };
+}
+
+function withoutRetiredKeys(
+  body: Record<string, unknown>,
+): Record<string, unknown> {
+  const current = Object.fromEntries(
+    Object.entries(body).filter(([key]) => !RETIRED_KEYS.includes(key)),
+  );
+  return isRecord(current.env)
+    ? { ...current, env: withoutRetiredEnvKeys(current.env) }
+    : current;
+}
+
+function withoutRetiredEnvKeys(
+  env: Record<string, unknown>,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(env).filter(([key]) => !RETIRED_ENV_KEYS.includes(key)),
+  );
 }
 
 function normalizeOverride(override: ProfileOverride): ProfileOverride {
   const tools = withoutDefaults(override.tools);
   const parameters = nonEmpty(override.parameters);
-  const mcp = nonEmpty(override.mcp);
   const env = nonEmpty(override.env);
   return {
     ...(tools && { tools }),
@@ -182,7 +194,6 @@ function normalizeOverride(override: ProfileOverride): ProfileOverride {
     }),
     ...(override.thinking !== undefined && { thinking: override.thinking }),
     ...(parameters && { parameters }),
-    ...(mcp && { mcp }),
     ...(env && { env }),
   };
 }
@@ -194,12 +205,7 @@ export function overrideCount(override: ProfileOverride): number {
     override.output_tokens,
     override.thinking,
   ].filter((value) => value !== undefined).length;
-  const maps = [
-    override.tools,
-    override.parameters,
-    override.mcp,
-    override.env,
-  ];
+  const maps = [override.tools, override.parameters, override.env];
   return maps.reduce(
     (total, map) => total + Object.keys(map ?? {}).length,
     scalars,
@@ -239,7 +245,6 @@ function sectionProblem(
     outputTokensProblem(body.output_tokens) ??
     thinkingProblem(body.thinking) ??
     parametersProblem(body.parameters) ??
-    mcpProblem(body.mcp) ??
     envProblem(body.env, rules)
   );
 }
@@ -354,22 +359,6 @@ function parameterProblem([name, value]: [string, unknown]): string | null {
   return value < range.min || value > range.max
     ? `${name} must be from ${range.min} to ${range.max}`
     : null;
-}
-
-function mcpProblem(mcp: unknown): string | null {
-  return (
-    recordProblem(mcp, "mcp") ??
-    firstProblem(entriesOf(mcp), ([name, enabled]) =>
-      mcpEntryProblem(name, enabled),
-    )
-  );
-}
-
-function mcpEntryProblem(name: string, enabled: unknown): string | null {
-  if (!(OLLAMA_MCP_SERVERS as readonly string[]).includes(name)) {
-    return `unknown MCP server ${name}`;
-  }
-  return typeof enabled === "boolean" ? null : `${name} must be true or false`;
 }
 
 function envProblem(env: unknown, rules: ProfileRules): string | null {

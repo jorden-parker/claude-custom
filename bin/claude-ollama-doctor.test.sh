@@ -127,14 +127,15 @@ check_eq "doctor healthy exit status" 0 "$?"
 check_that "doctor reports jq" grep -qxF "ok   jq on PATH" "$sandbox/out"
 check_that "doctor reports the main model" grep -qxF "ok   model qwen3.8-27b-cc" "$sandbox/out"
 check_not "doctor no longer checks a side model" grep -q "side model" "$sandbox/out"
-check_that "doctor reports the embedding model" grep -qxF "ok   embedding model qwen3-embedding:0.6b" "$sandbox/out"
+check_not "doctor no longer checks the search embedding model" grep -q "embedding model" "$sandbox/out"
+check_not "doctor names no MCP server" grep -qi "mcp" "$sandbox/out"
 check_that "doctor reports context sizes agree" grep -qxF "ok   num_ctx 65536 matches CLAUDE_CODE_MAX_CONTEXT_TOKENS 65536; Claude Code compacts at 44344 tokens" "$sandbox/out"
 check_that "doctor reports hooks" grep -qxF "ok   hook stop-verify.py present" "$sandbox/out"
 check_that "doctor reports reachability" grep -qxF "ok   ollama reachable at http://127.0.0.1:11434" "$sandbox/out"
 check_that "doctor reports server env" grep -qxF "ok   server env OLLAMA_KV_CACHE_TYPE=q8_0" "$sandbox/out"
 check_that "doctor reports no managed model allowlist" grep -qxF "ok   no managed availableModels restricts qwen3.8-27b-cc" "$sandbox/out"
 check_that "doctor reports a base that matches its pin" grep -qxF "ok   digest qwen3.8:27b-mlx matches its pin" "$sandbox/out"
-check_that "doctor reports the browser tools" grep -q 'browser tools' "$sandbox/out"
+check_that "doctor reports the browser tools" grep -qxF "warn browser tools off: not a cmux terminal (CMUX_SOCKET_PATH unset or cmux missing)" "$sandbox/out"
 check_not "doctor never mentions sandbox-runtime" grep -q 'sandbox-runtime' "$sandbox/out"
 check_not "doctor does not pull or create" grep -sqE '^(pull|create) ' "$sandbox/ollama.log"
 jq '.models[0].digest = "0000"' "$sandbox/tags.json" > "$sandbox/tags.new" && mv "$sandbox/tags.new" "$sandbox/tags.json"
@@ -200,7 +201,7 @@ new_sandbox
 STUB_OLLAMA_SHOW_EXIT=1 STUB_OLLAMA_PID=42 run_capture "$repo/bin/claude-ollama-doctor" 27b
 check_eq "doctor with missing models exit status" 1 "$?"
 check_that "doctor fails the main model" grep -qxF "fail model qwen3.8-27b-cc missing (run claude-ollama 27b to pull and create it)" "$sandbox/out"
-check_that "doctor fails the embedding model" grep -qxF "fail embedding model qwen3-embedding:0.6b missing (pick 'Set up embedding model' in claude-ollama)" "$sandbox/out"
+check_not "doctor does not fail a missing embedding model" grep -q "embedding model" "$sandbox/out"
 check_that "doctor fails server env" grep -qxF "fail server env OLLAMA_FLASH_ATTENTION=1 not set on the running server" "$sandbox/out"
 check_that "doctor names the fix for missing server env" grep -qxF "     fix: claude-custom agent -apply" "$sandbox/out"
 
@@ -305,9 +306,11 @@ printf 'Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages active
 EOF
 printf '  Model\n    architecture        qwen3\n\n  Metadata\n    qwen3.attention.head_count_kv       8\n    qwen3.attention.key_length          128\n    qwen3.block_count                   64\n' > "$sandbox/show-verbose"
 run_doctor
-check_that "doctor reports a fitting memory as ok" grep -qxF "ok   memory fit: model 16.0 GiB + kv 8.0 GiB + embedding 0.6 GiB = 24.6 GiB of 28.9 GiB free" "$sandbox/out"
+check_that "doctor reports a fitting memory as ok" grep -qxF "ok   memory fit: model 16.0 GiB + kv 8.0 GiB = 24.0 GiB of 28.9 GiB free" "$sandbox/out"
 run_doctor env STUB_MEMSIZE=29276800000
-check_that "doctor warns when the models do not fit" grep -qxF "warn memory fit: model 16.0 GiB + kv 8.0 GiB + embedding 0.6 GiB = 24.6 GiB of 24.2 GiB free (0.4 GiB short)" "$sandbox/out"
+check_that "doctor fits the main model alone" grep -qxF "ok   memory fit: model 16.0 GiB + kv 8.0 GiB = 24.0 GiB of 24.2 GiB free" "$sandbox/out"
+run_doctor env STUB_MEMSIZE=25276800000
+check_that "doctor warns when the model does not fit" grep -qxF "warn memory fit: model 16.0 GiB + kv 8.0 GiB = 24.0 GiB of 20.5 GiB free (3.5 GiB short)" "$sandbox/out"
 run_doctor env CLAUDE_OLLAMA_FIT=0
 check_not "doctor skips the fit with CLAUDE_OLLAMA_FIT=0" grep -q "memory fit" "$sandbox/out"
 rm -f "$sandbox/stubbin/sysctl"

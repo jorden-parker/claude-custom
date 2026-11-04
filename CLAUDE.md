@@ -21,18 +21,18 @@ four parts:
 - **Work harness** (`bin/claude-ollama`, `bin/claude-ollama-doctor`,
   `bin/claude-ollama-qwen`, `bin/lib/`, `ollama/`, `go/cmd/model-picker/`):
   starts `claude` against a local Ollama server (`localhost:11434`) running Qwen
-  3.8 27b or Qwen 3.6 35b. The overlay only applies to that launch.
-  `claude-ollama qwen [size]` runs Qwen Code on the same model and MCP servers
-  inside macOS Seatbelt (`ollama/qwen-sandbox.sb`, copied to the project's
-  `.qwen/sandbox-macos-claude-ollama.sb` and excluded from git at each launch;
-  `QWEN_SANDBOX=sandbox-exec`, never `SANDBOX`), with `~/.claude-ollama/qwen` as
-  its `QWEN_HOME`; `qwen doctor [size]` checks that setup. The launcher runs its
-  usual pre-launch steps (pull, lease, fit, indexer, warm-up), then hands off to
-  `bin/claude-ollama-qwen launch SIZE [args]`, which stages the Qwen home and
-  the Seatbelt profile and execs `qwen`; `qwen doctor` and `qwen --print-config`
-  dispatch to its `doctor` and `--print-config` modes (`CLAUDE_OLLAMA_QWEN_BIN`
-  overrides the script in tests). Its settings come from
-  `ollama/qwen-settings.template.json` and `ollama/QWEN.local.md` (see
+  3.8 27b or Qwen 3.6 35b. The overlay only applies to that launch. Neither
+  launch starts an MCP server. `claude-ollama qwen [size]` runs Qwen Code on the
+  same model inside macOS Seatbelt (`ollama/qwen-sandbox.sb`, copied to the
+  project's `.qwen/sandbox-macos-claude-ollama.sb` and excluded from git at each
+  launch; `QWEN_SANDBOX=sandbox-exec`, never `SANDBOX`), with
+  `~/.claude-ollama/qwen` as its `QWEN_HOME`; `qwen doctor [size]` checks that
+  setup. The launcher runs its usual pre-launch steps (pull, lease, fit,
+  warm-up), then hands off to `bin/claude-ollama-qwen launch SIZE [args]`, which
+  stages the Qwen home and the Seatbelt profile and execs `qwen`; `qwen doctor`
+  and `qwen --print-config` dispatch to its `doctor` and `--print-config` modes
+  (`CLAUDE_OLLAMA_QWEN_BIN` overrides the script in tests). Its settings come
+  from `ollama/qwen-settings.template.json` and `ollama/QWEN.local.md` (see
   `docs/ollama.md`). `go/cmd/model-picker/` is a Go/Bubble Tea menu for choosing
   the size.
 - **Tools TUI** (`go/cmd/claude-tools/`): a Go/Bubble Tea app that edits the
@@ -125,14 +125,14 @@ before changing how any file gets applied.
   `curl`, `pgrep`, `ps`).
 - Launcher libraries (`bin/lib/`, sourced, never run): `size-profile.sh` (sizes,
   `use_size`, model, Modelfile parameters, headroom, profile overlay, pins, the
-  launch settings composition, fetch domains, MCP config), `ollama-server.sh`
-  (`ollama_url`, installed digests, the running server's env and log path),
-  `memory-fit.sh` (lease switch, `ollama-lease fit` reading), `nvm-node.sh`
-  (nvm's Node), `session-logs.sh` (console state dir, telemetry, proxy log,
-  beacon, watcher, tool budget paths), `cmux-terminal.sh` and `doctor-checks.sh`
-  (`report` and the checks both doctors share). Each lib sources the libs it
-  reads from, so `shellcheck` sees every name; `.claude/verify` runs the
-  launcher, doctor and qwen tests for any `bin/lib/` edit.
+  launch settings composition, fetch domains), `ollama-server.sh` (`ollama_url`,
+  installed digests, the running server's env and log path), `memory-fit.sh`
+  (lease switch, `ollama-lease fit` reading), `nvm-node.sh` (nvm's Node),
+  `session-logs.sh` (console state dir, telemetry, proxy log, beacon, watcher,
+  tool budget paths), `cmux-terminal.sh` and `doctor-checks.sh` (`report` and
+  the checks both doctors share). Each lib sources the libs it reads from, so
+  `shellcheck` sees every name; `.claude/verify` runs the launcher, doctor and
+  qwen tests for any `bin/lib/` edit.
 - Model manager:
   `bin/ollama-models list|outdated [NAME...]|prune [--yes]|pin NAME[:TAG]` marks
   installed models (pinned, mismatch, profile, orphan, third-party, other),
@@ -259,9 +259,10 @@ before changing how any file gets applied.
   paste block; `CLAUDE_OLLAMA_SPEED_CHECK` and `SPEED_CHECK_LAUNCHER`/`_BENCH`/
   `_PROBE` override the scripts in tests; tests: `bin/speed-check.test.sh`.
   `claude-ollama prepare [size]` pulls or imports one size and exits;
-  `claude-ollama prepare-embedding` pulls the `semantic_search` embedding model
-  and exits; `claude-ollama thinking-check` (`bin/speed-check --thinking-only`)
-  runs only the thinking check on the MLX sizes and exits 1 when it fails
+  `claude-ollama prepare-embedding` pulls the pinned embedding model (nothing in
+  a session uses it now) and exits; `claude-ollama thinking-check`
+  (`bin/speed-check --thinking-only`) runs only the thinking check on the MLX
+  sizes and exits 1 when it fails
 - Messages bench:
   `bin/messages-bench --model M [--base-url URL] [--thinking omit|claude-code|disabled]`
   times any `/v1/messages` server (cold/warm TTFT, prefill, decode, tool calls);
@@ -310,13 +311,6 @@ before changing how any file gets applied.
   headline. Tests: `bin/backend-bench-off.test.sh` (stub servers),
   `bin/backend-bench-report.test.sh`, `bin/bench-best.test.sh`,
   `bin/extract-mtp-weights.test.sh`
-- Code search MCP server: `shared/mcp/code-search.py`; its tests are
-  `shared/mcp/code-search.test.sh` (stub embedding server, temp git repo)
-- Repo tools MCP server: `shared/mcp/repo-tools.py`; its tests are
-  `shared/mcp/repo-tools.test.sh` (stub gh, temp git repo). Both servers share
-  the JSON-RPC loop in `shared/mcp/mcp_stdio.py`.
-- Dev server MCP server: `shared/mcp/dev-server.py`; its tests are
-  `shared/mcp/dev-server.test.sh` (stub npm, fake Next server, stub cmux).
 - Feed the hook one command by hand:
   `printf '{"tool_input":{"command":"git log"}}' | shared/hooks/bash-output-guard.py`
 - Validate JSON after editing: `make check-json`
@@ -418,9 +412,10 @@ before changing how any file gets applied.
   Ollama library model (no `/` in the name) with a manifest sha256 in
   `ollama/model-digests.json`, or a `./weights/<file>.gguf` from an
   `unsloth/*-GGUF` repo at a pinned commit whose file sha256 is the pin;
-  `bin/check-config` checks both. `bin/claude-ollama` checks `/api/tags` against
-  the pin after pulling a base and before each launch, exits 1 on a mismatch,
-  and `doctor` reports it. A pin is the sha256 of the registry manifest
+  `bin/check-config` checks both. `bin/claude-ollama` checks the size's base in
+  `/api/tags` against its pin after pulling it and before each launch, exits 1
+  on a mismatch, and `doctor` reports every pin. A pin is the sha256 of the
+  registry manifest
   (`https://registry.ollama.ai/v2/library/NAME/manifests/TAG`).
 - Go module `go/` (all three apps; `go/cmd/model-picker/`,
   `go/cmd/claude-tools/`, `go/cmd/ollama-agent/`): `cd go && go test ./...`. One
@@ -607,18 +602,18 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   applies every patch through a stub launcher, so each fixture is red before and
   green after). Per run it copies the fixture to a temp dir, `git init`s and
   commits it, runs `LAUNCHER <size> -p "<prompt>" [--model M]` there in print
-  mode with `CLAUDE_OLLAMA_NO_INDEX=1`, `CLAUDE_OLLAMA_BEACON=0`,
-  `CLAUDE_OLLAMA_PROXY=0`, drafts and incidents off and `CLAUDE_TOOL_TELEMETRY`
-  on a temp file, stops the launcher past `timeout_seconds` (SIGTERM to its
-  process group, then SIGKILL), runs the test command, and records `green`,
-  `red` or `timeout`, wall-clock seconds, `calls`, `denials` (`kind: deny`
-  lines) and `nudges` (`budget` or `friction` lines) from the telemetry file,
-  `output_bytes`, and at the start the power state (`pmset -g batt`: `ac`,
-  `battery`, `unknown`) and `cpu_speed_limit` (`pmset -g therm`). The `total:`
-  line is `N/M green, median seconds S, p90 P` over the green runs (`-` when
-  none). Five tasks ship: `shell-fix`, `python-impl`, `go-table`,
-  `rename-safely` and `read-then-edit` (a 443-line file, so the read-range guard
-  matters); there is no `ts-vitest`, since vitest needs `node_modules`.
+  mode with `CLAUDE_OLLAMA_BEACON=0`, `CLAUDE_OLLAMA_PROXY=0`, drafts and
+  incidents off and `CLAUDE_TOOL_TELEMETRY` on a temp file, stops the launcher
+  past `timeout_seconds` (SIGTERM to its process group, then SIGKILL), runs the
+  test command, and records `green`, `red` or `timeout`, wall-clock seconds,
+  `calls`, `denials` (`kind: deny` lines) and `nudges` (`budget` or `friction`
+  lines) from the telemetry file, `output_bytes`, and at the start the power
+  state (`pmset -g batt`: `ac`, `battery`, `unknown`) and `cpu_speed_limit`
+  (`pmset -g therm`). The `total:` line is `N/M green, median seconds S, p90 P`
+  over the green runs (`-` when none). Five tasks ship: `shell-fix`,
+  `python-impl`, `go-table`, `rename-safely` and `read-then-edit` (a 443-line
+  file, so the read-range guard matters); there is no `ts-vitest`, since vitest
+  needs `node_modules`.
 - Mockup spike: `claude-ollama mock-spike [size] [--runs N] [--brief NAME]...`
   (`bin/mock-spike --model M [--base-url URL] [--out FILE]`) streams three
   mockup briefs through Ollama `/api/chat` with the json-render catalog prompt
@@ -742,22 +737,20 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `ollama/hooks.extra.json`) it resets that file each turn; without that reset
   (the personal overlay) the file never exists and every denial stays plain.
   `CLAUDE_CUSTOM_FRICTION=0` turns it off. `shared/hooks/repeat-call-cache.py`
-  (Ollama-only, PreToolUse and PostToolUse on Read and
-  `mcp__code-search__semantic_search`; `git_status` is never cached, since no
-  cheap stamp tracks edits to tracked or untracked files) keeps a per-turn
-  result cache in the same file: after a call it records the call number, the
-  output's sha256 and size, and an invalidation stamp (the file's mtime for
-  Read, none for a search); an error result (`Error` text or an error flag) is
-  never recorded. Before an exact same-turn repeat whose stamp is unchanged it
-  denies with `same result as call #N this turn, unchanged since; use it` and
-  writes a friction line carrying `saved_bytes`. A Read's served content (64 KiB
-  or less) is also kept as a 0600 snapshot under
-  `cache/friction/<session_id>.snapshots/` (stale ones pruned at each record).
-  When the same Read repeats after the file's mtime changed, the hook diffs the
-  snapshot against the file: identical content is the same denial; otherwise it
-  rewrites the call through `updatedInput` (`permissionDecision: allow`) to the
-  changed span plus 3 lines of margin, at most 300 lines, with
-  `additionalContext` `lines A-B changed since call #N; showing only them` (or
+  (Ollama-only, PreToolUse and PostToolUse on Read) keeps a per-turn result
+  cache in the same file: after a call it records the call number, the output's
+  sha256 and size, and an invalidation stamp (the file's mtime); an error result
+  (`Error` text or an error flag) is never recorded. Before an exact same-turn
+  repeat whose stamp is unchanged it denies with
+  `same result as call #N this turn, unchanged since; use it` and writes a
+  friction line carrying `saved_bytes`. A Read's served content (64 KiB or less)
+  is also kept as a 0600 snapshot under `cache/friction/<session_id>.snapshots/`
+  (stale ones pruned at each record). When the same Read repeats after the
+  file's mtime changed, the hook diffs the snapshot against the file: identical
+  content is the same denial; otherwise it rewrites the call through
+  `updatedInput` (`permissionDecision: allow`) to the changed span plus 3 lines
+  of margin, at most 300 lines, with `additionalContext`
+  `lines A-B changed since call #N; showing only them` (or
   `showing only A-C (read on from C+1 for the rest)` when cut); a file with no
   snapshot passes through whole. Recovery recipes are data:
   `ollama/recipes/<hook>.json` holds `{"match": regex, "steps": [...]}` entries
@@ -831,9 +824,9 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   names a node or claude process. Requests are validated against their schema
   and written through a temp file and `os.replace` (0600); `take` reads and
   removes one, and a malformed one is removed with a stderr line. Python callers
-  import `RelaunchDir` (`handoff-relaunch.py`, `ladder.py` and `code-search.py`
-  add `shared/` to `sys.path`); `bin/claude-ollama` (`relaunch_signal`) and the
-  console's promote run its CLI:
+  import `RelaunchDir` (`handoff-relaunch.py` and `ladder.py` add `shared/` to
+  `sys.path`); `bin/claude-ollama` (`relaunch_signal`) and the console's promote
+  run its CLI:
   `[--dir D | --root R --pid N] prepare|request NAME JSON|take|has|raise|lower|path NAME|claude-pid PID`
   (`--dir` defaults to `CLAUDE_OLLAMA_RELAUNCH_DIR`; exit 1 absent, 2 usage or
   schema, 3 no such folder). `prepare --pid N` makes the folder 0700, clears
@@ -890,10 +883,9 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `STUB_CLAUDE_RELAUNCH_PROMPT`).
 - All settings files (`personal/settings.tokens.json`, `ollama/settings.*.json`)
   run hooks as
-  `"$CLAUDE_CUSTOM_HOME"/shared/host-env "$CLAUDE_CUSTOM_HOME"/shared/hooks/<name>`,
-  and `bin/claude-ollama` starts its MCP servers through `shared/host-env` too:
-  it unsets the cache variables `shared/sandbox-env` set, so nothing a hook or
-  server runs (`go test`, `npx fallow`) executes from the sandbox-writable cache
+  `"$CLAUDE_CUSTOM_HOME"/shared/host-env "$CLAUDE_CUSTOM_HOME"/shared/hooks/<name>`:
+  it unsets the cache variables `shared/sandbox-env` set, so nothing a hook runs
+  (`go test`, `npx fallow`) executes from the sandbox-writable cache
   (`bin/check-config` checks both). Hook commands go through a shell, so the
   variable expands. `personal/claude.sh` and `personal/claude.fish` pass it to
   `claude` with `env` (the rc block defines it unexported), and
@@ -990,17 +982,18 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   default system prompt),
   `--append-system-prompt-file ~/.claude-ollama/append-prompt.md` (written each
   launch from `ollama/CLAUDE.local.md`, plus `ollama/CLAUDE.cmux.md` in a cmux
-  terminal unless `CLAUDE_OLLAMA_CMUX=0`), `--strict-mcp-config` plus an inline
-  `--mcp-config` for the code-search server, `--model` with the profile's
+  terminal unless `CLAUDE_OLLAMA_CMUX=0`), `--strict-mcp-config` with no
+  `--mcp-config` (so no user or project MCP server loads; `bin/check-config`
+  fails when a launcher passes `--mcp-config`), `--model` with the profile's
   `model` (it also unsets `ANTHROPIC_MODEL`, which would otherwise win over the
-  settings file), and restricts tools with `--tools` (built-in tools only; MCP
-  tools still load). Before launching, it pulls the base model and creates the
-  `-cc` model when `ollama show` can't find the `-cc` model. When the installed
-  model's `num_ctx` or a sampling parameter differs from its Modelfile, it
-  recreates that model `FROM` itself with every Modelfile `PARAMETER` (no pull).
-  `doctor` and `--print-config` are dispatched before any pull or launch;
-  `doctor` (`bin/claude-ollama-doctor`) reads hook names from the profile's
-  settings file, not from `~/.claude/hooks`.
+  settings file), and restricts tools with `--tools` (built-in tools only).
+  Before launching, it pulls the base model and creates the `-cc` model when
+  `ollama show` can't find the `-cc` model. When the installed model's `num_ctx`
+  or a sampling parameter differs from its Modelfile, it recreates that model
+  `FROM` itself with every Modelfile `PARAMETER` (no pull). `doctor` and
+  `--print-config` are dispatched before any pull or launch; `doctor`
+  (`bin/claude-ollama-doctor`) reads hook names from the profile's settings
+  file, not from `~/.claude/hooks`.
 - The session config dir `~/.claude-ollama` is `CLAUDE_CONFIG_DIR`:
   `prepare_session_config` seeds `.claude.json` with `hasCompletedOnboarding`
   (an existing file is kept), copies `~/.claude/CLAUDE.md` and
@@ -1014,23 +1007,15 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   every markdown file it writes with `/cmux-markdown`; `bin/check-config` checks
   it names the skill and that the launcher appends it only with the cmux tools
   on. `CLAUDE_OLLAMA_CMUX=0` turns the browser tools off; a cmux terminal
-  (`CMUX_SOCKET_PATH` set and `cmux` on `PATH`) turns them on. The `dev` server
-  drives one cmux browser surface with plain `cmux browser` commands
-  (`open-split`, `goto`, `wait`, `console list`, `errors list`,
-  `snapshot --interactive`, `click` and friends) in the `claude-ollama` browser
-  profile (`profiles list`, else `profiles add`); `page_check` opens only
-  loopback URLs, every page tool sends the browser back to the dev server when
-  the page left it (`ensure_local`, an error when it will not come back), and
-  values go to cmux as `--selector=`/`--text=` so none is read as an option. The
-  `repo` server runs `gh` itself (`shared/mcp/github_tools.py`: nine read tools,
-  `GH_REPO` from `origin`, or from a `repo` argument that is the origin or a
-  line of `~/.config/claude-custom/gh-repos`, `--flag=value` argv, `Refused` for
-  bad arguments); its GitHub tools are listed only while `gh` is on `PATH`.
+  (`CMUX_SOCKET_PATH` set and `cmux` on `PATH`) turns them on. The model checks
+  pages through the `/cmux-browser` skill (`cmux browser open URL`, snapshot,
+  click, console errors), and reads git and GitHub with plain `git` and `gh`
+  through Bash.
 - There is no side model: each Ollama profile sets
   `ANTHROPIC_DEFAULT_HAIKU_MODEL` to its own main model, has no `modelOverrides`
   and no subagent model, and denies `Agent` (it is not in `--tools` either),
   since a subagent would only rerun the main model. Wide searches go through
-  `semantic_search` instead. Never map a Claude ID to the main model in
+  Grep and `git grep -n` instead. Never map a Claude ID to the main model in
   `modelOverrides`: Claude Code then names it after that ID, so the banner says
   Haiku or Sonnet. `bin/check-config` checks all of this.
   `personal/settings.tokens.json` keeps `CLAUDE_CODE_SUBAGENT_MODEL=haiku` with
@@ -1051,88 +1036,41 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `go/cmd/model-picker` (which renders on stderr and prints the chosen size on
   stdout); without one it uses 27b. A first arg that is neither a size nor a
   flag is dropped so it doesn't reach `claude` as a prompt.
-- `shared/mcp/dev-server.py` is the `dev` MCP server the Ollama profiles start
-  beside `repo`. It finds app dirs by walking the tree for `package.json` files
-  with a `dev` or `start` script (skipping hidden folders, symlinks and
-  `node_modules`, never through git, so an untracked app counts), reads
-  `.next/dev/lock` (only its port), the dev script's port flag and `/_next/mcp`
-  (Next.js 16+), the session's own log, and through `lsof` the listening ports
-  of processes whose working folder is inside the project folder (those never
-  block `dev_start`); it never trusts a lock's URL. It keeps the scheme the
-  server prints (an `https` log line, `--experimental-https` in the script, or
-  an `https://` lock `appUrl`), tries the other scheme when a candidate does not
-  answer, and probes https with certificate checks off, since the host is always
-  `localhost`. `page_check` takes `path` on the probed server or `url`, a full
-  `http(s)://` URL on `localhost`, `127.0.0.1` or `[::1]` opened without
-  probing. `dev_start` launches nothing while the lock's or the requested
-  script's port is held, even by a server too busy to answer HTTP; a held
-  framework default doesn't count, since the framework moves to the next port.
-  It stops only the servers its session started. `dev_deps` reports whether a
-  package dir's `node_modules` is installed and newer than its lockfile and the
-  installed version of each named package (default: every dependency in
-  `package.json`), read from `node_modules/<name>/package.json` in the dir and
-  its parents, so the model never lists `node_modules`. `dev_install` runs the
-  lockfile's package manager (`pnpm`, `yarn`, `bun`, else `npm`) in any package
-  dir outside `node_modules`, tracked or not: `install` with no packages, else
-  `add` (npm: `install`) of the named packages (`dev: true` for devDependencies;
-  names must match a package spec, never an option), outside the Bash sandbox
-  like `dev_start`, and returns the result plus `dev_deps` for them. The
-  read-only tools are allowed by full name (`mcp__dev__dev_status`, `dev_logs`,
-  `dev_errors`, `dev_deps`, `page_check`, `page_snapshot`, `page_act`; the page
-  tools run `cmux browser` subcommands themselves, never a bare `cmux` command);
-  `dev_start`, `dev_stop` and `dev_install` still ask, and no bare `mcp__dev`
-  may be allowed. `shared/hooks/dev-server-guard.py` (Ollama-only, PreToolUse on
-  Bash) denies `pnpm dev`-style starts and points the model at `dev_start`,
-  denies `open` on a loopback URL and points it at `page_check`, and denies a
-  `pnpm` that shares its line with `cd &&`, a pipe or `;`, since `pnpm *` is an
+- The Ollama profiles start no MCP server: `bin/check-config` fails when a
+  settings file allows an `mcp__` tool, when `CLAUDE.local.md`, `QWEN.local.md`
+  or `system-prompt.md` names one, or when a launcher passes `--mcp-config`.
+  `shared/hooks/dev-server-guard.py` (Ollama-only, PreToolUse on Bash) allows a
+  `pnpm dev`-style start with `run_in_background: true` and denies a foreground
+  one, telling the model to rerun it in the background (a dev server never
+  exits, so a foreground start hangs the tool), denies `open` on a loopback URL
+  and points the model at the `/cmux-browser` skill, and denies a `pnpm` that
+  shares its line with `cd &&`, a pipe or `;`, since `pnpm *` is an
   `excludedCommands` entry and only a one-segment line leaves the sandbox.
   Inside the sandbox pnpm cannot hardlink from the user's store, so it falls
   back to a store under the temp dir, decides every existing `node_modules`
   belongs to another store and prompts to wipe it, which hangs the tool; so Bash
   `pnpm -C DIR install|add|test` runs outside it, and so does `git commit`,
   whose lefthook or husky hooks run pnpm (the commit still asks first);
-  `dev_install` stays as the tool form, and `pnpm exec`, `dlx`, `x` and `create`
-  are denied so no arbitrary package runs unsandboxed.
-- `shared/mcp/repo-tools.py` is the `repo` MCP server the Ollama profiles start
-  beside code-search and allow without a prompt (`mcp__repo` in
-  `permissions.allow`; `bin/check-config` checks it and that
-  `ollama/CLAUDE.local.md` points the model at it). It runs inside the sandbox.
-  `git_status`, `git_diff`, `git_log` and `git_show` run git with `--no-pager`,
-  `--no-ext-diff`, `--no-textconv`, no fsmonitor, and revisions after
-  `--end-of-options` (paths after `--`), so no argument is read as an option and
-  no diff program runs. The server pins the repository it starts in (`GIT_DIR`
-  and `GIT_WORK_TREE`), so a `.git` the session plants in a subfolder later,
-  with its own config, is never used. Paths must be relative and never climb
-  with `..`: two outside paths would make `git diff` compare any files (implicit
-  `--no-index`). The nine GitHub tools are listed only when `gh` is on `PATH`
-  (`shared/mcp/github_tools.py`). They reach only the project's `origin` and the
-  `owner/name` lines of `~/.config/claude-custom/gh-repos` (per machine, beside
-  `enabled-tools`; `#` starts a comment; matched case-insensitively; read on
-  every call; the sandboxed session cannot write it); any other `repo` is
-  `Refused` with the file's path. Output over 20000 characters is cut with a
-  note on how to narrow it.
-- Drafts: `shared/skills/pr-draft` (a PR description from the project's pull
-  request template) and `shared/skills/pr-review-draft` (a review in
-  Conventional Comments) save through the `repo` server's `draft_pr` and
-  `draft_review` tools (`shared/mcp/draft_store.py`, listed only when
-  `CLAUDE_OLLAMA_DRAFTS_DIR` is set) to `~/.claude-ollama/drafts/<id>.json`
-  (0700/0600), the one folder both the sandboxed session can write and the
-  console can find. They never post. `ollama/drafts/opener.py` runs outside the
-  sandbox (`--watch-pid`, `CLAUDE_OLLAMA_OPEN_DRAFTS=0` turns it off) and opens
-  the newest new draft, at most one every 5 s, at `/drafts/<id>` through a 0600
+  `pnpm exec`, `dlx`, `x` and `create` are denied so no arbitrary package runs
+  unsandboxed.
+- Drafts (dormant: nothing writes a draft since the `repo` MCP server and the
+  `/pr-draft` and `/pr-review-draft` skills were removed;
+  `claude-custom install` removes their old skill links): the launcher still
+  exports `CLAUDE_OLLAMA_DRAFTS_DIR` (`~/.claude-ollama/drafts/`, 0700/0600
+  `<id>.json` files). `ollama/drafts/opener.py` runs outside the sandbox
+  (`--watch-pid`, `CLAUDE_OLLAMA_OPEN_DRAFTS=0` turns it off) and opens the
+  newest new draft, at most one every 5 s, at `/drafts/<id>` through a 0600
   redirect page under the console state dir, so the console token never lands in
   argv; it uses `cmux browser open-split` in a cmux terminal, else `open`, and
-  starts `claude-ollama ui` when `/health` fails. The `draft_open` tool asks for
-  a page again by writing `<id>.open` beside the draft, which the opener claims;
-  the save and open replies carry no link, since the session never holds the
-  console token. The console's `/drafts` pages edit each item's markdown, save,
-  and post with your own `gh` (`gh pr create`, or `gh api .../pulls/N/reviews`
-  with inline comments): the click is the approval. The console derives
-  `owner/name` from the project's `origin` (the session can't write
-  `.git/config`), never from the draft, and a post carries the draft's hash, so
-  a draft changed after you loaded it is refused (409). Tests:
-  `ollama/drafts/opener.test.sh` (stub `open`, `cmux`, console),
-  `shared/mcp/repo-tools.test.sh`, the console's vitest suite.
+  starts `claude-ollama ui` when `/health` fails. A `<id>.open` file beside a
+  draft asks for its page again, which the opener claims. The console's
+  `/drafts` pages edit each item's markdown, save, and post with your own `gh`
+  (`gh pr create`, or `gh api .../pulls/N/reviews` with inline comments): the
+  click is the approval. The console derives `owner/name` from the project's
+  `origin` (the session can't write `.git/config`), never from the draft, and a
+  post carries the draft's hash, so a draft changed after you loaded it is
+  refused (409). Tests: `ollama/drafts/opener.test.sh` (stub `open`, `cmux`,
+  console), the console's vitest suite.
 - Incidents: `ollama/incidents/watcher.py` (stdlib only) runs outside the
   sandbox beside the draft opener (`--watch-pid $$`, `CLAUDE_OLLAMA_INCIDENTS=0`
   turns it off, `CLAUDE_OLLAMA_INCIDENT_WATCHER` overrides the script for
@@ -1260,9 +1198,8 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   without a `kind`), both inside `--since DAYS`. A tool is suggested for
   dropping only with zero calls over at least 20 requests and 200 schema bytes,
   and never when it is in `PROTECTED_TOOLS` (`Bash`, `Read`, `Edit`, `Write`,
-  `Skill`, `mcp__code-search__semantic_search`; the report says
-  `built-in list in bin/tool-budget`). `claude-ollama tool-budget` passes
-  `$(proxy_log_dir)/requests.jsonl` and
+  `Skill`; the report says `built-in list in bin/tool-budget`).
+  `claude-ollama tool-budget` passes `$(proxy_log_dir)/requests.jsonl` and
   `${CLAUDE_TOOL_TELEMETRY:-telemetry log}` (`CLAUDE_OLLAMA_TOOL_BUDGET_BIN`
   overrides the script for tests); `doctor` prints
   `ok   tool budget: nothing to drop` or
@@ -1276,8 +1213,8 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   that confirms the names, then `GET`s the profile and `PUT`s its override with
   each suggested profile tool set to `off`
   (`web/console/src/lib/tool-budget.ts`: `parseToolBudgetReport`, `budgetBars`,
-  `applySuggestion`, which skips names the profile does not list, such as MCP
-  tools); the claude-code profile gets no button. Tests:
+  `applySuggestion`, which skips names the profile does not list); the
+  claude-code profile gets no button. Tests:
   `web/console/src/lib/tool-budget*.test.ts`,
   `src/app/api/tool-budget/route.test.ts`,
   `src/components/tool-budget-card.test.tsx`.
@@ -1320,9 +1257,9 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   is dead.
   `acquire NAME [--model M] [--pid N] [--num-ctx N] [--rung R] [--exclusive] [--wait SECONDS]`
   succeeds at once when no `session` lease is held by another pid, or when the
-  running server's `OLLAMA_MAX_LOADED_MODELS` (read like `claude-ollama` does)
-  is at least the number of distinct models the holders plus the request would
-  load; otherwise it exits 3 with one stderr line,
+  running server's `OLLAMA_MAX_LOADED_MODELS` (read from its process env) is at
+  least the number of distinct models the holders plus the request would load;
+  otherwise it exits 3 with one stderr line,
   `ollama lease: held by <name> (pid N, model M); run after that session ends or set OLLAMA_MAX_LOADED_MODELS=2`,
   after polling every `CLAUDE_OLLAMA_LEASE_POLL` seconds (default 1) for
   `--wait`. `--exclusive` refuses while any other holder exists.
@@ -1333,14 +1270,11 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `keep_alive` generate request for the leased model every
   `${CLAUDE_OLLAMA_LEASE_HEARTBEAT:-120}` seconds (halved while the marker
   exists) until the pid dies. `bin/claude-ollama` acquires `session` (model,
-  `num_ctx`) right after the model checks and before the indexer, so the
-  indexer's `embedding` lease (held by the `sh -c` pid that execs
-  `code-search.py --index`; a refusal sets `CODE_SEARCH_EMBED=0`, words only)
-  never crowds the session out; `launch_claude` starts the heartbeat and the
-  EXIT trap (`end_launch`) stops it, releases the lease and removes the relaunch
-  dir. `review` and `mock-spike` acquire their own names with the size's model,
-  `speed-check` and `thinking-check` acquire `--exclusive`, and each exits 3 on
-  a refusal. `CLAUDE_OLLAMA_LEASE=0` turns all of it off;
+  `num_ctx`) right after the model checks; `launch_claude` starts the heartbeat
+  and the EXIT trap (`end_launch`) stops it, releases the lease and removes the
+  relaunch dir. `review` and `mock-spike` acquire their own names with the
+  size's model, `speed-check` and `thinking-check` acquire `--exclusive`, and
+  each exits 3 on a refusal. `CLAUDE_OLLAMA_LEASE=0` turns all of it off;
   `CLAUDE_OLLAMA_LEASE_BIN` overrides the script for tests. `doctor` prints
   `ok   lease held by NAME (pid N, model M)`,
   `warn stale lease NAME (pid N) removed` or `ok   no lease holders`.
@@ -1358,37 +1292,36 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   model and embedding model when already loaded, since their pages are already
   counted as used. It exits 1 with `ollama lease: /api/tags lists no M` or
   `ollama lease: cannot read the free memory`. `bin/claude-ollama` runs it
-  before claiming the session lease (`CLAUDE_OLLAMA_FIT=0` skips it; a fit that
-  fails prints `claude-ollama: memory fit: unknown (<reason>)` and the launch
-  goes on) and prints
-  `claude-ollama: memory fit: model 16.0 GiB + kv 8.0 GiB + embedding 0.6 GiB = 24.6 GiB of 28.9 GiB free`.
-  When it does not fit the launcher starts on the lowest rung that does:
-  `claude-ollama: ladder embeddings-off: does not fit with the embedding model (N GiB short)`
-  (exports `CODE_SEARCH_EMBED=0`, takes no embedding lease, touches `embed-off`
-  in the relaunch dir), then
+  without `--embedding` before claiming the session lease (`CLAUDE_OLLAMA_FIT=0`
+  skips it; a fit that fails prints
+  `claude-ollama: memory fit: unknown (<reason>)` and the launch goes on) and
+  prints
+  `claude-ollama: memory fit: model 16.0 GiB + kv 8.0 GiB = 24.0 GiB of 28.9 GiB free`.
+  When it does not fit the launcher starts on the context-down rung:
   `claude-ollama: ladder context-down: does not fit at num_ctx N (N GiB short); starting at M`
   (the next lower size's context from `ollama/sizes.json`, else 75% rounded to
   1024 and never below 16384, through the same context layer of the launch
   settings, one step only;
-  `claude-ollama: memory fit: still N GiB short at num_ctx M with the embeddings off`
-  when even that is short). The session lease records the rung and the lower
-  `num_ctx`, and the ladder is started with one `--rung R` per rung in effect.
-  `doctor` prints `ok   memory fit: ...` or
-  `warn memory fit: ... (N GiB short)`. Tests: `bin/ollama-lease.test.sh` (stub
-  `pgrep`, `ps`, `curl`, `ollama`, `sysctl`, `vm_stat`, a `meminfo` file,
-  sleeping pids), `bin/claude-ollama.test.sh` (`STUB_MEMSIZE`, `show-verbose`).
+  `claude-ollama: memory fit: still N GiB short at num_ctx M` when even that is
+  short). The session lease records the rung and the lower `num_ctx`, and the
+  ladder is started with `--rung context-down` when it is in effect. `doctor`
+  prints `ok   memory fit: ...` or `warn memory fit: ... (N GiB short)`. Tests:
+  `bin/ollama-lease.test.sh` (stub `pgrep`, `ps`, `curl`, `ollama`, `sysctl`,
+  `vm_stat`, a `meminfo` file, sleeping pids), `bin/claude-ollama.test.sh`
+  (`STUB_MEMSIZE`, `show-verbose`).
 - Degrade ladder: `ollama/incidents/ladder.py` (stdlib only; it imports
   `FileTail` and `process_alive` from `watcher.py` and `IncidentLog`,
   `incident`, `incident_rows` and `now_iso` from `incident_log.py`) runs outside
   the sandbox beside the watcher (`launch_claude` starts it after
   `prepare_relaunch_dir` with
-  `--incidents $CLAUDE_OLLAMA_INCIDENTS_FILE --relaunch-dir DIR --watch-pid $$ --context NUM_CTX --model M --embedding E --lease-bin PATH [--rung R]...`;
+  `--incidents $CLAUDE_OLLAMA_INCIDENTS_FILE --relaunch-dir DIR --watch-pid $$ --context NUM_CTX --model M --lease-bin PATH [--rung context-down]`;
   `CLAUDE_OLLAMA_LADDER=0` turns it off, `CLAUDE_OLLAMA_LADDER_BIN` overrides it
   for tests; `bin/check-config` fails when the launcher stops starting it). It
   follows the session's incidents file from its start and binds each rung to
   evidence, at most once per session: three `reprefilled` rows whose
   `preceded_by.kind` is `embed` within 10 minutes fire `embeddings-off` (touches
-  `$CLAUDE_OLLAMA_RELAUNCH_DIR/embed-off`); three after `expired` fire
+  `$CLAUDE_OLLAMA_RELAUNCH_DIR/embed-off`; dormant, since no session embeds any
+  more and the launcher ignores the flag); three after `expired` fire
   `heartbeat` (touches `heartbeat-fast`, which halves the lease heartbeat
   interval); three `truncated` rows fire `context-down` (writes `ladder` as
   `{"rung", "context", "reason"}`, the context being the next lower size in
@@ -1412,9 +1345,8 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   prints the `<rung>: <reason>` lines an incidents file would fire, then
   `up <rung>: 20 minutes without <description>` for each pending recovery, or
   `none`. The launcher honours `ladder-up` only on a handoff relaunch (never on
-  its own, and never on a ladder relaunch): it removes `embed-off` and allows
-  the embeddings again for `embeddings-off`, or drops the ladder context and
-  returns to the profile settings for `context-down`, prints
+  its own, and never on a ladder relaunch) and only for `context-down`: it drops
+  the ladder context and returns to the profile settings, prints
   `claude-ollama: ladder up: <rung> recovered (<reason>)`, appends a `recovered`
   incident (`detail: "<rung>: <reason>"`, `rule: "ladder/up"`) and re-acquires
   the session lease with the rung still in effect, if any. The launcher's
@@ -1423,14 +1355,11 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   the rung's `context` as the context layer, so `CLAUDE_CODE_MAX_CONTEXT_TOKENS`
   follows it, re-acquires the session lease with `--rung`, and runs `claude`
   again with the same flags, a trailing prompt dropped and `--continue` added; a
-  handoff sentinel in the same pass still wins the arguments. Every relaunch
-  exports `CODE_SEARCH_EMBED=0` while `embed-off` exists, and `code-search.py`
-  itself answers words only while that file is in `$CLAUDE_OLLAMA_RELAUNCH_DIR`.
-  Tests: `ollama/incidents/ladder.test.sh` (inline incident rows, a sleeping
-  pid, a stub `ps`, a stub `ollama-lease` with `STUB_FIT`),
-  `bin/claude-ollama.test.sh` (stub ladder, `STUB_CLAUDE_LADDER_ONCE`,
-  `STUB_CLAUDE_LADDER_UP`), `shared/mcp/code-search.test.sh`. The console's
-  Server page has a Residency card
+  handoff sentinel in the same pass still wins the arguments. Tests:
+  `ollama/incidents/ladder.test.sh` (inline incident rows, a sleeping pid, a
+  stub `ps`, a stub `ollama-lease` with `STUB_FIT`), `bin/claude-ollama.test.sh`
+  (stub ladder, `STUB_CLAUDE_LADDER_ONCE`, `STUB_CLAUDE_LADDER_UP`). The
+  console's Server page has a Residency card
   (`web/console/src/components/residency-card.tsx`,
   `web/console/src/lib/lease.ts`): `GET /api/lease` runs
   `bin/ollama-lease holders` with `CLAUDE_CUSTOM_HOME` and answers
@@ -1442,27 +1371,15 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   (`reason: "promoted from the console"`) for the live session, refusing (409) a
   session on another rung or without a relaunch dir; the same-origin rule of
   `proxy.ts` applies.
-- `shared/mcp/code-search.py` is the `semantic_search` MCP server (JSON-RPC over
-  stdio, stdlib only). It ranks 40-line chunks by their words (BM25) on every
-  search, adds a vector ranking through Ollama `/api/embed` only while
-  `GET /api/ps` shows the embedding model loaded, keeps its index in memory and
-  reloads `.git/code-search/index.json` when `--index` (the only writer)
-  produced a newer one. `claude-ollama` starts `code-search.py --index` in the
-  background on launch (`CLAUDE_OLLAMA_NO_INDEX=1` skips it) with
-  `--watch-pid $$`, so it stops embedding when the session ends; an `flock` on
-  `.git/code-search/index.lock` keeps it to one indexer per repo, and it saves
-  the vectors it made when it stops early. `bin/claude-ollama` pulls its model
-  (`CODE_SEARCH_MODEL`, default `qwen3-embedding:0.6b`); the model picker's "Set
-  up embedding model" row pulls it too. The default name appears once in each of
-  `bin/lib/size-profile.sh`, `code-search.py` and
-  `go/internal/picker/profiles/embedding.go`, and `bin/check-config` checks they
-  agree. The Ollama profiles allow the tool in `permissions.allow`.
+- The embedding model (`CODE_SEARCH_MODEL`, default `qwen3-embedding:0.6b`)
+  keeps its pin, but a launch neither pulls, verifies nor warms it; only
+  `claude-ollama prepare-embedding` and the model picker's "Set up embedding
+  model" row pull it. The default name appears once in each of
+  `bin/lib/size-profile.sh` and `go/internal/picker/profiles/embedding.go`, and
+  `bin/check-config` checks they agree.
 - `ollama/server.env` documents the Ollama server env the profiles expect,
-  including `OLLAMA_MAX_LOADED_MODELS`, which `bin/claude-ollama` reads from the
-  running server: at 2 or more (the main and embedding models) it exports
-  `CODE_SEARCH_EMBED=1` (the search server then loads and uses the embedding
-  model) and warms the model before the indexer; otherwise `semantic_search`
-  ranks by words only. `bin/ollama-agent` passes it as `-server-env`, so a new
+  including `OLLAMA_MAX_LOADED_MODELS`, which `bin/ollama-lease` reads from the
+  running server. `bin/ollama-agent` passes it as `-server-env`, so a new
   LaunchAgent starts from its values. Before each launch `bin/claude-ollama`
   runs `ollama-agent -apply` (`CLAUDE_OLLAMA_AGENT` overrides the command; tests
   stub it) when the running server lacks a value: it merges `server.env` into
@@ -1481,12 +1398,12 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `EnvironmentVariables` are lost.
 - `ollama/CLAUDE.local.md` is the appended system prompt for every size, for
   small local models, not memory files. Keep it terse: the 27b has a 64k
-  context, the other sizes 96k. It must name every tool the session can call
-  (the launcher's `--tools` list and each MCP server's tool names);
-  `bin/check-config` fails when one is missing. `ollama/sizes.json` is the
-  single source for each size's `context` and `output_tokens`:
-  `bin/ollama-profiles` writes them to `Modelfile.<size>` (`num_ctx`,
-  `num_predict`) and to `CLAUDE_CODE_MAX_OUTPUT_TOKENS`, and the full context to
+  context, the other sizes 96k. It must name every tool in the launcher's
+  `--tools` list and no `mcp__` tool; `bin/check-config` fails when one is
+  missing or an `mcp__` name appears. `ollama/sizes.json` is the single source
+  for each size's `context` and `output_tokens`: `bin/ollama-profiles` writes
+  them to `Modelfile.<size>` (`num_ctx`, `num_predict`) and to
+  `CLAUDE_CODE_MAX_OUTPUT_TOKENS`, and the full context to
   `CLAUDE_CODE_MAX_CONTEXT_TOKENS`: Claude Code itself keeps every prompt plus
   its output 3000 tokens under that number and compacts at
   `min(window × 88%, window − 13000)` of the window left after the output, so
@@ -1522,39 +1439,41 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `context`, `output_tokens` (1024 to 16384: `CLAUDE_CODE_MAX_OUTPUT_TOKENS` and
   the `num_predict` parameter) and `thinking:true` (Ollama only; it drops the
   `CLAUDE_CODE_EXTRA_BODY` that turns thinking off, so Claude Code's own
-  adaptive request reaches Ollama); `tools`, `env`, `mcp`, `parameters`,
-  `summary` and `check` serve `bin/claude-ollama`. `env` exports only the keys
-  of the profile env catalogue `shared/profile-env.json` (an ordered list of
+  adaptive request reaches Ollama); `tools`, `env`, `parameters`, `summary` and
+  `check` serve `bin/claude-ollama`. The old `mcp` key is retired: the overlay
+  ignores it, and the console (whose profile editor tab is now "Hooks") drops
+  it, like a stale `CLAUDE_OLLAMA_NO_INDEX` env entry, when it saves a profile.
+  `env` exports only the keys of the profile env catalogue
+  `shared/profile-env.json` (an ordered list of
   `{key, group, kind, default, min, max, step | choices, label, help, ollamaOnly}`,
   `kind` one of `switch`, `integer`, `choice`; values are not checked there):
   the 0/1 switches `CLAUDE_OLLAMA_TELEMETRY` (default off),
-  `CLAUDE_OLLAMA_NO_INDEX`, `CLAUDE_OLLAMA_OPEN_DRAFTS`, `CLAUDE_OLLAMA_CMUX`,
-  `CLAUDE_OLLAMA_RELAUNCH`, `CLAUDE_OLLAMA_INCIDENTS`, `CLAUDE_OLLAMA_PROXY`
-  (default on), `CLAUDE_OLLAMA_PROXY_RECORD` (default off),
-  `CLAUDE_OLLAMA_PROXY_STABILIZE` (off), `CLAUDE_CUSTOM_FRICTION` (on),
-  `CLAUDE_OLLAMA_LEASE` (on), `CLAUDE_OLLAMA_LADDER` (on), `CLAUDE_OLLAMA_FIT`
-  (on), `CLAUDE_OLLAMA_BEACON` (on), `CLAUDE_OLLAMA_RULE_CARDS` (on) and
-  `CLAUDE_OLLAMA_EDIT_NUDGE` (on), plus `CLAUDE_OLLAMA_HANDOFF_PCT` (a whole
-  percent from 30 to 85, default 70), `CLAUDE_OLLAMA_LEASE_HEARTBEAT` (whole
-  seconds from 30 to 600, default 120) `CLAUDE_OLLAMA_TEST_AFTER_EDIT` (`0`,
-  `suggest` or `run`, default `suggest`) and `CLAUDE_CODE_EFFORT_LEVEL` (`low`,
-  `medium` or `xhigh`, default `xhigh`; Claude Code's own variable, read by Qwen
-  3.8's chat template through Ollama when the profile's thinking is on, ignored
-  by Qwen 3.6). Adding a switch is one catalogue entry, then
-  `bin/ollama-profiles` (which renders the console's copy and the
-  `docs/ollama.md` table) and a mention here (`bin/check-config` fails when this
-  file lacks a key). `context-budget.py` and `test-after-edit.py` read their
-  defaults from the catalogue through `shared/hooks/profile_env.py`
-  (`catalogue_default`); the bash launchers keep their own `${VAR:-1}` defaults.
-  `web/console/src/lib/profile-rules.ts` builds `PROFILE_ENV_KEYS` and
-  `PROFILE_ENV_FIELDS` from the rendered copy (an `integer` becomes a `number`
-  field with a `range`) and throws on an unknown group or kind. The console's
-  Profiles page shows each key by the plain label, default and help sentence in
-  `PROFILE_ENV_FIELDS`, never the variable name, grouped under the field's
-  `group`, and hides every Ollama-only field from the `claude-code` profile,
-  which of the harness switches sees only `CLAUDE_CUSTOM_FRICTION`. It refuses a
-  symlinked profile, and `Agent` never reaches an Ollama profile. The overlay
-  sets `sandbox.enabled` and the ask rule
+  `CLAUDE_OLLAMA_OPEN_DRAFTS`, `CLAUDE_OLLAMA_CMUX`, `CLAUDE_OLLAMA_RELAUNCH`,
+  `CLAUDE_OLLAMA_INCIDENTS`, `CLAUDE_OLLAMA_PROXY` (default on),
+  `CLAUDE_OLLAMA_PROXY_RECORD` (default off), `CLAUDE_OLLAMA_PROXY_STABILIZE`
+  (off), `CLAUDE_CUSTOM_FRICTION` (on), `CLAUDE_OLLAMA_LEASE` (on),
+  `CLAUDE_OLLAMA_LADDER` (on), `CLAUDE_OLLAMA_FIT` (on), `CLAUDE_OLLAMA_BEACON`
+  (on), `CLAUDE_OLLAMA_RULE_CARDS` (on) and `CLAUDE_OLLAMA_EDIT_NUDGE` (on),
+  plus `CLAUDE_OLLAMA_HANDOFF_PCT` (a whole percent from 30 to 85, default 70),
+  `CLAUDE_OLLAMA_LEASE_HEARTBEAT` (whole seconds from 30 to 600, default 120)
+  `CLAUDE_OLLAMA_TEST_AFTER_EDIT` (`0`, `suggest` or `run`, default `suggest`)
+  and `CLAUDE_CODE_EFFORT_LEVEL` (`low`, `medium` or `xhigh`, default `xhigh`;
+  Claude Code's own variable, read by Qwen 3.8's chat template through Ollama
+  when the profile's thinking is on, ignored by Qwen 3.6). Adding a switch is
+  one catalogue entry, then `bin/ollama-profiles` (which renders the console's
+  copy and the `docs/ollama.md` table) and a mention here (`bin/check-config`
+  fails when this file lacks a key). `context-budget.py` and
+  `test-after-edit.py` read their defaults from the catalogue through
+  `shared/hooks/profile_env.py` (`catalogue_default`); the bash launchers keep
+  their own `${VAR:-1}` defaults. `web/console/src/lib/profile-rules.ts` builds
+  `PROFILE_ENV_KEYS` and `PROFILE_ENV_FIELDS` from the rendered copy (an
+  `integer` becomes a `number` field with a `range`) and throws on an unknown
+  group or kind. The console's Profiles page shows each key by the plain label,
+  default and help sentence in `PROFILE_ENV_FIELDS`, never the variable name,
+  grouped under the field's `group`, and hides every Ollama-only field from the
+  `claude-code` profile, which of the harness switches sees only
+  `CLAUDE_CUSTOM_FRICTION`. It refuses a symlinked profile, and `Agent` never
+  reaches an Ollama profile. The overlay sets `sandbox.enabled` and the ask rule
   `Bash(dangerouslyDisableSandbox:true)`, so every personal session (subagents
   and `--agent pr-review` included) runs Claude's shell commands inside Claude
   Code's sandbox and asks before one runs outside it; `bin/check-config` checks

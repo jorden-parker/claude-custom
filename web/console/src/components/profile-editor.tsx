@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import {
   ProfileEnvTab,
-  ProfileMcpHooksTab,
+  ProfileHooksTab,
   ProfileModelTab,
   ProfileToolsTab,
   type ProfileTabProps,
@@ -74,7 +74,7 @@ export function ProfileEditor({ id }: { id: string }) {
         <TabsList className="max-w-full justify-start overflow-x-auto overflow-y-hidden">
           <TabsTrigger value="tools">Tools</TabsTrigger>
           <TabsTrigger value="model">Sandbox &amp; model</TabsTrigger>
-          <TabsTrigger value="mcp">MCP &amp; hooks</TabsTrigger>
+          <TabsTrigger value="hooks">Hooks</TabsTrigger>
           <TabsTrigger value="env">Env</TabsTrigger>
         </TabsList>
         <TabsContent value="tools" className="pt-3">
@@ -83,8 +83,8 @@ export function ProfileEditor({ id }: { id: string }) {
         <TabsContent value="model" className="pt-3">
           <ProfileModelTab {...tabProps} />
         </TabsContent>
-        <TabsContent value="mcp" className="pt-3">
-          <ProfileMcpHooksTab {...tabProps} />
+        <TabsContent value="hooks" className="pt-3">
+          <ProfileHooksTab {...tabProps} />
         </TabsContent>
         <TabsContent value="env" className="pt-3">
           <ProfileEnvTab {...tabProps} />

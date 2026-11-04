@@ -16,7 +16,6 @@ import type { ProfileDetail } from "@/lib/profile-base";
 import {
   CONTEXT_CAP,
   CONTEXT_MINIMUM,
-  OLLAMA_MCP_SERVERS,
   OUTPUT_TOKENS_RANGE,
   PARAMETER_RANGES,
   PROFILE_ENV_FIELDS,
@@ -29,7 +28,6 @@ import {
 import {
   withContext,
   withEnv,
-  withMcp,
   withOutputTokens,
   withParameter,
   withSandbox,
@@ -225,25 +223,9 @@ function FieldRow({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-export function ProfileMcpHooksTab({ detail, draft, update }: ProfileTabProps) {
+export function ProfileHooksTab({ detail }: ProfileTabProps) {
   return (
     <div className="flex flex-col gap-6 text-sm">
-      <Section title="MCP servers">
-        {detail.base.mcpServers.length === 0 ? (
-          <p className="text-muted-foreground">
-            Claude Code uses the MCP servers in your own settings.
-          </p>
-        ) : (
-          OLLAMA_MCP_SERVERS.map((name) => (
-            <McpSwitch
-              key={name}
-              name={name}
-              enabled={draft.mcp?.[name] !== false}
-              update={update}
-            />
-          ))
-        )}
-      </Section>
       <Section title="Hooks (read-only)">
         {detail.base.hooks.length === 0 ? (
           <p className="text-muted-foreground">
@@ -254,29 +236,6 @@ export function ProfileMcpHooksTab({ detail, draft, update }: ProfileTabProps) {
         )}
       </Section>
     </div>
-  );
-}
-
-function McpSwitch({
-  name,
-  enabled,
-  update,
-}: {
-  name: string;
-  enabled: boolean;
-  update: ProfileUpdate;
-}) {
-  return (
-    <Label className="flex items-center gap-2">
-      <Switch
-        aria-label={`MCP ${name}`}
-        checked={enabled}
-        onCheckedChange={(next) =>
-          update((current) => withMcp(current, name, next ? null : false))
-        }
-      />
-      <span className="font-mono">{name}</span>
-    </Label>
   );
 }
 

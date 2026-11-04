@@ -37,8 +37,8 @@ def deny(reason):
 
 def reason_for(path, lines):
     return (
-        f"{path} has {lines} lines. Find the lines you need first (semantic_search, "
-        f"Grep or `git grep -n`), then Read again with offset and limit "
+        f"{path} has {lines} lines. Find the lines you need first (Grep -n "
+        f"or `git grep -n`), then Read again with offset and limit "
         f"(limit {MAX_LINES} or less)."
     )
 

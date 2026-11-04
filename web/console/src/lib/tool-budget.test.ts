@@ -35,14 +35,7 @@ const REPORT: ToolBudgetReport = {
       bytes_per_call: 0,
     },
   ],
-  protected: [
-    "Bash",
-    "Read",
-    "Edit",
-    "Write",
-    "Skill",
-    "mcp__code-search__semantic_search",
-  ],
+  protected: ["Bash", "Read", "Edit", "Write", "Skill"],
   protected_source: "built-in list in bin/tool-budget",
   suggest: { drop: ["WebFetch"], keep: ["Bash", "Grep"], saves_bytes: 2048 },
 };
