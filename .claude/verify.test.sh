@@ -7,6 +7,8 @@ trap 'rm -rf "$sandbox"' EXIT
 
 mkdir -p "$sandbox/.claude" "$sandbox/stubs"
 cp "$verify" "$sandbox/.claude/verify"
+mkdir -p "$sandbox/shared/testing"
+cp "$(dirname "$verify")/../shared/testing/test-guard" "$(dirname "$verify")/../shared/testing/test-guard.sb" "$sandbox/shared/testing/"
 cat > "$sandbox/stubs/make" <<STUB
 #!/bin/sh
 echo "make \$*" >> "$sandbox/run.log"
