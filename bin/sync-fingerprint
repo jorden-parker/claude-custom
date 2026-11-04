@@ -38,15 +38,26 @@ pin_state() {
   esac
 }
 
+pinned_digest() {
+  if [ "$1" = ok ]; then
+    jq -r --arg key "$2" '"sha256:" + .[$key]' "$profile_dir/model-digests.json"
+  else
+    echo "$1"
+  fi
+}
+
 models_json() {
-  local listing size name file
+  local listing size name file repo pin
   listing="$(weights_listing)"
   for size in $(jq -r 'to_entries[] | select(.value.gguf) | .key' "$profile_dir/sizes.json"); do
     [ -f "$profile_dir/settings.$size.json" ] || continue
     name="$(jq -r --arg size "$size" '.[$size].model' "$profile_dir/sizes.json")"
     file="$(jq -r --arg size "$size" '.[$size].gguf.file' "$profile_dir/sizes.json")"
-    jq -n --arg size "$size" --arg name "$name" --arg file "$file" --arg pin "$(pin_state "$listing" "$file")" \
-      '{($size): {name: $name, file: $file, pin: $pin}}'
+    repo="$(jq -r --arg size "$size" '.[$size].gguf.repo' "$profile_dir/sizes.json")"
+    pin="$(pin_state "$listing" "$file")"
+    jq -n --arg size "$size" --arg name "$name" --arg file "$file" --arg pin "$pin" \
+      --arg digest "$(pinned_digest "$pin" "$repo/$file")" \
+      '{($size): {name: $name, file: $file, digest: $digest, pin: $pin}}'
   done | jq -s 'add // {}'
 }
 
