@@ -27,6 +27,7 @@ models_ini="$profile_dir/models.ini"
 ladder_dir="$data_dir/ollama/incidents"
 profile_overlay="$data_dir/shared/profile-overlay"
 weights_placeholder="@WEIGHTS@"
+templates_placeholder="@TEMPLATES@"
 
 sizes() {
   jq -r 'keys[]' "$sizes_file"
@@ -100,9 +101,10 @@ lower_context() {
 
 preset_lines() {
   jq -r --arg size "$1" --argjson context "$2" --arg reasoning "$3" --argjson output "$(output_tokens "$1")" \
-    --arg weights "$weights_placeholder" --slurpfile keys "$preset_keys_file" '
+    --arg weights "$weights_placeholder" --arg templates "$templates_placeholder" --slurpfile keys "$preset_keys_file" '
     .[$size] as $spec
     | "model = \($weights)/\($spec.gguf.file)",
+      ($spec.chat_template // empty | "chat-template-file = \($templates)/\(.)"),
       "ctx-size = \($context)",
       "n-predict = \($output)",
       (($spec.parameters // {}) | to_entries
@@ -341,7 +343,8 @@ merge_server_overrides() {
 render_user_presets() {
   local presets="$1" profiles="$2" weights="$3" overrides="$4" content size
   content="$(merge_server_overrides "$models_ini" "$overrides")" || return 1
-  printf '%s\n' "${content//$weights_placeholder/$weights}" > "$presets"
+  content="${content//$weights_placeholder/$weights}"
+  printf '%s\n' "${content//$templates_placeholder/$profile_dir/templates}" > "$presets"
   for size in $(sizes); do
     add_profile_presets "$presets" "$size" "$profiles/ollama-$size.json" || return 1
   done

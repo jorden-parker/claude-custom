@@ -139,6 +139,11 @@ check_eq "model-digests.json pins exactly the sizes' and the embedding model's G
   "$({ jq -r '.[].gguf | "\(.repo)/\(.file)"' "$repo/ollama/sizes.json"; jq -r '.gguf | "\(.repo)/\(.file)"' "$repo/ollama/embedding.json"; } | sort -u)" \
   "$(jq -r 'keys[]' "$digests" | sort)"
 check_that ".gitignore keeps downloaded GGUF weights out of git" grep -qx 'ollama/weights/' "$repo/.gitignore"
+while IFS=' ' read -r size template; do
+  check_that "size $size's chat template $template is a file in ollama/templates" test -f "$repo/ollama/templates/$template"
+  check_not "size $size's chat template keeps a mid-conversation system message, which Claude Code sends, instead of failing the request" \
+    grep -qF "System message must be at the beginning" "$repo/ollama/templates/$template"
+done < <(jq -r 'to_entries[] | select(.value.chat_template) | "\(.key) \(.value.chat_template)"' "$repo/ollama/sizes.json")
 
 ollama_pattern='\bollama (pull|create|show|rm|cp|list|ps|serve|run)\b|/api/(tags|ps|generate|chat|embed|version|show|pull)'
 unallowed_ollama_lines() {

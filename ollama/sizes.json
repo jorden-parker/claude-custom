@@ -2,6 +2,7 @@
   "27b": {
     "base": "unsloth/Qwen3.8-27B-GGUF/Qwen3.8-27B-UD-Q4_K_XL.gguf",
     "model": "qwen3.8-27b-cc",
+    "chat_template": "qwen3.8-27b.jinja",
     "context": 65536,
     "output_tokens": 8192,
     "parameters": {

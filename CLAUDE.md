@@ -230,16 +230,22 @@ before changing how any file gets applied.
   `reasoning = off`, a `[<model>@think]` one with `reasoning = on` and a
   `[<model>@<ctx>]` one at the ladder's lower context, plus the embedding
   section `[qwen3-embedding-0.6b]` with `alias = qwen3-embedding:0.6b`; weights
-  paths are `@WEIGHTS@/<file>` and sampling keys map through
-  `ollama/preset-keys.json`), and `personal/settings.tokens.json` from
-  `personal/settings.tokens.template.json`.
-  `--user-presets [--check] [--out FILE]` writes
+  paths are `@WEIGHTS@/<file>`, a size's optional `chat_template` adds
+  `chat-template-file = @TEMPLATES@/<file>` from `ollama/templates/` to each of
+  its sections, and sampling keys map through `ollama/preset-keys.json`), and
+  `personal/settings.tokens.json` from `personal/settings.tokens.template.json`.
+  The 27b's template is its pinned GGUF's own with one change: a system message
+  after the first non-system one renders as a system turn instead of
+  `raise_exception('System message must be at the beginning.')`, since Claude
+  Code sends such messages and the stock template fails every request with a 500
+  (llama.cpp #27367); `bin/check-config` fails when a named template is missing
+  or keeps that raise. `--user-presets [--check] [--out FILE]` writes
   `~/.claude-ollama/presets/models.ini` (0600): `models.ini` with the weights
-  folder filled in, the `[*]` keys of `ollama/server.ini` overlaid by
-  `server.local.ini`, plus, per Ollama profile override, `[<model>@<ctx>]`
-  sections for its `context` and that context's lower step and a
-  `[<model>@profile]` section when it sets `output_tokens` or `parameters`, and
-  prints `changed` or `unchanged`. It also copies the profile env catalogue
+  and templates folders filled in, the `[*]` keys of `ollama/server.ini`
+  overlaid by `server.local.ini`, plus, per Ollama profile override,
+  `[<model>@<ctx>]` sections for its `context` and that context's lower step and
+  a `[<model>@profile]` section when it sets `output_tokens` or `parameters`,
+  and prints `changed` or `unchanged`. It also copies the profile env catalogue
   `shared/profile-env.json` to `web/console/src/lib/profile-env.generated.json`
   and renders its table in `docs/ollama.md` between the
   `<!-- profile-env:start -->` and `<!-- profile-env:end -->` lines;

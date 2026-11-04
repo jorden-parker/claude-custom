@@ -58,7 +58,8 @@ section() {
 
 check_eq "check passes on current files" 0 "$(exit_status_of --check)"
 check_eq "the presets start with server.ini's [*] section" "$(section "$profiles/server.ini" '*')" "$(section "$profiles/models.ini" '*')"
-check_eq "the 27b preset loads the pinned GGUF from the weights dir, at the full context, with its sampling keys, thinking off" "model = @WEIGHTS@/Qwen3.8-27B-UD-Q4_K_XL.gguf
+check_eq "the 27b preset loads the pinned GGUF from the weights dir and its chat template from the templates dir, at the full context, with its sampling keys, thinking off" "model = @WEIGHTS@/Qwen3.8-27B-UD-Q4_K_XL.gguf
+chat-template-file = @TEMPLATES@/qwen3.8-27b.jinja
 ctx-size = 65536
 n-predict = 8192
 min-p = 0
@@ -71,6 +72,9 @@ reasoning = off" "$(section "$profiles/models.ini" qwen3.8-27b-cc)"
 check_eq "the 27b @think preset is the same with thinking on" "$(section "$profiles/models.ini" qwen3.8-27b-cc | sed 's/^reasoning = off$/reasoning = on/')" "$(section "$profiles/models.ini" qwen3.8-27b-cc@think)"
 check_eq "the 27b ladder step is the next lower size's context" "$(section "$profiles/models.ini" qwen3.8-27b-cc | sed 's/^ctx-size = .*/ctx-size = 32768/')" "$(section "$profiles/models.ini" qwen3.8-27b-cc@32768)"
 check_eq "the 35b ladder step is the 27b context" "ctx-size = 65536" "$(section "$profiles/models.ini" qwen3.6-35b-cc@65536 | grep '^ctx-size')"
+check_not "a size without a chat_template keeps the GGUF's own template" sh -c "grep -q '^chat-template-file' <<'EOF'
+$(section "$profiles/models.ini" qwen3.6-35b-cc)
+EOF"
 check_eq "the 35b keeps its presence penalty" "presence-penalty = 1.5" "$(section "$profiles/models.ini" qwen3.6-35b-cc | grep '^presence-penalty')"
 check_eq "the smallest size steps down to 75% of its context" "ctx-size = 24576" "$(section "$profiles/models.ini" granite4.2-3b-cc@24576 | grep '^ctx-size')"
 check_eq "the embedding preset is named without a colon and keeps the model name as its alias" "alias = qwen3-embedding:0.6b
@@ -98,13 +102,13 @@ user_presets() {
 }
 user_file="$user_home/.claude-ollama/presets/models.ini"
 check_eq "user presets report a first write as changed" changed "$(user_presets)"
-check_eq "user presets are the repo presets with the weights dir filled in" "$(sed "s|@WEIGHTS@|$sandbox/weights|" "$profiles/models.ini")" "$(cat "$user_file")"
+check_eq "user presets are the repo presets with the weights and templates dirs filled in" "$(sed "s|@WEIGHTS@|$sandbox/weights|; s|@TEMPLATES@|$profiles/templates|" "$profiles/models.ini")" "$(cat "$user_file")"
 check_eq "the user presets file is 0600" yes "$([ -n "$(find "$user_file" -perm 600)" ] && echo yes)"
 check_eq "its folder is 0700" yes "$([ -n "$(find "${user_file%/*}" -prune -perm 700)" ] && echo yes)"
 check_eq "a second write with nothing new reports unchanged" unchanged "$(user_presets)"
 printf '%s' '{"context":40960}' > "$user_profiles/ollama-27b.json"
 check_eq "a profile context that has no section changes the user presets" changed "$(user_presets)"
-check_eq "it adds the base preset at that context" "$(section "$profiles/models.ini" qwen3.8-27b-cc | sed "s|@WEIGHTS@|$sandbox/weights|; s/^ctx-size = .*/ctx-size = 40960/")" "$(section "$user_file" qwen3.8-27b-cc@40960)"
+check_eq "it adds the base preset at that context" "$(section "$profiles/models.ini" qwen3.8-27b-cc | sed "s|@WEIGHTS@|$sandbox/weights|; s|@TEMPLATES@|$profiles/templates|; s/^ctx-size = .*/ctx-size = 40960/")" "$(section "$user_file" qwen3.8-27b-cc@40960)"
 check_eq "and no second copy of the ladder step that already exists" 1 "$(grep -cxF '[qwen3.8-27b-cc@32768]' "$user_file")"
 printf '%s' '{"context":30000}' > "$user_profiles/ollama-3b.json"
 user_presets >/dev/null
@@ -115,7 +119,7 @@ check_eq "a profile context equal to the size's own still gets an @<ctx> section
 rm "$user_profiles/ollama-3b.json"
 printf '%s' '{"output_tokens":4096,"parameters":{"temperature":0.5}}' > "$user_profiles/ollama-35b.json"
 user_presets >/dev/null
-check_eq "output_tokens and parameters add an @profile section with them applied" "$(section "$profiles/models.ini" qwen3.6-35b-cc | sed "s|@WEIGHTS@|$sandbox/weights|; s/^n-predict = .*/n-predict = 4096/; s/^temp = .*/temp = 0.5/")" "$(section "$user_file" qwen3.6-35b-cc@profile)"
+check_eq "output_tokens and parameters add an @profile section with them applied" "$(section "$profiles/models.ini" qwen3.6-35b-cc | sed "s|@WEIGHTS@|$sandbox/weights|; s|@TEMPLATES@|$profiles/templates|; s/^n-predict = .*/n-predict = 4096/; s/^temp = .*/temp = 0.5/")" "$(section "$user_file" qwen3.6-35b-cc@profile)"
 printf '%s' '{"context":40960,"parameters":{"top_k":40}}' > "$user_profiles/ollama-27b.json"
 user_presets >/dev/null
 check_eq "an @profile section carries the profile's context too" "ctx-size = 40960 top-k = 40" "$(section "$user_file" qwen3.8-27b-cc@profile | grep -E '^(ctx-size|top-k)' | tr '\n' ' ' | sed 's/ $//')"
