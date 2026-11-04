@@ -1548,7 +1548,7 @@ check_that "differing hooks are listed" grep -qE "^hooks: local [0-9a-f]{12} vs 
 check_that "the changed hook is named" grep -qxF "  tdd-guard.py: local $(shasum -a 256 "$repo/shared/hooks/tdd-guard.py" | cut -c1-12) vs beacon 000000000000" "$sandbox/out"
 check_that "a hook only in the beacon is named" grep -qxF "  only-there.sh: local none vs beacon 111111111111" "$sandbox/out"
 check_that "differing models are listed" grep -qE "^models: local [0-9a-f]{12} vs beacon [0-9a-f]{12} \(work-laptop, 2h\)$" "$sandbox/out"
-check_that "the changed model is spelled out" grep -qxF "  27b: local qwen3.8-27b-cc missing vs beacon qwen3.8-27b-cc sha256:theirs" "$sandbox/out"
+check_that "the changed model is spelled out" grep -qxF "  27b: local qwen3.8-27b-cc mismatch vs beacon qwen3.8-27b-cc sha256:theirs" "$sandbox/out"
 check_that "a differing server env is listed" grep -qE "^server_env: local [0-9a-f]{12} vs beacon [0-9a-f]{12} \(work-laptop, 2h\)$" "$sandbox/out"
 check_not "an equal section is not listed" grep -q '^sandbox: local' "$sandbox/out"
 check_not "an equal model is not spelled out" grep -q '^  35b:' "$sandbox/out"
