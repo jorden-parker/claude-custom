@@ -2,18 +2,13 @@
 set -u
 repo_dir="$(cd "$(dirname "$0")/.." && pwd)"
 check_script="$repo_dir/bin/speed-check"
+. "$repo_dir/shared/testing/stub-llama-lib.sh"
 tmp="$(mktemp -d)"
 failures=0
-trap 'rm -rf "$tmp"' EXIT
+trap 'stop_stub_llama; rm -rf "$tmp"' EXIT
 
 stubs="$tmp/stubs"
 mkdir -p "$stubs"
-
-cat > "$stubs/curl" <<'EOF'
-#!/bin/sh
-[ -n "${STUB_OLLAMA_DOWN:-}" ] && exit 7
-echo '{"version":"0.40.8"}'
-EOF
 
 cat > "$stubs/pmset" <<'EOF'
 #!/bin/sh
@@ -37,20 +32,6 @@ echo "Filesystem 1024-blocks Used Available Capacity Mounted"
 echo "/dev/disk3 999999999 1 ${STUB_FREE_KB:-99999999} 1% /"
 EOF
 
-cat > "$stubs/ollama" <<'EOF'
-#!/bin/sh
-if [ "$1" = show ] && [ "${3:-}" = --modelfile ]; then
-  echo "FROM ./weights/x.gguf"
-  [ -n "${STUB_NO_RENDERER:-}" ] || { echo "RENDERER qwen3.8"; echo "PARSER qwen3.5"; }
-  exit 0
-fi
-if [ "$1" = show ]; then
-  case " ${STUB_MISSING_MODELS:-} " in *" $2 "*) exit 1 ;; esac
-  exit 0
-fi
-exit 0
-EOF
-
 cat > "$stubs/launcher" <<'EOF'
 #!/bin/sh
 echo "launcher $*" >> "$CALLS"
@@ -65,26 +46,35 @@ with open(os.environ["CALLS"], "a") as log:
 model = args[args.index("--model") + 1]
 thinking = args[args.index("--thinking") + 1]
 trials = int(args[args.index("--tool-trials") + 1])
-gguf = "gguf" in model
 think = 0
-if thinking == "claude-code" and not os.environ.get("STUB_NO_THINKING"):
+if thinking == "claude-code" and model.endswith("@think") and not os.environ.get("STUB_NO_THINKING"):
     think = 500
-ttft = 9.0 if gguf and os.environ.get("STUB_SLOW_GGUF") else (4.0 if gguf else 5.0)
+if thinking == "claude-code" and not model.endswith("@think") and os.environ.get("STUB_PLAIN_THINKS"):
+    think = 40
+parsed = trials - 1 if os.environ.get("STUB_MISSED_TOOL") and thinking == "disabled" else trials
 runs = [
-    {"prefix_tokens": prefix, "scenario": scenario, "ttft_seconds": ttft, "decode_tokens_per_second": 20.0, "thinking_chars": think}
+    {"prefix_tokens": prefix, "scenario": scenario, "ttft_seconds": 4.0, "decode_tokens_per_second": 20.0, "thinking_chars": think}
     for prefix in (20000, 60000)
     for scenario in ("cold", "warm")
 ]
-print(json.dumps({"runs": runs, "tool_calls": {"parsed": trials, "trials": trials}}))
+print(json.dumps({"runs": runs, "tool_calls": {"parsed": parsed, "trials": trials}}))
 EOF
 
 cat > "$stubs/probe" <<'EOF'
 #!/bin/sh
 echo "probe $*" >> "$CALLS"
-echo '{"cache_reused": true, "scenarios": []}'
+echo "{\"cache_reused\": ${STUB_CACHE_REUSED:-true}, \"scenarios\": []}"
 EOF
 
 chmod +x "$stubs"/*
+
+printf '{"models": {}}\n' > "$tmp/stub-state.json"
+start_stub_llama "$tmp/stub-state.json" || exit 1
+server_url="$LLAMA_SERVER_URL"
+
+weights_of() {
+  jq -r --arg size "$1" '.[$size].gguf.file' "$repo_dir/ollama/sizes.json"
+}
 
 fail() {
   echo "FAIL: $1"
@@ -95,13 +85,18 @@ run_check() {
   run_dir="$(mktemp -d "$tmp/run.XXXXXX")"
   export CALLS="$run_dir/calls.log"
   : > "$CALLS"
-  env PATH="$stubs:$PATH" HOME="$run_dir/home" \
+  mkdir -p "$run_dir/weights"
+  touch "$run_dir/weights/$(weights_of 27b)" "$run_dir/weights/$(weights_of 35b)"
+  [ -z "${missing_size:-}" ] || rm -f "$run_dir/weights/$(weights_of "$missing_size")"
+  env PATH="$stubs:$PATH" HOME="$run_dir/home" LLAMA_SERVER_URL="$server_url" \
+    CLAUDE_OLLAMA_WEIGHTS_DIR="$run_dir/weights" \
     SPEED_CHECK_LAUNCHER="$stubs/launcher" SPEED_CHECK_BENCH="$stubs/bench" SPEED_CHECK_PROBE="$stubs/probe" \
     "$@" "$check_script" ${check_args[@]+"${check_args[@]}"} > "$run_dir/out" 2> "$run_dir/err"
   status=$?
 }
 
 check_args=()
+missing_size=""
 
 has() { grep -qF -- "$1" "$run_dir/$2"; }
 
@@ -109,21 +104,24 @@ run_check
 [ "$status" -eq 0 ] || { fail "a healthy run exits 0 (got $status)"; cat "$run_dir/err"; }
 order="$(sed 's/ .*//' "$CALLS" | uniq | tr '\n' ' ')"
 [ "$order" = "launcher bench probe " ] || fail "stages run in order: prepare, benches, probes (got $order)"
-[ "$(grep -c '^launcher prepare ' "$CALLS")" -eq 4 ] || fail "it prepares all four sizes"
-grep -q '^launcher prepare 27b-gguf$' "$CALLS" || fail "it prepares 27b-gguf"
-grep -q -- '--thinking claude-code' "$CALLS" || fail "it runs the thinking check in Claude Code's shape"
-grep -q -- '--model qwen3.8-27b-gguf-cc --thinking disabled --tool-trials 5' "$CALLS" || fail "it benches the 27b GGUF model with thinking disabled"
-first_mlx="$(grep -n -- '--model qwen3.8-27b-cc --thinking disabled --tool-trials 5' "$CALLS" | cut -d: -f1)"
-first_gguf="$(grep -n -- '--model qwen3.8-27b-gguf-cc --thinking disabled --tool-trials 5' "$CALLS" | cut -d: -f1)"
-[ "$((first_gguf - first_mlx))" -eq 1 ] || fail "the MLX and GGUF benches of a model run back to back"
-grep -q '^probe 35b-gguf --json$' "$CALLS" || fail "it probes the 35b-gguf cache"
-grep -q '^df ' "$CALLS" && fail "it skips the disk check when every model is imported"
-has "[1/6]" out || fail "it numbers the stages"
-has "Plan 066 (thinking off): PASS" out || fail "the verdict passes plan 066"
-has "27b: GGUF is better" out || fail "the verdict says the faster GGUF is better"
+[ "$(grep -c '^launcher prepare ' "$CALLS")" -eq 2 ] || fail "it prepares the two sizes"
+grep -qx 'launcher prepare 27b' "$CALLS" || fail "it prepares the 27b"
+grep -qx 'launcher prepare 35b' "$CALLS" || fail "it prepares the 35b"
+grep -q -- "--model qwen3.8-27b-cc@think --thinking claude-code .*--base-url $server_url" "$CALLS" || fail "it checks the @think preset thinks on llama-server"
+grep -q -- '--model qwen3.8-27b-cc --thinking claude-code' "$CALLS" || fail "it checks the plain preset in Claude Code's shape"
+grep -q -- '--model qwen3.6-35b-cc --thinking disabled --tool-trials 5' "$CALLS" || fail "it benches the 35b preset with thinking disabled"
+grep -qx 'probe qwen3.8-27b-cc --json' "$CALLS" || fail "it probes the 27b preset's cache"
+grep -qx 'probe qwen3.6-35b-cc --json' "$CALLS" || fail "it probes the 35b preset's cache"
+grep -q '^df ' "$CALLS" && fail "it skips the disk check when every weights file is there"
+has "[1/5]" out || fail "it numbers the stages"
+has "Thinking check: PASS (27b think 2000 -> 0, 35b think 2000 -> 0)" out || fail "the verdict passes the thinking check"
+has "27b: ok (warm 60k: ttft 4.0s, decode 20.0 tok/s)" out || fail "the verdict gives each size its numbers"
 has "Paste this block into Claude:" out || fail "it prints the paste block"
-has "Next:" out || fail "it prints the next action"
+has "Next: nothing to change" out || fail "it prints the next action"
 ls "$run_dir/home/bench-results"/speed-check-*.json > /dev/null 2>&1 || fail "it saves the report under ~/bench-results"
+report="$(ls "$run_dir/home/bench-results"/speed-check-*.json 2>/dev/null | head -n 1)"
+[ "$(jq -r '.verdict[0]' "$report" 2>/dev/null)" = "Thinking check: PASS (27b think 2000 -> 0, 35b think 2000 -> 0)" ] || fail "the report keeps the verdict lines"
+[ "$(jq -r '.next' "$report" 2>/dev/null | cut -c1-5)" = "Next:" ] || fail "the report keeps the next action"
 
 run_check STUB_ON_BATTERY=1
 [ "$status" -eq 1 ] || fail "on battery it exits 1"
@@ -137,57 +135,61 @@ has "Low Power Mode" err || fail "Low Power Mode stops the run with a fix line"
 run_check STUB_OTHER_SESSION=1
 has "quit the other claude-ollama session" err || fail "another session stops the run with a fix line"
 
-run_check STUB_OLLAMA_DOWN=1
-has "Ollama is not answering" err || fail "a stopped Ollama stops the run with a fix line"
+run_check LLAMA_SERVER_URL=http://127.0.0.1:9
+has "llama-server is not answering at http://127.0.0.1:9" err || fail "a stopped llama-server stops the run with a fix line"
 
-run_check STUB_MISSING_MODELS="qwen3.6-35b-gguf-cc" STUB_FREE_KB=1000
-[ "$status" -eq 1 ] || fail "too little disk for a missing GGUF exits 1"
+missing_size=35b
+run_check STUB_FREE_KB=1000
+[ "$status" -eq 1 ] || fail "too little disk for missing weights exits 1"
 has "free up disk space" err || fail "too little disk says to free space"
-grep -q '^launcher ' "$CALLS" && fail "too little disk imports nothing"
+has "35b" err || fail "too little disk names the size to download"
+grep -q '^launcher ' "$CALLS" && fail "too little disk downloads nothing"
 
-run_check STUB_MISSING_MODELS="qwen3.6-35b-gguf-cc"
-grep -q '^df ' "$CALLS" || fail "a missing GGUF model triggers the disk check"
-
-run_check STUB_NO_RENDERER=1
-[ "$status" -eq 1 ] || fail "a GGUF model without RENDERER exits 1"
-has "don't use 27b-gguf" err || fail "a missing RENDERER names the size not to use"
-grep -q '^bench ' "$CALLS" && fail "a missing RENDERER stops before benching"
+run_check
+grep -q '^df ' "$CALLS" || fail "a missing weights file triggers the disk check"
+missing_size=""
 
 run_check STUB_NO_THINKING=1
 [ "$status" -eq 0 ] || fail "a failed thinking check still finishes the run"
-has "Plan 066 (thinking off): FAIL" out || fail "no thinking in Claude Code's shape fails plan 066"
+has "Thinking check: FAIL" out || fail "an @think preset that never thinks fails the check"
 grep -q '^probe ' "$CALLS" || fail "a failed thinking check still runs the probes"
+has "thinking is still wrong" out || fail "a failed thinking check names it in the next action"
 
-run_check STUB_SLOW_GGUF=1
-has "27b: GGUF is not better" out || fail "a slower GGUF is not better"
-has "warm TTFT" out || fail "a slower GGUF names the TTFT condition"
+run_check STUB_PLAIN_THINKS=1
+has "Thinking check: FAIL (27b think 2000 -> 160" out || fail "a plain preset that thinks fails the check"
+
+run_check STUB_MISSED_TOOL=1 STUB_CACHE_REUSED=false
+has "27b: needs a look (tool calls missed, prompt cache not reused)" out || fail "a size with missed tool calls and no cache reuse needs a look"
+has "Next: paste the block below into Claude; a size needs a look." out || fail "a size that needs a look says so in the next action"
 
 check_args=(--thinking-only)
 run_check STUB_ON_BATTERY=1
-[ "$status" -eq 0 ] || fail "a thinking-only run exits 0 when thinking is off (got $status)"
-has "Plan 066 (thinking off): PASS" out || fail "a thinking-only run prints the thinking verdict"
-grep -q '^launcher prepare 27b$' "$CALLS" || fail "a thinking-only run prepares the 27b"
-grep -q '^launcher prepare 27b-gguf' "$CALLS" && fail "a thinking-only run skips the GGUF sizes"
+[ "$status" -eq 0 ] || fail "a thinking-only run exits 0 when thinking is right (got $status)"
+has "Thinking check: PASS" out || fail "a thinking-only run prints the thinking verdict"
+grep -qx 'launcher prepare 27b' "$CALLS" || fail "a thinking-only run prepares the sizes"
 grep -q -- '--tool-trials 5' "$CALLS" && fail "a thinking-only run skips the speed bench"
 grep -q '^probe ' "$CALLS" && fail "a thinking-only run skips the cache probe"
 has "Paste this block" out && fail "a thinking-only run prints no paste block"
 
 run_check STUB_NO_THINKING=1
 [ "$status" -eq 1 ] || fail "a thinking-only run exits 1 when the check fails"
-has "Plan 066 (thinking off): FAIL" out || fail "a failed thinking-only run says FAIL"
+has "Thinking check: FAIL" out || fail "a failed thinking-only run says FAIL"
 
-check_args=(--thinking-only --model qwen3.8-27b-mlx-next)
+check_args=(--thinking-only --model qwen3.8-27b-cc@next)
 run_check
-[ "$status" -eq 0 ] || fail "a named thinking-only run exits 0 when thinking is off (got $status)"
-grep -q -- '--model qwen3.8-27b-mlx-next --thinking claude-code' "$CALLS" || fail "a named thinking-only run checks only that model"
-grep -q -- '--model qwen3.8-27b-cc ' "$CALLS" && fail "a named thinking-only run skips the MLX sizes"
+[ "$status" -eq 0 ] || fail "a named thinking-only run exits 0 when the preset does not think (got $status)"
+grep -q -- '--model qwen3.8-27b-cc@next --thinking claude-code' "$CALLS" || fail "a named thinking-only run checks only that preset"
+grep -q -- '@think' "$CALLS" && fail "a named thinking-only run checks no @think preset"
 grep -q '^launcher ' "$CALLS" && fail "a named thinking-only run prepares no model"
-has "Plan 066 (thinking off): PASS" out || fail "a named thinking-only run prints the thinking verdict"
+has "Thinking check: PASS (qwen3.8-27b-cc@next think - -> 0)" out || fail "a named thinking-only run prints the thinking verdict"
+
+run_check STUB_PLAIN_THINKS=1
+[ "$status" -eq 1 ] || fail "a named preset that thinks fails (got $status)"
 
 check_args=(--thinking-only --model)
 run_check
 [ "$status" -eq 1 ] || fail "--model without a name exits 1 (got $status)"
-has "give --model a model name" err || fail "--model without a name says what to give"
+has "give --model a preset id" err || fail "--model without a name says what to give"
 
 if [ "$failures" -eq 0 ]; then
   echo "all passed"

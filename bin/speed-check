@@ -8,11 +8,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 REPO_DIR = Path(__file__).resolve().parent.parent
-PAIRS = (("27b", "27b-gguf"), ("35b", "35b-gguf"))
-SIZES = tuple(size for pair in PAIRS for size in pair)
-GGUF_SIZES = tuple(gguf for _, gguf in PAIRS)
-MLX_SIZES = tuple(mlx for mlx, _ in PAIRS)
-SPEED_STAGE_COUNT = 6
+sys.path.insert(0, str(REPO_DIR / "shared"))
+
+import model_server
+
+SIZES = ("27b", "35b")
+THINK_SUFFIX = "@think"
+SPEED_STAGE_COUNT = 5
 THINKING_STAGE_COUNT = 3
 NAMED_THINKING_STAGE_COUNT = 2
 THINKING_ONLY_FLAG = "--thinking-only"
@@ -22,7 +24,6 @@ THINKING_PREFIX_TOKENS = "2000"
 THINKING_TOOL_TRIALS = 3
 SPEED_TOOL_TRIALS = 5
 VERDICT_PREFIX_TOKENS = 60000
-MIN_DECODE_RATIO = 0.9
 RERUN = "run claude-ollama speed-check again"
 
 
@@ -31,32 +32,36 @@ class StageFailure(Exception):
 
 
 @dataclass
-class PairVerdict:
-    name: str
+class SizeVerdict:
+    size: str
+    warm: dict
     failed_conditions: list
 
-    @property
-    def gguf_is_better(self):
-        return not self.failed_conditions
-
     def line(self):
-        if self.gguf_is_better:
-            return f"{self.name}: GGUF is better"
-        return f"{self.name}: GGUF is not better ({', '.join(self.failed_conditions)})"
+        if self.failed_conditions:
+            return f"{self.size}: needs a look ({', '.join(self.failed_conditions)})"
+        return (f"{self.size}: ok (warm 60k: ttft {self.warm['ttft_seconds']:.1f}s, "
+                f"decode {self.warm['decode_tokens_per_second']:.1f} tok/s)")
 
 
 def tool_path(variable, default_name):
     return os.environ.get(variable) or str(REPO_DIR / "bin" / default_name)
 
 
-def ollama_base_url():
-    host = os.environ.get("OLLAMA_HOST") or "localhost:11434"
-    return host if "://" in host else f"http://{host}"
+def sizes_config():
+    return json.loads((REPO_DIR / "ollama" / "sizes.json").read_text())
 
 
 def model_name(size):
-    settings = json.loads((REPO_DIR / "ollama" / f"settings.{size}.json").read_text())
-    return settings["model"]
+    return sizes_config()[size]["model"]
+
+
+def weights_dir():
+    return Path(os.environ.get("CLAUDE_OLLAMA_WEIGHTS_DIR") or Path.home() / ".claude-ollama" / "weights")
+
+
+def weights_present(size):
+    return (weights_dir() / sizes_config()[size]["gguf"]["file"]).is_file()
 
 
 def command_output(command):
@@ -70,11 +75,6 @@ def announce(number, total, title):
 def require(condition, fix):
     if not condition:
         raise StageFailure(fix)
-
-
-def ollama_answers():
-    result = command_output(["curl", "-sf", "--max-time", "5", f"{ollama_base_url()}/api/version"])
-    return result.returncode == 0
 
 
 def on_ac_power():
@@ -93,27 +93,23 @@ def other_session_running():
     return command_output(["pgrep", "-f", r"ollama/settings\."]).returncode == 0
 
 
-def model_installed(model):
-    return command_output(["ollama", "show", model]).returncode == 0
-
-
 def free_disk_kb():
-    lines = command_output(["df", "-k", str(REPO_DIR)]).stdout.splitlines()
+    lines = command_output(["df", "-k", str(weights_dir().parent)]).stdout.splitlines()
     return int(lines[-1].split()[3])
 
 
-def require_ollama():
-    require(ollama_answers(), f"Ollama is not answering at {ollama_base_url()}: start it, then {RERUN}")
+def require_server():
+    require(model_server.up(), f"llama-server is not answering at {model_server.server_url()}: start it, then {RERUN}")
 
 
 def preflight():
-    require_ollama()
     require(on_ac_power(), f"plug in the charger, then {RERUN}")
     require(not low_power_mode_on(), f"turn off Low Power Mode in System Settings > Battery, then {RERUN}")
     require(not other_session_running(), f"quit the other claude-ollama session, then {RERUN}")
-    missing = [size for size in GGUF_SIZES if not model_installed(model_name(size))]
+    require_server()
+    missing = [size for size in SIZES if not weights_present(size)]
     if missing:
-        require(free_disk_kb() >= MIN_FREE_KB, f"free up disk space (45 GB needed to import {', '.join(missing)}), then {RERUN}")
+        require(free_disk_kb() >= MIN_FREE_KB, f"free up disk space (45 GB needed to download {', '.join(missing)}), then {RERUN}")
 
 
 def prepare_models(sizes):
@@ -122,16 +118,9 @@ def prepare_models(sizes):
         require(result.returncode == 0, f"claude-ollama prepare {size} failed: fix the error above, then {RERUN}")
 
 
-def check_renderers():
-    for size in GGUF_SIZES:
-        modelfile = command_output(["ollama", "show", model_name(size), "--modelfile"]).stdout
-        words = {line.split(" ", 1)[0] for line in modelfile.splitlines()}
-        require({"RENDERER", "PARSER"} <= words, f"don't use {size}: its model has no RENDERER or PARSER line; tell Claude")
-
-
 def run_bench(model, thinking, tool_trials, *extra):
     command = [tool_path("SPEED_CHECK_BENCH", "messages-bench"), "--model", model, "--thinking", thinking,
-               "--tool-trials", str(tool_trials), *extra, "--json", "--base-url", ollama_base_url()]
+               "--tool-trials", str(tool_trials), *extra, "--json", "--base-url", model_server.server_url()]
     result = subprocess.run(command, check=False, stdout=subprocess.PIPE, text=True)
     require(result.returncode == 0, f"messages-bench on {model} failed: fix the error above, then {RERUN}")
     return json.loads(result.stdout)
@@ -146,10 +135,6 @@ def all_tool_calls_parsed(report):
     return calls["parsed"] == calls["trials"]
 
 
-def mlx_models():
-    return {size: model_name(size) for size in MLX_SIZES}
-
-
 def flag_value(argv, flag):
     if flag not in argv:
         return None
@@ -157,38 +142,43 @@ def flag_value(argv, flag):
     return argv[position] if position < len(argv) else None
 
 
-def thinking_models(argv):
+def thinking_targets(argv):
     if MODEL_FLAG not in argv:
-        return mlx_models()
+        return {size: (f"{model_name(size)}{THINK_SUFFIX}", model_name(size)) for size in SIZES}
     named = flag_value(argv, MODEL_FLAG)
-    require(named is not None, "give --model a model name")
-    return {named: named}
+    require(named is not None, "give --model a preset id")
+    return {named: (None, named)}
 
 
-def check_thinking(models):
+def thinking_bench(model):
+    return run_bench(model, "claude-code", THINKING_TOOL_TRIALS, "--prefix-tokens", THINKING_PREFIX_TOKENS)
+
+
+def check_thinking(targets):
     results = {}
-    for label, model in models.items():
-        claude_code = run_bench(model, "claude-code", THINKING_TOOL_TRIALS, "--prefix-tokens", THINKING_PREFIX_TOKENS)
-        disabled = run_bench(model, "disabled", THINKING_TOOL_TRIALS, "--prefix-tokens", THINKING_PREFIX_TOKENS)
+    for label, (think_model, plain_model) in targets.items():
+        think_chars = thinking_chars(thinking_bench(think_model)) if think_model else None
+        plain = thinking_bench(plain_model)
         results[label] = {
-            "claude_code_thinking_chars": thinking_chars(claude_code),
-            "disabled_thinking_chars": thinking_chars(disabled),
-            "disabled_tool_calls": disabled["tool_calls"],
-            "passed": thinking_chars(claude_code) > 0 and thinking_chars(disabled) == 0 and all_tool_calls_parsed(disabled),
+            "think_thinking_chars": think_chars,
+            "plain_thinking_chars": thinking_chars(plain),
+            "plain_tool_calls": plain["tool_calls"],
+            "passed": (think_chars is None or think_chars > 0) and thinking_chars(plain) == 0 and all_tool_calls_parsed(plain),
         }
     return results
 
 
-def bench_pairs():
+def bench_sizes():
     return {size: run_bench(model_name(size), "disabled", SPEED_TOOL_TRIALS) for size in SIZES}
 
 
 def probe_caches():
     reports = {}
     for size in SIZES:
-        result = subprocess.run([tool_path("SPEED_CHECK_PROBE", "ollama-cache-probe"), size, "--json"],
+        model = model_name(size)
+        result = subprocess.run([tool_path("SPEED_CHECK_PROBE", "ollama-cache-probe"), model, "--json"],
                                 check=False, stdout=subprocess.PIPE, text=True)
-        require(result.returncode == 0, f"ollama-cache-probe {size} failed: fix the error above, then {RERUN}")
+        require(result.returncode == 0, f"ollama-cache-probe {model} failed: fix the error above, then {RERUN}")
         reports[size] = json.loads(result.stdout)
     return reports
 
@@ -200,46 +190,38 @@ def warm_run(report):
     raise StageFailure(f"messages-bench gave no warm run at {VERDICT_PREFIX_TOKENS} tokens; tell Claude")
 
 
-def pair_verdict(mlx, gguf, benches, probes):
-    mlx_run, gguf_run = warm_run(benches[mlx]), warm_run(benches[gguf])
+def size_verdict(size, benches, probes):
     failed = []
-    if gguf_run["ttft_seconds"] >= mlx_run["ttft_seconds"]:
-        failed.append("warm TTFT is not lower")
-    if gguf_run["decode_tokens_per_second"] < MIN_DECODE_RATIO * mlx_run["decode_tokens_per_second"]:
-        failed.append("decode is under 90% of MLX")
-    if not all_tool_calls_parsed(benches[gguf]):
+    if not all_tool_calls_parsed(benches[size]):
         failed.append("tool calls missed")
-    if not probes[gguf].get("cache_reused"):
+    if not probes[size].get("cache_reused"):
         failed.append("prompt cache not reused")
-    return PairVerdict(mlx, failed)
+    return SizeVerdict(size, warm_run(benches[size]), failed)
 
 
 def thinking_passed(thinking):
     return all(result["passed"] for result in thinking.values())
 
 
+def think_count(chars):
+    return "-" if chars is None else str(chars)
+
+
 def thinking_line(thinking):
     status = "PASS" if thinking_passed(thinking) else "FAIL"
     counts = ", ".join(
-        f"{size} think {result['claude_code_thinking_chars']} -> {result['disabled_thinking_chars']}"
-        for size, result in thinking.items()
+        f"{label} think {think_count(result['think_thinking_chars'])} -> {result['plain_thinking_chars']}"
+        for label, result in thinking.items()
     )
-    return f"Plan 066 (thinking off): {status} ({counts})"
-
-
-def pair_numbers(mlx, gguf, benches):
-    mlx_run, gguf_run = warm_run(benches[mlx]), warm_run(benches[gguf])
-    return (f"{mlx} warm 60k: ttft {mlx_run['ttft_seconds']:.1f}s vs {gguf_run['ttft_seconds']:.1f}s, "
-            f"decode {mlx_run['decode_tokens_per_second']:.1f} vs {gguf_run['decode_tokens_per_second']:.1f} tok/s")
+    return f"Thinking check: {status} ({counts})"
 
 
 def next_line(thinking, verdicts):
-    better = [f"{verdict.name}-gguf" for verdict in verdicts if verdict.gguf_is_better]
     if not thinking_passed(thinking):
-        return "Next: paste the block below into Claude; thinking is still on."
-    if better:
-        return f"Next: paste the block below into Claude and ask to make {' and '.join(better)} the default."
-    return "Next: paste the block below into Claude; the MLX sizes stay the default."
+        return "Next: paste the block below into Claude; thinking is still wrong."
+    if any(verdict.failed_conditions for verdict in verdicts):
+        return "Next: paste the block below into Claude; a size needs a look."
+    return "Next: nothing to change; paste the block below into Claude to record the numbers."
 
 
 def save_report(report):
@@ -264,38 +246,34 @@ def print_verdict(lines, next_action, report_path):
 
 
 def run_thinking_only(argv):
-    models = thinking_models(argv)
+    targets = thinking_targets(argv)
     named = MODEL_FLAG in argv
     total = NAMED_THINKING_STAGE_COUNT if named else THINKING_STAGE_COUNT
-    announce(1, total, "Preflight: Ollama")
-    require_ollama()
+    announce(1, total, "Preflight: llama-server")
+    require_server()
     if not named:
-        announce(2, total, "Prepare models: pull the MLX sizes")
-        prepare_models(MLX_SIZES)
-    announce(total, total, "Thinking check (plan 066)")
-    thinking = check_thinking(models)
+        announce(2, total, "Prepare models: download the sizes")
+        prepare_models(SIZES)
+    announce(total, total, "Thinking check: @think thinks, the plain preset does not")
+    thinking = check_thinking(targets)
     print()
     print(thinking_line(thinking))
     return 0 if thinking_passed(thinking) else 1
 
 
 def run_speed_check():
-    announce(1, SPEED_STAGE_COUNT, "Preflight: Ollama, power, other sessions, disk")
+    announce(1, SPEED_STAGE_COUNT, "Preflight: power, other sessions, llama-server, disk")
     preflight()
-    announce(2, SPEED_STAGE_COUNT, "Prepare models: pull or import every size")
+    announce(2, SPEED_STAGE_COUNT, "Prepare models: download every size")
     prepare_models(SIZES)
-    announce(3, SPEED_STAGE_COUNT, "Renderer check: GGUF models use Ollama's renderer and parser")
-    check_renderers()
-    announce(4, SPEED_STAGE_COUNT, "Thinking check (plan 066)")
-    thinking = check_thinking(mlx_models())
-    announce(5, SPEED_STAGE_COUNT, "Speed bench (plan 067): MLX then GGUF, back to back")
-    benches = bench_pairs()
-    announce(6, SPEED_STAGE_COUNT, "Cache probe")
+    announce(3, SPEED_STAGE_COUNT, "Thinking check: @think thinks, the plain preset does not")
+    thinking = check_thinking(thinking_targets([]))
+    announce(4, SPEED_STAGE_COUNT, "Speed bench: each size on llama-server")
+    benches = bench_sizes()
+    announce(5, SPEED_STAGE_COUNT, "Cache probe")
     probes = probe_caches()
-    verdicts = [pair_verdict(mlx, gguf, benches, probes) for mlx, gguf in PAIRS]
-    lines = [thinking_line(thinking)]
-    lines += [verdict.line() for verdict in verdicts]
-    lines += [pair_numbers(mlx, gguf, benches) for mlx, gguf in PAIRS]
+    verdicts = [size_verdict(size, benches, probes) for size in SIZES]
+    lines = [thinking_line(thinking), *(verdict.line() for verdict in verdicts)]
     next_action = next_line(thinking, verdicts)
     report_path = save_report({"verdict": lines, "next": next_action, "thinking": thinking,
                                "benches": benches, "probes": probes})

@@ -56,7 +56,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path != "/":
             self.record(b"")
-        payload = json.dumps({"version": "stub"}).encode("utf-8")
+        payload = json.dumps({"status": "ok"}).encode("utf-8")
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(payload)))
@@ -66,6 +66,14 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
         self.record(body)
+        if self.path.split("?", 1)[0] == "/v1/messages/count_tokens":
+            payload = json.dumps({"input_tokens": 7}).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+            return
         if self.path.split("?", 1)[0] != "/v1/messages":
             self.send_error(404)
             return
@@ -367,23 +375,26 @@ check "the SSE reply passes through intact" grep -q '^event: message_stop' "$run
 check "the SSE reply keeps every delta" grep -q '"text": "hello"' "$run_dir/first.out"
 check "the SSE reply carries the stream content type" sh -c "curl -s -D - -o /dev/null -X POST -H 'Content-Type: application/json' --data-binary @'$run_dir/first.json' '$proxy_url/v1/messages' | grep -qi '^content-type: text/event-stream'"
 
-curl -sf "$proxy_url/api/version" > "$run_dir/version.out"
-check "other paths forward to the upstream" grep -q '"version": "stub"' "$run_dir/version.out"
+curl -sf "$proxy_url/health" > "$run_dir/health.out"
+check "the health route forwards to the upstream" grep -q '"status": "ok"' "$run_dir/health.out"
 check "other paths write no log row" [ "$(row_count)" = 5 ]
-check "the upstream saw the other path" [ "$(row_field "$(upstream_row 6)" .path)" = /api/version ]
+check "the upstream saw the other path" [ "$(row_field "$(upstream_row 6)" .path)" = /health ]
 
 status_of() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
-check "a loopback Host with a port is accepted" [ "$(status_of -H 'Host: localhost:4321' "$proxy_url/api/version")" = 200 ]
-check "a bracketed IPv6 loopback Host is accepted" [ "$(status_of -H 'Host: [::1]:4321' "$proxy_url/api/version")" = 200 ]
-check "a foreign Host is rejected" [ "$(status_of -H 'Host: evil.example:80' "$proxy_url/api/version")" = 403 ]
-check "a foreign Origin is rejected" [ "$(status_of -H 'Origin: http://evil.example' "$proxy_url/api/version")" = 403 ]
-check "a loopback Origin is accepted" [ "$(status_of -H 'Origin: http://localhost:3000' "$proxy_url/api/version")" = 200 ]
+check "a loopback Host with a port is accepted" [ "$(status_of -H 'Host: localhost:4321' "$proxy_url/health")" = 200 ]
+check "a bracketed IPv6 loopback Host is accepted" [ "$(status_of -H 'Host: [::1]:4321' "$proxy_url/health")" = 200 ]
+check "a foreign Host is rejected" [ "$(status_of -H 'Host: evil.example:80' "$proxy_url/health")" = 403 ]
+check "a foreign Origin is rejected" [ "$(status_of -H 'Origin: http://evil.example' "$proxy_url/health")" = 403 ]
+check "a loopback Origin is accepted" [ "$(status_of -H 'Origin: http://localhost:3000' "$proxy_url/health")" = 200 ]
 check "the Origin reaches the upstream untouched" [ "$(row_field "$(upstream_row 9)" '.headers.origin')" = http://localhost:3000 ]
 check "a rejected request never reaches the upstream" [ "$(wc -l < "$run_dir/upstream.log" | tr -d ' ')" = 9 ]
-check "an unknown path is refused" [ "$(status_of "$proxy_url/api/generate")" = 404 ]
+check "an unknown path is refused" [ "$(status_of "$proxy_url/slots/0")" = 404 ]
 check "an unknown method on a known path is refused" [ "$(status_of -X DELETE "$proxy_url/v1/messages")" = 404 ]
 check "the model list is forwarded" [ "$(status_of "$proxy_url/v1/models")" = 200 ]
-check "the tag list is forwarded" [ "$(status_of "$proxy_url/api/tags")" = 200 ]
+check "the router model list is forwarded" [ "$(status_of "$proxy_url/models")" = 200 ]
+check "an Ollama route is refused" [ "$(status_of "$proxy_url/api/tags")" = 404 ]
+check "a model load is refused, since /models is GET only" [ "$(status_of -X POST -d '{}' "$proxy_url/models/load")" = 404 ]
+check "a POST to the model list is refused" [ "$(status_of -X POST -d '{}' "$proxy_url/models")" = 404 ]
 check "refused requests write no log row" [ "$(row_count)" = 5 ]
 check "the log file is private" [ "$(mode_of "$run_dir/proxy/requests.jsonl")" = 600 ]
 check "the log folder is private" [ "$(mode_of "$run_dir/proxy")" = 700 ]
@@ -398,7 +409,10 @@ check "the recorded body is the request byte-for-byte" cmp -s "$recorded" "$run_
 check "the recorded body is private" [ "$(mode_of "$recorded")" = 600 ]
 check "the record folder is private" [ "$(mode_of "$run_dir/record")" = 700 ]
 check "the recorded request still reaches the upstream" upstream_body_is 12 "$run_dir/first.json"
-curl -sf "$proxy_url/api/version" > /dev/null
+curl -sf "$proxy_url/health" > /dev/null
+curl -sf -X POST -H 'Content-Type: application/json' -d '{"model":"stub","messages":[]}' "$proxy_url/v1/messages/count_tokens" > "$run_dir/count.out"
+check "count_tokens is forwarded" grep -q '"input_tokens": 7' "$run_dir/count.out"
+check "count_tokens writes no log row" [ "$(row_count)" = 6 ]
 check "other routes record nothing" [ "$(find "$run_dir/record" -name '*.json' | wc -l | tr -d ' ')" = 1 ]
 
 stop_proxy
@@ -491,10 +505,11 @@ stop_upstream
 start_upstream
 beta_log="$run_dir/beta/requests.jsonl"
 python3 "$tmp/body.py" "Sunday 2026-11-01" "hello" > "$run_dir/beta.json"
-"$proxy" --upstream "$upstream_url" --port 0 --port-file "$run_dir/beta.port" --log "$beta_log" 2> "$run_dir/proxy.err" &
+LLAMA_SERVER_URL="$upstream_url" "$proxy" --port 0 --port-file "$run_dir/beta.port" --log "$beta_log" 2> "$run_dir/proxy.err" &
 proxy_pid=$!
 wait_for_file "$run_dir/beta.port"
 beta_status="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' --data-binary @"$run_dir/beta.json" "http://127.0.0.1:$(cat "$run_dir/beta.port")/v1/messages?beta=true")"
+check "without --upstream the proxy forwards to LLAMA_SERVER_URL" [ "$beta_status" = 200 ]
 check "Claude Code's ?beta=true messages call is forwarded" [ "$beta_status" = 200 ]
 check "Claude Code's ?beta=true messages call writes a log row" [ "$(wc -l < "$beta_log" 2>/dev/null | tr -d ' ')" = 1 ]
 check "the ?beta=true query reaches the upstream" [ "$(row_field "$(upstream_row 1)" .path)" = "/v1/messages?beta=true" ]

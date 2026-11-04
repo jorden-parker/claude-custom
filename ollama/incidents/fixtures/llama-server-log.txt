@@ -1,0 +1,57 @@
+0.00.000.856 I srv  llama_server: initializing ...
+0.00.344.388 I srv    operator(): Available models (3):
+0.00.344.395 I srv    operator():   [    preset] qwen3.8-27b-cc
+0.00.344.396 I srv    operator():   [    preset] qwen3.8-27b-cc@think
+0.00.344.396 I srv    operator():   [    preset] qwen3-embedding-0.6b (aliases: qwen3-embedding:0.6b)
+0.00.346.139 I srv  llama_server: listening on http://127.0.0.1:11435
+0.12.636.916 I srv          load: spawning server instance with name=qwen3.8-27b-cc on port 54083
+0.12.636.937 I srv          load: spawning server instance with args:
+0.12.636.941 I srv          load:   --alias
+0.12.636.942 I srv          load:   qwen3.8-27b-cc
+0.12.636.942 I srv          load:   --ctx-size
+0.12.636.942 I srv          load:   65536
+[54083] 0.00.061.044 I srv    load_model: loading model '/Users/me/.claude-ollama/weights/Qwen3.8-27B-UD-Q4_K_XL.gguf'
+[54083] 0.00.534.969 I srv    load_model: initializing, n_slots = 1, n_ctx_slot = 65536, kv_unified = 'false'
+[54083] 0.00.544.400 I srv  llama_server: model loaded
+[54083] 0.00.544.427 I srv    operator(): child server monitoring thread started, waiting for EOF on stdin...
+0.13.219.248 I srv  proxy_reques: proxying request to model qwen3.8-27b-cc on port 54083
+[54083] 0.04.866.122 I slot get_availabl: id  0 | task -1 | selected slot by LRU, t_last = -1
+[54083] 0.05.138.444 I slot print_timing: id  0 | task 0 | prompt eval time =    9000.00 ms / 12000 tokens (    0.75 ms per token,  1333.33 tokens per second)
+[54083] 0.05.138.447 I slot print_timing: id  0 | task 0 |        eval time =    2000.00 ms /   200 tokens (   10.00 ms per token,   100.00 tokens per second)
+[54083] 0.05.138.448 I slot print_timing: id  0 | task 0 |       total time =   11000.00 ms / 12200 tokens
+[54083] 0.05.138.468 I slot      release: id  0 | task 0 | stop processing: n_tokens = 12200, truncated = 0
+0.17.799.913 I srv  proxy_reques: proxying request to model qwen3.8-27b-cc on port 54083
+[54083] 0.05.160.439 I slot get_availabl: id  0 | task -1 | selected slot by LCP similarity, f_sim_best = 0.998 (> 0.100 thold), f_keep = 0.990
+[54083] 0.05.269.286 I slot print_timing: id  0 | task 11 | prompt eval time =     300.00 ms /   450 tokens (    0.67 ms per token,  1500.00 tokens per second)
+[54083] 0.05.269.290 I slot print_timing: id  0 | task 11 |       total time =    2300.00 ms / 12850 tokens
+[54083] 0.05.269.303 I slot      release: id  0 | task 11 | stop processing: n_tokens = 12850, truncated = 0
+0.19.100.000 E srv    operator(): http client error: Canceled
+0.23.795.785 I srv          join: request for name=qwen3-embedding-0.6b queued at position 1
+0.23.795.804 I srv  ensure_model: slot available, loading queued model name=qwen3-embedding-0.6b
+0.23.795.925 I srv          load: spawning server instance with name=qwen3-embedding-0.6b on port 54105
+[54105] 0.01.011.780 I srv    load_model: initializing, n_slots = 1, n_ctx_slot = 8192, kv_unified = 'false'
+[54105] 0.01.019.612 I srv  llama_server: model loaded
+0.24.827.965 I srv  proxy_reques: proxying request to model qwen3-embedding-0.6b on port 54105
+[54105] 0.01.037.194 I slot      release: id  0 | task 0 | stop processing: n_tokens = 2, truncated = 0
+0.25.000.000 I srv  proxy_reques: proxying request to model qwen3.8-27b-cc on port 54083
+[54083] 0.12.000.000 I slot print_timing: id  0 | task 12 | prompt eval time =    9700.00 ms / 12900 tokens (    0.75 ms per token,  1329.90 tokens per second)
+[54083] 0.12.000.003 I slot print_timing: id  0 | task 12 |       total time =   11700.00 ms / 13100 tokens
+0.26.000.000 I srv          join: request for name=qwen3.8-27b-cc@think queued at position 1
+0.26.000.003 I srv          tick: evicting idle LRU name=qwen3.8-27b-cc for a queued request
+[54083] 0.13.000.000 I srv    operator(): exit command received, exiting...
+0.26.100.000 I srv           run: instance name=qwen3.8-27b-cc exited with status 0
+0.27.000.000 I srv        unload: stopping model instance name=qwen3-embedding-0.6b
+0.28.000.000 I srv          load: spawning server instance with name=qwen3.8-27b-cc on port 54120
+[54120] 0.00.534.969 I srv    load_model: initializing, n_slots = 1, n_ctx_slot = 65536, kv_unified = 'false'
+0.28.500.000 I srv  proxy_reques: proxying request to model qwen3.8-27b-cc on port 54120
+[54120] 0.01.000.000 I slot print_timing: id  0 | task 0 | prompt eval time =    9800.00 ms / 13100 tokens (    0.75 ms per token,  1336.73 tokens per second)
+[54120] 0.01.000.003 I slot print_timing: id  0 | task 0 |       total time =   12000.00 ms / 13300 tokens
+0.29.000.000 I srv  proxy_reques: proxying request to model qwen3.8-27b-cc on port 54120
+[54120] 0.02.000.000 I slot update_slots: id  0 | task 3 | forcing full prompt re-processing due to lack of cache data (likely due to SWA or hybrid/recurrent memory, see https://github.com/ggml-org/llama.cpp/pull/13194#issuecomment-2868343055)
+[54120] 0.03.000.000 I slot print_timing: id  0 | task 3 | prompt eval time =   10000.00 ms / 13350 tokens (    0.75 ms per token,  1335.00 tokens per second)
+[54120] 0.03.000.003 I slot print_timing: id  0 | task 3 |       total time =   12200.00 ms / 13600 tokens
+0.30.000.000 I srv  proxy_reques: proxying request to model qwen3.8-27b-cc on port 54120
+[54120] 0.04.000.000 E srv    send_error: task id = 5, error: request (66000 tokens) exceeds the available context size (65536 tokens), try increasing it
+0.31.000.000 W srv  operator(): model name=qwen3.8-27b-cc is still loading, force-killing
+0.32.000.000 I srv  proxy_reques: proxying request to model qwen3.8-27b-cc on port 54120
+[54120] 0.06.000.000 I slot print_timing: id  0 | task 6 | prompt eval time =   52000.00 ms / 65400 tokens (    0.80 ms per token,  1257.69 tokens per second)

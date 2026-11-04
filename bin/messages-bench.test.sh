@@ -436,6 +436,10 @@ if "$bench" --base-url http://127.0.0.1:9 --model stub > "$tmp/unreachable.out" 
 fi
 grep -q 'messages-bench:' "$tmp/unreachable.err" || fail "unreachable server prints a messages-bench: error"
 
+LLAMA_SERVER_URL="$base_url" "$bench" --model stub --prefix-tokens 2000 --tool-trials 1 --json > "$run_dir/default.json" 2> "$run_dir/default.err" || fail "without --base-url the bench reaches LLAMA_SERVER_URL"
+[ "$(jq -r .base_url "$run_dir/default.json" 2>/dev/null)" = "$base_url" ] || fail "without --base-url the report names LLAMA_SERVER_URL"
+[ "$(env -u LLAMA_SERVER_URL "$bench" --help | grep -c 'http://127.0.0.1:11435')" -ge 1 ] || fail "the default server is llama-server's port"
+
 stop_stub
 
 if [ "$failures" -eq 0 ]; then

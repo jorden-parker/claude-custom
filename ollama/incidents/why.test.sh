@@ -39,6 +39,7 @@ run_why() {
 line_of() { grep "^$1:" "$case_dir/out" | head -1; }
 out_has() { grep -q -- "$1" "$case_dir/out"; }
 line_has() { line_of "$1" | grep -q -- "$2"; }
+line_lacks() { ! line_has "$1" "$2"; }
 line_count() { wc -l < "$case_dir/out" | tr -d ' '; }
 
 system_drift_row='{"ts":"2026-11-02T14:04:00.000Z","request_id":"r2","sections":5,"stable_sections":0,"diverged_at":"system","offset":41,"diff":"Monday 2026-11-02.\"}]","prompt_bytes":4100,"ledger":{"system":900,"tools":{"read_file":300},"messages":2800}}'
@@ -87,24 +88,26 @@ check "an unexplained reprefill still names the drift" line_has verdict "prompt 
 new_case
 printf '%s\n' "$first_row" "$system_drift_row" | proxy_rows
 incident_rows <<'EOF'
-{"ts": "2026-11-02T14:04:01.000Z", "cause": "evicted", "detail": "msg=\"unload\"", "tokens": null, "rule": "evicted/unload"}
-{"ts": "2026-11-02T14:04:02.000Z", "cause": "truncated", "detail": "truncating input prompt limit=65536 prompt=70100", "tokens": 70100, "rule": "truncated/input-prompt"}
+{"ts": "2026-11-02T14:04:01.000Z", "cause": "evicted", "detail": "unload: stopping model instance name=qwen3.8-27b-cc", "tokens": null, "rule": "evicted/unload"}
+{"ts": "2026-11-02T14:04:02.000Z", "cause": "truncated", "detail": "send_error: task id = 5, error: request (70100 tokens) exceeds the available context size (65536 tokens), try increasing it", "tokens": 70100, "rule": "truncated/context-overflow"}
 {"ts": "2026-11-02T14:04:03.000Z", "cause": "compacted", "detail": "{\"subtype\": \"compact_boundary\"}", "tokens": 52000, "rule": "compacted/transcript"}
 EOF
 run_why
 check "truncation beats eviction, drift and compaction" line_has verdict "^verdict: truncated"
 check "the truncation evidence counts the rows" line_has evidence "1 truncated"
 check "the truncation evidence shows the prompt size" line_has evidence "70100 tokens"
+check "the truncation summary names the preset context" line_has verdict "ctx-size"
 check "the truncation fix renders the profiles" line_has fix "bin/ollama-profiles"
 
 new_case
 incident_rows <<'EOF'
-{"ts": "2026-11-02T14:04:01.000Z", "cause": "evicted", "detail": "msg=\"unload\"", "tokens": null, "rule": "evicted/unload"}
+{"ts": "2026-11-02T14:04:01.000Z", "cause": "evicted", "detail": "unload: stopping model instance name=qwen3.8-27b-cc", "tokens": null, "rule": "evicted/unload"}
 {"ts": "2026-11-02T14:04:03.000Z", "cause": "compacted", "detail": "{\"subtype\": \"compact_boundary\"}", "tokens": 52000, "rule": "compacted/transcript"}
 EOF
 run_why
 check "eviction beats compaction" line_has verdict "^verdict: evicted"
-check "the eviction fix raises the loaded model count" line_has fix "OLLAMA_MAX_LOADED_MODELS=2"
+check "the eviction fix raises models-max" line_has fix "models-max = 2 in ~/.claude-ollama/presets/server.local.ini"
+check "the eviction fix names the agent command" line_has fix "ollama-agent -set models-max=2"
 check "the eviction fix names the lease" line_has fix "CLAUDE_OLLAMA_LEASE"
 
 new_case
@@ -115,7 +118,7 @@ EOF
 run_why
 check "a reprefill after embed is an eviction" line_has verdict "^verdict: evicted"
 check "the reprefill evidence names the preceding event" line_has evidence "2 reprefilled after embed"
-check "the reprefill after embed fix raises the loaded model count" line_has fix "OLLAMA_MAX_LOADED_MODELS=2"
+check "the reprefill after embed fix raises models-max" line_has fix "ollama-agent -set models-max=2"
 
 new_case
 printf '%s\n' "$first_row" "$system_drift_row" | proxy_rows
@@ -123,8 +126,8 @@ incident_rows <<'EOF'
 {"ts": "2026-11-02T14:04:03.000Z", "cause": "reprefilled", "detail": "prompt eval time = 52000.00 ms / 65450 tokens", "tokens": 65450, "rule": "reprefilled/prompt-eval", "preceded_by": {"kind": "expired", "ts": "2026-11-02T14:04:02Z"}}
 EOF
 run_why
-check "a reprefill after expiry beats drift" line_has verdict "^verdict: reprefilled after expired"
-check "the expiry fix raises the keep-alive" line_has fix "OLLAMA_KEEP_ALIVE"
+check "a reprefill after an old expired event is no verdict of its own" line_has verdict "^verdict: prompt drift at system"
+check "no fix names the keep-alive" line_lacks fix "KEEP_ALIVE"
 
 new_case
 incident_rows <<'EOF'
@@ -139,7 +142,7 @@ check "the compaction fix lowers the handoff point" line_has fix "CLAUDE_OLLAMA_
 new_case
 incident_rows <<'EOF'
 {"ts": "2026-11-02T14:04:04.000Z", "cause": "degraded", "detail": "embeddings-off: 3 reprefilled after embed", "tokens": null, "rule": "ladder/embeddings-off"}
-{"ts": "2026-11-02T14:04:05.000Z", "cause": "aborted", "detail": "error=\"context canceled\"", "tokens": null, "rule": "aborted/context-canceled"}
+{"ts": "2026-11-02T14:04:05.000Z", "cause": "aborted", "detail": "http client error: Canceled", "tokens": null, "rule": "aborted/cancelled"}
 EOF
 run_why
 check "a ladder rung beats an abort" line_has verdict "^verdict: degraded"
@@ -152,6 +155,8 @@ incident_rows <<'EOF'
 EOF
 run_why
 check "an unexplained reprefill without drift is its own verdict" line_has verdict "^verdict: reprefilled"
+check "the unexplained reprefill fix raises the cache checkpoints" line_has fix "ollama-agent -set ctx-checkpoints="
+check "the unexplained reprefill fix names the stabilizer" line_has fix "CLAUDE_OLLAMA_PROXY_STABILIZE=1"
 check "the unexplained reprefill fix runs doctor" line_has fix "claude-ollama doctor"
 
 new_case
@@ -174,14 +179,14 @@ check "health and ladder rows are skipped" [ "$status" = 0 ]
 
 new_case
 printf '%s\n' "$tmp/outside.jsonl" > "$case_dir/incidents/current"
-printf '%s\n' '{"ts": "2026-11-02T14:04:03.000Z", "cause": "truncated", "detail": "x", "tokens": 1, "rule": "truncated/input-prompt"}' > "$tmp/outside.jsonl"
+printf '%s\n' '{"ts": "2026-11-02T14:04:03.000Z", "cause": "truncated", "detail": "x", "tokens": 1, "rule": "truncated/context-overflow"}' > "$tmp/outside.jsonl"
 run_why
 check "a current file outside the incidents folder is ignored" line_has verdict "nothing wrong"
 
 new_case
 printf '%s\n' "$first_row" "$system_drift_row" "$stable_row" | proxy_rows
 incident_rows <<'EOF'
-{"ts": "2026-11-02T14:04:03.000Z", "cause": "truncated", "detail": "truncating input prompt limit=65536 prompt=70100", "tokens": 70100, "rule": "truncated/input-prompt"}
+{"ts": "2026-11-02T14:04:03.000Z", "cause": "truncated", "detail": "send_error: task id = 5, error: request (70100 tokens) exceeds the available context size (65536 tokens), try increasing it", "tokens": 70100, "rule": "truncated/context-overflow"}
 EOF
 run_why --since 10 --now 2026-11-02T14:30:00Z
 check "--since drops older incidents" line_has verdict "nothing wrong"
@@ -194,12 +199,12 @@ check "the window is named" out_has "last 30 minutes"
 new_case
 printf '%s\n' "$first_row" "$message_drift_row" "$system_drift_row" "$stable_row" | proxy_rows
 incident_rows <<'EOF'
-{"ts": "2026-11-02T14:04:03.000Z", "cause": "evicted", "detail": "msg=\"unload\"", "tokens": null, "rule": "evicted/unload"}
+{"ts": "2026-11-02T14:04:03.000Z", "cause": "evicted", "detail": "unload: stopping model instance name=qwen3.8-27b-cc", "tokens": null, "rule": "evicted/unload"}
 EOF
 run_why --json
 check "--json exits 0" [ "$status" = 0 ]
 check "--json prints one object" [ "$(jq -r .verdict "$case_dir/out")" = evicted ]
-check "--json carries the fix" [ "$(jq -r '.fix | contains("OLLAMA_MAX_LOADED_MODELS=2")' "$case_dir/out")" = true ]
+check "--json carries the fix" [ "$(jq -r '.fix | contains("models-max=2")' "$case_dir/out")" = true ]
 check "--json carries the hit rate" [ "$(jq -r .prefix.percent "$case_dir/out")" = 67 ]
 check "--json counts the requests" [ "$(jq -r .prefix.requests "$case_dir/out")" = 3 ]
 check "--json lists the diverging sections" [ "$(jq -r '.diverging[0].section' "$case_dir/out")" = system ]
