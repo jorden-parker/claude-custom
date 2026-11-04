@@ -152,7 +152,7 @@ check_that "doctor reports no managed model allowlist" grep -qxF "ok   no manage
 check_that "doctor reports the browser tools" grep -q 'browser tools' "$sandbox/out"
 check_not "doctor never mentions sandbox-runtime" grep -q 'sandbox-runtime' "$sandbox/out"
 check_not "doctor loads no model" grep -q '"/models/load"' "$STUB_LLAMA_LOG"
-STUB_SHASUM_DIGEST=0000 run_doctor
+CLAUDE_OLLAMA_SHA_CACHE="$sandbox/empty-sha-cache.tsv" STUB_SHASUM_DIGEST=0000 run_doctor
 check_eq "doctor with weights that miss their pin exit status" 1 "$?"
 check_that "doctor fails weights that miss their pin" grep -qxF "fail weights Qwen3.8-27B-UD-Q4_K_XL.gguf does not match its pin (claude-ollama prepare 27b)" "$sandbox/out"
 

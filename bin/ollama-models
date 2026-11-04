@@ -2,12 +2,12 @@
 set -euo pipefail
 
 repo_dir="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+. "$repo_dir/bin/lib/weights-sha.sh"
 profile_dir="${CLAUDE_OLLAMA_PROFILE_DIR:-$repo_dir/ollama}"
 sizes_file="$profile_dir/sizes.json"
 embedding_file="$profile_dir/embedding.json"
 digests_file="$profile_dir/model-digests.json"
 weights_dir="${CLAUDE_OLLAMA_WEIGHTS_DIR:-$HOME/.claude-ollama/weights}"
-sha_cache="${CLAUDE_OLLAMA_SHA_CACHE:-$HOME/.claude-ollama/cache/weights-sha256.tsv}"
 hf_endpoint="${HF_ENDPOINT:-https://huggingface.co}"
 profiles_bin="${CLAUDE_OLLAMA_PROFILES_BIN:-$repo_dir/bin/ollama-profiles}"
 embedding_name=embedding
@@ -45,35 +45,6 @@ pin_of_file() {
     fi
   done < <(gguf_specs)
   return 1
-}
-
-file_stamp() {
-  stat -f '%z %m' "$1" 2>/dev/null || stat -c '%s %Y' "$1"
-}
-
-cached_sha256() {
-  [ -f "$sha_cache" ] || return 1
-  awk -F '\t' -v path="$1" -v stamp="$2" '$1 == path && $2 == stamp { print $3; found = 1 } END { exit found ? 0 : 1 }' "$sha_cache"
-}
-
-remember_sha256() {
-  local kept
-  mkdir -p "$(dirname "$sha_cache")"
-  kept="$([ -f "$sha_cache" ] && awk -F '\t' -v path="$1" '$1 != path' "$sha_cache" || true)"
-  { [ -z "$kept" ] || printf '%s\n' "$kept"; printf '%s\t%s\t%s\n' "$1" "$2" "$3"; } > "$sha_cache.tmp"
-  mv "$sha_cache.tmp" "$sha_cache"
-}
-
-file_sha256() {
-  local stamp sha
-  stamp="$(file_stamp "$1")"
-  if sha="$(cached_sha256 "$1" "$stamp")"; then
-    printf '%s\n' "$sha"
-    return 0
-  fi
-  sha="$(shasum -a 256 "$1" | cut -c1-64)"
-  remember_sha256 "$1" "$stamp" "$sha"
-  printf '%s\n' "$sha"
 }
 
 class_of() {

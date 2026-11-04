@@ -143,8 +143,10 @@ before changing how any file gets applied.
   overlay, the launch settings composition, fetch domains, MCP config),
   `model-server.sh` (the backend seam: `server_url`, `server_up`,
   `server_build`, `/models` entries, `model_load`/`model_unload`, server
-  settings and `models_max`, the weights folder, pins and `fetch_weights`; its
-  Python twin is `shared/model_server.py`; tests:
+  settings and `models_max`, the weights folder, pins and `fetch_weights`; a
+  file's sha256 is cached by size and mtime through `weights-sha.sh`, shared
+  with `bin/ollama-models`, so a launch hashes the weights only after they
+  change; its Python twin is `shared/model_server.py`; tests:
   `bin/lib/model-server.test.sh`), `memory-fit.sh` (lease switch,
   `ollama-lease fit` reading), `nvm-node.sh` (nvm's Node), `session-logs.sh`
   (console state dir, telemetry, proxy log, beacon, watcher, tool budget paths),

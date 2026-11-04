@@ -1,5 +1,6 @@
 #!/bin/bash
 . "$(dirname "${BASH_SOURCE[0]}")/size-profile.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/weights-sha.sh"
 user_presets_file="$session_config_dir/presets/models.ini"
 embedding_file="$profile_dir/embedding.json"
 
@@ -131,7 +132,7 @@ gguf_file_ok() {
   read -r repo revision file <<<"$1"
   path="$(weights_dir)/$file"
   pin="$(gguf_pin "$repo" "$file")"
-  [ -n "$pin" ] && [ -f "$path" ] && [ "$(shasum -a 256 "$path" | cut -d' ' -f1)" = "$pin" ]
+  [ -n "$pin" ] && [ -f "$path" ] && [ "$(file_sha256 "$path")" = "$pin" ]
 }
 
 weights_ok() {
@@ -163,6 +164,7 @@ fetch_gguf() {
   actual="$(shasum -a 256 "$part" | cut -d' ' -f1)"
   [ "$actual" = "$pin" ] || reject_weights "$file has sha256 $actual, but ollama/model-digests.json pins $pin; not keeping it" "$part" || return 1
   mv "$part" "$dir/$file"
+  remember_sha256 "$dir/$file" "$(file_stamp "$dir/$file")" "$actual" 2>/dev/null || true
   "$repo_dir/bin/gguf-inspect" "$dir/$file" >&2 || reject_weights "$file failed inspection; not keeping it" "$dir/$file"
 }
 

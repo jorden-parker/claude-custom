@@ -94,6 +94,10 @@ check "list marks an unfinished download as partial" grep -Eq '^partial +big.ggu
 check "list marks an upgrade candidate" grep -Eq '^candidate +big.gguf.next$' <<<"$listing"
 check "list prints one line per file" test "$(wc -l <<<"$listing" | tr -d ' ')" = 6
 check "list caches each file's sha256" test "$(wc -l <"$CLAUDE_OLLAMA_SHA_CACHE" | tr -d ' ')" = 3
+mkdir -p "$sandbox/failing-shasum"
+printf '#!/bin/sh\nexit 1\n' >"$sandbox/failing-shasum/shasum"
+chmod +x "$sandbox/failing-shasum/shasum"
+check "list trusts a cached sha256 without hashing again" grep -Eq '^pinned +big.gguf$' <<<"$(PATH="$sandbox/failing-shasum:$PATH" "$script" list)"
 
 printf 'xxxxxxxxxxx' >"$sandbox/weights/big.gguf"
 touch -t 202001010000 "$sandbox/weights/big.gguf"
