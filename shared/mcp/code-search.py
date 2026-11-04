@@ -12,22 +12,15 @@ import subprocess
 import sys
 import tempfile
 import urllib.error
-import urllib.request
 from collections import Counter
 from pathlib import Path
 
 from mcp_stdio import serve, tool_result
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import model_server
 from relaunch_dir import RelaunchDir
 
-
-def ollama_url():
-    url = os.environ.get("CODE_SEARCH_OLLAMA_URL") or os.environ.get("OLLAMA_HOST") or "http://127.0.0.1:11434"
-    return url if url.startswith(("http://", "https://")) else f"http://{url}"
-
-
-OLLAMA_URL = ollama_url()
 EMBED_MODEL = os.environ.get("CODE_SEARCH_MODEL") or "qwen3-embedding:0.6b"
 DIMENSIONS = 256
 CHUNK_LINES = 40
@@ -51,7 +44,6 @@ SKIPPED_NAMES = {
 }
 SKIPPED_SUFFIXES = (".min.js", ".map", ".svg", ".png", ".jpg", ".gif", ".ico", ".pdf")
 INDEX_VERSION = 2
-EMBED_KEEP_ALIVE = "30m"
 CAMEL_BOUNDARY = re.compile(r"([a-z0-9])([A-Z])")
 ACRONYM_BOUNDARY = re.compile(r"([A-Z]+)([A-Z][a-z])")
 WORD = re.compile(r"[a-z]{2,}")
@@ -67,7 +59,6 @@ BM25_K1 = 1.2
 BM25_B = 0.75
 CANDIDATES = 50
 RRF_K = 60
-PS_TIMEOUT = 1
 EMBED_ALLOWED = os.environ.get("CODE_SEARCH_EMBED") == "1"
 
 
@@ -167,12 +158,13 @@ def normalized(vector):
 
 
 def failure_reason(error):
-    if not isinstance(error, urllib.error.HTTPError):
+    cause = error.__cause__ if isinstance(error, model_server.ModelServerError) else error
+    if not isinstance(cause, urllib.error.HTTPError):
         return str(error)
     try:
-        return f"{error}: {json.load(error)['error']}"
+        return f"{cause}: {json.load(cause)['error']['message']}"
     except (OSError, KeyError, TypeError, ValueError):
-        return str(error)
+        return str(cause)
 
 
 def embed(texts):
@@ -183,19 +175,13 @@ def embed(texts):
 
 
 def embed_batch(texts):
-    request = urllib.request.Request(
-        f"{OLLAMA_URL}/api/embed",
-        data=json.dumps({"model": EMBED_MODEL, "input": texts, "keep_alive": EMBED_KEEP_ALIVE}).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-    )
     try:
-        with urllib.request.urlopen(request, timeout=300) as response:
-            return [normalized(vector) for vector in json.load(response)["embeddings"]]
-    except (urllib.error.URLError, OSError, KeyError, ValueError) as error:
+        return [normalized(vector) for vector in model_server.embed(EMBED_MODEL, texts)]
+    except (model_server.ModelServerError, AttributeError, KeyError, TypeError, ValueError) as error:
         raise SearchError(
-            f"Embedding request to {OLLAMA_URL} failed ({failure_reason(error)}). Check that `ollama serve` "
-            f"is running and run `ollama pull {EMBED_MODEL}` (or run `claude-ollama` and pick "
-            "'Set up embedding model'). Use `git grep -n` until then."
+            f"Embedding request to {model_server.server_url()} failed ({failure_reason(error)}). Check that "
+            f"llama-server is running and serves {EMBED_MODEL}: run `claude-ollama prepare-embedding` (or run "
+            "`claude-ollama` and pick 'Set up embedding model'). Use `git grep -n` until then."
         ) from error
 
 
@@ -335,12 +321,7 @@ def fused_ranking(rankings, limit):
 
 
 def embedding_loaded():
-    try:
-        with urllib.request.urlopen(f"{OLLAMA_URL}/api/ps", timeout=PS_TIMEOUT) as response:
-            loaded = json.load(response).get("models", [])
-    except (urllib.error.URLError, OSError, ValueError):
-        return False
-    return any(EMBED_MODEL in (model.get("name"), model.get("model")) for model in loaded)
+    return model_server.loaded(EMBED_MODEL)
 
 
 def result_line(chunks, position, score, top_score):
