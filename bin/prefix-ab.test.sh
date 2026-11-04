@@ -148,6 +148,18 @@ check "--json carries the means and the gain" [ "$(printf '%s' "$report" | jq -c
 check "--json carries the verdict" [ "$(printf '%s' "$report" | jq -r .verdict)" = "stabilize: worth it (+81 points mean hit rate)" ]
 check "--json names the model and the record dir" [ "$(printf '%s' "$report" | jq -r '[.model, .record_dir] | join(" ")')" = "qwen3.8-27b-cc $tmp/record" ]
 
+start_stub '{"responses": [[1000, 0], [910, 100], [920, 100]]}'
+verbatim_only="$(run_ab --verbatim-only --json 2>/dev/null)"
+check "--verbatim-only sends one unload and the bodies once" [ "$(request_count)" = 4 ]
+check "--verbatim-only sends the recorded system untouched" [ "$(system_texts_at 3)" = "$original_system" ]
+check "--verbatim-only reports the verbatim mean and no stabilized one" [ "$(printf '%s' "$verbatim_only" | jq -c '[.mean.verbatim, .mean.stabilized, .gain_points]')" = '[9.9,null,null]' ]
+check "--verbatim-only rows carry no stabilized pass" [ "$(printf '%s' "$verbatim_only" | jq -c '.requests[1] | [.verbatim.hit_percent, .stabilized]')" = '[9.9,null]' ]
+check "--verbatim-only says the stabiliser was not measured" [ "$(printf '%s' "$verbatim_only" | jq -r .verdict)" = "stabilize: not measured" ]
+
+start_stub '{"responses": [[1000, 0], [910, 100], [920, 100]]}'
+verbatim_table="$(run_ab --verbatim-only 2>/dev/null)"
+check "--verbatim-only tables show a dash for the stabilized column" has_row "$verbatim_table" "^aaa-second +9\.9 +-$"
+
 start_stub '{"responses": [[1000, 0], [110, 900], [120, 900], [1000, 0], [110, 900], [120, 900]]}'
 same="$(run_ab 2>/dev/null)"
 check "equal hit rates are no gain" has_row "$same" "^stabilize: no gain"

@@ -33,7 +33,7 @@ session_rung=""
 fit_embed_off=""
 append_prompt="$session_config_dir/append-prompt.md"
 proxy_port_file="$session_config_dir/proxy.port"
-proxy_record_dir="$session_config_dir/proxy/record"
+proxy_record_dir="${CLAUDE_OLLAMA_PROXY_RECORD_DIR:-$session_config_dir/proxy/record}"
 proxy_url=""
 review_log_dir="${PR_REVIEW_LOG_DIR:-$HOME/.local/share/claude-custom/reviews}"
 console_port=8765
@@ -1029,6 +1029,36 @@ run_task_eval() {
   exec "${CLAUDE_OLLAMA_TASK_EVAL:-$repo_dir/bin/task-eval}" "$size" --launcher "$repo_dir/bin/claude-ollama" "$@"
 }
 
+require_whole_external_backend() {
+  [ -z "${CLAUDE_OLLAMA_EXTERNAL_URL:-}${CLAUDE_OLLAMA_EXTERNAL_MODEL:-}" ] && return 0
+  if ! external_backend_on; then
+    echo "claude-ollama: an external backend needs both CLAUDE_OLLAMA_EXTERNAL_URL and CLAUDE_OLLAMA_EXTERNAL_MODEL" >&2
+    exit 2
+  fi
+  [ "$harness" != qwen ] || { echo "claude-ollama: an external backend runs claude only, not qwen" >&2; exit 2; }
+}
+
+use_external_backend() {
+  model="$CLAUDE_OLLAMA_EXTERNAL_MODEL"
+  CLAUDE_OLLAMA_LEASE=0
+  CLAUDE_OLLAMA_LADDER=0
+  export CODE_SEARCH_EMBED=0
+  echo "claude-ollama: external backend: $model at $CLAUDE_OLLAMA_EXTERNAL_URL" >&2
+}
+
+prepare_ollama_backend() {
+  apply_server_env
+  ensure_model
+  ensure_embedding_model
+  verify_installed_models
+  check_memory_fit
+  claim_session
+  allow_search_embeddings
+  warm_embedding_model
+  warm_search_index
+  warm_model
+}
+
 run_prefix_ab() {
   acquire_lease prefix-ab --model "$model" || exit 3
   exec "${CLAUDE_OLLAMA_PREFIX_AB:-$repo_dir/bin/prefix-ab}" --record "$proxy_record_dir" --model "$model" --base-url "$ollama_url" "$@"
@@ -1048,6 +1078,7 @@ fi
 use_size "$size"
 model="$(size_model)"
 load_profile
+require_whole_external_backend
 
 case "$mode" in
   print-config)
@@ -1069,16 +1100,7 @@ esac
 start_launcher_log
 use_nvm_node
 [ "$harness" != qwen ] || require_qwen
-apply_server_env
-ensure_model
-ensure_embedding_model
-verify_installed_models
-check_memory_fit
-claim_session
-allow_search_embeddings
-warm_embedding_model
-warm_search_index
-warm_model
+if external_backend_on; then use_external_backend; else prepare_ollama_backend; fi
 
 unset ANTHROPIC_API_KEY ANTHROPIC_MODEL CLAUDE_OLLAMA_DRAFTS_DIR
 export CLAUDE_CUSTOM_HOME="$repo_dir"

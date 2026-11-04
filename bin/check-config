@@ -188,7 +188,7 @@ check_that "claude-ollama starts the degrade ladder beside the watcher, tied to 
   grep -qF -- '--watch-pid "$$" --context "$(modelfile_num_ctx)"' "$repo/bin/claude-ollama"
 check_that "claude-ollama lets CLAUDE_OLLAMA_LADDER=0 turn the ladder off" grep -qF '"${CLAUDE_OLLAMA_LADDER:-}" = 0' "$repo/bin/claude-ollama"
 check_that "claude-ollama holds a session lease before it starts the indexer" \
-  test "$(grep -n '^claim_session$' "$repo/bin/claude-ollama" | cut -d: -f1)" -lt "$(grep -n '^warm_search_index$' "$repo/bin/claude-ollama" | cut -d: -f1)"
+  test "$(grep -n '^ *claim_session$' "$repo/bin/claude-ollama" | cut -d: -f1)" -lt "$(grep -n '^ *warm_search_index$' "$repo/bin/claude-ollama" | cut -d: -f1)"
 
 denies_tool() {
   jq -e --arg tool "$2" '.permissions.deny | index($tool) != null' "$1" >/dev/null

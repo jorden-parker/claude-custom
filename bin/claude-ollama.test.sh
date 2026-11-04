@@ -1063,6 +1063,56 @@ check_that "CLAUDE_OLLAMA_PROXY_STABILIZE=1 passes --stabilize to the proxy" con
 rm -f "$sandbox/proxy-args"
 run_capture env -u CLAUDE_OLLAMA_PROXY "$repo/bin/claude-ollama" 27b -p hi
 check_not "the proxy records nothing by default" contains "$(cat "$sandbox/proxy-args")" "--record"
+rm -f "$sandbox/proxy-args"
+run_capture env -u CLAUDE_OLLAMA_PROXY CLAUDE_OLLAMA_PROXY_RECORD=1 CLAUDE_OLLAMA_PROXY_RECORD_DIR="$sandbox/replay" "$repo/bin/claude-ollama" 27b -p hi
+check_that "CLAUDE_OLLAMA_PROXY_RECORD_DIR moves the recorded bodies" contains "$(cat "$sandbox/proxy-args")" "--record $sandbox/replay"
+new_sandbox
+session_config="$HOME/.claude-ollama"
+external_url="http://127.0.0.1:47123"
+external_model="mlx-community/Qwen3-27B-4bit"
+external_token="bench-secret-token-123"
+run_external() {
+  rm -f "$sandbox/ollama.log" "$sandbox/curl.log" "$sandbox/lease-seen" "$sandbox/ladder-args" "$sandbox/proxy-args" "$sandbox/settings-seen" "$sandbox/python.log"
+  run_capture env "$@" CLAUDE_OLLAMA_EXTERNAL_URL="$external_url" CLAUDE_OLLAMA_EXTERNAL_MODEL="$external_model" "$repo/bin/claude-ollama" 27b -p hi
+}
+run_external CLAUDE_OLLAMA_EXTERNAL_TOKEN="$external_token"
+check_eq "an external backend launch exits 0" 0 "$?"
+check_that "an external backend is named on stderr" grep -qxF "claude-ollama: external backend: $external_model at $external_url" "$sandbox/err"
+check_not "an external backend never asks Ollama for models" test -s "$sandbox/ollama.log"
+check_not "an external backend warms nothing through Ollama" grep -qE 'api/(generate|embed|version)' "$sandbox/curl.log"
+check_not "an external backend takes no lease" test -s "$sandbox/lease-seen"
+check_not "an external backend measures no memory fit" grep -qF "memory fit" "$sandbox/err"
+check_not "an external backend starts no ladder" test -e "$sandbox/ladder-args"
+check_not "an external backend starts no indexer" grep -qF -- "--index" "$sandbox/python.log"
+check_eq "an external backend keeps semantic_search to words" 0 "$(cat "$sandbox/embed-env")"
+check_that "an external backend passes its model to claude" grep -qF -- "--model $external_model --tools" "$sandbox/out"
+check_that "an external backend keeps the profile's system prompt" grep -qF -- "--system-prompt-file $repo/ollama/system-prompt.md" "$sandbox/out"
+check_eq "an external backend points claude at its URL" "$external_url" "$(jq -r .env.ANTHROPIC_BASE_URL "$sandbox/settings-seen")"
+check_eq "an external backend sends its token" "$external_token" "$(jq -r .env.ANTHROPIC_AUTH_TOKEN "$sandbox/settings-seen")"
+check_eq "an external backend names its model in the settings" "$external_model" "$(jq -r .model "$sandbox/settings-seen")"
+check_eq "an external backend lists only its model" "[\"$external_model\"]" "$(jq -c .availableModels "$sandbox/settings-seen")"
+check_eq "an external backend maps every model alias to its model" "$external_model" \
+  "$(jq -r '[.env | to_entries[] | select(.key | test("^ANTHROPIC_DEFAULT_.*_MODEL$")) | .value] | unique | join(",")' "$sandbox/settings-seen")"
+check_eq "an external backend keeps the profile's hooks" "$(jq -c .hooks "$repo/ollama/settings.27b.json")" "$(jq -c .hooks "$sandbox/settings-seen")"
+check_eq "the external settings file is private" 600 "$(cat "$sandbox/settings-seen-mode")"
+check_not "the token never reaches stdout" grep -qF "$external_token" "$sandbox/out"
+check_not "the token never reaches stderr" grep -qF "$external_token" "$sandbox/err"
+check_that "no launch settings file is left behind" test -z "$(ls "$session_config/launch-settings" 2>/dev/null)"
+run_external
+check_eq "an external backend without a token keeps the profile's token" "$(jq -r .env.ANTHROPIC_AUTH_TOKEN "$repo/ollama/settings.27b.json")" "$(jq -r .env.ANTHROPIC_AUTH_TOKEN "$sandbox/settings-seen")"
+run_external -u CLAUDE_OLLAMA_PROXY CLAUDE_OLLAMA_PROXY_RECORD=1 STUB_PROXY_PORT=48002
+check_that "the messages proxy forwards to the external URL" contains "$(cat "$sandbox/proxy-args")" "--upstream $external_url "
+check_that "the messages proxy records an external backend's bodies" contains "$(cat "$sandbox/proxy-args")" "--record $session_config/proxy/record"
+check_eq "claude talks to the external backend through the proxy" "http://127.0.0.1:48002" "$(jq -r .env.ANTHROPIC_BASE_URL "$sandbox/settings-seen")"
+check_eq "and still asks for the external model" "$external_model" "$(jq -r .model "$sandbox/settings-seen")"
+rm -f "$sandbox/out"
+run_capture env CLAUDE_OLLAMA_EXTERNAL_URL="$external_url" "$repo/bin/claude-ollama" 27b -p hi
+check_eq "an external URL without a model exits 2" 2 "$?"
+check_that "and names the missing variable" grep -qF "CLAUDE_OLLAMA_EXTERNAL_MODEL" "$sandbox/err"
+check_not "and launches nothing" grep -qF "ARGS:" "$sandbox/out"
+run_capture env CLAUDE_OLLAMA_EXTERNAL_MODEL="$external_model" "$repo/bin/claude-ollama" 27b -p hi
+check_eq "an external model without a URL exits 2" 2 "$?"
+check_that "and names the missing URL variable" grep -qF "CLAUDE_OLLAMA_EXTERNAL_URL" "$sandbox/err"
 cat > "$sandbox/stubbin/rescue" <<EOF
 #!/bin/sh
 printf '%s\n' "\$*" > "$sandbox/rescue-args"

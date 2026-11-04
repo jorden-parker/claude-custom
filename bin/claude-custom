@@ -607,7 +607,8 @@ main() {
     agent) shift; exec "$repo_dir/bin/ollama-agent" "$@" ;;
     ctx7) shift; run_ctx7 "$@"; status=$? ;;
     sync-check) shift; sync_check "$@" ;;
-    *) echo "usage: claude-custom [install|update|uninstall|ollama|qwen|tools|agent|ctx7|sync-check]" >&2; exit 2 ;;
+    bench-best) shift; exec "$repo_dir/bin/bench-best" "$@" ;;
+    *) echo "usage: claude-custom [install|update|uninstall|ollama|qwen|tools|agent|ctx7|sync-check|bench-best]" >&2; exit 2 ;;
   esac
   exit "$status"
 }

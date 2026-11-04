@@ -38,6 +38,11 @@ cat > "$sandbox/green" <<'STUB'
   echo "beacon: ${CLAUDE_OLLAMA_BEACON:-unset}"
   echo "proxy: ${CLAUDE_OLLAMA_PROXY:-unset}"
   echo "telemetry-switch: ${CLAUDE_OLLAMA_TELEMETRY:-unset}"
+  echo "external-url: ${CLAUDE_OLLAMA_EXTERNAL_URL:-unset}"
+  echo "external-model: ${CLAUDE_OLLAMA_EXTERNAL_MODEL:-unset}"
+  echo "external-token: ${CLAUDE_OLLAMA_EXTERNAL_TOKEN:-unset}"
+  echo "proxy-record: ${CLAUDE_OLLAMA_PROXY_RECORD:-unset}"
+  echo "proxy-record-dir: ${CLAUDE_OLLAMA_PROXY_RECORD_DIR:-unset}"
 } >> "$STUB_DIR/launch.log"
 for patch in "$STUB_TASKS_DIR"/*/solution.patch; do
   git apply "$patch" 2>/dev/null && break
@@ -137,6 +142,32 @@ report="$(ls "$HOME"/bench-results/task-eval-*.json 2>/dev/null | head -1)"
 check "--json saves a report under bench-results" test -n "$report"
 check "the saved report matches stdout" cmp -s "$report" "$sandbox/json.txt"
 check "--json names the report on stderr" grep -qF "report: $report" "$sandbox/json.err"
+
+check "without --external no backend reaches the launcher" grep -qxF 'external-url: unset' "$sandbox/launch.log"
+check "without --record nothing is recorded" grep -qxF 'proxy-record: unset' "$sandbox/launch.log"
+check "json without --external has no backend" test "$(jq -c .backend "$sandbox/json.txt")" = null
+
+rm -f "$sandbox/launch.log"
+run_eval green --external http://127.0.0.1:9999 mlx-model --external-token secret-bench-token --json > "$sandbox/external.txt" 2> "$sandbox/external.err"
+check "--external exits 0" test "$?" -eq 0
+check "--external passes the url" grep -qxF 'external-url: http://127.0.0.1:9999' "$sandbox/launch.log"
+check "--external passes the model" grep -qxF 'external-model: mlx-model' "$sandbox/launch.log"
+check "--external-token passes the token" grep -qxF 'external-token: secret-bench-token' "$sandbox/launch.log"
+check "--external keeps --model off the launcher" grep -qxF 'args: 27b -p Set status to fixed in state.txt.' "$sandbox/launch.log"
+check "json backend url" test "$(jq -r .backend.url "$sandbox/external.txt")" = http://127.0.0.1:9999
+check "json backend model" test "$(jq -r .backend.model "$sandbox/external.txt")" = mlx-model
+check "json model is the external model" test "$(jq -r .model "$sandbox/external.txt")" = mlx-model
+check "the token stays out of the report" test -z "$(grep -l secret-bench-token "$sandbox/external.txt" "$sandbox/external.err" "$HOME"/bench-results/*.json)"
+
+rm -f "$sandbox/launch.log"
+run_eval green --external http://127.0.0.1:9999 mlx-model > /dev/null 2>&1
+check "--external without a token sends none" grep -qxF 'external-token: unset' "$sandbox/launch.log"
+
+rm -f "$sandbox/launch.log"
+run_eval green --record "$sandbox/record" > /dev/null 2>&1
+check "--record turns the proxy on" grep -qxF 'proxy: 1' "$sandbox/launch.log"
+check "--record turns recording on" grep -qxF 'proxy-record: 1' "$sandbox/launch.log"
+check "--record names the folder" grep -qxF "proxy-record-dir: $sandbox/record" "$sandbox/launch.log"
 
 run_eval green --json > "$sandbox/ac.txt" 2>/dev/null
 check "json power is ac on mains" test "$(jq -r .environment.power "$sandbox/ac.txt")" = ac

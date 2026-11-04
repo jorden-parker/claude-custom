@@ -183,8 +183,14 @@ before changing how any file gets applied.
   `~/bench-results/task-eval-<utc>.json`.
   `claude-ollama task-eval [size] [args]` warms the size's model and execs it
   with `--launcher` (`CLAUDE_OLLAMA_TASK_EVAL` overrides the script; tests stub
-  it). Tests: `bin/task-eval.test.sh` (stub launchers, stub `pmset`;
-  `make test-tasks`)
+  it). `--external URL MODEL` runs the same harness against another server: it
+  sets `CLAUDE_OLLAMA_EXTERNAL_URL` and `CLAUDE_OLLAMA_EXTERNAL_MODEL` (the
+  token only through `CLAUDE_OLLAMA_EXTERNAL_TOKEN`), with which
+  `bin/claude-ollama` skips every Ollama step, words-only search, and points the
+  composed settings' base URL, model and auth token at that server (one of the
+  two set exits 2). `--record DIR` turns the messages proxy on and records the
+  request bodies there (`CLAUDE_OLLAMA_PROXY_RECORD_DIR`). Tests:
+  `bin/task-eval.test.sh` (stub launchers, stub `pmset`; `make test-tasks`)
 - Config check: `bin/check-config` (prints `all passed`; static checks that the
   `ollama/` and `personal/` config files agree with each other)
 - Skill listing: Claude Code lists skills for the model within
@@ -254,20 +260,38 @@ before changing how any file gets applied.
   `keep:`. `claude-ollama tool-budget [--since DAYS] [--json]` runs it on the
   session's logs before any pull or launch; tests: `bin/tool-budget.test.sh`
   (inline fixture logs), `bin/claude-ollama.test.sh` (stub script, doctor lines)
-- Bench-off: `bin/backend-bench-off install|download|all` benches Ollama, oMLX
-  and vllm-mlx, each with MTP off (stock MLX weights) and on (`oQ4e` MTP
-  weights), plus llama.cpp's `llama-server` on the pinned Unsloth GGUFs
-  (`gguf_spec`: repo, revision, files) with the Mac settings in `llama_args`,
-  MTP on through `--spec-type draft-mtp` (the 27B's separate head goes in
-  `--spec-draft-model`; acceptance read from its log), model by model, and
-  streams each run's JSONL into one side-by-side HTML page that reloads while it
-  runs (`bin/backend-bench-report`, default `~/bench-results/bench-off.html`);
-  `run SERVER MODEL` reruns one cell; MTP-on vllm-mlx runs copy the head with
-  `bin/extract-mtp-weights`; the console's server list (`bench-choices.ts`) must
-  match the script's; each run also replays `BENCH_REPLAY_DIR` through
-  `bin/prefix-ab` into a `replay` line and a "Replay cache hit %" row; tests:
-  `bin/backend-bench-off.test.sh` (stub servers),
-  `bin/backend-bench-report.test.sh`, `bin/extract-mtp-weights.test.sh`
+- Bench-off: `bin/backend-bench-off install|download|all|serve-only` benches 21
+  cells per model against the `ollama` baseline (the harness as shipped):
+  Ollama, oMLX, vllm-mlx, vllm-metal, llama.cpp (`llama-server` with f16 KV,
+  q8_0 KV, MTP, n-gram drafting and a pinned source build), LM Studio's MLX
+  engine, MTPLX, Rapid-MLX, mlx-optiq and mistral.rs, each pinned to one
+  version, with the fair settings in `docs/backend-bench.md` (same sampling,
+  thinking off, 64k context, one sequence, fresh disk caches, comparable weights
+  sizes, each MTP pair on the same weights). `all` runs in stages: a 2-minute
+  gate per cell, a screen on the 35B at 20k, a `lost` cut-off at 1.5 times the
+  baseline's cold prefill, then the three best plus the baseline on both models
+  at 20k and 60k; it waits between cells only while `pmset -g therm` shows a
+  speed limit, reuses a cell's result while its server version, weights revision
+  and bench version match, and `BENCH_ONLY_MODELS` limits the models.
+  `serve-only SERVER MODEL` starts one cell's server, prints
+  `{url, model_id, auth_token}` and stays up until SIGTERM. Each cell streams
+  JSONL (`meta` with `weights_bytes` and `stage`, `gate`, measurements,
+  `replay`, `end` with `done|failed|gate-failed|lost|cached`) into the page
+  (`bin/backend-bench-report`, default `~/bench-results/bench-off.html`;
+  `--headline` prints only the verdict), which applies the decision rule and
+  reads `finals.json`. `bin/messages-bench` sends Qwen's instruct sampling (0.7,
+  0.8, 20) and flags a `thinking_leak`; `bin/prefix-ab --verbatim-only` skips
+  the stabilized pass. The console's server list (`bench-choices.ts`) must match
+  the script's. `claude-custom bench-best [--quick] [--fresh]`
+  (`bin/bench-best`, stdlib) is the one command: preflight (AC power, no Low
+  Power Mode, no running session), a recording task-eval when the replay dir is
+  empty, `all`, then finals that run `bin/task-eval --external` per task against
+  `serve-only` servers (Ollama first, a challenger 1.5 times slower after two
+  tasks stopped, up to 3 runs when within 15%), writing `finals.json` (resumed
+  from `bench-best/finals.json`) and `best-backend.json` and printing the
+  headline. Tests: `bin/backend-bench-off.test.sh` (stub servers),
+  `bin/backend-bench-report.test.sh`, `bin/bench-best.test.sh`,
+  `bin/extract-mtp-weights.test.sh`
 - Code search MCP server: `shared/mcp/code-search.py`; its tests are
   `shared/mcp/code-search.test.sh` (stub embedding server, temp git repo)
 - Repo tools MCP server: `shared/mcp/repo-tools.py`; its tests are

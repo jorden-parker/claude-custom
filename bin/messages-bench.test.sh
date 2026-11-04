@@ -35,7 +35,7 @@ def thinking_events(index, text):
 
 def text_events(index):
     yield sse("content_block_start", index=index, content_block={"type": "text", "text": ""})
-    for word in ("one", "two", "three"):
+    for word in config.get("text_words", ["one", "two", "three"]):
         yield sse("content_block_delta", index=index, delta={"type": "text_delta", "text": word})
 
 
@@ -170,10 +170,28 @@ def json_shape(path):
         fail("tool_calls lacks parsed or trials")
 
 
-def temperature_zero(path):
+def sampling_is(path, temperature, top_p, top_k):
+    expected = {"temperature": temperature, "top_p": top_p, "top_k": top_k}
     for request in requests_in(path):
-        if request["body"].get("temperature") != 0:
-            fail(f"a request sent temperature {request['body'].get('temperature')!r}")
+        sent = {key: request["body"].get(key) for key in expected}
+        if sent != expected:
+            fail(f"a request sent sampling {sent}, expected {expected}")
+
+
+def thinking_leaks(path, expected):
+    lines = [json.loads(line) for line in Path(path).read_text().splitlines()]
+    runs = [line for line in lines if line.get("type") == "run"]
+    if not runs:
+        fail("no runs to check for a thinking leak")
+    for run in runs:
+        if run.get("thinking_leak") is not expected:
+            fail(f"run reported thinking_leak {run.get('thinking_leak')!r}, expected {expected}")
+
+
+def json_thinking_leaks(path, expected):
+    runs = json.loads(Path(path).read_text()).get("runs", [])
+    if not runs or any(run.get("thinking_leak") is not expected for run in runs):
+        fail(f"json runs reported thinking_leak {[run.get('thinking_leak') for run in runs]}, expected {expected}")
 
 
 def jsonl_shape(path, runs, trials):
@@ -230,8 +248,12 @@ elif command == "max-tokens":
     max_tokens_is(arguments[0], int(arguments[1]), int(arguments[2]))
 elif command == "json-shape":
     json_shape(arguments[0])
-elif command == "temperature-zero":
-    temperature_zero(arguments[0])
+elif command == "sampling":
+    sampling_is(arguments[0], float(arguments[1]), float(arguments[2]), int(arguments[3]))
+elif command == "thinking-leak":
+    thinking_leaks(arguments[0], arguments[1] == "true")
+elif command == "json-thinking-leak":
+    json_thinking_leaks(arguments[0], arguments[1] == "true")
 elif command == "jsonl-shape":
     jsonl_shape(arguments[0], int(arguments[1]), int(arguments[2]))
 elif command == "thinking-omitted":
@@ -298,7 +320,24 @@ fi
 
 python3 "$tmp/inspect.py" same-start "$log" 1 2 || fail "warm request shares the cold prefix and differs in the question"
 python3 "$tmp/inspect.py" max-tokens "$log" 3 2048 || fail "tool trial requests max_tokens 2048 under default flags"
-python3 "$tmp/inspect.py" temperature-zero "$log" || fail "every request sends temperature 0 so servers decode the same way"
+python3 "$tmp/inspect.py" max-tokens "$log" 1 256 || fail "a measurement requests max_tokens 256 under default flags"
+python3 "$tmp/inspect.py" sampling "$log" 0.7 0.8 20 || fail "every request sends Qwen's instruct sampling: temperature 0.7, top_p 0.8, top_k 20"
+
+start_stub "$healthy" || exit 1
+bench_run --model stub --prefix-tokens 2000 --tool-trials 1 --temperature 0 --top-p 1 --top-k 1 > "$run_dir/stdout" 2> "$run_dir/stderr" || fail "sampling flags exit 0"
+python3 "$tmp/inspect.py" sampling "$run_dir/requests.log" 0 1 1 || fail "--temperature, --top-p and --top-k override the sampling sent"
+
+start_stub "$healthy" || exit 1
+bench_run --model stub --prefix-tokens 2000 --tool-trials 0 --jsonl > "$run_dir/report.jsonl" 2> "$run_dir/stderr" || fail "a clean stub --jsonl exits 0"
+python3 "$tmp/inspect.py" thinking-leak "$run_dir/report.jsonl" false || fail "a reply without thinking reports thinking_leak false"
+
+start_stub '{"input_tokens": 2000, "cache_read_input_tokens": 1500, "thinking_text": "abcdefgh"}' || exit 1
+bench_run --model stub --prefix-tokens 2000 --tool-trials 0 --jsonl > "$run_dir/report.jsonl" 2> "$run_dir/stderr" || fail "a thinking-block stub --jsonl exits 0"
+python3 "$tmp/inspect.py" thinking-leak "$run_dir/report.jsonl" true || fail "a reply with a thinking block reports thinking_leak true"
+
+start_stub '{"input_tokens": 2000, "cache_read_input_tokens": 1500, "text_words": ["<thi", "nk>plan", "</think>", "answer"]}' || exit 1
+bench_run --model stub --prefix-tokens 2000 --tool-trials 0 --json > "$run_dir/report.json" 2> "$run_dir/stderr" || fail "a think-tag stub --json exits 0"
+python3 "$tmp/inspect.py" json-thinking-leak "$run_dir/report.json" true || fail "a reply whose text carries <think> reports thinking_leak true in --json"
 python3 "$tmp/inspect.py" thinking-omitted "$log" || fail "the default run sends no thinking or output_config, so bench-off results stay comparable"
 
 start_stub "$healthy" || exit 1
@@ -410,6 +449,7 @@ bench_run --model stub --replay "$tmp/replay" > "$run_dir/stdout" 2> "$run_dir/s
 python3 "$tmp/replay_inspect.py" order "$run_dir/requests.log" || fail "--replay sends the bodies in ts order"
 python3 "$tmp/replay_inspect.py" shape "$run_dir/requests.log" || fail "--replay substitutes the model, streams and keeps the body"
 python3 "$tmp/replay_inspect.py" thinking "$run_dir/requests.log" null || fail "--replay drops the recorded thinking under the default flag"
+python3 "$tmp/inspect.py" sampling "$run_dir/requests.log" 0.7 0.8 20 || fail "--replay sends the instruct sampling in every replayed body"
 [ "$(wc -l < "$run_dir/requests.log" | tr -d ' ')" = 3 ] || fail "--replay sends one request per recorded body and skips other files"
 grep -Eq '^zzz-first +2000 ' "$run_dir/stdout" || fail "stdout has a row per request naming its id and prompt tokens"
 grep -Eq '^replay: 3 requests' "$run_dir/stdout" || fail "stdout ends with a replay summary"

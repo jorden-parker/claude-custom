@@ -47,6 +47,7 @@ def parse_args(argv):
     parser.add_argument("--unload", choices=[UNLOAD_OLLAMA, UNLOAD_LLAMA_SLOTS, UNLOAD_NONE], default=UNLOAD_OLLAMA, help="how to clear the server's prompt cache before each pass")
     parser.add_argument("--auth-token", default=DEFAULT_AUTH_TOKEN)
     parser.add_argument("--json", action="store_true")
+    parser.add_argument("--verbatim-only", action="store_true", help="skip the stabilized pass")
     return parser.parse_args(argv)
 
 
@@ -159,6 +160,8 @@ def mean_hit(rows):
 
 
 def verdict_line(gain_points):
+    if gain_points is None:
+        return "stabilize: not measured"
     if gain_points >= WORTH_IT_POINTS:
         return f"stabilize: worth it (+{round(gain_points)} points mean hit rate)"
     return "stabilize: no gain"
@@ -168,29 +171,44 @@ def rounded(value):
     return None if value is None else round(value, 1)
 
 
+def rounded_row(row):
+    return None if row is None else {**row, "hit_percent": rounded(row["hit_percent"])}
+
+
 def request_rows(paths, verbatim, stabilized):
     return [
-        {"request_id": path.stem, PASS_VERBATIM: {**before, "hit_percent": rounded(before["hit_percent"])}, PASS_STABILIZED: {**after, "hit_percent": rounded(after["hit_percent"])}}
+        {"request_id": path.stem, PASS_VERBATIM: rounded_row(before), PASS_STABILIZED: rounded_row(after)}
         for path, before, after in zip(paths, verbatim, stabilized)
     ]
+
+
+def stabilized_pass(args, proxy, bodies, paths):
+    if args.verbatim_only:
+        return None
+    return replay_pass(args, PASS_STABILIZED, proxy.stabilize_bodies(bodies), paths)
 
 
 def compare(args, proxy):
     paths = recorded_paths(args.record, args.limit)
     bodies = [recorded_body(path) for path in paths]
     verbatim = replay_pass(args, PASS_VERBATIM, bodies, paths)
-    stabilized = replay_pass(args, PASS_STABILIZED, proxy.stabilize_bodies(bodies), paths)
-    verbatim_mean, stabilized_mean = mean_hit(verbatim), mean_hit(stabilized)
-    gain = stabilized_mean - verbatim_mean
+    stabilized = stabilized_pass(args, proxy, bodies, paths)
+    verbatim_mean = mean_hit(verbatim)
+    stabilized_mean = None if stabilized is None else mean_hit(stabilized)
+    gain = None if stabilized_mean is None else stabilized_mean - verbatim_mean
     return {
         "model": args.model,
         "record_dir": args.record,
-        "basis": basis_of(verbatim + stabilized),
-        "requests": request_rows(paths, verbatim, stabilized),
+        "basis": basis_of(verbatim + (stabilized or [])),
+        "requests": request_rows(paths, verbatim, stabilized or [None] * len(paths)),
         "mean": {PASS_VERBATIM: rounded(verbatim_mean), PASS_STABILIZED: rounded(stabilized_mean)},
-        "gain_points": round(gain),
+        "gain_points": None if gain is None else round(gain),
         "verdict": verdict_line(gain),
     }
+
+
+def row_hit(row, name):
+    return None if row[name] is None else row[name]["hit_percent"]
 
 
 def cell(value):
@@ -207,7 +225,7 @@ def print_table(args, report):
     print(f"hit % basis: {report['basis']}")
     print(table_line("request", PASS_VERBATIM, PASS_STABILIZED))
     for row in report["requests"]:
-        print(table_line(row["request_id"], cell(row[PASS_VERBATIM]["hit_percent"]), cell(row[PASS_STABILIZED]["hit_percent"])))
+        print(table_line(row["request_id"], cell(row_hit(row, PASS_VERBATIM)), cell(row_hit(row, PASS_STABILIZED))))
     print(table_line("mean", cell(report["mean"][PASS_VERBATIM]), cell(report["mean"][PASS_STABILIZED])))
     print()
     print(report["verdict"])

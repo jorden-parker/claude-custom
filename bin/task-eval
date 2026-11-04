@@ -47,6 +47,9 @@ def parse_args(argv):
     parser.add_argument("--json", dest="as_json", action="store_true")
     parser.add_argument("--launcher", type=Path, default=launcher_from_env())
     parser.add_argument("--tasks", type=Path, default=DEFAULT_TASKS)
+    parser.add_argument("--external", nargs=2, metavar=("URL", "MODEL"))
+    parser.add_argument("--external-token")
+    parser.add_argument("--record", type=Path)
     return parser.parse_args(argv)
 
 
@@ -132,8 +135,34 @@ def stop(process):
         process.wait()
 
 
+def external_env(args):
+    if not args.external:
+        return {}
+    url, model = args.external
+    backend = {"CLAUDE_OLLAMA_EXTERNAL_URL": url, "CLAUDE_OLLAMA_EXTERNAL_MODEL": model}
+    if args.external_token:
+        backend["CLAUDE_OLLAMA_EXTERNAL_TOKEN"] = args.external_token
+    return backend
+
+
+def record_env(args):
+    if not args.record:
+        return {}
+    return {
+        "CLAUDE_OLLAMA_PROXY": "1",
+        "CLAUDE_OLLAMA_PROXY_RECORD": "1",
+        "CLAUDE_OLLAMA_PROXY_RECORD_DIR": str(args.record.absolute()),
+    }
+
+
 def run_launcher(args, task, repo, telemetry_path):
-    launch_env = {**os.environ, **LAUNCH_ENV, "CLAUDE_TOOL_TELEMETRY": str(telemetry_path)}
+    launch_env = {
+        **os.environ,
+        **LAUNCH_ENV,
+        **external_env(args),
+        **record_env(args),
+        "CLAUDE_TOOL_TELEMETRY": str(telemetry_path),
+    }
     process = subprocess.Popen(
         launch_argv(args, task["prompt"]),
         cwd=repo,
@@ -283,6 +312,12 @@ def evaluate(args, selected):
     return runs
 
 
+def report_model(args):
+    if args.external:
+        return args.external[1]
+    return args.model or profile_model(args.size)
+
+
 def main(argv):
     args = parse_args(argv)
     available = task_dirs(args.tasks)
@@ -292,11 +327,13 @@ def main(argv):
             print(f"task-eval: no task {name}", file=sys.stderr)
             return 2
     report = {
-        "model": args.model or profile_model(args.size),
+        "model": report_model(args),
         "size": args.size,
         "launcher": str(args.launcher),
         "environment": environment(),
     }
+    if args.external:
+        report["backend"] = {"url": args.external[0], "model": args.external[1]}
     report["runs"] = evaluate(args, [(name, available[name]) for name in selected])
     report["total"] = totals_of(report["runs"])
     if args.as_json:

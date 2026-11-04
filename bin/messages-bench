@@ -16,7 +16,10 @@ DEFAULT_PREFIX_TOKENS = [20000, 60000]
 DEFAULT_MAX_TOKENS = 256
 TOOL_MAX_TOKENS = 2048
 DEFAULT_TOOL_TRIALS = 5
-TEMPERATURE = 0
+INSTRUCT_TEMPERATURE = 0.7
+INSTRUCT_TOP_P = 0.8
+INSTRUCT_TOP_K = 20
+THINK_TAG = "<think>"
 ANTHROPIC_VERSION = "2023-06-01"
 REQUEST_TIMEOUT_SECONDS = 1800
 CHARS_PER_TOKEN = 4
@@ -87,6 +90,8 @@ class Stream:
     output_tokens: int = 0
     tool_name: str | None = None
     tool_json_pieces: list[str] = field(default_factory=list)
+    text_pieces: list[str] = field(default_factory=list)
+    thinking_block: bool = False
 
 
 @dataclass
@@ -102,6 +107,7 @@ class Run:
     decode_tokens_per_second: float | None
     thinking_chars: int
     text_ttft_seconds: float | None
+    thinking_leak: bool
 
 
 @dataclass
@@ -116,6 +122,7 @@ class ReplayRun:
     decode_tokens_per_second: float | None
     thinking_chars: int
     text_ttft_seconds: float | None
+    thinking_leak: bool
 
 
 def positive_int(text):
@@ -142,6 +149,9 @@ def parse_args(argv):
     parser.add_argument("--prefix-tokens", nargs="+", type=positive_int, default=DEFAULT_PREFIX_TOKENS)
     parser.add_argument("--max-tokens", type=positive_int, default=DEFAULT_MAX_TOKENS)
     parser.add_argument("--tool-trials", type=non_negative_int, default=DEFAULT_TOOL_TRIALS)
+    parser.add_argument("--temperature", type=float, default=INSTRUCT_TEMPERATURE)
+    parser.add_argument("--top-p", type=float, default=INSTRUCT_TOP_P)
+    parser.add_argument("--top-k", type=non_negative_int, default=INSTRUCT_TOP_K)
     parser.add_argument(
         "--thinking",
         choices=list(THINKING_FIELDS),
@@ -170,15 +180,19 @@ def build_prefix(prefix_tokens, run_marker):
     return text[:wanted]
 
 
-def build_body(model, max_tokens, text, thinking, tools=None):
+def sampling_fields(config):
+    return {"temperature": config.temperature, "top_p": config.top_p, "top_k": config.top_k}
+
+
+def build_body(config, max_tokens, text, tools=None):
     body = {
-        "model": model,
+        "model": config.model,
         "max_tokens": max_tokens,
-        "temperature": TEMPERATURE,
         "stream": True,
         "messages": [{"role": "user", "content": text}],
     }
-    body.update(THINKING_FIELDS[thinking])
+    body.update(sampling_fields(config))
+    body.update(THINKING_FIELDS[config.thinking])
     if tools:
         body["tools"] = tools
     return body
@@ -221,6 +235,8 @@ def record_message_start(stream, message):
 
 
 def record_block_start(stream, block):
+    if block.get("type") == "thinking":
+        stream.thinking_block = True
     if block.get("type") == "tool_use" and stream.tool_name is None:
         stream.tool_name = block.get("name")
 
@@ -235,6 +251,8 @@ def record_delta(stream, delta, seconds):
         stream.first_text_seconds = seconds
     if kind == "input_json_delta":
         stream.tool_json_pieces.append(delta.get("partial_json", ""))
+    if kind == "text_delta":
+        stream.text_pieces.append(delta.get("text", ""))
 
 
 def apply_event(stream, event, seconds):
@@ -281,6 +299,10 @@ def stream_message(config, body):
         raise BenchError(f"request to {url} failed: {error}") from error
 
 
+def thinking_leaked(stream):
+    return stream.thinking_block or stream.thinking_chars > 0 or THINK_TAG in "".join(stream.text_pieces)
+
+
 def rate(count, seconds):
     return count / seconds if seconds > 0 else None
 
@@ -303,11 +325,12 @@ def make_run(stream, prefix_tokens, scenario, prompt):
         decode_tokens_per_second=rate(stream.output_tokens, decode_seconds),
         thinking_chars=stream.thinking_chars,
         text_ttft_seconds=stream.first_text_seconds,
+        thinking_leak=thinking_leaked(stream),
     )
 
 
 def measure_run(config, prefix_tokens, scenario, prompt):
-    body = build_body(config.model, config.max_tokens, prompt, config.thinking)
+    body = build_body(config, config.max_tokens, prompt)
     return make_run(stream_message(config, body), prefix_tokens, scenario, prompt)
 
 
@@ -330,6 +353,7 @@ def replay_body(config, path):
     body.pop("thinking", None)
     body.pop("output_config", None)
     body.update(THINKING_FIELDS[config.thinking])
+    body.update(sampling_fields(config))
     return body
 
 
@@ -349,6 +373,7 @@ def make_replay_run(stream, request_id):
         decode_tokens_per_second=rate(stream.output_tokens, decode_seconds),
         thinking_chars=stream.thinking_chars,
         text_ttft_seconds=stream.first_text_seconds,
+        thinking_leak=thinking_leaked(stream),
     )
 
 
@@ -377,7 +402,7 @@ def tool_call_parsed(stream):
 
 def run_tool_trial(config):
     max_tokens = max(config.max_tokens, TOOL_MAX_TOKENS)
-    body = build_body(config.model, max_tokens, TOOL_QUESTION, config.thinking, tools=[TOOL_DEFINITION])
+    body = build_body(config, max_tokens, TOOL_QUESTION, tools=[TOOL_DEFINITION])
     return tool_call_parsed(stream_message(config, body))
 
 

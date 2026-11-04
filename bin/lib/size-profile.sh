@@ -136,15 +136,39 @@ settings_layer_labels() {
   settings_layers | awk '/^--/ { sub(/^--/, ""); if (!seen[$0]++) { printf "%s%s", separator, $0; separator = ", " } }'
 }
 
+external_backend_on() {
+  [ -n "${CLAUDE_OLLAMA_EXTERNAL_URL:-}" ] && [ -n "${CLAUDE_OLLAMA_EXTERNAL_MODEL:-}" ]
+}
+
+external_backend_layer() {
+  jq --arg proxy_url "${proxy_url:-}" '
+    ($ENV.CLAUDE_OLLAMA_EXTERNAL_MODEL) as $model
+    | .model = $model
+    | .availableModels = [$model]
+    | .env.ANTHROPIC_BASE_URL = (if $proxy_url != "" then $proxy_url else $ENV.CLAUDE_OLLAMA_EXTERNAL_URL end)
+    | .env |= with_entries(if (.key | test("^ANTHROPIC_DEFAULT_.*_MODEL$")) then .value = $model else . end)
+    | if ($ENV.CLAUDE_OLLAMA_EXTERNAL_TOKEN // "") != "" then .env.ANTHROPIC_AUTH_TOKEN = $ENV.CLAUDE_OLLAMA_EXTERNAL_TOKEN else . end'
+}
+
+apply_external_backend() {
+  local external_settings
+  external_settings="$(external_backend_layer < "$1")" || return 1
+  (umask 077 && printf '%s\n' "$external_settings" > "$composed_settings")
+}
+
 compose_launch_settings() {
-  local layers=() layer
+  local layers=() layer base_settings="$settings_file"
   while IFS= read -r layer; do layers+=("$layer"); done < <(settings_layers)
   remove_composed_settings
-  if [ ${#layers[@]} -eq 0 ]; then
+  if [ ${#layers[@]} -eq 0 ] && ! external_backend_on; then
     launch_settings="$settings_file"
     return 0
   fi
-  "$profile_overlay" compose "$settings_file" "$composed_settings" "${layers[@]}"
+  if [ ${#layers[@]} -gt 0 ]; then
+    "$profile_overlay" compose "$settings_file" "$composed_settings" "${layers[@]}"
+    base_settings="$composed_settings"
+  fi
+  ! external_backend_on || apply_external_backend "$base_settings"
   launch_settings="$composed_settings"
 }
 

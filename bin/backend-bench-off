@@ -5,39 +5,61 @@ repo_dir="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 self="$repo_dir/bin/backend-bench-off"
 models_dir="${BENCH_MODELS:-$HOME/bench-models}"
 results_dir="${BENCH_RESULTS:-$HOME/bench-results}"
+tools_dir="${BENCH_TOOLS:-$HOME/bench-tools}"
+hf_hub_cache="${HF_HUB_CACHE:-${HF_HOME:-$HOME/.cache/huggingface}/hub}"
 ollama_url="${OLLAMA_HOST:-http://localhost:11434}"
 case "$ollama_url" in http://*|https://*) ;; *) ollama_url="http://$ollama_url" ;; esac
-omlx_port="${BENCH_OMLX_PORT:-8100}"
-vllm_port="${BENCH_VLLM_PORT:-8200}"
-llama_port="${BENCH_LLAMA_PORT:-8300}"
-server_timeout="${BENCH_SERVER_TIMEOUT:-900}"
-cooldown_seconds="${BENCH_COOLDOWN:-60}"
+gate_seconds="${BENCH_GATE_SECONDS:-120}"
+poll_seconds="${BENCH_POLL_SECONDS:-2}"
+thermal_poll_seconds="${BENCH_THERMAL_POLL:-10}"
+thermal_max_seconds="${BENCH_THERMAL_MAX:-900}"
 replay_dir="${BENCH_REPLAY_DIR-$HOME/.claude-ollama/proxy/record}"
 replay_limit="${BENCH_REPLAY_LIMIT:-30}"
+only_models="${BENCH_ONLY_MODELS:-}"
+servers="ollama ollama-mtp omlx omlx-mtp vllm-mlx vllm-mlx-mtp vllm-metal llama-server llama-server-q8kv llama-server-mtp llama-server-ngram llama-server-src lmstudio-mlx mtplx mtplx-nomtp rapid-mlx rapid-mlx-nomtp optiq optiq-mtp optiq-ngram mistralrs"
+baseline_server=ollama
+screen_model=qwen3.6-35b
+stages="screen deep"
+bench_version=2026.11.04
+lost_ratio=1.5
+finalist_count=3
 refresh_seconds=5
 omlx_service_port=8000
 omlx_api_key=local-bench
+local_token=local
 context_tokens=65536
-prefix_tokens=(20000 60000)
-tool_trials=5
-warmup_prefix_tokens=1000
+gate_prefix_tokens=1000
 ollama_draft_tokens=4
-side_model=qwen3-4b-cc
-mtp_suffix=-mtp
-gguf_suffix=-gguf
-servers="ollama ollama-mtp omlx omlx-mtp vllm-mlx vllm-mlx-mtp llama-server llama-server-mtp"
-vllm_mlx_version=0.4.1
-vllm_args=(--continuous-batching --use-paged-cache --enable-auto-tool-choice --tool-call-parser qwen --reasoning-parser qwen3)
 llama_draft_tokens=2
-llama_args=(-c "$context_tokens" -ngl 99 -fa on -b 2048 -ub 2048 -ctk q8_0 -ctv q8_0 -np 1 --jinja
-  --cache-ram 8192 --ctx-checkpoints 128 --checkpoint-min-step 128 --metrics)
+mtp_draft_depth=3
+ngram_draft_tokens=16
+side_model=qwen3-4b-cc
+omlx_version_pin=0.7.3
+vllm_mlx_version=0.6.0
+vllm_metal_version=0.33.0
+vllm_metal_vllm_tag=v0.33.0rc3
+mtplx_version=2.12.2
+rapid_mlx_version=1.0.1
+optiq_version=0.8.0
+mistralrs_version=v0.9.5
+llama_cpp_tag="${BENCH_LLAMA_CPP_TAG:-v0.8.0}"
+mistralrs_asset=mistralrs-metal-aarch64-apple-darwin
+vllm_metal_venv="$tools_dir/vllm-metal-$vllm_metal_version"
+llama_src_dir="$tools_dir/llama.cpp-$llama_cpp_tag"
+mistralrs_dir="$tools_dir/mistralrs-$mistralrs_version"
+thinking_off_kwargs='{"enable_thinking":false}'
+sampling_defaults='{"min_p":0,"presence_penalty":1.5,"repetition_penalty":1.0}'
 report_page="$results_dir/bench-off.html"
+previous_dir="$results_dir/previous"
+serve_dir="$results_dir/serve-only"
+reuse_dir="${BENCH_REUSE_DIR:-}"
 server_pid=""
 sampler_pid=""
 sampler_file=""
 renderer_pid=""
 unit_server=""
 unit_model=""
+unit_stage=""
 unit_weights=""
 unit_file=""
 unit_log=""
@@ -45,34 +67,41 @@ server_log=""
 unit_step=""
 unit_peak=null
 unit_mtp=null
-omlx_mtp_on=0
+unit_reason=""
+cell_url=""
+cell_model_id=""
+cell_token=""
+cell_unload=none
+cell_temp_dir=""
+cell_lmstudio=0
+gate_started=0
 
 usage() {
   cat <<EOF
 usage: backend-bench-off <command>
 
-  install       brew install oMLX and llama.cpp, uv tool install vllm-mlx $vllm_mlx_version
-  download      download the bench weights into \$BENCH_MODELS ($models_dir)
-  all           bench every model on every server below, model by model,
+  install       install every server at its pinned version (oMLX $omlx_version_pin, vllm-mlx $vllm_mlx_version,
+                vllm-metal $vllm_metal_version, MTPLX $mtplx_version, Rapid-MLX $rapid_mlx_version, mlx-optiq $optiq_version,
+                mistral.rs $mistralrs_version, llama.cpp $llama_cpp_tag from source) under \$BENCH_TOOLS ($tools_dir)
+  download      check the free disk space, then download every set of bench weights in parallel
+                into \$BENCH_MODELS ($models_dir) and verify each
+  all           staged run: gate, screen ($screen_model, 20k prefix), cut the cells over ${lost_ratio}x
+                slower than $baseline_server, then deep (the $finalist_count best and $baseline_server, both models),
                 streaming results into $report_page
-  ollama        bench every model on the running Ollama ($ollama_url)
-  ollama-mtp    the same on the MTP weights, with draft_num_predict $ollama_draft_tokens (MTP on)
-  omlx          start oMLX on port $omlx_port, bench every model, stop it
-  omlx-mtp      the same on the MTP weights, with mtp_enabled on (MTP on)
-  vllm-mlx      start vllm-mlx on port $vllm_port per model, bench, stop it
-  vllm-mlx-mtp  the same on the MTP weights, with --enable-mtp (MTP on)
-  llama-server  start llama.cpp's llama-server on port $llama_port per model on
-                the pinned GGUF weights, with the Mac settings, bench, stop it
-  llama-server-mtp  the same with --spec-type draft-mtp (MTP on)
-  run SERVER MODEL  bench one model on one server
+  SERVER        bench one server on every model (deep)
+  run SERVER MODEL [STAGE]  bench one cell (STAGE screen or deep, default deep)
+  serve-only SERVER MODEL   start one cell's server with its bench flags, pass the gate, print
+                {"url","model_id","auth_token"} and stay up until SIGTERM or SIGINT
   report        rebuild the page from the results so far
 
+Servers: $servers
 Models: $(bench_models)
-Environment: BENCH_MODELS, BENCH_RESULTS, BENCH_COOLDOWN (seconds between runs,
-$cooldown_seconds), BENCH_OMLX_PORT ($omlx_port), BENCH_VLLM_PORT ($vllm_port),
-BENCH_LLAMA_PORT ($llama_port), BENCH_SERVER_TIMEOUT ($server_timeout),
-BENCH_REPLAY_DIR (recorded bodies replayed through prefix-ab, empty turns it off,
-$replay_dir), BENCH_REPLAY_LIMIT ($replay_limit), VLLM_MLX_EXTRA_ARGS, LLAMA_SERVER_EXTRA_ARGS
+Environment: BENCH_MODELS, BENCH_RESULTS, BENCH_TOOLS, BENCH_GATE_SECONDS ($gate_seconds),
+BENCH_THERMAL_POLL ($thermal_poll_seconds), BENCH_THERMAL_MAX ($thermal_max_seconds), BENCH_LLAMA_CPP_TAG ($llama_cpp_tag),
+BENCH_REPLAY_DIR (recorded bodies replayed through prefix-ab, empty turns it off, $replay_dir),
+BENCH_REPLAY_LIMIT ($replay_limit), BENCH_ONLY_MODELS (bench only these models), VLLM_MLX_EXTRA_ARGS, LLAMA_SERVER_EXTRA_ARGS, and per server
+BENCH_<NAME>_PORT (OMLX 8100, VLLM 8200, LLAMA 8300, VLLM_METAL 8400, LMSTUDIO 8500, MTPLX 8600,
+RAPID 8700, OPTIQ 8800, MISTRALRS 8900)
 EOF
 }
 
@@ -95,82 +124,79 @@ require() {
   command -v "$1" >/dev/null 2>&1 || die "$1 not found ($2)"
 }
 
-bench_models() {
+all_bench_models() {
   echo qwen3.6-35b qwen3.8-27b
 }
 
+bench_models() {
+  if [ -n "$only_models" ]; then
+    echo "$only_models"
+  else
+    all_bench_models
+  fi
+}
+
+check_only_models() {
+  local model
+  for model in $only_models; do
+    is_known "$model" "$(all_bench_models)" || { say "BENCH_ONLY_MODELS: unknown model $model"; exit 2; }
+  done
+}
+
+weights_spec() {
+  case "$1" in
+    qwen3.6-35b) echo local mlx-community/Qwen3.6-35B-A3B-4bit 38740b847e4cb78f352aba30aa41c76e08e6eb46 ;;
+    qwen3.8-27b) echo local mlx-community/Qwen3.8-27B-4bit - ;;
+    qwen3.6-35b-mtp) echo local Jundot/Qwen3.6-35B-A3B-oQ4e-mtp - ;;
+    qwen3.8-27b-mtp) echo local Jundot/Qwen3.8-27B-oQ4e-mtp - ;;
+    qwen3.6-35b-gguf) echo local unsloth/Qwen3.6-35B-A3B-GGUF a483e9e6cbd595906af30beda3187c2663a1118c Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf ;;
+    qwen3.6-35b-gguf-mtp) echo local unsloth/Qwen3.6-35B-A3B-MTP-GGUF 5bc3e238d916f48a861bac2f8a1990a0e9b7e98d Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf ;;
+    qwen3.8-27b-gguf) echo local unsloth/Qwen3.8-27B-GGUF 4ca720788d1e01f1bff70c033e0d0028fd02e502 Qwen3.8-27B-UD-Q4_K_XL.gguf MTP/mtp-Qwen3.8-27B-Q4_0.gguf ;;
+    qwen3.6-35b-mtplx) echo local Youssofal/Qwen3.6-35B-A3B-MTPLX-Optimized-Speed 95460516fbfe34c48f577f67c9ed191f5d61fbaf ;;
+    qwen3.8-27b-mtplx) echo local Youssofal/Qwen3.8-27B-MTPLX-Optimized-Speed 1d5087d2062c02b279180a53e4016cf9cd7a3d7e ;;
+    qwen3.6-35b-optiq) echo local mlx-community/Qwen3.6-35B-A3B-OptiQ-4bit 53b24f3debecbff48534245bc2b26d821147ad66 ;;
+    qwen3.8-27b-optiq) echo local mlx-community/Qwen3.8-27B-OptiQ-4bit a95c2908fa8ca27cbf29ed86da9a658d14093b63 ;;
+    qwen3.6-35b-rapid) echo cache mlx-community/Qwen3.6-35B-A3B-4bit 38740b847e4cb78f352aba30aa41c76e08e6eb46 mlx-community/Qwen3.6-35B-A3B-MTP-4bit - ;;
+    qwen3.8-27b-rapid) echo cache rapid-mlx/Qwen3.8-27B-4bit-MTP-MLX aa985c29ff5b334cbfdcbbc787d47e66e9d9e456 ;;
+    "$side_model") echo local mlx-community/Qwen3-4B-4bit - ;;
+  esac
+}
+
+spec_field() {
+  weights_spec "$1" | awk -v field="$2" '{ print $field }'
+}
+
+weights_kind() {
+  spec_field "$1" 1
+}
+
 model_repo() {
-  case "$1" in
-    qwen3.6-35b) echo mlx-community/Qwen3.6-35B-A3B-4bit ;;
-    qwen3.6-35b-mtp) echo Jundot/Qwen3.6-35B-A3B-oQ4e-mtp ;;
-    qwen3.8-27b) echo mlx-community/Qwen3.8-27B-4bit ;;
-    qwen3.8-27b-mtp) echo Jundot/Qwen3.8-27B-oQ4e-mtp ;;
-    "$side_model") echo mlx-community/Qwen3-4B-4bit ;;
-    *) gguf_spec "$1" | awk '{ print $1 }' ;;
-  esac
+  spec_field "$1" 2
 }
 
-gguf_spec() {
-  case "$1" in
-    qwen3.6-35b-gguf) echo unsloth/Qwen3.6-35B-A3B-GGUF a483e9e6cbd595906af30beda3187c2663a1118c Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf ;;
-    qwen3.6-35b-gguf-mtp) echo unsloth/Qwen3.6-35B-A3B-MTP-GGUF 5bc3e238d916f48a861bac2f8a1990a0e9b7e98d Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf ;;
-    qwen3.8-27b-gguf) echo unsloth/Qwen3.8-27B-GGUF 4ca720788d1e01f1bff70c033e0d0028fd02e502 Qwen3.8-27B-UD-Q4_K_XL.gguf MTP/mtp-Qwen3.8-27B-Q4_0.gguf ;;
-  esac
+weights_pin() {
+  spec_field "$1" 3
 }
 
-gguf_files() {
-  gguf_spec "$1" | cut -d' ' -f3-
+weights_files() {
+  [ "$(weights_kind "$1")" = local ] || return 0
+  weights_spec "$1" | cut -d' ' -f4- -s
 }
 
 gguf_main_file() {
-  gguf_spec "$1" | awk '{ print $3 }'
+  weights_files "$1" | awk '{ print $1 }'
 }
 
 gguf_draft_file() {
-  gguf_spec "$1" | awk '{ print $4 }'
+  weights_files "$1" | awk '{ print $2 }'
 }
 
-is_gguf() {
-  [ -n "$(gguf_spec "$1")" ]
+cache_repo_pairs() {
+  weights_spec "$1" | awk '{ for (i = 2; i < NF; i += 2) print $i, $(i + 1) }'
 }
 
-is_mtp_server() {
-  case "$1" in *"$mtp_suffix") return 0 ;; esac
-  return 1
-}
-
-is_llama_server() {
-  [ "${1%"$mtp_suffix"}" = llama-server ]
-}
-
-gguf_weights_for() {
-  local mtp_weights="$2$gguf_suffix$mtp_suffix"
-  if is_mtp_server "$1" && is_gguf "$mtp_weights"; then
-    echo "$mtp_weights"
-  else
-    echo "$2$gguf_suffix"
-  fi
-}
-
-weights_for() {
-  if is_llama_server "$1"; then
-    gguf_weights_for "$1" "$2"
-  elif is_mtp_server "$1"; then
-    echo "$2$mtp_suffix"
-  else
-    echo "$2"
-  fi
-}
-
-all_weights() {
-  local model
-  for model in $(bench_models); do
-    printf '%s %s ' "$model" "$model$mtp_suffix"
-    printf '%s ' "$(gguf_weights_for llama-server "$model")"
-    if is_gguf "$model$gguf_suffix$mtp_suffix"; then
-      printf '%s ' "$model$gguf_suffix$mtp_suffix"
-    fi
-  done
+rapid_alias() {
+  echo "$1-4bit"
 }
 
 is_known() {
@@ -178,38 +204,239 @@ is_known() {
   return 1
 }
 
-is_downloaded() {
+is_baseline_variant() {
+  case "$1" in *-nomtp) return 0 ;; esac
+  return 1
+}
+
+server_family() {
+  case "$1" in
+    ollama*) echo ollama ;;
+    omlx*) echo omlx ;;
+    vllm-mlx*) echo vllm-mlx ;;
+    vllm-metal) echo vllm-metal ;;
+    llama-server*) echo llama-server ;;
+    lmstudio*) echo lmstudio ;;
+    mtplx*) echo mtplx ;;
+    rapid-mlx*) echo rapid-mlx ;;
+    optiq*) echo optiq ;;
+    mistralrs) echo mistralrs ;;
+  esac
+}
+
+is_speculative() {
+  case "$1" in
+    *-nomtp) return 1 ;;
+    *-mtp|*-ngram|mtplx|rapid-mlx) return 0 ;;
+  esac
+  return 1
+}
+
+family_port() {
+  case "$1" in
+    omlx) echo "${BENCH_OMLX_PORT:-8100}" ;;
+    vllm-mlx) echo "${BENCH_VLLM_PORT:-8200}" ;;
+    llama-server) echo "${BENCH_LLAMA_PORT:-8300}" ;;
+    vllm-metal) echo "${BENCH_VLLM_METAL_PORT:-8400}" ;;
+    lmstudio) echo "${BENCH_LMSTUDIO_PORT:-8500}" ;;
+    mtplx) echo "${BENCH_MTPLX_PORT:-8600}" ;;
+    rapid-mlx) echo "${BENCH_RAPID_PORT:-8700}" ;;
+    optiq) echo "${BENCH_OPTIQ_PORT:-8800}" ;;
+    mistralrs) echo "${BENCH_MISTRALRS_PORT:-8900}" ;;
+  esac
+}
+
+weights_for() {
+  local model="$2"
+  case "$1" in
+    ollama|vllm-metal|lmstudio-mlx) echo "$model" ;;
+    ollama-mtp|omlx|omlx-mtp|vllm-mlx|vllm-mlx-mtp) echo "$model-mtp" ;;
+    llama-server-mtp)
+      if [ -n "$(weights_spec "$model-gguf-mtp")" ]; then echo "$model-gguf-mtp"; else echo "$model-gguf"; fi ;;
+    llama-server*|mistralrs) echo "$model-gguf" ;;
+    mtplx*) echo "$model-mtplx" ;;
+    rapid-mlx*) echo "$model-rapid" ;;
+    optiq*) echo "$model-optiq" ;;
+  esac
+}
+
+all_weights() {
+  local model server
+  {
+    for model in $(bench_models); do
+      for server in $servers; do
+        weights_for "$server" "$model"
+      done
+    done
+    echo "$side_model"
+  } | awk '!seen[$0]++'
+}
+
+verified_marker() {
+  echo "$models_dir/$1/.bench-verified"
+}
+
+has_weights_files() {
   local file
-  if ! is_gguf "$1"; then
+  if [ "$(weights_kind "$1")" = cache ]; then
+    return 0
+  fi
+  if [ -z "$(weights_files "$1")" ]; then
     [ -f "$models_dir/$1/config.json" ]
     return
   fi
-  for file in $(gguf_files "$1"); do
+  for file in $(weights_files "$1"); do
     [ -f "$models_dir/$1/$file" ] || return 1
   done
 }
 
-download_model() {
-  local spec=()
-  if is_downloaded "$1"; then
-    say "$1 already in $models_dir"
-    return 0
-  fi
-  if is_gguf "$1"; then
-    read -r -a spec <<<"$(gguf_spec "$1")"
-    hf download "${spec[0]}" "${spec[@]:2}" --revision "${spec[1]}" --local-dir "$models_dir/$1"
+is_downloaded() {
+  [ -f "$(verified_marker "$1")" ] && has_weights_files "$1"
+}
+
+repo_listing_url() {
+  local revision="$2"
+  [ "$revision" != - ] || revision=main
+  echo "https://huggingface.co/api/models/$1/tree/$revision?recursive=true"
+}
+
+fetch_listing() {
+  curl -sf -m 60 "$(repo_listing_url "$1" "$2")" |
+    jq -r '.[] | select(.type == "file") | "\(.size) \(.path)"'
+}
+
+wanted_listing() {
+  local name="$1" listing="$2" files
+  files="$(weights_files "$name")"
+  if [ -z "$files" ]; then
+    cat "$listing"
     return
   fi
-  hf download "$(model_repo "$1")" --local-dir "$models_dir/$1"
+  awk -v wanted=" $files " 'index(wanted, " " $2 " ")' "$listing"
+}
+
+file_bytes() {
+  if [ -f "$1" ]; then wc -c <"$1" | tr -d ' '; else echo -1; fi
+}
+
+missing_bytes() {
+  local name="$1" listing="$2" size path total=0
+  while read -r size path; do
+    if [ "$(weights_kind "$name")" = cache ] || [ "$(file_bytes "$models_dir/$name/$path")" != "$size" ]; then
+      total=$((total + size))
+    fi
+  done < <(wanted_listing "$name" "$listing")
+  echo "$total"
+}
+
+write_listing() {
+  local name="$1" out="$2" repo revision
+  : >"$out"
+  if [ "$(weights_kind "$name")" = cache ]; then
+    while read -r repo revision; do
+      fetch_listing "$repo" "$revision" >>"$out" || return 1
+    done < <(cache_repo_pairs "$name")
+    return 0
+  fi
+  fetch_listing "$(model_repo "$name")" "$(weights_pin "$name")" >"$out"
+}
+
+free_bytes() {
+  df -Pk "$1" | awk 'NR == 2 { printf "%.0f\n", $4 * 1024 }'
+}
+
+gigabytes() {
+  awk -v bytes="$1" 'BEGIN { printf "%.1f", bytes / 1e9 }'
+}
+
+revision_args() {
+  [ "$1" = - ] || printf '%s\n' --revision "$1"
+}
+
+download_cache_weights() {
+  local repo revision args=()
+  while read -r repo revision; do
+    args=()
+    while IFS= read -r line; do args+=("$line"); done < <(revision_args "$revision")
+    hf download "$repo" ${args[@]+"${args[@]}"} || return 1
+  done < <(cache_repo_pairs "$1")
+}
+
+download_local_weights() {
+  local name="$1" files=() args=()
+  read -r -a files <<<"$(weights_files "$name")"
+  while IFS= read -r line; do args+=("$line"); done < <(revision_args "$(weights_pin "$name")")
+  hf download "$(model_repo "$name")" ${files[@]+"${files[@]}"} ${args[@]+"${args[@]}"} --local-dir "$models_dir/$name"
+}
+
+verify_weights() {
+  local name="$1" listing="$2" size path actual
+  [ "$(weights_kind "$name")" = local ] || return 0
+  while read -r size path; do
+    actual="$(file_bytes "$models_dir/$name/$path")"
+    if [ "$actual" != "$size" ]; then
+      say "$name: $path is $actual bytes, expected $size"
+      return 1
+    fi
+  done < <(wanted_listing "$name" "$listing")
+}
+
+download_and_verify() {
+  local name="$1" listing="$2" log="$3"
+  mkdir -p "$models_dir/$name"
+  rm -f "$(verified_marker "$name")"
+  if [ "$(weights_kind "$name")" = cache ]; then
+    download_cache_weights "$name" >>"$log" 2>&1 || { say "$name: download failed (log: $log)"; return 1; }
+  else
+    download_local_weights "$name" >>"$log" 2>&1 || { say "$name: download failed (log: $log)"; return 1; }
+  fi
+  verify_weights "$name" "$listing" || return 1
+  touch "$(verified_marker "$name")"
+  say "$name: downloaded and verified"
+}
+
+pending_weights() {
+  local name
+  for name in $(all_weights); do
+    is_downloaded "$name" || echo "$name"
+  done
+}
+
+check_disk_room() {
+  local listings="$1" name needed=0 free
+  shift
+  for name in "$@"; do
+    needed=$((needed + $(missing_bytes "$name" "$listings/$name")))
+  done
+  free="$(free_bytes "$models_dir")"
+  [ "$needed" -le "$free" ] ||
+    die "download needs $(gigabytes "$needed") GB but only $(gigabytes "$free") GB is free in $models_dir"
+  say "downloading $(gigabytes "$needed") GB ($(gigabytes "$free") GB free)"
 }
 
 download_models() {
-  local name
+  local listings name pending=() pids=() index failed=""
   require hf "curl -LsSf https://hf.co/cli/install.sh | bash -s"
-  mkdir -p "$models_dir"
-  for name in $(all_weights) "$side_model"; do
-    download_model "$name"
+  mkdir -p "$models_dir/.download-logs"
+  while IFS= read -r name; do pending+=("$name"); done < <(pending_weights)
+  if [ "${#pending[@]}" -eq 0 ]; then
+    say "every set of weights is already in $models_dir"
+    return 0
+  fi
+  listings="$(mktemp -d)"
+  for name in "${pending[@]}"; do
+    write_listing "$name" "$listings/$name" || die "cannot list the files of $name on Hugging Face"
   done
+  check_disk_room "$listings" "${pending[@]}"
+  for name in "${pending[@]}"; do
+    download_and_verify "$name" "$listings/$name" "$models_dir/.download-logs/$name.log" &
+    pids+=("$!")
+  done
+  for index in "${!pending[@]}"; do
+    wait "${pids[$index]}" || failed="$failed ${pending[$index]}"
+  done
+  rm -rf "$listings"
+  [ -z "$failed" ] || die "download failed:$failed"
 }
 
 require_weights() {
@@ -223,13 +450,77 @@ require_models() {
   done
 }
 
+uv_tool_install() {
+  uv tool install --force "$@"
+}
+
+check_omlx_version() {
+  local found
+  found="$(omlx_version)"
+  [ "$found" = "$omlx_version_pin" ] && return 0
+  say "omlx $found installed, the bench pins $omlx_version_pin: brew upgrade jundot/omlx/omlx"
+  return 1
+}
+
+install_vllm_metal() {
+  local vllm_wheel metal_wheel requirements
+  [ ! -x "$vllm_metal_venv/bin/vllm" ] || return 0
+  vllm_wheel="https://github.com/vllm-project/vllm/releases/download/$vllm_metal_vllm_tag/vllm-$vllm_metal_version%2Bcpu-cp38-abi3-macosx_11_0_arm64.whl"
+  metal_wheel="https://github.com/vllm-project/vllm-metal/releases/download/v$vllm_metal_version/vllm_metal-$vllm_metal_version-cp312-cp312-macosx_15_0_arm64.whl"
+  uv venv --python 3.12 "$vllm_metal_venv"
+  uv pip install --python "$vllm_metal_venv/bin/python" "$vllm_wheel" "$metal_wheel"
+  requirements="$vllm_metal_venv/lib/python3.12/site-packages/vllm_metal/requirements-torch.txt"
+  [ ! -f "$requirements" ] || uv pip install --python "$vllm_metal_venv/bin/python" -r "$requirements"
+}
+
+install_llama_source() {
+  [ ! -x "$llama_src_dir/build/bin/llama-server" ] || return 0
+  require git "xcode-select --install"
+  require cmake "brew install cmake"
+  [ -d "$llama_src_dir/.git" ] || git clone --depth 1 --branch "$llama_cpp_tag" https://github.com/ggml-org/llama.cpp "$llama_src_dir"
+  cmake -S "$llama_src_dir" -B "$llama_src_dir/build" -DCMAKE_BUILD_TYPE=Release -DGGML_METAL=ON \
+    -DGGML_METAL_EMBED_LIBRARY=ON -DLLAMA_BUILD_TESTS=OFF
+  cmake --build "$llama_src_dir/build" --config Release -j --target llama-server
+}
+
+mistralrs_bin() {
+  [ -d "$mistralrs_dir" ] || return 0
+  find "$mistralrs_dir" -type f -name mistralrs -perm -u+x | head -n 1
+}
+
+install_mistralrs() {
+  local archive
+  [ -z "$(mistralrs_bin)" ] || return 0
+  mkdir -p "$mistralrs_dir"
+  archive="$mistralrs_dir/$mistralrs_asset.tar.gz"
+  curl -fL -o "$archive" "https://github.com/EricLBuehler/mistral.rs/releases/download/$mistralrs_version/$mistralrs_asset.tar.gz"
+  tar -xzf "$archive" -C "$mistralrs_dir"
+  rm -f "$archive"
+}
+
+explain_lmstudio() {
+  command -v lms >/dev/null 2>&1 && return 0
+  say "LM Studio is not installed; the bench does not install GUI apps. Get it from https://lmstudio.ai, open it once, then run ~/.lmstudio/bin/lms bootstrap so lms is on PATH"
+}
+
 install_servers() {
-  brew install llama.cpp
+  local mismatch=0
   require brew "https://brew.sh"
   require uv "brew install uv"
+  mkdir -p "$tools_dir"
+  brew install llama.cpp
   brew tap jundot/omlx https://github.com/jundot/omlx
   brew install jundot/omlx/omlx
-  uv tool install "vllm-mlx==$vllm_mlx_version"
+  check_omlx_version || mismatch=1
+  uv_tool_install "vllm-mlx==$vllm_mlx_version" --with 'mlx-lm>=0.31.3,<0.32.0'
+  uv_tool_install "mtplx==$mtplx_version"
+  uv_tool_install "rapid-mlx==$rapid_mlx_version"
+  uv_tool_install --python 3.12 "mlx-optiq==$optiq_version"
+  install_vllm_metal
+  install_llama_source
+  install_mistralrs
+  explain_lmstudio
+  return "$mismatch"
 }
 
 memory_used_gb() {
@@ -246,6 +537,26 @@ power_source() {
 
 low_power_mode() {
   pmset -g 2>/dev/null | awk '/lowpowermode/ { on = ($2 == 1) } END { print (on ? "true" : "false") }'
+}
+
+cpu_speed_limit() {
+  pmset -g therm 2>/dev/null | sed -n 's/.*CPU_Speed_Limit *= *\([0-9][0-9]*\).*/\1/p' | head -n 1
+}
+
+wait_until_cool() {
+  local limit waited=0
+  while :; do
+    limit="$(cpu_speed_limit)"
+    [ -n "$limit" ] && [ "$limit" -lt 100 ] || return 0
+    if [ "$waited" -ge "$thermal_max_seconds" ]; then
+      say "still throttled (CPU speed limit $limit%) after ${waited}s; going on"
+      return 0
+    fi
+    say "waiting for the CPU to cool: CPU speed limit $limit%"
+    sleep "$thermal_poll_seconds"
+    waited=$((waited + thermal_poll_seconds))
+    [ "$thermal_poll_seconds" -gt 0 ] || waited=$((waited + 1))
+  done
 }
 
 record_peak() {
@@ -301,25 +612,12 @@ require_free_port() {
   fi
 }
 
-wait_for_server() {
-  local url="$1" token="$2" waited=0
-  until served_ids "$url" "$token" >/dev/null 2>&1; do
-    kill -0 "$server_pid" 2>/dev/null || die "the server exited before it was ready"
-    [ "$waited" -lt "$server_timeout" ] || die "the server was not ready after ${server_timeout}s"
-    sleep 2
-    waited=$((waited + 2))
-  done
-}
-
-require_served() {
-  local url="$1" token="$2" ids
-  ids="$(served_ids "$url" "$token")"
-  printf '%s\n' "$ids" | grep -qxF "$unit_weights" ||
-    die "$url does not serve $unit_weights; it lists: $(printf '%s' "$ids" | tr '\n' ' ')"
-}
-
 render_report_quietly() {
   "$repo_dir/bin/backend-bench-report" "$results_dir" >/dev/null 2>&1 || true
+}
+
+uv_tool_version() {
+  uv tool list 2>/dev/null | awk -v name="$1" '$1 == name { print $2 }' | grep . || echo unknown
 }
 
 ollama_version() {
@@ -330,29 +628,119 @@ omlx_version() {
   brew list --versions omlx 2>/dev/null | awk '{ print $2 }' | grep . || echo unknown
 }
 
-vllm_mlx_installed_version() {
-  uv tool list 2>/dev/null | awk '$1 == "vllm-mlx" { print $2 }' | grep . || echo unknown
-}
-
-server_version() {
-  case "${1%"$mtp_suffix"}" in
-    ollama) ollama_version ;;
-    omlx) omlx_version ;;
-    vllm-mlx) vllm_mlx_installed_version ;;
-    llama-server) llama_server_version ;;
-  esac
+vllm_metal_installed_version() {
+  uv pip show --python "$vllm_metal_venv/bin/python" vllm-metal 2>/dev/null | awk '/^Version:/ { print $2 }' | grep . || echo unknown
 }
 
 llama_server_version() {
-  llama-server --version 2>&1 | sed -n 's/^version: //p' | head -n 1 | grep . || echo unknown
+  "$1" --version 2>&1 | sed -n 's/^version: //p' | head -n 1 | grep . || echo unknown
+}
+
+last_word_version() {
+  "$@" 2>/dev/null | awk 'NF { print $NF; exit }' | grep . || echo unknown
+}
+
+server_version() {
+  case "$1" in
+    llama-server-src) llama_server_version "$llama_src_dir/build/bin/llama-server"; return ;;
+    mistralrs) last_word_version "$(mistralrs_bin)" --version; return ;;
+  esac
+  case "$(server_family "$1")" in
+    ollama) ollama_version ;;
+    omlx) omlx_version ;;
+    vllm-mlx) uv_tool_version vllm-mlx ;;
+    vllm-metal) vllm_metal_installed_version ;;
+    llama-server) llama_server_version llama-server ;;
+    lmstudio) last_word_version lms version ;;
+    mtplx) uv_tool_version mtplx ;;
+    rapid-mlx) uv_tool_version rapid-mlx ;;
+    optiq) uv_tool_version mlx-optiq ;;
+  esac
+}
+
+downloaded_revision() {
+  local metadata
+  metadata="$(find "$models_dir/$1/.cache/huggingface/download" -name '*.metadata' 2>/dev/null | head -n 1)"
+  [ -n "$metadata" ] || return 0
+  head -n 1 "$metadata"
+}
+
+weights_revision() {
+  local pin
+  pin="$(weights_pin "$1")"
+  if [ -n "$pin" ] && [ "$pin" != - ]; then
+    echo "$pin"
+    return
+  fi
+  downloaded_revision "$1"
+}
+
+hf_cache_dir() {
+  echo "$hf_hub_cache/models--${1//\//--}"
+}
+
+weights_kilobytes() {
+  local repo revision
+  if [ "$(weights_kind "$1")" = local ]; then
+    du -sk "$models_dir/$1" 2>/dev/null | awk '{ print $1 }'
+    return
+  fi
+  while read -r repo revision; do
+    du -sk "$(hf_cache_dir "$repo")" 2>/dev/null | awk '{ print $1 }'
+  done < <(cache_repo_pairs "$1")
+}
+
+weights_bytes() {
+  weights_kilobytes "$1" | awk '{ total += $1 } END { printf "%.0f\n", total * 1024 }'
+}
+
+stage_params() {
+  case "$1" in
+    screen) echo "prefix=20000 trials=3 replay=10 verbatim" ;;
+    deep) echo "prefix=20000,60000 trials=5 replay=$replay_limit" ;;
+    serve) echo "gate" ;;
+  esac
+}
+
+stage_prefixes() {
+  case "$1" in
+    screen) echo 20000 ;;
+    *) echo 20000 60000 ;;
+  esac
+}
+
+stage_tool_trials() {
+  case "$1" in
+    screen) echo 3 ;;
+    *) echo 5 ;;
+  esac
+}
+
+stage_replay_args() {
+  case "$1" in
+    screen) printf '%s\n' --limit 10 --verbatim-only ;;
+    *) printf '%s\n' --limit "$replay_limit" ;;
+  esac
+}
+
+cache_key() {
+  printf '%s\n' "$unit_server" "$unit_model" "$unit_stage" "$1" "$unit_weights" "$2" "$bench_version" "$(stage_params "$unit_stage")" |
+    shasum -a 256 | awk '{ print $1 }'
 }
 
 write_meta() {
+  local version revision
+  version="$(server_version "$unit_server")"
+  revision="$(weights_revision "$unit_weights")"
   jq -c -n --arg server "$unit_server" --arg model "$unit_model" --arg weights "$unit_weights" \
-    --arg version "$(server_version "$unit_server")" --arg repo "$(model_repo "$unit_weights")" \
+    --arg version "$version" --arg repo "$(model_repo "$unit_weights")" \
     --arg power "$(power_source)" --argjson low "$(low_power_mode)" \
     --argjson memory "$(memory_used_gb | grep . || echo null)" \
+    --argjson bytes "$(weights_bytes "$unit_weights")" --arg revision "$revision" \
+    --arg stage "$unit_stage" --arg bench "$bench_version" --arg key "$(cache_key "$version" "$revision")" \
     '{type: "meta", server: $server, version: $version, model: $model, weights: $weights, repo: $repo,
+      weights_bytes: $bytes, weights_revision: (if $revision == "" then null else $revision end),
+      stage: $stage, bench_version: $bench, cache_key: $key,
       conditions: {power: $power, low_power_mode: $low, memory_before_gb: $memory}}' >>"$unit_file"
 }
 
@@ -370,45 +758,47 @@ unload_ollama_models() {
   done
 }
 
-omlx_set_mtp() {
-  local enabled="$1" response code body
-  response="$(curl -s -m 30 -X PUT -H "Authorization: Bearer $omlx_api_key" -H 'Content-Type: application/json' \
-    -d "{\"mtp_enabled\": $enabled}" -w '\n%{http_code}' \
-    "http://127.0.0.1:$omlx_port/admin/api/models/$unit_weights/settings" || true)"
-  code="${response##*$'\n'}"
-  body="${response%$'\n'*}"
-  case "$code" in
-    2??) ;;
-    *) die "oMLX refused mtp_enabled $enabled for $unit_weights: $body" ;;
-  esac
+stop_lmstudio() {
+  [ "$cell_lmstudio" = 1 ] || return 0
+  cell_lmstudio=0
+  lms unload --all >>"$unit_log" 2>&1 || true
+  lms server stop >>"$unit_log" 2>&1 || true
 }
 
-turn_off_omlx_mtp() {
-  [ "$omlx_mtp_on" = 1 ] || return 0
-  omlx_mtp_on=0
-  (omlx_set_mtp false) >>"$unit_log" 2>&1 || true
+release_cell() {
+  stop_lmstudio
+  stop_server
+  [ -z "$sampler_pid" ] || kill "$sampler_pid" 2>/dev/null || true
+  [ -z "$cell_temp_dir" ] || rm -rf "$cell_temp_dir"
+  cell_temp_dir=""
+  case "$unit_server" in
+    ollama*) ollama stop "bench-$unit_weights" >>"$unit_log" 2>&1 || true ;;
+  esac
+  unload_ollama_models
+}
+
+end_row() {
+  case "$1" in
+    0) jq -c -n --argjson peak "$unit_peak" --argjson mtp "$unit_mtp" \
+         '{type: "end", status: "done", peak_memory_gb: $peak, mtp: $mtp}' ;;
+    3) jq -c -n --arg reason "$unit_reason" --arg tail "$(log_tail)" \
+         '{type: "end", status: "gate-failed", peak_memory_gb: null, mtp: null, reason: $reason, log_tail: $tail}' ;;
+    *) jq -c -n --arg error "$unit_step" --arg tail "$(log_tail)" \
+         '{type: "end", status: "failed", peak_memory_gb: null, mtp: null, error: $error, log_tail: $tail}' ;;
+  esac
 }
 
 finish_unit() {
   local status=$?
   trap - EXIT
-  turn_off_omlx_mtp
-  stop_server
-  [ -z "$sampler_pid" ] || kill "$sampler_pid" 2>/dev/null || true
-  case "$unit_server" in
-    ollama*) ollama stop "bench-$unit_weights" >>"$unit_log" 2>&1 || true ;;
+  release_cell
+  end_row "$status" >>"$unit_file"
+  case "$status" in
+    0) say "$unit_server $unit_model $unit_stage: done" ;;
+    3) say "$unit_server $unit_model $unit_stage: gate failed: $unit_reason" ;;
+    *) say "$unit_server $unit_model $unit_stage: failed while $unit_step (log: $unit_log)" ;;
   esac
-  unload_ollama_models
-  if [ "$status" -eq 0 ]; then
-    jq -c -n --argjson peak "$unit_peak" --argjson mtp "$unit_mtp" \
-      '{type: "end", status: "done", peak_memory_gb: $peak, mtp: $mtp}' >>"$unit_file"
-    say "$unit_server $unit_model: done"
-  else
-    jq -c -n --arg error "$unit_step" --arg tail "$(log_tail)" \
-      '{type: "end", status: "failed", peak_memory_gb: null, mtp: null, error: $error, log_tail: $tail}' >>"$unit_file"
-    say "$unit_server $unit_model: failed while $unit_step (log: $unit_log)"
-  fi
-  render_report_quietly
+  [ "$unit_stage" = serve ] || render_report_quietly
   exit "$status"
 }
 
@@ -422,11 +812,12 @@ has_replay_bodies() {
 }
 
 replay_sessions() {
-  local url="$1" model_id="$2" token="$3" unload_kind="$4" report
+  local report replay_args=() line
   has_replay_bodies || return 0
   step "replaying recorded sessions"
-  if report="$("$repo_dir/bin/prefix-ab" --record "$replay_dir" --model "$model_id" --base-url "$url" \
-    --auth-token "$token" --unload "$unload_kind" --limit "$replay_limit" --json 2>>"$unit_log")" &&
+  while IFS= read -r line; do replay_args+=("$line"); done < <(stage_replay_args "$unit_stage")
+  if report="$("$repo_dir/bin/prefix-ab" --record "$replay_dir" --model "$cell_model_id" --base-url "$cell_url" \
+    --auth-token "$cell_token" --unload "$cell_unload" "${replay_args[@]}" --json 2>>"$unit_log")" &&
     printf '%s\n' "$report" | jq -c '{type: "replay", requests: (.requests | length), basis: .basis, verbatim: .mean.verbatim, stabilized: .mean.stabilized}' >>"$unit_file" 2>>"$unit_log"; then
     return 0
   fi
@@ -434,28 +825,136 @@ replay_sessions() {
 }
 
 measure() {
-  local url="$1" model_id="$2" token="$3" unload_kind="$4"
-  step "loading the model with a short warm-up request"
-  "$repo_dir/bin/messages-bench" --base-url "$url" --model "$model_id" --auth-token "$token" \
-    --prefix-tokens "$warmup_prefix_tokens" --tool-trials 0 --json >/dev/null 2>>"$unit_log"
+  local prefixes=()
+  read -r -a prefixes <<<"$(stage_prefixes "$unit_stage")"
   step "measuring"
   start_sampler
-  "$repo_dir/bin/messages-bench" --base-url "$url" --model "$model_id" --auth-token "$token" \
-    --prefix-tokens "${prefix_tokens[@]}" --tool-trials "$tool_trials" --jsonl >>"$unit_file" 2>>"$unit_log"
+  "$repo_dir/bin/messages-bench" --base-url "$cell_url" --model "$cell_model_id" --auth-token "$cell_token" \
+    --prefix-tokens "${prefixes[@]}" --tool-trials "$(stage_tool_trials "$unit_stage")" --jsonl >>"$unit_file" 2>>"$unit_log"
   unit_peak="$(stop_sampler)"
-  replay_sessions "$url" "$model_id" "$token" "$unload_kind"
+  replay_sessions
+}
+
+gate_fail() {
+  unit_reason="$1"
+  jq -c -n --arg reason "$1" --argjson seconds "$((SECONDS - gate_started))" \
+    '{type: "gate", status: "failed", reason: $reason, seconds: $seconds}' >>"$unit_file"
+  exit 3
+}
+
+gate_pass() {
+  jq -c -n --argjson seconds "$((SECONDS - gate_started))" \
+    '{type: "gate", status: "passed", reason: null, seconds: $seconds}' >>"$unit_file"
+}
+
+seconds_left() {
+  local left=$((gate_started + gate_seconds - SECONDS))
+  [ "$left" -gt 0 ] || left=1
+  echo "$left"
+}
+
+run_until_deadline() {
+  local pid
+  "$@" &
+  pid=$!
+  while kill -0 "$pid" 2>/dev/null; do
+    if [ "$SECONDS" -ge $((gate_started + gate_seconds)) ]; then
+      kill "$pid" 2>/dev/null || true
+      wait "$pid" 2>/dev/null || true
+      return 124
+    fi
+    sleep "$poll_seconds"
+  done
+  wait "$pid"
+}
+
+server_alive() {
+  [ -z "$server_pid" ] || kill -0 "$server_pid" 2>/dev/null
+}
+
+wait_for_server() {
+  until served_ids "$cell_url" "$cell_token" >/dev/null 2>&1; do
+    server_alive || gate_fail "the server exited before it was ready"
+    [ "$SECONDS" -lt $((gate_started + gate_seconds)) ] || gate_fail "the server was not up after ${gate_seconds}s"
+    sleep "$poll_seconds"
+  done
+}
+
+check_served() {
+  local ids
+  ids="$(served_ids "$cell_url" "$cell_token" || true)"
+  printf '%s\n' "$ids" | grep -qxF "$unit_weights" ||
+    gate_fail "$cell_url does not serve $unit_weights; it lists: $(printf '%s' "$ids" | tr '\n' ' ')"
+}
+
+short_request_body() {
+  jq -c -n --arg model "$cell_model_id" \
+    '{model: $model, max_tokens: 16, temperature: 0.7, top_p: 0.8, top_k: 20, thinking: {type: "disabled"},
+      messages: [{role: "user", content: "Reply with the word ok."}]}'
+}
+
+answered_model() {
+  curl -sf -m "$(seconds_left)" -X POST -H "x-api-key: $cell_token" -H "Authorization: Bearer $cell_token" \
+    -H 'anthropic-version: 2023-06-01' -H 'Content-Type: application/json' \
+    -d "$(short_request_body)" "$cell_url/v1/messages" | jq -r '.model // empty'
+}
+
+answer_matches() {
+  local answer="$1" repo
+  repo="$(model_repo "$unit_weights")"
+  [ "$answer" = "$cell_model_id" ] || [ "$answer" = "${cell_model_id%%:*}" ] ||
+    case "$answer" in *"$unit_weights"*|*"${repo##*/}"*) true ;; *) false ;; esac
+}
+
+check_answering_model() {
+  local answer
+  answer="$(answered_model 2>>"$unit_log" || true)"
+  [ -n "$answer" ] || gate_fail "the short /v1/messages request got no answer"
+  answer_matches "$answer" || gate_fail "asked for $cell_model_id but $answer answered"
+}
+
+check_tool_call() {
+  local report
+  report="$(run_until_deadline "$repo_dir/bin/messages-bench" --base-url "$cell_url" --model "$cell_model_id" \
+    --auth-token "$cell_token" --prefix-tokens "$gate_prefix_tokens" --tool-trials 1 --json 2>>"$unit_log")" ||
+    gate_fail "the tool call request failed or ran past ${gate_seconds}s"
+  printf '%s' "$report" | jq -e '.tool_calls.parsed >= 1' >/dev/null 2>&1 ||
+    gate_fail "the tool call did not parse"
+}
+
+needs_served_check() {
+  case "$(server_family "$unit_server")" in
+    ollama|optiq|mistralrs) return 1 ;;
+  esac
+  return 0
+}
+
+pass_gate() {
+  step "gate"
+  if [ "$(server_family "$unit_server")" = ollama ]; then
+    curl -sf -m 2 "$ollama_url/api/version" >/dev/null 2>&1 ||
+      gate_fail "Ollama not reachable at $ollama_url (brew services start ollama)"
+  else
+    wait_for_server
+  fi
+  configure_cell
+  ! needs_served_check || check_served
+  check_answering_model
+  check_tool_call
+  gate_pass
 }
 
 ollama_modelfile() {
   printf 'FROM %s\nPARAMETER num_ctx %s\n' "$models_dir/$unit_weights" "$context_tokens"
-  if is_mtp_server "$unit_server"; then
+  printf 'PARAMETER min_p 0\nPARAMETER presence_penalty 1.5\nPARAMETER repeat_penalty 1.0\n'
+  if is_speculative "$unit_server"; then
     printf 'PARAMETER draft_num_predict %s\n' "$ollama_draft_tokens"
   fi
 }
 
 ensure_ollama_model() {
   local modelfile
-  ollama show "bench-$unit_weights" >/dev/null 2>&1 && return 0
+  ollama show --parameters "bench-$unit_weights" 2>/dev/null | grep -q presence_penalty && return 0
   step "importing $unit_weights into Ollama"
   modelfile="$(mktemp)"
   ollama_modelfile >"$modelfile"
@@ -463,24 +962,40 @@ ensure_ollama_model() {
   rm -f "$modelfile"
 }
 
-bench_ollama_unit() {
-  require ollama "brew install ollama"
-  step "checking Ollama"
-  curl -sf -m 2 "$ollama_url/api/version" >/dev/null 2>&1 ||
-    die "Ollama not reachable at $ollama_url (brew services start ollama)"
+prepare_ollama() {
   ensure_ollama_model
-  measure "$ollama_url" "bench-$unit_weights" ollama ollama
-  if is_mtp_server "$unit_server"; then
-    unit_mtp="$(jq -c -n --arg detail "draft_num_predict $ollama_draft_tokens; Ollama exposes no acceptance count" \
-      '{active: null, detail: $detail}')"
+  cell_url="$ollama_url"
+  cell_model_id="bench-$unit_weights"
+  cell_token=ollama
+  cell_unload=ollama
+}
+
+omlx_settings_body() {
+  if is_speculative "$unit_server"; then
+    jq -c -n --argjson depth "$mtp_draft_depth" \
+      '{max_context_window: 65536, enable_thinking: false, turboquant_kv_enabled: false, mtp_enabled: true, mtp_fixed_depth: $depth}'
+  else
+    jq -c -n '{max_context_window: 65536, enable_thinking: false, turboquant_kv_enabled: false, mtp_enabled: false}'
   fi
 }
 
-omlx_serve_args() {
-  printf '%s\n' serve --headless --model-dir "$models_dir" --api-key "$omlx_api_key"
-  if omlx serve --help 2>/dev/null | grep -q -- '--port'; then
-    printf '%s\n' --port "$omlx_port"
-  fi
+configure_omlx() {
+  local response code
+  response="$(curl -s -m 30 -X PUT -H "Authorization: Bearer $omlx_api_key" -H 'Content-Type: application/json' \
+    -d "$(omlx_settings_body)" -w '\n%{http_code}' \
+    "$cell_url/admin/api/models/$unit_weights/settings" || true)"
+  code="${response##*$'\n'}"
+  case "$code" in
+    2??) ;;
+    *) gate_fail "oMLX refused the settings for $unit_weights: ${response%$'\n'*}" ;;
+  esac
+}
+
+start_omlx() {
+  cell_token="$omlx_api_key"
+  cell_temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/bench-omlx.XXXXXX")"
+  start_server omlx serve --headless --model-dir "$models_dir" --api-key "$omlx_api_key" --port "$(family_port omlx)" \
+    --base-path "$cell_temp_dir" --max-concurrent-requests 1 --hot-cache-max-size 6GB
 }
 
 omlx_mtp_status() {
@@ -492,35 +1007,13 @@ omlx_mtp_status() {
       *'Speculative backend selected for '*"$unit_weights"*'active)'*)
         verdict='{"active": true, "detail": "oMLX log: Lightning MTP active"}' ;;
     esac
-  done < <(grep -F "$unit_weights" "$server_log" 2>/dev/null || true)
+  done < <(cat "$server_log" "$cell_temp_dir/logs/server.log" 2>/dev/null | grep -F "$unit_weights" || true)
   echo "$verdict"
-}
-
-bench_omlx_unit() {
-  local url="http://127.0.0.1:$omlx_port" args=() line
-  require omlx "backend-bench-off install"
-  require_free_port "$url"
-  while IFS= read -r line; do
-    args+=("$line")
-  done < <(omlx_serve_args)
-  step "starting oMLX"
-  start_server env "OMLX_PORT=$omlx_port" omlx "${args[@]}"
-  wait_for_server "$url" "$omlx_api_key"
-  require_served "$url" "$omlx_api_key"
-  if is_mtp_server "$unit_server"; then
-    step "turning MTP on for $unit_weights"
-    omlx_set_mtp true
-    omlx_mtp_on=1
-  fi
-  measure "$url" "$unit_weights" "$omlx_api_key" none
-  if is_mtp_server "$unit_server"; then
-    unit_mtp="$(omlx_mtp_status)"
-  fi
 }
 
 vllm_mtp_status() {
   local status
-  if ! status="$(curl -sf -m 5 "$1/v1/status")"; then
+  if ! status="$(curl -sf -m 5 "$cell_url/v1/status")"; then
     echo '{"active": null, "detail": "vllm-mlx /v1/status unreachable"}'
     return 0
   fi
@@ -532,24 +1025,27 @@ vllm_mtp_status() {
     end'
 }
 
-bench_vllm_mlx_unit() {
-  local url="http://127.0.0.1:$vllm_port" extra=() mtp_args=()
-  require vllm-mlx "backend-bench-off install"
-  require_free_port "$url"
+start_vllm_mlx() {
+  local extra=() mtp_args=()
   read -r -a extra <<<"${VLLM_MLX_EXTRA_ARGS:-}"
-  if is_mtp_server "$unit_server"; then
+  if is_speculative "$unit_server"; then
     step "extracting the MTP head of $unit_weights"
     "$repo_dir/bin/extract-mtp-weights" "$models_dir/$unit_weights" >>"$unit_log" 2>&1
-    mtp_args=(--enable-mtp)
+    mtp_args=(--enable-mtp --mtp-num-draft-tokens "$mtp_draft_depth")
   fi
-  step "starting vllm-mlx"
-  start_server vllm-mlx serve "$models_dir/$unit_weights" --host 127.0.0.1 --port "$vllm_port" \
-    --served-model-name "$unit_weights" "${vllm_args[@]}" ${mtp_args[@]+"${mtp_args[@]}"} ${extra[@]+"${extra[@]}"}
-  wait_for_server "$url" local
-  measure "$url" "$unit_weights" local none
-  if is_mtp_server "$unit_server"; then
-    unit_mtp="$(vllm_mtp_status "$url")"
-  fi
+  start_server vllm-mlx serve "$models_dir/$unit_weights" --host 127.0.0.1 --port "$(family_port vllm-mlx)" \
+    --served-model-name "$unit_weights" --continuous-batching --use-paged-cache --max-num-seqs 1 --cache-memory-mb 8192 \
+    --enable-auto-tool-choice --tool-call-parser qwen3_xml --reasoning-parser qwen3 \
+    --default-chat-template-kwargs "$thinking_off_kwargs" --max-request-tokens "$context_tokens" \
+    ${mtp_args[@]+"${mtp_args[@]}"} ${extra[@]+"${extra[@]}"}
+}
+
+start_vllm_metal() {
+  start_server "$vllm_metal_venv/bin/vllm" serve "$models_dir/$unit_weights" --host 127.0.0.1 \
+    --port "$(family_port vllm-metal)" --served-model-name "$unit_weights" --max-model-len "$context_tokens" \
+    --max-num-seqs 1 --gpu-memory-utilization 0.85 --language-model-only --enable-auto-tool-choice \
+    --tool-call-parser qwen3_coder --reasoning-parser qwen3 --default-chat-template-kwargs "$thinking_off_kwargs" \
+    --override-generation-config "$sampling_defaults"
 }
 
 llama_mtp_status() {
@@ -565,69 +1061,282 @@ llama_mtp_status() {
        detail: "accepted \(.accepted) of \(.drafted) drafted tokens, acceptance \(if .drafted > 0 then (.accepted * 100 / .drafted | round) else 0 end)%"}'
 }
 
-llama_mtp_args() {
+llama_kv_type() {
+  case "$unit_server" in
+    llama-server-q8kv) echo q8_0 ;;
+    *) echo f16 ;;
+  esac
+}
+
+llama_speculative_args() {
   local draft
-  is_mtp_server "$unit_server" || return 0
-  printf '%s\n' --spec-type draft-mtp --spec-draft-n-max "$llama_draft_tokens"
-  draft="$(gguf_draft_file "$unit_weights")"
-  [ -z "$draft" ] || printf '%s\n' --spec-draft-model "$models_dir/$unit_weights/$draft"
+  case "$unit_server" in
+    llama-server-ngram) printf '%s\n' --spec-type ngram-mod ;;
+    llama-server-mtp)
+      printf '%s\n' --spec-type draft-mtp --spec-draft-n-max "$llama_draft_tokens"
+      draft="$(gguf_draft_file "$unit_weights")"
+      [ -z "$draft" ] || printf '%s\n' --spec-draft-model "$models_dir/$unit_weights/$draft"
+      ;;
+  esac
 }
 
-bench_llama_unit() {
-  local url="http://127.0.0.1:$llama_port" extra=() mtp_args=() line
-  require llama-server "backend-bench-off install"
-  require_free_port "$url"
+server_command() {
+  case "$unit_server" in
+    llama-server-src) echo "$llama_src_dir/build/bin/llama-server" ;;
+    vllm-metal) echo "$vllm_metal_venv/bin/vllm" ;;
+    mistralrs) mistralrs_bin ;;
+    lmstudio-mlx) echo lms ;;
+    *) server_family "$unit_server" ;;
+  esac
+}
+
+require_server() {
+  local command
+  command="$(server_command)"
+  case "$command" in
+    "") die "$unit_server not found under $tools_dir (backend-bench-off install)" ;;
+    /*) [ -x "$command" ] || die "$command not found (backend-bench-off install)" ;;
+    *) require "$command" "backend-bench-off install" ;;
+  esac
+}
+
+start_llama_server() {
+  local extra=() spec_args=() line binary kv
+  binary="$(server_command)"
+  kv="$(llama_kv_type)"
   read -r -a extra <<<"${LLAMA_SERVER_EXTRA_ARGS:-}"
-  while IFS= read -r line; do
-    mtp_args+=("$line")
-  done < <(llama_mtp_args)
-  step "starting llama-server"
-  start_server llama-server -m "$models_dir/$unit_weights/$(gguf_main_file "$unit_weights")" --alias "$unit_weights" \
-    --host 127.0.0.1 --port "$llama_port" "${llama_args[@]}" ${mtp_args[@]+"${mtp_args[@]}"} ${extra[@]+"${extra[@]}"}
-  wait_for_server "$url" local
-  measure "$url" "$unit_weights" local llama-slots
-  if is_mtp_server "$unit_server"; then
-    unit_mtp="$(llama_mtp_status)"
-  fi
+  while IFS= read -r line; do spec_args+=("$line"); done < <(llama_speculative_args)
+  cell_unload=llama-slots
+  start_server "$binary" -m "$models_dir/$unit_weights/$(gguf_main_file "$unit_weights")" --alias "$unit_weights" \
+    --host 127.0.0.1 --port "$(family_port llama-server)" -c "$context_tokens" -ngl 99 -fa on -b 2048 -ub 2048 \
+    -ctk "$kv" -ctv "$kv" -np 1 --jinja -rea off --cache-ram 8192 --ctx-checkpoints 128 --checkpoint-min-step 128 \
+    --cache-reuse 0 --min-p 0 --presence-penalty 1.5 --repeat-penalty 1.0 --metrics \
+    ${spec_args[@]+"${spec_args[@]}"} ${extra[@]+"${extra[@]}"}
 }
 
-run_unit() {
+start_lmstudio() {
+  cell_lmstudio=1
+  lms daemon up >>"$unit_log" 2>&1
+  lms server start --port "$(family_port lmstudio)" >>"$server_log" 2>&1
+}
+
+configure_lmstudio() {
+  lms load "$models_dir/$unit_weights" --context-length "$context_tokens" --gpu max --identifier "$unit_weights" >>"$unit_log" 2>&1 ||
+    gate_fail "lms load refused $unit_weights; see the unit log"
+  jq -c -n --arg detail "$(lms ps 2>/dev/null | head -n 20)" '{type: "settings", detail: $detail}' >>"$unit_file"
+}
+
+start_mtplx() {
+  local mtp_args=()
+  is_baseline_variant "$unit_server" && mtp_args=(--no-mtp)
+  start_server mtplx serve --model "$models_dir/$unit_weights" --model-id "$unit_weights" --host 127.0.0.1 \
+    --port "$(family_port mtplx)" --no-auth --context-window "$context_tokens" --reasoning off --scheduler-mode serial \
+    --ssd-session-cache off --no-stats-footer --temperature 0.7 --top-p 0.8 --top-k 20 ${mtp_args[@]+"${mtp_args[@]}"}
+}
+
+mtplx_mtp_status() {
+  local health
+  if ! health="$(curl -sf -m 5 "$cell_url/health")"; then
+    echo '{"active": null, "detail": "MTPLX /health unreachable"}'
+    return 0
+  fi
+  printf '%s' "$health" | jq -c '{active: .mtp_enabled, detail: "MTPLX /health: mtp_enabled \(.mtp_enabled), depth \(.depth)"}'
+}
+
+start_rapid_mlx() {
+  local spec_args=()
+  is_baseline_variant "$unit_server" && spec_args=(--no-spec-decode)
+  start_server rapid-mlx serve "$(rapid_alias "$unit_model")" --host 127.0.0.1 --port "$(family_port rapid-mlx)" \
+    --served-model-name "$unit_weights" --context-length "$context_tokens" --enable-auto-tool-choice \
+    --tool-call-parser qwen3_coder_xml --reasoning-parser qwen3 --hybrid-cache-entries 4 --max-num-seqs 1 \
+    --disable-disk-caches ${spec_args[@]+"${spec_args[@]}"}
+}
+
+optiq_speculative_args() {
+  case "$unit_server" in
+    optiq-mtp) printf '%s\n' --mtp ;;
+    optiq-ngram) printf '%s\n' --ngram-draft "$ngram_draft_tokens" ;;
+  esac
+}
+
+start_optiq() {
+  local spec_args=() line
+  while IFS= read -r line; do spec_args+=("$line"); done < <(optiq_speculative_args)
+  cell_model_id="$(model_repo "$unit_weights"):no-think"
+  start_server optiq serve --model "$models_dir/$unit_weights" --host 127.0.0.1 --port "$(family_port optiq)" \
+    --max-concurrent 1 --prompt-cache-bytes 8000000000 ${spec_args[@]+"${spec_args[@]}"}
+}
+
+start_mistralrs() {
+  cell_model_id=default
+  start_server "$(server_command)" serve -m "$models_dir/$unit_weights" -f "$(gguf_main_file "$unit_weights")" --host 127.0.0.1 \
+    -p "$(family_port mistralrs)" --max-model-len "$context_tokens" --max-seqs 1 --paged-attn on
+}
+
+unverified_status() {
+  jq -c -n --arg detail "$1" '{active: null, detail: $detail}'
+}
+
+speculation_status() {
+  case "$(server_family "$unit_server")" in
+    ollama) unverified_status "draft_num_predict $ollama_draft_tokens; Ollama exposes no acceptance count" ;;
+    omlx) omlx_mtp_status ;;
+    vllm-mlx) vllm_mtp_status ;;
+    llama-server) llama_mtp_status ;;
+    mtplx) mtplx_mtp_status ;;
+    rapid-mlx) unverified_status "Rapid-MLX exposes no acceptance count the bench can read" ;;
+    optiq) unverified_status "mlx-optiq exposes no acceptance count the bench can read" ;;
+  esac
+}
+
+record_speculation() {
+  is_speculative "$unit_server" || return 0
+  unit_mtp="$(speculation_status)"
+}
+
+prepare_server_cell() {
+  local family port
+  family="$(server_family "$unit_server")"
+  port="$(family_port "$family")"
+  cell_url="http://127.0.0.1:$port"
+  cell_model_id="$unit_weights"
+  cell_token="$local_token"
+  cell_unload=none
+  require_free_port "$cell_url"
+}
+
+start_cell() {
+  case "$(server_family "$unit_server")" in
+    ollama) prepare_ollama; return ;;
+  esac
+  prepare_server_cell
+  step "starting $unit_server"
+  case "$(server_family "$unit_server")" in
+    omlx) start_omlx ;;
+    vllm-mlx) start_vllm_mlx ;;
+    vllm-metal) start_vllm_metal ;;
+    llama-server) start_llama_server ;;
+    lmstudio) start_lmstudio ;;
+    mtplx) start_mtplx ;;
+    rapid-mlx) start_rapid_mlx ;;
+    optiq) start_optiq ;;
+    mistralrs) start_mistralrs ;;
+  esac
+}
+
+configure_cell() {
+  case "$(server_family "$unit_server")" in
+    omlx) configure_omlx ;;
+    lmstudio) configure_lmstudio ;;
+  esac
+}
+
+previous_unit() {
+  echo "$reuse_dir/$(basename "$unit_file")"
+}
+
+reusable_previous() {
+  local previous key
+  [ -n "$reuse_dir" ] || return 1
+  previous="$(previous_unit)"
+  [ -f "$previous" ] || return 1
+  key="$(jq -r 'select(.type == "meta") | .cache_key' "$unit_file")"
+  jq -e -s --arg key "$key" \
+    '(map(select(.type == "meta"))[0].cache_key == $key) and
+     (map(select(.type == "end"))[0].status | IN("done", "cached", "lost"))' "$previous" >/dev/null 2>&1
+}
+
+reuse_previous() {
+  local previous
+  previous="$(previous_unit)"
+  trap - EXIT
+  jq -c 'select(.type != "end")' "$previous" >"$unit_file"
+  jq -c 'select(.type == "end") | {type: "end", status: "cached", peak_memory_gb, mtp}' "$previous" >>"$unit_file"
+  say "$unit_server $unit_model $unit_stage: cached (same server, weights and bench)"
+  exit 0
+}
+
+open_unit() {
   unit_server="$1"
   unit_model="$2"
+  unit_stage="$3"
   is_known "$unit_server" "$servers" || { usage >&2; exit 2; }
   is_known "$unit_model" "$(bench_models)" || { usage >&2; exit 2; }
+  is_known "$unit_stage" "$stages serve" || { usage >&2; exit 2; }
   unit_weights="$(weights_for "$unit_server" "$unit_model")"
-  unit_file="$results_dir/$unit_server--$unit_model.jsonl"
-  unit_log="$results_dir/logs/$unit_server--$unit_model.log"
-  server_log="$results_dir/logs/$unit_server--$unit_model.server.log"
-  mkdir -p "$results_dir/logs"
+  local dir="$results_dir" name="$unit_server--$unit_model--$unit_stage"
+  [ "$unit_stage" != serve ] || dir="$serve_dir"
+  unit_file="$dir/$name.jsonl"
+  unit_log="$dir/logs/$name.log"
+  server_log="$dir/logs/$name.server.log"
+  mkdir -p "$dir/logs"
   : >"$unit_file"
   : >"$unit_log"
   : >"$server_log"
   trap finish_unit EXIT
   write_meta
+}
+
+start_and_gate() {
   step "preparing"
+  require_server
   require_weights "$unit_weights"
   unload_ollama_models
-  case "${unit_server%"$mtp_suffix"}" in
-    ollama) bench_ollama_unit ;;
-    omlx) bench_omlx_unit ;;
-    vllm-mlx) bench_vllm_mlx_unit ;;
-    llama-server) bench_llama_unit ;;
-  esac
+  gate_started=$SECONDS
+  start_cell
+  pass_gate
+}
+
+run_unit() {
+  open_unit "$1" "$2" "$3"
+  require_server
+  require_weights "$unit_weights"
+  if reusable_previous; then
+    reuse_previous
+  fi
+  start_and_gate
+  measure
+  record_speculation
+}
+
+serve_cell_json() {
+  jq -c -n --arg url "$cell_url" --arg model "$cell_model_id" --arg token "$cell_token" \
+    '{url: $url, model_id: $model, auth_token: $token}'
+}
+
+stay_up() {
+  trap 'exit 0' TERM INT
+  while :; do
+    sleep 1 &
+    wait $! || true
+  done
+}
+
+serve_only() {
+  [ $# -eq 2 ] || { usage >&2; exit 2; }
+  open_unit "$1" "$2" serve
+  start_and_gate
+  serve_cell_json
+  stay_up
 }
 
 write_plan() {
-  jq -n --arg servers "$servers" --arg models "$(bench_models)" --arg prefixes "${prefix_tokens[*]}" \
-    --argjson trials "$tool_trials" --argjson finished "$1" \
-    '{servers: ($servers | split(" ")), models: ($models | split(" ")),
-      prefix_tokens: ($prefixes | split(" ") | map(tonumber)), tool_trials: $trials, finished: $finished}' \
-    >"$results_dir/plan.json"
+  local finalists="${2:-null}"
+  jq -n --arg servers "$servers" --arg models "$(bench_models)" --argjson finished "$1" \
+    --arg stages "$stages" --argjson finalists "$finalists" \
+    '{servers: ($servers | split(" ")), models: ($models | split(" ")), prefix_tokens: [20000, 60000],
+      tool_trials: 5, stages: ($stages | split(" ")), finished: $finished}
+     + (if $finalists == null then {} else {finalists: $finalists} end)' >"$results_dir/plan.json"
 }
 
-reset_results() {
+prepare_results() {
+  local unit
   mkdir -p "$results_dir"
-  rm -rf "$results_dir/logs" "$results_dir/raw"
+  rm -rf "$previous_dir" "$results_dir/logs" "$results_dir/raw"
+  mkdir -p "$previous_dir"
+  for unit in "$results_dir"/*--*--*.jsonl; do
+    [ -f "$unit" ] && mv "$unit" "$previous_dir/"
+  done
   rm -f "$results_dir"/*.jsonl "$results_dir"/*.json "$report_page"
 }
 
@@ -653,12 +1362,6 @@ open_page() {
   fi
 }
 
-cool_down() {
-  [ "$cooldown_seconds" -gt 0 ] || return 0
-  say "cooling down for ${cooldown_seconds}s so every run starts at the same temperature"
-  sleep "$cooldown_seconds"
-}
-
 warn_about_omlx_service() {
   if curl -sf -m 2 "http://127.0.0.1:$omlx_service_port/v1/models" >/dev/null 2>&1; then
     say "something answers on port $omlx_service_port (the oMLX service?); stop it with 'brew services stop omlx' so it holds no memory"
@@ -666,54 +1369,132 @@ warn_about_omlx_service() {
 }
 
 run_units() {
-  local pairs="$1" pair failed="" first=1
-  for pair in $pairs; do
-    [ "$first" = 1 ] || cool_down
+  local units="$1" unit failed="" first=1 status
+  for unit in $units; do
+    [ "$first" = 1 ] || wait_until_cool
     first=0
-    "$self" run "${pair%%/*}" "${pair#*/}" || failed="$failed $pair"
+    status=0
+    BENCH_REUSE_DIR="$reuse_dir" "$self" run "${unit%%/*}" "$(unit_model_of "$unit")" "${unit##*/}" || status=$?
+    case "$status" in 0|3) ;; *) failed="$failed $unit" ;; esac
   done
   printf '%s\n' "$failed"
 }
 
-model_major_pairs() {
+unit_model_of() {
+  local rest="${1#*/}"
+  echo "${rest%/*}"
+}
+
+screen_units() {
+  local server
+  for server in $servers; do
+    printf '%s/%s/screen\n' "$server" "$screen_model"
+  done
+}
+
+deep_units() {
   local model server
   for model in $(bench_models); do
-    for server in $servers; do
-      printf '%s/%s\n' "$server" "$model"
+    for server in "$baseline_server" $1; do
+      printf '%s/%s/deep\n' "$server" "$model"
     done
   done
 }
 
-server_pairs() {
+server_units() {
   local model
   for model in $(bench_models); do
-    printf '%s/%s\n' "$1" "$model"
+    printf '%s/%s/deep\n' "$1" "$model"
   done
 }
 
-finish_runs() {
-  "$repo_dir/bin/backend-bench-report" "$results_dir"
-  [ -z "$1" ] || die "failed:$1 (logs in $results_dir/logs)"
+screen_file() {
+  echo "$results_dir/$1--$screen_model--screen.jsonl"
+}
+
+screen_summary() {
+  local file
+  file="$(screen_file "$1")"
+  [ -f "$file" ] || return 0
+  jq -r -s --arg server "$1" '
+    (map(select(.type == "end"))[0].status) as $status
+    | (map(select(.type == "run" and .prefix_tokens == 20000)) ) as $runs
+    | ($runs | map(select(.scenario == "cold"))[0].prefill_tokens_per_second) as $cold
+    | ($runs | map(select(.scenario == "warm"))[0].ttft_seconds) as $warm
+    | select(($status == "done" or $status == "cached") and $cold != null)
+    | "\($server) \($cold) \($warm // 1e9)"' "$file"
+}
+
+mark_lost() {
+  local file reason="$2" updated
+  file="$(screen_file "$1")"
+  updated="$(jq -c --arg reason "$reason" 'if .type == "end" then .status = "lost" | .reason = $reason else . end' "$file")"
+  printf '%s\n' "$updated" >"$file"
+  say "$1: lost ($reason)"
+}
+
+cut_slow_cells() {
+  local baseline server cold
+  baseline="$(screen_summary "$baseline_server" | awk '{ print $2 }')"
+  if [ -z "$baseline" ]; then
+    say "no baseline screen result; nothing is cut"
+    return 0
+  fi
+  for server in $servers; do
+    [ "$server" != "$baseline_server" ] || continue
+    cold="$(screen_summary "$server" | awk '{ print $2 }')"
+    [ -n "${cold:-}" ] || continue
+    if awk -v base="$baseline" -v cell="$cold" -v ratio="$lost_ratio" 'BEGIN { exit !(base > cell * ratio) }'; then
+      mark_lost "$server" "cold prefill $cold t/s is over ${lost_ratio}x slower than $baseline_server's $baseline t/s"
+    fi
+  done
+}
+
+pick_finalists() {
+  local server
+  for server in $servers; do
+    [ "$server" != "$baseline_server" ] || continue
+    screen_summary "$server"
+  done | awk '{ print NR, $1, $3 }' | sort -k3,3g -k1,1n | head -n "$finalist_count" | awk '{ print $2 }'
+}
+
+as_json_array() {
+  jq -c -R -n '[inputs | select(length > 0)]'
 }
 
 run_all() {
-  local failed
+  local failed finalists
   require_models
   warn_about_omlx_service
-  reset_results
+  prepare_results
+  reuse_dir="$previous_dir"
   write_plan false
   render_report_quietly
   open_page
   start_renderer
-  failed="$(run_units "$(model_major_pairs)")"
-  write_plan true
+  failed="$(run_units "$(screen_units)")"
+  cut_slow_cells
+  finalists="$(pick_finalists)"
+  write_plan false "$(printf '%s\n' "$finalists" | as_json_array)"
+  wait_until_cool
+  failed="$failed$(run_units "$(deep_units "$finalists")")"
+  write_plan true "$(printf '%s\n' "$finalists" | as_json_array)"
   stop_renderer
-  finish_runs "$failed"
+  finish_runs "$(squeeze_spaces "$failed")"
+}
+
+squeeze_spaces() {
+  printf '%s\n' "$1" | tr -s ' \n' '  ' | sed 's/^ //; s/ $//'
+}
+
+finish_runs() {
+  "$repo_dir/bin/backend-bench-report" "$results_dir" || true
+  [ -z "$1" ] || die "failed: $1 (logs in $results_dir/logs)"
 }
 
 run_server() {
   mkdir -p "$results_dir"
-  finish_runs "$(run_units "$(server_pairs "$1")")"
+  finish_runs "$(squeeze_spaces "$(run_units "$(server_units "$1")")")"
 }
 
 cleanup() {
@@ -723,12 +1504,17 @@ cleanup() {
 main() {
   case "${1:-}" in
     -h|--help) usage; exit 0 ;;
-    install) install_servers; exit ;;
   esac
   require jq "brew install jq"
+  check_only_models
   case "${1:-}" in
+    install) install_servers ;;
     download) download_models ;;
-    run) [ $# -eq 3 ] || { usage >&2; exit 2; }; run_unit "$2" "$3" ;;
+    run)
+      [ $# -eq 3 ] || [ $# -eq 4 ] || { usage >&2; exit 2; }
+      run_unit "$2" "$3" "${4:-deep}"
+      ;;
+    serve-only) shift; serve_only "$@" ;;
     all) trap cleanup EXIT; run_all ;;
     report) "$repo_dir/bin/backend-bench-report" "$results_dir" ;;
     *)

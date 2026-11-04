@@ -25,6 +25,41 @@ from `pmset -g therm`), and saves it to `~/bench-results/task-eval-<utc>.json`.
 `bin/model-upgrade SIZE --eval` runs it on the candidate and compares with the
 current model's newest saved report.
 
+## Another backend, same harness
+
+`--external URL MODEL [--external-token TOKEN]` runs every task against a server
+you started yourself, such as the one
+`bin/backend-bench-off serve-only SERVER MODEL` prints (`url`, `model_id`,
+`auth_token`):
+
+```sh
+bin/task-eval 27b --external http://127.0.0.1:8090 mlx-community/Qwen3-27B-4bit --json
+```
+
+task-eval hands the launcher `CLAUDE_OLLAMA_EXTERNAL_URL`,
+`CLAUDE_OLLAMA_EXTERNAL_MODEL` and, with a token,
+`CLAUDE_OLLAMA_EXTERNAL_TOKEN`. With both of the first two set, `claude-ollama`
+skips every Ollama step (model pull and create, digest checks, memory fit,
+lease, ladder, warm-up, indexer), prints
+`claude-ollama: external backend: MODEL at URL`, and launches `claude` with the
+size's usual settings, hooks, system prompt, tools and MCP servers. Only the
+backend changes: the launch settings get `ANTHROPIC_BASE_URL` (the messages
+proxy's when it runs, which then forwards to the URL), `model`,
+`availableModels` and every `ANTHROPIC_DEFAULT_*_MODEL` set to MODEL, and the
+token as `ANTHROPIC_AUTH_TOKEN` (the profile's own token without one).
+`semantic_search` ranks by words only, since the server has no embedding model.
+Setting only one of the URL and the model exits 2. The JSON report gains
+`"backend": {"url": URL, "model": MODEL}` and names MODEL as its `model`; the
+token is never printed or saved. The token travels on task-eval's command line,
+so on a shared machine export `CLAUDE_OLLAMA_EXTERNAL_TOKEN` instead and leave
+`--external-token` off.
+
+`--record DIR` turns the messages proxy on for every run
+(`CLAUDE_OLLAMA_PROXY=1`, `CLAUDE_OLLAMA_PROXY_RECORD=1`) and saves each request
+body to DIR (`CLAUDE_OLLAMA_PROXY_RECORD_DIR`) instead of
+`~/.claude-ollama/proxy/record`, so a run leaves replay bodies for
+`bin/prefix-ab --record DIR` and `messages-bench --replay`.
+
 A `timeout` result means the launcher ran past the task's `timeout_seconds` and
 was stopped; `red` means it finished but the test still fails.
 

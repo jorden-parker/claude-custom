@@ -1,0 +1,472 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import os
+import re
+import select
+import shutil
+import signal
+import statistics
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = SCRIPT_DIR.parent
+BENCH_OFF = SCRIPT_DIR / "backend-bench-off"
+TASK_EVAL = SCRIPT_DIR / "task-eval"
+REPORT = SCRIPT_DIR / "backend-bench-report"
+TASKS_DIR = REPO_ROOT / "eval" / "tasks"
+BASELINE = "ollama"
+MODEL_SIZES = {"qwen3.6-35b": "35b", "qwen3.8-27b": "27b"}
+QUICK_MODELS = ("qwen3.6-35b",)
+RECORD_SIZE = "35b"
+GREEN = "green"
+TIMEOUT = "timeout"
+EARLY_STOP_TASKS = 2
+LOST_RATIO = 1.5
+CLOSE_FRACTION = 0.15
+FULL_RUNS = 3
+STOP_GRACE_SECONDS = 30
+SESSION_PATTERN = r"ollama/settings\."
+SERVE_TIMEOUT_SECONDS = float(os.environ.get("BENCH_BEST_SERVE_TIMEOUT", "1800"))
+RESULTS_DIR = Path(os.environ.get("BENCH_RESULTS") or Path.home() / "bench-results")
+REPLAY_DIR = Path(
+    os.environ.get("BENCH_REPLAY_DIR")
+    or Path.home() / ".claude-ollama" / "proxy" / "record"
+)
+LEASE_BIN = Path(
+    os.environ.get("CLAUDE_OLLAMA_LEASE_BIN") or SCRIPT_DIR / "ollama-lease"
+)
+PROGRESS_FILE = RESULTS_DIR / "bench-best" / "finals.json"
+FINALS_FILE = RESULTS_DIR / "finals.json"
+BEST_FILE = RESULTS_DIR / "best-backend.json"
+
+
+class Refusal(Exception):
+    pass
+
+
+def say(message):
+    print(f"bench-best: {message}", file=sys.stderr, flush=True)
+
+
+def parse_args(argv):
+    parser = argparse.ArgumentParser(
+        description="Find the fastest backend for the work harness: bench, finals, verdict, in one command."
+    )
+    parser.add_argument("--quick", action="store_true", help="only the 35b")
+    parser.add_argument(
+        "--fresh", action="store_true", help="rerun finals cells already in finals.json"
+    )
+    return parser.parse_args(argv)
+
+
+def command_output(argv):
+    try:
+        return subprocess.run(
+            argv, capture_output=True, text=True, check=False, timeout=30
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return subprocess.CompletedProcess(argv, 1, "", "")
+
+
+def on_ac_power():
+    return "'AC Power'" in command_output(["pmset", "-g", "batt"]).stdout
+
+
+def low_power_mode_on():
+    match = re.search(r"lowpowermode\s+(\d+)", command_output(["pmset", "-g"]).stdout)
+    return bool(match and match.group(1) == "1")
+
+
+def session_lease_held():
+    holders = command_output([str(LEASE_BIN), "holders"]).stdout
+    return any(line.startswith("live session ") for line in holders.splitlines())
+
+
+def session_process_running():
+    return command_output(["pgrep", "-f", SESSION_PATTERN]).returncode == 0
+
+
+def preflight():
+    if not on_ac_power():
+        raise Refusal("plug in to AC power, then rerun")
+    if low_power_mode_on():
+        raise Refusal("turn Low Power Mode off, then rerun")
+    if session_lease_held() or session_process_running():
+        raise Refusal("a claude-ollama session is running; quit it, then rerun")
+    if shutil.which("jq") is None:
+        raise Refusal("jq not found (brew install jq)")
+
+
+def has_replay_bodies():
+    return REPLAY_DIR.is_dir() and any(REPLAY_DIR.glob("*.json"))
+
+
+def record_bodies():
+    if has_replay_bodies():
+        say(f"record: bodies already in {REPLAY_DIR}")
+        return
+    say(f"record: no bodies in {REPLAY_DIR}; recording one task-eval pass")
+    subprocess.run(
+        [str(TASK_EVAL), RECORD_SIZE, "--record", str(REPLAY_DIR), "--runs", "1"],
+        check=True,
+    )
+
+
+def bench_env(models):
+    environment = dict(os.environ)
+    if models != tuple(MODEL_SIZES):
+        environment["BENCH_ONLY_MODELS"] = " ".join(models)
+    return environment
+
+
+def run_bench(models):
+    say("bench: backend-bench-off all")
+    subprocess.run([str(BENCH_OFF), "all"], env=bench_env(models), check=False)
+
+
+def plan_finalists():
+    try:
+        plan = json.loads((RESULTS_DIR / "plan.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    return [name for name in plan.get("finalists") or [] if name != BASELINE]
+
+
+def task_names():
+    return sorted(path.parent.name for path in TASKS_DIR.glob("*/task.json"))
+
+
+class ServedCell:
+    def __init__(self, cell, model):
+        self.cell = cell
+        self.model = model
+        self.process = None
+        self.endpoint = None
+
+    def start(self):
+        say(f"finals: serving {self.cell} on {self.model}")
+        self.process = subprocess.Popen(
+            [str(BENCH_OFF), "serve-only", self.cell, self.model],
+            stdout=subprocess.PIPE,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        self.endpoint = read_endpoint(self.process)
+        return self.endpoint is not None
+
+    def stop(self):
+        if self.process is None or self.process.poll() is not None:
+            return
+        self.process.send_signal(signal.SIGTERM)
+        try:
+            self.process.wait(timeout=STOP_GRACE_SECONDS)
+        except subprocess.TimeoutExpired:
+            os.killpg(self.process.pid, signal.SIGKILL)
+            self.process.wait()
+
+
+def read_endpoint(process):
+    deadline = time.monotonic() + SERVE_TIMEOUT_SECONDS
+    pending = b""
+    while time.monotonic() < deadline:
+        ready, _, _ = select.select([process.stdout], [], [], 1)
+        if ready:
+            chunk = os.read(process.stdout.fileno(), 4096)
+            if not chunk:
+                return None
+            pending += chunk
+            if b"\n" in pending:
+                return parse_endpoint(pending.split(b"\n", 1)[0])
+        elif process.poll() is not None:
+            return None
+    return None
+
+
+def parse_endpoint(line):
+    try:
+        endpoint = json.loads(line)
+    except ValueError:
+        return None
+    return endpoint if isinstance(endpoint, dict) and endpoint.get("url") else None
+
+
+def eval_env(endpoint):
+    environment = dict(os.environ)
+    environment["CLAUDE_OLLAMA_EXTERNAL_TOKEN"] = endpoint.get("auth_token") or ""
+    return environment
+
+
+def run_task(size, endpoint, task):
+    argv = [str(TASK_EVAL), size, "--external", endpoint["url"], endpoint["model_id"]]
+    argv += ["--runs", "1", "--json", "--task", task]
+    process = subprocess.Popen(
+        argv, stdout=subprocess.PIPE, env=eval_env(endpoint), start_new_session=True
+    )
+    try:
+        output, _ = process.communicate()
+    finally:
+        stop_group(process)
+    return task_runs_from(output, task)
+
+
+def stop_group(process):
+    if process.poll() is None:
+        os.killpg(process.pid, signal.SIGTERM)
+        process.wait()
+
+
+def task_runs_from(output, task):
+    try:
+        runs = json.loads(output).get("runs") or []
+    except (ValueError, AttributeError):
+        runs = []
+    return [
+        {"task": task, "result": run.get("result"), "seconds": run.get("seconds")}
+        for run in runs
+    ]
+
+
+def cell_totals(task_runs):
+    green_seconds = [run["seconds"] for run in task_runs if run["result"] == GREEN]
+    return {
+        "green": len(green_seconds),
+        "runs": len(task_runs),
+        "median_seconds": round(statistics.median(green_seconds), 1)
+        if green_seconds
+        else None,
+        "timeouts": sum(1 for run in task_runs if run["result"] == TIMEOUT),
+    }
+
+
+def cell_record(task_runs, **extra):
+    return {**cell_totals(task_runs), **extra, "task_runs": task_runs}
+
+
+def first_pass_seconds(task_runs, tasks):
+    seen = {}
+    for run in task_runs:
+        seen.setdefault(run["task"], run["seconds"] or 0)
+    return sum(seen.get(task, 0) for task in tasks)
+
+
+def too_slow(challenger_runs, baseline_runs, tasks):
+    baseline_seconds = first_pass_seconds(baseline_runs, tasks)
+    if baseline_seconds <= 0:
+        return False
+    return first_pass_seconds(challenger_runs, tasks) > baseline_seconds * LOST_RATIO
+
+
+def is_close(challenger, baseline):
+    challenger_median = challenger["median_seconds"]
+    baseline_median = baseline["median_seconds"]
+    if challenger_median is None or baseline_median is None:
+        return False
+    return abs(challenger_median - baseline_median) <= baseline_median * CLOSE_FRACTION
+
+
+def runs_of(task_runs, task):
+    return sum(1 for run in task_runs if run["task"] == task)
+
+
+def top_up(size, endpoint, task_runs, tasks):
+    for task in tasks:
+        for _ in range(FULL_RUNS - runs_of(task_runs, task)):
+            task_runs += run_task(size, endpoint, task)
+    return task_runs
+
+
+def first_pass(size, endpoint, tasks, baseline_runs):
+    task_runs = []
+    for index, task in enumerate(tasks, start=1):
+        task_runs += run_task(size, endpoint, task)
+        if (
+            baseline_runs
+            and index == EARLY_STOP_TASKS
+            and too_slow(task_runs, baseline_runs, tasks[:index])
+        ):
+            return task_runs, True
+    return task_runs, False
+
+
+def serve(cell, model, work):
+    served = ServedCell(cell, model)
+    try:
+        if not served.start():
+            say(f"finals: {cell} on {model} did not serve")
+            return None
+        return work(served.endpoint)
+    finally:
+        served.stop()
+
+
+def run_baseline(model, tasks):
+    size = MODEL_SIZES[model]
+    task_runs = serve(
+        BASELINE, model, lambda endpoint: first_pass(size, endpoint, tasks, None)[0]
+    )
+    return None if task_runs is None else cell_record(task_runs)
+
+
+def challenger_work(model, tasks, baseline):
+    size = MODEL_SIZES[model]
+
+    def work(endpoint):
+        task_runs, lost = first_pass(size, endpoint, tasks, baseline["task_runs"])
+        if lost:
+            return cell_record(task_runs, lost=True)
+        if is_close(cell_totals(task_runs), baseline):
+            task_runs = top_up(size, endpoint, task_runs, tasks)
+        return cell_record(task_runs)
+
+    return work
+
+
+def run_challenger(model, cell, tasks, baseline):
+    record = serve(cell, model, challenger_work(model, tasks, baseline))
+    return record or cell_record([], failed=True)
+
+
+def baseline_needs_top_up(cells, tasks):
+    baseline_runs = cells[BASELINE]["task_runs"]
+    short = any(runs_of(baseline_runs, task) < FULL_RUNS for task in tasks)
+    extended = any(
+        name != BASELINE
+        and any(
+            runs_of(cell.get("task_runs") or [], task) >= FULL_RUNS for task in tasks
+        )
+        for name, cell in cells.items()
+    )
+    return short and extended
+
+
+def top_up_baseline(model, cells, tasks):
+    size = MODEL_SIZES[model]
+    baseline_runs = list(cells[BASELINE]["task_runs"])
+    task_runs = serve(
+        BASELINE, model, lambda endpoint: top_up(size, endpoint, baseline_runs, tasks)
+    )
+    if task_runs is not None:
+        cells[BASELINE] = cell_record(task_runs)
+
+
+class Finals:
+    def __init__(self, fresh):
+        self.data = {"models": {}, "baseline": BASELINE}
+        if not fresh:
+            self.data["models"] = load_progress()
+
+    def cells(self, model):
+        return self.data["models"].setdefault(model, {})
+
+    def save(self):
+        write_json(PROGRESS_FILE, self.data)
+        write_json(FINALS_FILE, self.data)
+
+
+def load_progress():
+    try:
+        models = json.loads(PROGRESS_FILE.read_text(encoding="utf-8")).get("models")
+    except (OSError, ValueError, AttributeError):
+        return {}
+    return models if isinstance(models, dict) else {}
+
+
+def write_json(path, value):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_name(f".{path.name}.tmp")
+    temp.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
+    temp.replace(path)
+
+
+def run_model_finals(finals, model, finalists, tasks):
+    cells = finals.cells(model)
+    if BASELINE not in cells:
+        baseline = run_baseline(model, tasks)
+        if baseline is None:
+            say(f"finals: no {BASELINE} baseline on {model}; skipping its challengers")
+            return
+        cells[BASELINE] = baseline
+        finals.save()
+    for cell in finalists:
+        if cell in cells:
+            continue
+        cells[cell] = run_challenger(model, cell, tasks, cells[BASELINE])
+        finals.save()
+    if baseline_needs_top_up(cells, tasks):
+        top_up_baseline(model, cells, tasks)
+        finals.save()
+
+
+def run_finals(finals, models):
+    finalists = plan_finalists()
+    tasks = task_names()
+    for model in models:
+        run_model_finals(finals, model, finalists, tasks)
+    finals.save()
+
+
+def report_headline():
+    subprocess.run(
+        [str(REPORT), str(RESULTS_DIR)], stdout=subprocess.DEVNULL, check=False
+    )
+    completed = subprocess.run(
+        [str(REPORT), str(RESULTS_DIR), "--headline"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return completed.stdout.strip() or "No headline"
+
+
+def seconds_text(value):
+    return "-" if value is None else f"{value:g}s"
+
+
+def cell_summary(name, cell):
+    return f"{name} {cell['green']}/{cell['runs']} green {seconds_text(cell['median_seconds'])}"
+
+
+def verdict_line(headline, finals_data):
+    parts = [headline]
+    for model, cells in finals_data["models"].items():
+        parts.append(
+            f"{model}: "
+            + ", ".join(cell_summary(name, cell) for name, cell in cells.items())
+        )
+    return " | ".join(parts)
+
+
+def write_verdict(finals):
+    headline = report_headline()
+    write_json(BEST_FILE, {**finals.data, "headline": headline})
+    print(verdict_line(headline, finals.data))
+
+
+def raise_exit(signal_number, _frame):
+    raise SystemExit(128 + signal_number)
+
+
+def main(argv):
+    args = parse_args(argv)
+    signal.signal(signal.SIGTERM, raise_exit)
+    signal.signal(signal.SIGINT, raise_exit)
+    try:
+        preflight()
+    except Refusal as refusal:
+        say(str(refusal))
+        return 1
+    models = QUICK_MODELS if args.quick else tuple(MODEL_SIZES)
+    finals = Finals(args.fresh)
+    record_bodies()
+    run_bench(models)
+    run_finals(finals, models)
+    write_verdict(finals)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
