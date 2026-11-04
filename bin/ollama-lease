@@ -26,6 +26,7 @@ usage: ollama-lease acquire NAME [--model M] [--pid N] [--num-ctx N] [--rung R] 
        ollama-lease release NAME [--pid N]
        ollama-lease holders
        ollama-lease fit --model ID --num-ctx N [--embedding ID]
+       ollama-lease idle-siblings --model ID [--pid N]
 EOF
   exit 2
 }
@@ -275,14 +276,39 @@ rough_kv_bytes() {
     'BEGIN { printf "%.0f", bytes * share * ctx / reference }'
 }
 
+loaded_presets() {
+  curl -sf -m 5 "$(server_url)/models" 2>/dev/null | jq -r '.data[]? | select(.status.value == "loaded") | .id' 2>/dev/null
+}
+
+same_weights_loaded() {
+  local weights id
+  weights="$(preset_weights "$1")" || return 0
+  for id in $(loaded_presets); do
+    [ "$(preset_weights "$id" 2>/dev/null)" != "$weights" ] || printf '%s\n' "$id"
+  done
+}
+
 resident_bytes() {
-  local id total=0 weights
+  local id sibling total=0 weights
   for id in "$@"; do
-    model_loaded "$id" || continue
-    weights="$(weights_of "$id" 2>/dev/null)" || continue
-    total=$((total + $(file_bytes "$weights")))
+    for sibling in $(same_weights_loaded "$id"); do
+      weights="$(weights_of "$sibling" 2>/dev/null)" || continue
+      total=$((total + $(file_bytes "$weights")))
+    done
   done
   printf '%s' "$total"
+}
+
+held_by_other() {
+  holders | awk -v id="$1" -v self="$holder_pid" '$1 == "live" && $6 == id && $4 != self { held = 1 } END { exit !held }'
+}
+
+idle_siblings() {
+  local id
+  [ -n "$model" ] || usage
+  for id in $(same_weights_loaded "$model"); do
+    [ "$id" = "$model" ] || held_by_other "$id" || printf '%s\n' "$id"
+  done
 }
 
 free_bytes_linux() {
@@ -342,5 +368,6 @@ case "$command_name" in
   release) release ;;
   holders) holders ;;
   fit) fit ;;
+  idle-siblings) idle_siblings ;;
   *) usage ;;
 esac

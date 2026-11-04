@@ -69,7 +69,7 @@ def cap_tail(lines, limit):
     return [f"... {len(lines) - limit} earlier lines hidden"] + lines[-limit:]
 
 
-def run_command(argv):
+def run_command(argv, empty_ok=False):
     try:
         completed = subprocess.run(argv, capture_output=True, text=True, timeout=COMMAND_TIMEOUT_SECONDS)
     except FileNotFoundError:
@@ -81,7 +81,9 @@ def run_command(argv):
     lines = (completed.stdout + completed.stderr).splitlines()
     if completed.returncode != 0:
         lines.append(f"exit {completed.returncode}")
-    return lines or unavailable(f"{' '.join(argv)} printed nothing")
+    if lines or empty_ok:
+        return lines
+    return unavailable(f"{' '.join(argv)} printed nothing")
 
 
 def read_lines(path):
@@ -152,7 +154,7 @@ def lease_rung(lines):
 
 
 def lease_section(options):
-    lines = run_command([options.lease_bin, "holders"])
+    lines = run_command([options.lease_bin, "holders"], empty_ok=True)
     if is_unavailable(lines):
         return lines
     holders = [line for line in lines if line and not line.startswith("exit ")]

@@ -368,6 +368,13 @@ run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "claude-ollama loads the embedding model when the router keeps two models" wait_for_request /models/load qwen3-embedding:0.6b
 check_eq "claude-ollama allows the search server to load embeddings when the router keeps two models" 1 "$(cat "$sandbox/embed-env")"
 new_sandbox
+stub_state_set '.loaded = ["qwen3.8-27b-cc@think"] | .loading = {}'
+: > "$STUB_LLAMA_LOG"
+run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_that "a launch unloads a loaded preset of its own weights that no session holds, so the model is never resident twice" wait_for_request /models/unload qwen3.8-27b-cc@think
+check_that "and loads its own preset" wait_for_request /models/load qwen3.8-27b-cc
+check_not "and never unloads its own preset" sh -c "jq -r 'select(.path == \"/models/unload\") | .body.model' '$STUB_LLAMA_LOG' | grep -qxF qwen3.8-27b-cc"
+new_sandbox
 stub_state_set '.load_polls = 100000'
 run_capture env MODEL_LOAD_TIMEOUT=2 "$repo/bin/claude-ollama" 27b -p hi
 check_that "a slow model load never holds up the launch" grep -q '^ARGS:' "$sandbox/out"

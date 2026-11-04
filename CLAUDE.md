@@ -1406,14 +1406,20 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   missing (so a context-down rung lowers the estimate too); the free bytes are
   `sysctl -n hw.memsize` minus the active and wired pages of `vm_stat` on macOS,
   or `MemAvailable` from `/proc/meminfo` (`CLAUDE_OLLAMA_MEMINFO` overrides the
-  path) when that file is readable, plus the GGUF file size of the model and
-  embedding preset when `/models` shows it `loaded`, since their pages are
-  already counted as used (the router's `/models` carries no size). It exits 1
-  with `ollama lease: no preset M in <presets file>` or
-  `ollama lease: cannot read the free memory`. `bin/claude-ollama` runs it
-  before claiming the session lease (`CLAUDE_OLLAMA_FIT=0` skips it; a fit that
-  fails prints `claude-ollama: memory fit: unknown (<reason>)` and the launch
-  goes on) and prints
+  path) when that file is readable, plus the GGUF file size of every preset
+  `/models` shows `loaded` that uses the same GGUF as `M` or `E` (the fit asks
+  about the plain id, while a session may have run `@think`, `@<ctx>` or
+  `@profile`), since their pages are already counted as used (the router's
+  `/models` carries no size). It exits 1 with
+  `ollama lease: no preset M in <presets file>` or
+  `ollama lease: cannot read the free memory`.
+  `idle-siblings --model M [--pid N]` prints those loaded presets of `M`'s GGUF
+  other than `M` that no live lease of another pid names; `bin/claude-ollama`
+  unloads them before loading the session's preset, so the credit holds and the
+  weights are never resident twice. `bin/claude-ollama` runs it before claiming
+  the session lease (`CLAUDE_OLLAMA_FIT=0` skips it; a fit that fails prints
+  `claude-ollama: memory fit: unknown (<reason>)` and the launch goes on) and
+  prints
   `claude-ollama: memory fit: model 16.0 GiB + kv 8.0 GiB + embedding 0.6 GiB = 24.6 GiB of 28.9 GiB free`.
   When it does not fit the launcher starts on the lowest rung that does:
   `claude-ollama: ladder embeddings-off: does not fit with the embedding model (N GiB short)`

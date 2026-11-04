@@ -152,7 +152,15 @@ allow_search_embeddings() {
   export CODE_SEARCH_EMBED=1
 }
 
+unload_idle_siblings() {
+  local sibling
+  for sibling in $("$lease_bin" idle-siblings --model "$session_model" --pid "$$" 2>/dev/null); do
+    model_unload "$sibling" >/dev/null 2>&1 || true
+  done
+}
+
 load_session_models() {
+  unload_idle_siblings
   warm_model "$session_model"
   ! embeddings_wanted || warm_model "$embedding_model"
 }

@@ -64,6 +64,7 @@ EOF
 cat > "$tmp/stubbin/ollama-lease" <<'EOF'
 #!/bin/sh
 [ "$1" = holders ] || exit 2
+[ -z "$STUB_NO_HOLDERS" ] || exit 0
 echo "live session pid 4242 model qwen3.8-27b-cc rung context-down"
 echo "live embedding pid 4300 model qwen3-embedding:0.6b rung -"
 EOF
@@ -201,6 +202,9 @@ rm "$state/incidents/current"
 STUB_NO_SERVER_LOG=1 run_rescue --launcher "$tmp/stubbin/claude-ollama" --out "$tmp/noserver.md" > /dev/null 2>&1
 check "a missing server log becomes unavailable" section_has "$tmp/noserver.md" "Server log tail" "^unavailable: "
 check "a missing incidents file becomes unavailable" section_has "$tmp/noserver.md" "Incidents" "^unavailable: "
+STUB_NO_HOLDERS=1 run_rescue --out "$tmp/noholders.md" > "$tmp/noholders.out" 2>&1
+check "a lease tool with no holders says so, not unavailable" section_has "$tmp/noholders.md" "Lease holders and rung" "^no lease holders$"
+check "and the summary says no session holder" grep -qxF "lease: no session holder" "$tmp/noholders.out"
 
 (cd "$tmp" && HOME="$home" LLAMA_SERVER_URL=http://127.0.0.1:9 python3 "$rescue" --launcher "$tmp/missing-launcher" --size 27b \
   --fingerprint-bin "$tmp/missing-fp" --lease-bin "$tmp/missing-lease" \

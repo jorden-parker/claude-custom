@@ -197,7 +197,7 @@ make_gguf embed.gguf 644245094 '{"block_count": 28}'
 presets="$HOME/.claude-ollama/presets/models.ini"
 write_presets() {
   printf '[*]\ncache-type-k = %s\n\n' "$1" > "$presets"
-  printf '[%s]\nmodel = %s\n\n' dense-cc "$tmp/weights/dense.gguf" hybrid-cc "$tmp/weights/hybrid.gguf" \
+  printf '[%s]\nmodel = %s\n\n' dense-cc "$tmp/weights/dense.gguf" dense-cc@think "$tmp/weights/dense.gguf" hybrid-cc "$tmp/weights/hybrid.gguf" \
     layers-cc "$tmp/weights/layers.gguf" bare-cc "$tmp/weights/bare.gguf" gone-cc "$tmp/weights/gone.gguf" >> "$presets"
   printf '[qwen3-embedding-0.6b]\nalias = qwen3-embedding:0.6b\nmodel = %s\n' "$tmp/weights/embed.gguf" >> "$presets"
 }
@@ -256,6 +256,18 @@ check_eq "the rough KV cache shrinks with num_ctx" 2147483648 "$(fit_field kv_by
 jq -n '{models_max: 2, models: {"dense-cc": {}, "other-cc": {}, "qwen3-embedding-0.6b": {aliases: ["qwen3-embedding:0.6b"]}}, loaded: ["dense-cc", "other-cc", "qwen3-embedding-0.6b"]}' > "$state"
 run "$lease" fit --model dense-cc --num-ctx 65536 --embedding qwen3-embedding:0.6b
 check_eq "a loaded model and embedding count their weights files as free memory, since the router's /models reports no size" $((31082938368 + 17179869184 + 644245094)) "$(fit_field free_bytes)"
+jq -n '{models_max: 2, models: {"dense-cc": {}, "dense-cc@think": {}, "other-cc": {}}, loaded: ["dense-cc@think"]}' > "$state"
+run "$lease" fit --model dense-cc --num-ctx 65536
+check_eq "a loaded preset of the same weights, such as the @think one a session ran, counts as free memory too" $((31082938368 + 17179869184)) "$(fit_field free_bytes)"
+jq '.loaded = ["dense-cc@think", "dense-cc", "other-cc"]' "$state" > "$state.next" && mv "$state.next" "$state"
+run "$lease" idle-siblings --model dense-cc --pid $$
+check_eq "idle-siblings exits 0" 0 "$?"
+check_eq "idle-siblings names the other loaded presets of the same weights, never the model itself or other weights" dense-cc@think "$(cat "$tmp/out")"
+sibling_holder="$(sleeper)"
+run "$lease" acquire session --model dense-cc@think --pid "$sibling_holder"
+run "$lease" idle-siblings --model dense-cc --pid $$
+check_eq "idle-siblings leaves out a sibling another live lease holds" "" "$(cat "$tmp/out")"
+run "$lease" release session --pid "$sibling_holder"
 server_keeps 2
 
 mkdir -p "$tmp/proc"
