@@ -285,14 +285,15 @@ before changing how any file gets applied.
 - Prefix A/B: `claude-ollama prefix-ab [size] [--limit N] [--json]` (dispatched
   like `review`: the size's model, before any pull or launch) execs
   `bin/prefix-ab --record ~/.claude-ollama/proxy/record --model M --base-url URL`
-  (`--unload ollama|llama-slots|none` picks how the cache is cleared and
-  `--auth-token` the key sent) (stdlib; `CLAUDE_OLLAMA_PREFIX_AB` overrides it
-  for tests), which replays the recorded bodies twice in ts order, verbatim and
-  through the proxy's `stabilize_bodies` (the script is imported as a module, no
-  server starts), unloading the model between the passes, and prints a
-  two-column table of cache hit % per request (from `cache_read_input_tokens`
-  counted against `input_tokens` plus the cached tokens, else prefill time per
-  token against the first request, like the probe's fallback), a `mean` row and
+  (stdlib; `CLAUDE_OLLAMA_PREFIX_AB` overrides it for tests), which replays the
+  recorded bodies twice in ts order, verbatim and through the proxy's
+  `stabilize_bodies` (the script is imported as a module, no server starts),
+  clearing the cache before each pass (`--unload ollama`, the default, unloads
+  the model; `llama-slots` erases llama-server's slot 0; `none` sends nothing;
+  `--auth-token` sets the key sent), and prints a two-column table of cache hit
+  % per request (from `cache_read_input_tokens` counted against `input_tokens`
+  plus the cached tokens, else prefill time per token against the first request,
+  like the probe's fallback), a `mean` row and
   `stabilize: worth it (+N points mean hit rate)` or `stabilize: no gain` (under
   one point); `--json` prints `requests`, `mean`, `gain_points` and `verdict`.
   Tests: `bin/prefix-ab.test.sh` (stub server)

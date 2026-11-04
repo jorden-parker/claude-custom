@@ -7,9 +7,9 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
 REPO_DIR = Path(os.path.realpath(__file__)).parents[1]
 PROFILE_DIR = REPO_DIR / "ollama"
@@ -286,7 +286,7 @@ def scenario_row(scenario, baseline, measured, basis, cold_rate):
 
 
 def build_rows(measurements, basis):
-    cold_scenario, cold_measured = measurements[0]
+    cold_measured = measurements[0][1]
     baseline = cold_measured["evaluated"]
     cold_rate = cold_measured["prefill_seconds"] / baseline if baseline > 0 else 0.0
     return [scenario_row(scenario, baseline, measured, basis, cold_rate) for scenario, measured in measurements]
