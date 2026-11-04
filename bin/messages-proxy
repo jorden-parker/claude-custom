@@ -21,7 +21,14 @@ STREAM_CHUNK_BYTES = 4096
 UPSTREAM_TIMEOUT_SECONDS = 1800
 HOP_BY_HOP_HEADERS = {"connection", "keep-alive", "proxy-connection", "transfer-encoding", "upgrade", "host", "content-length"}
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
-FORWARDED_ROUTES = {("POST", MESSAGES_PATH), ("GET", "/v1/models"), ("GET", "/api/version"), ("GET", "/api/tags")}
+FORWARDED_ROUTES = {
+    ("POST", MESSAGES_PATH),
+    ("POST", "/v1/messages/count_tokens"),
+    ("GET", "/v1/models"),
+    ("GET", "/health"),
+    ("GET", "/models"),
+}
+DEFAULT_UPSTREAM = "http://127.0.0.1:11435"
 VOLATILE_SPAN_BYTES = 400
 DIGIT = re.compile(r"\d")
 WEEKDAY = re.compile(r"\b(?:mon|tues|wednes|thurs|fri|satur|sun)day\b", re.IGNORECASE)
@@ -40,8 +47,8 @@ TOKEN_EDGE_PUNCTUATION = "()[].!-"
 
 
 def parse_args(argv):
-    parser = argparse.ArgumentParser(description="Observe /v1/messages traffic between Claude Code and Ollama without changing it.")
-    parser.add_argument("--upstream", required=True)
+    parser = argparse.ArgumentParser(description="Observe /v1/messages traffic between Claude Code and llama-server without changing it.")
+    parser.add_argument("--upstream", default=os.environ.get("LLAMA_SERVER_URL", DEFAULT_UPSTREAM))
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--port-file")
     parser.add_argument("--log", required=True)
@@ -487,7 +494,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
         if reason:
             self.refuse(403, reason)
         elif (self.command, self.route_path()) not in FORWARDED_ROUTES:
-            self.refuse(404, "messages-proxy forwards only /v1/messages, /v1/models, /api/version and /api/tags")
+            self.refuse(404, "messages-proxy forwards only /v1/messages, /v1/messages/count_tokens, /v1/models, /health and /models")
         else:
             self.forward(body)
 

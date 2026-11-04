@@ -159,8 +159,8 @@ def truncated_verdict(incidents, requests):
     tokens = last.get("tokens")
     size = f"; the last prompt was {tokens} tokens" if isinstance(tokens, int) else ""
     evidence = f"{count_phrase(len(rows), 'truncated')} at {clock(last)}{size}; {join_note(last, requests)}"
-    return Verdict("truncated", "the prompt outgrew num_ctx and Ollama cut its head off", evidence,
-                   "run bin/ollama-profiles so CLAUDE_CODE_MAX_CONTEXT_TOKENS fits num_ctx, then claude-ollama doctor")
+    return Verdict("truncated", "the prompt outgrew the preset's ctx-size and llama-server refused it", evidence,
+                   "run bin/ollama-profiles so CLAUDE_CODE_MAX_CONTEXT_TOKENS fits ctx-size, then claude-ollama doctor")
 
 
 def evicted_verdict(incidents, requests):
@@ -176,17 +176,7 @@ def evicted_verdict(incidents, requests):
     last = last_of(sorted(evicted + reprefilled, key=lambda row: parse_time(row["ts"])))
     evidence = f"{', '.join(parts)}; last at {clock(last)}; {join_note(last, requests)}"
     return Verdict("evicted", "another model pushed the session's model out of memory and the prompt cache with it", evidence,
-                   "set OLLAMA_MAX_LOADED_MODELS=2 in ollama/server.env and run ollama-agent -apply; a second session must wait for the lease (CLAUDE_OLLAMA_LEASE)")
-
-
-def expired_verdict(incidents, requests):
-    rows = [row for row in incidents if row.get("cause") == "reprefilled" and preceding_kind(row) == "expired"]
-    if not rows:
-        return None
-    last = last_of(rows)
-    evidence = f"{len(rows)} reprefilled after expired; last at {clock(last)}; {join_note(last, requests)}"
-    return Verdict("reprefilled after expired", "the keep-alive ran out between turns and the whole prompt was prefilled again", evidence,
-                   "raise OLLAMA_KEEP_ALIVE in ollama/server.env (ollama-agent -apply) or lower CLAUDE_OLLAMA_LEASE_HEARTBEAT")
+                   "set models-max = 2 in ~/.claude-ollama/presets/server.local.ini (ollama-agent -set models-max=2); a second session must wait for the lease (CLAUDE_OLLAMA_LEASE)")
 
 
 def drifting_request(incidents, requests):
@@ -242,13 +232,12 @@ def reprefilled_verdict(incidents, requests):
     last = last_of(rows)
     evidence = f"{count_phrase(len(rows), 'reprefilled')} with no known event before them; last at {clock(last)}; {join_note(last, requests)}"
     return Verdict("reprefilled", "the whole prompt was prefilled again and the server log names no reason", evidence,
-                   "run claude-ollama doctor and claude-ollama logs around that time")
+                   "keep more cache checkpoints with ollama-agent -set ctx-checkpoints=256; launch with CLAUDE_OLLAMA_PROXY_STABILIZE=1 and run claude-ollama prefix-ab to check the prefix; then run claude-ollama doctor and claude-ollama logs around that time")
 
 
 PRIORITY = (
     truncated_verdict,
     evicted_verdict,
-    expired_verdict,
     drift_verdict,
     compacted_verdict,
     degraded_verdict,
