@@ -134,20 +134,8 @@
     "group": "Ollama residency",
     "kind": "switch",
     "default": "1",
-    "label": "Hold an Ollama residency lease and heartbeat",
-    "help": "A second session or bench waits instead of evicting this one's model, and a keep-alive request keeps it loaded.",
-    "ollamaOnly": true
-  },
-  {
-    "key": "CLAUDE_OLLAMA_LEASE_HEARTBEAT",
-    "group": "Ollama residency",
-    "kind": "integer",
-    "default": "120",
-    "min": 30,
-    "max": 600,
-    "step": 10,
-    "label": "Seconds between keep-alive heartbeats",
-    "help": "Whole seconds from 30 to 600; empty keeps 120, halved while the ladder asks for a faster one.",
+    "label": "Hold a residency lease",
+    "help": "A second session or bench waits instead of evicting this one's model from llama-server.",
     "ollamaOnly": true
   },
   {
