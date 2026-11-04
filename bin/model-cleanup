@@ -1,0 +1,274 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_dir="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+profile_dir="${OLLAMA_PROFILE_DIR:-$repo_dir/ollama}"
+sizes_file="$profile_dir/sizes.json"
+repo_weights_dir="$profile_dir/weights"
+retired_weights_dir="$HOME/.claude-ollama/weights"
+models_bin="${CLAUDE_OLLAMA_MODELS_BIN:-$repo_dir/bin/ollama-models}"
+ollama_url="${OLLAMA_HOST:-http://localhost:11434}"
+case "$ollama_url" in http://*|https://*) ;; *) ollama_url="http://$ollama_url" ;; esac
+cache_home="${XDG_CACHE_HOME:-$HOME/.cache}"
+ollama_dir="${OLLAMA_MODELS:-$HOME/.ollama/models}"
+bench_dir="${BENCH_MODELS:-$HOME/bench-models}"
+hf_dir="${HF_HOME:-$cache_home/huggingface}"
+llama_cache_dir="${LLAMA_CACHE:-$HOME/Library/Caches/llama.cpp}"
+torch_dir="${TORCH_HOME:-$cache_home/torch}"
+whisper_dir="$cache_home/whisper"
+min_kb="${MODEL_CLEANUP_MIN_KB:-102400}"
+
+mode=ask
+drop_sizes=()
+found_kb=0
+freed_kb=0
+offered=0
+
+usage() {
+  cat >&2 <<'EOF'
+usage: model-cleanup [--dry-run | --yes] [--drop SIZE]...
+  Lists the model files on this machine with their sizes and asks before removing each group:
+  GGUFs left in ollama/weights, the llama.cpp-era ~/.claude-ollama/weights, Ollama models no
+  profile uses, Ollama models you pulled yourself (one at a time), the bench-off weights, the
+  Hugging Face, llama.cpp, PyTorch and Whisper caches, then every other model file of 100 MiB
+  or more under your home folder and Library/Application Support, grouped by folder.
+  The profiles' own Ollama models stay unless you name their size.
+  --dry-run    list only, remove nothing
+  --yes        remove without asking, except the Ollama models you pulled yourself and the
+               model files found by the scan, which always ask
+  --drop SIZE  also offer that size's Ollama model and base (claude-ollama SIZE fetches them again)
+EOF
+  exit 2
+}
+
+parse_args() {
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --dry-run) mode=dry-run ;;
+      --yes) mode=yes ;;
+      --drop)
+        [ -n "${2:-}" ] || usage
+        drop_sizes+=("$2")
+        shift
+        ;;
+      *) usage ;;
+    esac
+    shift
+  done
+}
+
+check_drop_sizes() {
+  local size
+  [ "${#drop_sizes[@]}" -gt 0 ] || return 0
+  for size in "${drop_sizes[@]}"; do
+    if ! jq -e --arg size "$size" 'has($size)' "$sizes_file" >/dev/null; then
+      echo "model-cleanup: $size is not a size in $sizes_file" >&2
+      exit 2
+    fi
+  done
+}
+
+kb_of() {
+  du -sk "$@" 2>/dev/null | awk '{ total += $1 } END { print total + 0 }'
+}
+
+human_size() {
+  awk -v kb="$1" 'BEGIN { if (kb >= 1048576) printf "%.1f GiB", kb / 1048576; else printf "%.0f MiB", kb / 1024 }'
+}
+
+confirmed() {
+  local answer=""
+  printf '            Remove? [y/N] ' >&2
+  read -r answer <&3 || true
+  [ "$answer" = y ] || [ "$answer" = yes ]
+}
+
+remove_paths() {
+  rm -rf -- "$@"
+}
+
+remove_ollama_models() {
+  ollama rm "$@"
+}
+
+offer() {
+  local policy="$1" label="$2" kb="$3" remover="$4"
+  shift 4
+  offered=1
+  found_kb=$((found_kb + kb))
+  printf '%10s  %s\n' "$(human_size "$kb")" "$label"
+  printf '            %s\n' "$@"
+  case "$mode" in
+    dry-run) return 0 ;;
+    yes)
+      if [ "$policy" = ask ]; then
+        echo "            kept: run without --yes to be asked about it"
+        return 0
+      fi
+      ;;
+    ask) confirmed || return 0 ;;
+  esac
+  if ! "$remover" "$@"; then
+    echo "model-cleanup: could not remove $label" >&2
+    return 0
+  fi
+  freed_kb=$((freed_kb + kb))
+}
+
+offer_paths() {
+  local policy="$1" label="$2"
+  shift 2
+  offer "$policy" "$label" "$(kb_of "$@")" remove_paths "$@"
+}
+
+offer_folder() {
+  [ -d "$2" ] || return 0
+  [ -n "$(ls -A "$2" 2>/dev/null)" ] || return 0
+  offer_paths auto "$1" "$2"
+}
+
+offer_repo_weights() {
+  local path
+  local paths=()
+  [ -d "$repo_weights_dir" ] || return 0
+  while IFS= read -r path; do
+    paths+=("$path")
+  done < <(find "$repo_weights_dir" -mindepth 1 -maxdepth 1 -type f | LC_ALL=C sort)
+  [ "${#paths[@]}" -gt 0 ] || return 0
+  offer_paths auto "GGUFs left in ollama/weights (Ollama keeps its own copy once imported)" "${paths[@]}"
+}
+
+ollama_models_kb() {
+  local tags="$1"
+  shift
+  jq -r --args '[.models[] | select(.name as $name | $ARGS.positional | index($name)) | .size // 0] | add // 0 | . / 1024 | floor' "$@" <<<"$tags"
+}
+
+installed_names() {
+  local tags="$1"
+  shift
+  jq -r --args '.models[].name as $name | select($ARGS.positional | any(. == $name or . + ":latest" == $name)) | $name' "$@" <<<"$tags"
+}
+
+offer_ollama_models() {
+  local policy="$1" label="$2" tags="$3"
+  shift 3
+  [ "$#" -gt 0 ] || return 0
+  offer "$policy" "$label" "$(ollama_models_kb "$tags" "$@")" remove_ollama_models "$@"
+}
+
+names_in_class() {
+  awk -v class="$2" '$1 == class { print $2 }' <<<"$1"
+}
+
+size_ollama_names() {
+  jq -r --arg size "$1" '.[$size] | .model, (.base | select(startswith("./") | not))' "$sizes_file"
+}
+
+offer_dropped_size() {
+  local tags="$1" size="$2" name
+  local wanted=() names=()
+  while IFS= read -r name; do wanted+=("$name"); done < <(size_ollama_names "$size")
+  while IFS= read -r name; do
+    if [ -n "$name" ]; then
+      names+=("$name")
+    fi
+  done < <(installed_names "$tags" "${wanted[@]}")
+  [ "${#names[@]}" -gt 0 ] || return 0
+  offer_ollama_models auto "the $size Ollama model and its base (claude-ollama $size fetches them again)" "$tags" "${names[@]}"
+}
+
+offer_ollama() {
+  local tags listing size name
+  local orphans=()
+  if ! tags="$(curl -sf -m 5 "$ollama_url/api/tags")"; then
+    echo "Ollama is not answering at $ollama_url: its models were not checked"
+    return 0
+  fi
+  if [ "${#drop_sizes[@]}" -gt 0 ]; then
+    for size in "${drop_sizes[@]}"; do
+      offer_dropped_size "$tags" "$size"
+    done
+  fi
+  listing="$("$models_bin" list)"
+  while IFS= read -r name; do
+    if [ -n "$name" ]; then
+      orphans+=("$name")
+    fi
+  done < <(names_in_class "$listing" orphan)
+  if [ "${#orphans[@]}" -gt 0 ]; then
+    offer_ollama_models auto "Ollama models no profile uses" "$tags" "${orphans[@]}"
+  fi
+  while IFS= read -r name; do
+    if [ -n "$name" ]; then
+      offer_ollama_models ask "Ollama model you pulled yourself" "$tags" "$name"
+    fi
+  done < <(names_in_class "$listing" third-party; names_in_class "$listing" other)
+}
+
+offer_known_folders() {
+  offer_folder "bench-off weights (backend-bench-off download fetches them again)" "$bench_dir"
+  offer_folder "Hugging Face cache" "$hf_dir"
+  offer_folder "llama.cpp download cache" "$llama_cache_dir"
+  offer_folder "PyTorch cache" "$torch_dir"
+  offer_folder "Whisper cache" "$whisper_dir"
+}
+
+scan_model_files() {
+  local skipped=("$HOME/Library" "$HOME/.Trash" "$HOME/.claude-ollama" "$repo_weights_dir" "$ollama_dir" "$bench_dir" "$hf_dir" "$llama_cache_dir" "$torch_dir" "$whisper_dir")
+  local prune_tests=(-name node_modules -o -name .git) dir root
+  for dir in "${skipped[@]}"; do
+    prune_tests+=(-o -path "$dir")
+  done
+  for root in "$HOME" "$HOME/Library/Application Support"; do
+    [ -d "$root" ] || continue
+    find "$root" \( "${prune_tests[@]}" \) -prune -o -type f \
+      \( -name '*.gguf' -o -name '*.ggml' -o -name '*.safetensors' -o -name '*.ckpt' -o -name '*.pt' \
+      -o -name '*.pth' -o -name '*.onnx' -o -name 'pytorch_model*.bin' -o -name 'ggml-*.bin' \) \
+      -size +"$min_kb"k -print 2>/dev/null || true
+  done
+}
+
+offer_scanned_files() {
+  local found dir path current=""
+  local paths=()
+  found="$(scan_model_files | awk '{ dir = $0; sub("/[^/]*$", "", dir); print dir "\t" $0 }' | LC_ALL=C sort)"
+  [ -n "$found" ] || return 0
+  while IFS=$'\t' read -r dir path; do
+    if [ "$dir" != "$current" ] && [ "${#paths[@]}" -gt 0 ]; then
+      offer_paths ask "model files in $current" "${paths[@]}"
+      paths=()
+    fi
+    current="$dir"
+    paths+=("$path")
+  done <<<"$found"
+  offer_paths ask "model files in $current" "${paths[@]}"
+}
+
+free_space() {
+  df -k "$HOME" | awk 'NR == 2 { print $4 }'
+}
+
+print_summary() {
+  if [ "$offered" = 0 ]; then
+    echo "nothing to clean"
+  elif [ "$mode" = dry-run ]; then
+    echo "would free up to $(human_size "$found_kb")"
+  else
+    echo "freed up to $(human_size "$freed_kb"); $(human_size "$(free_space)") free on this disk"
+  fi
+}
+
+main() {
+  parse_args "$@"
+  check_drop_sizes
+  exec 3<&0
+  offer_repo_weights
+  offer_folder "llama.cpp-era weights (the Ollama harness no longer reads them)" "$retired_weights_dir"
+  offer_ollama
+  offer_known_folders
+  offer_scanned_files
+  print_summary
+}
+
+main "$@"

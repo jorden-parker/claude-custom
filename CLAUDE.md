@@ -145,6 +145,21 @@ before changing how any file gets applied.
   models that are still prunable, for the console's Models page), and writes a
   registry manifest sha256 to `ollama/model-digests.json`; tests:
   `bin/ollama-models.test.sh` (stub `ollama`, stub `curl`)
+- Disk cleanup: `bin/model-cleanup [--dry-run | --yes] [--drop SIZE]...` lists
+  the model files on the machine by group with their sizes and asks before
+  removing each: files left in `ollama/weights/` (the launcher deletes a GGUF
+  once Ollama imported it), the llama.cpp-era `~/.claude-ollama/weights`, the
+  named sizes' Ollama model and registry base (`--drop`, through `ollama rm`),
+  the `orphan` models of `bin/ollama-models list`, each `third-party` or `other`
+  Ollama model on its own, `BENCH_MODELS`, the Hugging Face (`HF_HOME`),
+  llama.cpp (`LLAMA_CACHE`), PyTorch (`TORCH_HOME`) and Whisper caches, then
+  every model file (`.gguf`, `.safetensors`, `.ckpt`, `.pt`, `.onnx` and
+  friends) of 100 MiB or more (`MODEL_CLEANUP_MIN_KB`) under `$HOME` and
+  `~/Library/Application Support`, grouped by folder, skipping the rest of
+  `~/Library`, the Trash, `node_modules`, `.git` and the folders above. `--yes`
+  removes every group except the Ollama models you pulled and the scanned files,
+  which always ask. When Ollama does not answer it says so and skips its models.
+  Tests: `bin/model-cleanup.test.sh` (stub `ollama`, `curl`)
 - Model upgrade: `bin/model-upgrade SIZE [--eval] [--keep] [--force]` pulls a
   behind base into `MODEL-next`, runs `speed-check --thinking-only --model`, the
   cache probe and (with `--eval`) `pr-review-eval` and `task-eval`, saves
