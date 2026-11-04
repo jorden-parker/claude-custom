@@ -3,7 +3,6 @@ import path from "node:path";
 
 const SETTINGS_PREFIX = "settings.";
 const SETTINGS_SUFFIX = ".json";
-const MODELFILE_PREFIX = "Modelfile.";
 const SIZE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 export function consoleRepoDir(): string {
@@ -19,15 +18,20 @@ export function configuredSizes(repoDir: string): string[] {
   if (repoDir === "" || !fs.existsSync(profileDir)) {
     return [];
   }
+  const listedSizes = sizesJsonKeys(profileDir);
   return fs
     .readdirSync(profileDir)
     .filter((name) => name.startsWith(SETTINGS_PREFIX) && name.endsWith(SETTINGS_SUFFIX))
     .map((name) => name.slice(SETTINGS_PREFIX.length, -SETTINGS_SUFFIX.length))
-    .filter((size) => SIZE_PATTERN.test(size) && isConfigured(profileDir, size))
+    .filter((size) => SIZE_PATTERN.test(size) && listedSizes.has(size))
     .sort();
 }
 
-function isConfigured(profileDir: string, size: string): boolean {
-  return fs.existsSync(path.join(profileDir, `${SETTINGS_PREFIX}${size}${SETTINGS_SUFFIX}`)) &&
-    fs.existsSync(path.join(profileDir, `${MODELFILE_PREFIX}${size}`));
+function sizesJsonKeys(profileDir: string): Set<string> {
+  try {
+    const parsed: unknown = JSON.parse(fs.readFileSync(path.join(profileDir, "sizes.json"), "utf8"));
+    return new Set(parsed !== null && typeof parsed === "object" ? Object.keys(parsed) : []);
+  } catch {
+    return new Set();
+  }
 }

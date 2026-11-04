@@ -34,7 +34,6 @@ function writeRepoFiles(repoDir: string): void {
     path.join(repoDir, "ollama", "settings.27b.json"),
     JSON.stringify({ model: "qwen3.8-27b-cc", hooks: { Stop: [{ hooks: [{ type: "command", command: "x/stop-verify.py" }] }] } }),
   );
-  fs.writeFileSync(path.join(repoDir, "ollama", "Modelfile.27b"), "FROM qwen3.8:27b-mlx\n");
   fs.writeFileSync(
     path.join(repoDir, "ollama", "sizes.json"),
     JSON.stringify({ "27b": { base: "qwen3.8:27b-mlx", model: "qwen3.8-27b-cc", context: 65536, output_tokens: 8192, parameters: { temperature: 0.7 } } }),

@@ -31,7 +31,7 @@ describe("console commands", () => {
     repo = fs.mkdtempSync(path.join(os.tmpdir(), "console-commands-"));
     fs.mkdirSync(path.join(repo, "ollama"));
     fs.writeFileSync(path.join(repo, "ollama", "settings.27b.json"), "{}");
-    fs.writeFileSync(path.join(repo, "ollama", "Modelfile.27b"), "");
+    fs.writeFileSync(path.join(repo, "ollama", "sizes.json"), JSON.stringify({ "27b": {} }));
   });
 
   afterEach(() => {
@@ -210,7 +210,7 @@ describe("console commands", () => {
     it("refuses a project folder that is not a directory", () => {
       vi.stubEnv(
         "CONSOLE_PROJECT_DIR",
-        path.join(repo, "ollama", "Modelfile.27b"),
+        path.join(repo, "ollama", "sizes.json"),
       );
       expect(review()?.argv({ size: "27b", pr: "12" }, repo)).toBeNull();
     });
@@ -485,7 +485,7 @@ describe("console queries", () => {
     repo = fs.mkdtempSync(path.join(os.tmpdir(), "console-queries-"));
     fs.mkdirSync(path.join(repo, "ollama"));
     fs.writeFileSync(path.join(repo, "ollama", "settings.27b.json"), "{}");
-    fs.writeFileSync(path.join(repo, "ollama", "Modelfile.27b"), "");
+    fs.writeFileSync(path.join(repo, "ollama", "sizes.json"), JSON.stringify({ "27b": {} }));
   });
 
   afterEach(() => {

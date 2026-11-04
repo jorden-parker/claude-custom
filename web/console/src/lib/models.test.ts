@@ -48,7 +48,6 @@ describe("modelsSnapshot", () => {
   function writeSizes(sizes: Record<string, { model: string; file: string }>) {
     const entries = Object.entries(sizes).map(([size, { model, file }]) => {
       fs.writeFileSync(path.join(repo, "ollama", `settings.${size}.json`), JSON.stringify({ model }));
-      fs.writeFileSync(path.join(repo, "ollama", `Modelfile.${size}`), `FROM ./weights/${file}\n`);
       return [size, { model, gguf: { file } }];
     });
     fs.writeFileSync(path.join(repo, "ollama", "sizes.json"), JSON.stringify(Object.fromEntries(entries)));
