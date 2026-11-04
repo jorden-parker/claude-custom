@@ -152,6 +152,17 @@ before changing how any file gets applied.
   request and the session's last three incidents. Tests:
   `bin/model-monitor.test.sh` (stub `/api/ps`, canned `ps` via
   `MODEL_MONITOR_PS`; `make test-lease`)
+- Model stop: `bin/model-stop [--dry-run] [--keep-ollama] [--sessions]` (stdlib
+  only) sends SIGTERM (SIGKILL after 5 s) to the harness helpers (messages
+  proxy, incident watcher, ladder, draft opener, indexer, lease heartbeat, the
+  console's `next start`) and the bench servers (`serve-only`, `llama-server`,
+  vllm, `mlx_lm.server`, oMLX, MTPLX, Rapid-MLX, mistral.rs), unloads every
+  `/api/ps` model (`keep_alive: 0` through `/api/generate`, else `/api/embed`),
+  then stops the Ollama server (`launchctl bootout` for `local.ollama`,
+  `brew services stop` for a brew label, then any `ollama serve`/`runner` or
+  Ollama app process) unless `--keep-ollama`. `--sessions` also stops running
+  `claude-ollama` launchers first. Tests: `bin/model-stop.test.sh` (named
+  sleepers, stub `launchctl` and `brew`, stub Ollama API; `make test-lease`)
 - Disk cleanup: `bin/model-cleanup [--dry-run | --yes] [--drop SIZE]...` lists
   the model files on the machine by group with their sizes and asks before
   removing each: files left in `ollama/weights/` (the launcher deletes a GGUF

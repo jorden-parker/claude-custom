@@ -1,0 +1,179 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import os
+import re
+import signal
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+
+GRACE_SECONDS = 5.0
+OLLAMA_LABELS = ("local.ollama", "sh.brew.ollama", "homebrew.mxcl.ollama")
+
+HELPER_PATTERNS = [
+    r"bin/messages-proxy\b",
+    r"incidents/watcher\.py",
+    r"incidents/ladder\.py",
+    r"drafts/opener\.py",
+    r"code-search\.py .*--index",
+    r"ollama-lease heartbeat",
+    r"web/console/node_modules/.*next start",
+]
+BENCH_PATTERNS = [
+    r"bin/backend-bench-off serve-only",
+    r"(^|/)llama-server\b",
+    r"\bvllm serve\b",
+    r"(^|/)vllm-mlx\b",
+    r"mlx_lm\.server",
+    r"(^|/)omlx\b",
+    r"(^|/)mtplx\b",
+    r"(^|/)rapid-mlx\b",
+    r"(^|/)mistralrs-server\b",
+]
+SESSION_PATTERNS = [r"bin/claude-ollama( |$)", r"bin/claude-ollama-qwen launch"]
+OLLAMA_PROCESS_PATTERNS = [r"(^|/)ollama (serve|runner)\b", r"Ollama\.app/Contents/MacOS/"]
+
+
+def ollama_url():
+    host = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
+    return host if host.startswith(("http://", "https://")) else "http://" + host
+
+
+def process_rows():
+    listing = subprocess.run(["ps", "-Ao", "pid=,command="], capture_output=True, text=True).stdout
+    own = {os.getpid(), os.getppid()}
+    for line in listing.splitlines():
+        pid_text, _, command = line.strip().partition(" ")
+        if pid_text.isdigit() and int(pid_text) not in own:
+            yield int(pid_text), command.strip()
+
+
+def matching_processes(patterns):
+    compiled = [re.compile(pattern) for pattern in patterns]
+    return [(pid, command) for pid, command in process_rows() if any(rule.search(command) for rule in compiled)]
+
+
+def still_running(pid):
+    state = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True).stdout.strip()
+    return bool(state) and not state.startswith("Z")
+
+
+def send_signal(pid, signum):
+    try:
+        os.kill(pid, signum)
+    except ProcessLookupError:
+        pass
+    except PermissionError:
+        print(f"cannot signal pid {pid}: permission denied")
+
+
+def stop_processes(processes, dry_run):
+    for pid, command in processes:
+        print(f"{'would stop' if dry_run else 'stopping'} pid {pid}  {command[:120]}")
+    if dry_run or not processes:
+        return
+    for pid, _ in processes:
+        send_signal(pid, signal.SIGTERM)
+    deadline = time.monotonic() + GRACE_SECONDS
+    remaining = [pid for pid, _ in processes]
+    while remaining and time.monotonic() < deadline:
+        time.sleep(0.1)
+        remaining = [pid for pid in remaining if still_running(pid)]
+    for pid in remaining:
+        print(f"pid {pid} ignored SIGTERM; sending SIGKILL")
+        send_signal(pid, signal.SIGKILL)
+
+
+def post_json(path, payload):
+    request = urllib.request.Request(
+        ollama_url() + path,
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    with urllib.request.urlopen(request, timeout=30) as reply:
+        reply.read()
+
+
+def unload_model(name):
+    try:
+        post_json("/api/generate", {"model": name, "keep_alive": 0})
+        return True
+    except urllib.error.HTTPError:
+        pass
+    except OSError:
+        return False
+    try:
+        post_json("/api/embed", {"model": name, "input": "", "keep_alive": 0})
+        return True
+    except OSError:
+        return False
+
+
+def unload_models(dry_run):
+    try:
+        with urllib.request.urlopen(ollama_url() + "/api/ps", timeout=3) as reply:
+            models = [model["name"] for model in json.load(reply).get("models", [])]
+    except (OSError, ValueError, KeyError):
+        print(f"ollama: not answering at {ollama_url()}, nothing to unload")
+        return
+    if not models:
+        print("ollama: no models loaded")
+    for name in models:
+        if dry_run:
+            print(f"would unload {name}")
+        elif unload_model(name):
+            print(f"unloaded {name}")
+        else:
+            print(f"could not unload {name}")
+
+
+def running_ollama_labels():
+    try:
+        listing = subprocess.run(["launchctl", "list"], capture_output=True, text=True).stdout
+    except OSError:
+        return []
+    labels = []
+    for line in listing.splitlines():
+        fields = line.split()
+        if len(fields) == 3 and fields[0].isdigit() and fields[2] in OLLAMA_LABELS:
+            labels.append(fields[2])
+    return labels
+
+
+def stop_ollama_server(dry_run):
+    for label in running_ollama_labels():
+        if label == "local.ollama":
+            command = ["launchctl", "bootout", f"gui/{os.getuid()}/{label}"]
+        else:
+            command = ["brew", "services", "stop", "ollama"]
+        if dry_run:
+            print(f"would run {' '.join(command)}")
+            continue
+        result = subprocess.run(command, capture_output=True, text=True)
+        status = "stopped" if result.returncode == 0 else "could not stop"
+        print(f"{status} ollama ({label})")
+    stop_processes(matching_processes(OLLAMA_PROCESS_PATTERNS), dry_run)
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Stop the local models, the harness helpers, bench servers and the Ollama server."
+    )
+    parser.add_argument("--dry-run", action="store_true", help="print what would stop, change nothing")
+    parser.add_argument("--keep-ollama", action="store_true", help="unload models but leave the Ollama server up")
+    parser.add_argument("--sessions", action="store_true", help="also stop running claude-ollama sessions")
+    args = parser.parse_args()
+    if args.sessions:
+        stop_processes(matching_processes(SESSION_PATTERNS), args.dry_run)
+    stop_processes(matching_processes(HELPER_PATTERNS + BENCH_PATTERNS), args.dry_run)
+    unload_models(args.dry_run)
+    if not args.keep_ollama:
+        stop_ollama_server(args.dry_run)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

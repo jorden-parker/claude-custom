@@ -120,6 +120,7 @@ test-sync:
 test-lease:
 	bin/ollama-lease.test.sh
 	bin/model-monitor.test.sh
+	bin/model-stop.test.sh
 
 test-incidents:
 	ollama/incidents/ladder.test.sh
