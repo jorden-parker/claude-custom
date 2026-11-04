@@ -387,6 +387,18 @@ before changing how any file gets applied.
   that link. A start on a port that already answers prints the running console's
   tokened link and starts nothing, writing a new token file if the old one was
   lost. Its tests run with `make test-web`.
+- Console Models and Server pages: they talk to llama-server at
+  `LLAMA_SERVER_URL` (`web/console/src/lib/model-server.ts`). `GET /api/models`
+  (`models.ts`) joins the router's `/models` presets with
+  `bin/ollama-models list` (the weights files and their states) per size and for
+  the embedding model; `POST /api/models/load` and `/api/models/unload` send a
+  preset id to `/models/load` or `/models/unload`; the page starts `prepare`,
+  `prepare-embedding`, `prune` (`--yes --only FILE...`), `models-outdated` and
+  `model-upgrade` through `console-run`. `GET /api/server` reads
+  `ollama-agent -json`, and the page changes settings through the `server-set`
+  command (`-set KEY=VALUE` per change) and reapplies through `server-apply`
+  (`-apply`); `GET /api/server/ping` reports `up`, `loading` or `down` with the
+  `/props` build (`model-server-health.ts`).
 - Console smoke check: `bin/console-smoke [--port N] [--keep]` starts
   `claude-ollama ui` on a temp state dir, checks every page, the token gate and
   the same-origin rule, then prints `all passed` (`make smoke-console`; `--keep`
