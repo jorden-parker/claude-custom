@@ -72,7 +72,8 @@ optional and a missing file changes nothing. `personal/settings-path` layers
 its launch settings with `shared/profile-overlay compose`, which applies the
 fetch domains, its own profile (with a ladder context in place of the
 profile's), then the messages proxy URL onto `ollama/settings.<size>.json`, in
-that order, into `~/.claude-ollama/launch-settings/<launcher pid>.json` (0600, removed when
-the launch ends; `doctor` and `--print-config` compose into a temp file; the
-base file itself when no layer applies). The profile also reaches the `--tools` list, the MCP
-servers and the Modelfile parameters. See `docs/ollama.md` for the keys.
+that order, into `~/.claude-ollama/launch-settings/<launcher pid>.json` (0600,
+removed when the launch ends; `doctor` and `--print-config` compose into a temp
+file; the base file itself when no layer applies). The profile also reaches the
+`--tools` list, the MCP servers and the llama-server preset parameters. See
+`docs/ollama.md` for the keys.
