@@ -29,6 +29,10 @@ def uint32_keyvalue(key, value):
     return string(key) + struct.pack("<I", 4) + struct.pack("<I", value)
 
 
+def uint32_array_keyvalue(key, values):
+    return string(key) + struct.pack("<IIQ", 9, 4, len(values)) + b"".join(struct.pack("<I", value) for value in values)
+
+
 def tensor_info(name, dims, ggml_type, offset):
     dim_bytes = b"".join(struct.pack("<Q", dim) for dim in dims)
     return string(name) + struct.pack("<I", len(dims)) + dim_bytes + struct.pack("<IQ", ggml_type, offset)
@@ -41,6 +45,8 @@ def build(
     template_length=None,
     template_uint32=None,
     extra_keyvalues=(),
+    extra_uint32=(),
+    extra_arrays=(),
     alignment=None,
     tensors=DEFAULT_TENSORS,
     data_size=64,
@@ -55,6 +61,8 @@ def build(
         declared = len(template_bytes) if template_length is None else template_length
         keyvalues.append(string("tokenizer.chat_template") + struct.pack("<I", 8) + struct.pack("<Q", declared) + template_bytes)
     keyvalues.extend(string_keyvalue(key, value) for key, value in extra_keyvalues)
+    keyvalues.extend(uint32_keyvalue(key, value) for key, value in extra_uint32)
+    keyvalues.extend(uint32_array_keyvalue(key, values) for key, values in extra_arrays)
     infos = [tensor_info(*tensor) for tensor in tensors]
     header = magic + struct.pack("<IQQ", version, len(infos), len(keyvalues)) + b"".join(keyvalues) + b"".join(infos)
     pad_to = alignment or 32
@@ -77,6 +85,8 @@ CASES = {
     "named-template": {"extra_keyvalues": (("tokenizer.chat_template.tool_use", "Fetch https://example.com/tools first."),)},
     "case-collision": {"extra_keyvalues": (("tokenizer.chat_template.tool_use", "one"), ("tokenizer.chat_template.TOOL_USE", "two"))},
     "uint-template": {"template_uint32": 7},
+    "hybrid": {"extra_uint32": (("qwen3.block_count", 8), ("qwen3.attention.head_count_kv", 4), ("qwen3.attention.key_length", 256), ("qwen3.full_attention_interval", 4))},
+    "layer-heads": {"extra_uint32": (("qwen3.block_count", 4), ("qwen3.attention.key_length", 128)), "extra_arrays": (("qwen3.attention.head_count_kv", (0, 0, 0, 2)),)},
 }
 
 Path(sys.argv[1]).write_bytes(build(**CASES[sys.argv[2]]))
@@ -98,7 +108,7 @@ expect_status() {
   fi
 }
 
-for case_name in valid bad-magic version-2 huge-string evil-key overlap misaligned unknown-type url-template duplicate-architecture escape-value named-template case-collision uint-template; do
+for case_name in valid bad-magic version-2 huge-string evil-key overlap misaligned unknown-type url-template duplicate-architecture escape-value named-template case-collision uint-template hybrid layer-heads; do
   python3 "$tmp/make.py" "$tmp/$case_name.gguf" "$case_name" || fail "the writer builds $case_name"
 done
 
@@ -158,6 +168,21 @@ expect_status 1 "a non-string chat template fails" "$tmp/uint-template.gguf"
 grep -qF 'tokenizer.chat_template is uint32' "$tmp/out" || fail "the non-string template is named in a FAIL line"
 expect_status 1 "a non-string chat template fails even with --template-out" "$tmp/uint-template.gguf" --template-out "$tmp/uint.jinja"
 check_that_absent "$tmp/uint.jinja" "a non-string template writes no file"
+
+expect_status 0 "--json passes a valid file" "$tmp/hybrid.gguf" --json
+json_value() { jq -r "$1" "$tmp/out" 2>/dev/null; }
+[ "$(json_value .architecture)" = qwen3 ] || fail "--json names the architecture"
+[ "$(json_value '.metadata["qwen3.block_count"]')" = 8 ] || fail "--json carries the block count"
+[ "$(json_value '.metadata["qwen3.full_attention_interval"]')" = 4 ] || fail "--json carries the full-attention interval"
+[ "$(json_value '.metadata | has("tokenizer.chat_template")')" = false ] || fail "--json leaves out the tokenizer keys"
+[ "$(json_value '.failures | length')" = 0 ] || fail "--json lists no failures for a valid file"
+[ "$(json_value .file_size)" = "$(wc -c < "$tmp/hybrid.gguf" | tr -d ' ')" ] || fail "--json carries the file size"
+expect_status 0 "--json passes a per-layer head count" "$tmp/layer-heads.gguf" --json
+[ "$(json_value '.metadata["qwen3.attention.head_count_kv"] | join(",")')" = 0,0,0,2 ] || fail "--json carries a per-layer head count as a list"
+expect_status 1 "--json still fails a bad file" "$tmp/evil-key.gguf" --json
+[ "$(json_value '.failures | length')" -ge 1 ] || fail "--json lists the failures"
+expect_status 1 "--json of a malformed header fails" "$tmp/bad-magic.gguf" --json
+[ "$(json_value '.failures[0]')" = "magic is not GGUF" ] || fail "--json names a malformed header"
 
 if [ "$failures" -eq 0 ]; then
   echo "all passed"
