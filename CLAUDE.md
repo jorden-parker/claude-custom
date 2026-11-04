@@ -145,6 +145,13 @@ before changing how any file gets applied.
   models that are still prunable, for the console's Models page), and writes a
   registry manifest sha256 to `ollama/model-digests.json`; tests:
   `bin/ollama-models.test.sh` (stub `ollama`, stub `curl`)
+- Model monitor: `bin/model-monitor [--once] [--interval SECONDS]` (stdlib only)
+  refreshes a one-screen view every 2 s: the `/api/ps` models (size, GPU/CPU
+  placement, context, time until unload), each `ollama runner` process (CPU,
+  RSS, `busy` at 20% CPU or more), the live lease holders, the proxy log's last
+  request and the session's last three incidents. Tests:
+  `bin/model-monitor.test.sh` (stub `/api/ps`, canned `ps` via
+  `MODEL_MONITOR_PS`; `make test-lease`)
 - Disk cleanup: `bin/model-cleanup [--dry-run | --yes] [--drop SIZE]...` lists
   the model files on the machine by group with their sizes and asks before
   removing each: files left in `ollama/weights/` (the launcher deletes a GGUF

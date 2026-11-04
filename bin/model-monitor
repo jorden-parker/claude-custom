@@ -1,0 +1,236 @@
+#!/usr/bin/env python3
+import argparse
+import datetime
+import json
+import os
+import subprocess
+import sys
+import time
+import urllib.request
+
+GIB = 1024**3
+BUSY_CPU_PERCENT = 20.0
+INCIDENT_ROWS = 3
+
+
+def ollama_url():
+    host = os.environ.get("OLLAMA_HOST", "http://127.0.0.1:11434")
+    return host if host.startswith(("http://", "https://")) else "http://" + host
+
+
+def console_state_dir():
+    default = os.path.expanduser("~/.local/share/claude-custom/console")
+    return os.environ.get("CLAUDE_CONSOLE_STATE_DIR", default)
+
+
+def lease_dir():
+    return os.environ.get("CLAUDE_OLLAMA_LEASE_DIR", os.path.expanduser("~/.claude-ollama/lease"))
+
+
+def parse_time(text):
+    try:
+        return datetime.datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except (AttributeError, ValueError):
+        return None
+
+
+def seconds_from_now(text):
+    moment = parse_time(text)
+    if moment is None:
+        return None
+    return (moment - datetime.datetime.now(datetime.timezone.utc)).total_seconds()
+
+
+def short_duration(seconds):
+    seconds = int(abs(seconds))
+    if seconds >= 3600:
+        return f"{seconds // 3600}h{seconds % 3600 // 60}m"
+    if seconds >= 60:
+        return f"{seconds // 60}m{seconds % 60}s"
+    return f"{seconds}s"
+
+
+def fetch_loaded_models():
+    try:
+        with urllib.request.urlopen(ollama_url() + "/api/ps", timeout=3) as reply:
+            return json.load(reply).get("models", [])
+    except (OSError, ValueError):
+        return None
+
+
+def placement(model):
+    size = model.get("size") or 0
+    vram = model.get("size_vram") or 0
+    if vram <= 0:
+        return "CPU"
+    return f"{round(100 * vram / size) if size else 100}% GPU"
+
+
+def model_lines(models):
+    if models is None:
+        return [f"ollama: not answering at {ollama_url()}"]
+    if not models:
+        return ["ollama: no models loaded"]
+    lines = [f"{'MODEL':<32} {'SIZE':>9} {'WHERE':>9} {'CONTEXT':>8}  UNLOADS IN"]
+    for model in models:
+        left = seconds_from_now(model.get("expires_at", ""))
+        unloads = "never" if left is None or left > 10**7 else short_duration(max(left, 0))
+        size = f"{(model.get('size') or 0) / GIB:.1f} GiB"
+        lines.append(
+            f"{model.get('name', '?'):<32} {size:>9} {placement(model):>9} "
+            f"{model.get('context_length', '?'):>8}  {unloads}"
+        )
+    return lines
+
+
+def process_alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def lease_lines():
+    try:
+        names = sorted(os.listdir(lease_dir()))
+    except OSError:
+        return ["sessions: no lease folder"]
+    lines = []
+    for name in names:
+        stem, suffix = os.path.splitext(name)
+        if suffix != ".json" or not stem.isdigit() or not process_alive(int(stem)):
+            continue
+        try:
+            with open(os.path.join(lease_dir(), name)) as handle:
+                holder = json.load(handle)
+        except (OSError, ValueError):
+            continue
+        age = seconds_from_now(holder.get("started", ""))
+        details = [f"ctx {holder.get('num_ctx', '?')}"]
+        if holder.get("rung"):
+            details.append(f"rung {holder['rung']}")
+        if age is not None:
+            details.append(f"for {short_duration(age)}")
+        lines.append(
+            f"  {holder.get('name', '?'):<10} pid {stem:<7} {holder.get('model', '?'):<28} "
+            + "  ".join(details)
+        )
+    return ["sessions:"] + (lines or ["  none"])
+
+
+def process_table():
+    canned = os.environ.get("MODEL_MONITOR_PS")
+    if canned:
+        with open(canned) as handle:
+            return handle.read()
+    try:
+        return subprocess.run(
+            ["ps", "-Ao", "pid,pcpu,rss,command"], capture_output=True, text=True, timeout=5
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+
+def runner_lines():
+    lines = []
+    for row in process_table().splitlines()[1:]:
+        fields = row.split(None, 3)
+        if len(fields) < 4 or "ollama" not in fields[3] or " runner" not in fields[3]:
+            continue
+        try:
+            cpu = float(fields[1])
+            rss_gib = int(fields[2]) * 1024 / GIB
+        except ValueError:
+            continue
+        state = "busy" if cpu >= BUSY_CPU_PERCENT else "idle"
+        lines.append(f"  runner pid {fields[0]:<7} {cpu:5.1f}% CPU  {rss_gib:5.1f} GiB RSS  {state}")
+    return ["runners:"] + (lines or ["  none"])
+
+
+def last_json_row(path, keep):
+    try:
+        with open(path, "rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            handle.seek(max(0, handle.tell() - 65536))
+            text = handle.read().decode("utf-8", "replace")
+    except OSError:
+        return []
+    rows = []
+    for line in text.splitlines():
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(row, dict) and keep(row):
+            rows.append(row)
+    return rows
+
+
+def proxy_line():
+    path = os.path.join(console_state_dir(), "proxy", "requests.jsonl")
+    rows = last_json_row(path, lambda row: "ts" in row)
+    if not rows:
+        return "proxy: no requests logged"
+    row = rows[-1]
+    age = seconds_from_now(row["ts"])
+    when = f"{short_duration(age)} ago" if age is not None else row["ts"]
+    diverged = row.get("diverged_at") or "nowhere (stable)"
+    return f"proxy: last request {when}: {row.get('prompt_bytes', '?')} bytes, diverged at {diverged}"
+
+
+def incident_lines():
+    folder = os.path.join(console_state_dir(), "incidents")
+    try:
+        with open(os.path.join(folder, "current")) as handle:
+            current = handle.read().strip()
+    except OSError:
+        return ["incidents: no current session"]
+    if os.path.dirname(os.path.realpath(current)) != os.path.realpath(folder):
+        return ["incidents: current file outside the incidents folder"]
+    rows = last_json_row(current, lambda row: "kind" not in row and "cause" in row)
+    if not rows:
+        return ["incidents: none this session"]
+    lines = []
+    for row in rows[-INCIDENT_ROWS:]:
+        age = seconds_from_now(row.get("ts", ""))
+        when = f"{short_duration(age)} ago" if age is not None else "?"
+        lines.append(f"  {when:>8}  {row['cause']}: {str(row.get('detail', ''))[:100]}")
+    return ["incidents:"] + lines
+
+
+def report():
+    stamp = datetime.datetime.now().strftime("%H:%M:%S")
+    sections = [
+        [f"model monitor  {stamp}  {ollama_url()}"],
+        model_lines(fetch_loaded_models()),
+        runner_lines(),
+        lease_lines(),
+        [proxy_line()],
+        incident_lines(),
+    ]
+    return "\n\n".join("\n".join(section) for section in sections)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Show what the local Ollama models are doing.")
+    parser.add_argument("--once", action="store_true", help="print one report and exit")
+    parser.add_argument("--interval", type=float, default=2.0, help="seconds between refreshes")
+    args = parser.parse_args()
+    if args.once:
+        print(report())
+        return
+    try:
+        while True:
+            frame = report()
+            sys.stdout.write("\033[H\033[2J" + frame + "\n")
+            sys.stdout.flush()
+            time.sleep(args.interval)
+    except KeyboardInterrupt:
+        pass
+
+
+if __name__ == "__main__":
+    main()
