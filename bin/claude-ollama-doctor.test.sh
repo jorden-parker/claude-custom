@@ -160,11 +160,11 @@ run_doctor
 check_that "doctor skips the classifier check without a server log" grep -qxF "ok   incident classifier not checked (no server log)" "$sandbox/out"
 server_log="$HOME/.claude-ollama/logs/llama-server.log"
 mkdir -p "${server_log%/*}"
-cp "$repo/ollama/incidents/fixtures/server-log.txt" "$server_log"
+cp "$repo/ollama/incidents/fixtures/llama-server-log.txt" "$server_log"
 real_watcher=(env CLAUDE_OLLAMA_INCIDENT_WATCHER="$repo/ollama/incidents/watcher.py")
 run_doctor "${real_watcher[@]}"
 check_eq "doctor with a server log the classifier reads exit status" 0 "$?"
-check_that "doctor reports the classifier matches the server log" grep -qxF "ok   incident classifier matches the server log (rules: 6)" "$sandbox/out"
+check_that "doctor reports the classifier matches the server log" grep -qxF "ok   incident classifier matches the server log (rules: 7)" "$sandbox/out"
 check_that "doctor counts the rule cards" grep -qxF "ok   rule cards: $(ls "$repo"/ollama/rule-cards/*.md | wc -l | tr -d ' ')" "$sandbox/out"
 mkdir -p "$sandbox/cards"
 printf -- '---\ntriggers:\n---\nno trigger\n' > "$sandbox/cards/broken.md"
