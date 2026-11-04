@@ -21,7 +21,7 @@ create_qwen_home() {
 }
 
 write_qwen_settings() {
-  jq --arg model "$model" --arg base_url "$ollama_url/v1" --argjson context "$(modelfile_num_ctx)" '
+  jq --arg model "$model" --arg base_url "$ollama_url/v1" --argjson context "$(preset_ctx_size)" '
     .model.name = $model
     | .modelProviders.openai[0].id = $model
     | .modelProviders.openai[0].name = "\($model) (Ollama)"
@@ -39,8 +39,8 @@ print_qwen_config() {
   echo "size: $size"
   echo "model: $model"
   echo "base: $(base_model)"
-  echo "num_ctx: $(modelfile_num_ctx)"
-  echo "context window: $(modelfile_num_ctx)"
+  echo "num_ctx: $(preset_ctx_size)"
+  echo "context window: $(preset_ctx_size)"
   echo "qwen home: $qwen_home"
   echo "settings template: $profile_dir/qwen-settings.template.json"
   echo "sandbox: $(qwen_sandbox_label)"

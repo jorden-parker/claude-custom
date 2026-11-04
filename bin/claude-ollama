@@ -226,7 +226,7 @@ release_session_lease() {
 }
 
 session_num_ctx() {
-  if [ -n "$ladder_context" ]; then echo "$ladder_context"; else modelfile_num_ctx; fi
+  if [ -n "$ladder_context" ]; then echo "$ladder_context"; else preset_ctx_size; fi
 }
 
 claim_session() {
@@ -262,15 +262,15 @@ start_without_embeddings() {
   fit_embed_off=1
   session_rung=embeddings-off
   echo "claude-ollama: ladder embeddings-off: does not fit with the embedding model ($(fit_shortfall) short)" >&2
-  measure_fit "$(modelfile_num_ctx)" "" || return 1
+  measure_fit "$(preset_ctx_size)" "" || return 1
   fit_fits "$fit_result"
 }
 
 start_on_lower_context() {
   ladder_rung=context-down
-  ladder_context="$(lower_context_of "$(modelfile_num_ctx)")"
+  ladder_context="$(lower_context_of "$(preset_ctx_size)")"
   session_rung=context-down
-  echo "claude-ollama: ladder context-down: does not fit at num_ctx $(modelfile_num_ctx) ($(fit_shortfall) short); starting at $ladder_context" >&2
+  echo "claude-ollama: ladder context-down: does not fit at num_ctx $(preset_ctx_size) ($(fit_shortfall) short); starting at $ladder_context" >&2
   measure_fit "$ladder_context" "" || return 1
   fit_fits "$fit_result" || echo "claude-ollama: memory fit: still $(fit_shortfall) short at num_ctx $ladder_context with the embeddings off" >&2
 }
@@ -279,7 +279,7 @@ check_memory_fit() {
   local embedding="" fit_result
   fit_on || return 0
   ! embedding_model_fits || embedding="$embedding_model"
-  measure_fit "$(modelfile_num_ctx)" "$embedding" || return 0
+  measure_fit "$(preset_ctx_size)" "$embedding" || return 0
   echo "claude-ollama: memory fit: $(fit_summary)" >&2
   fit_fits "$fit_result" && return 0
   if [ -n "$embedding" ]; then
@@ -339,7 +339,7 @@ start_ladder() {
   [ -n "${CLAUDE_OLLAMA_INCIDENTS_FILE:-}" ] || return 0
   while IFS= read -r arg; do rung_args+=("$arg"); done < <(ladder_rung_args)
   nohup "$(ladder_bin)" --incidents "$CLAUDE_OLLAMA_INCIDENTS_FILE" --relaunch-dir "$relaunch_dir" \
-    --watch-pid "$$" --context "$(modelfile_num_ctx)" --model "$model" --embedding "$embedding_model" \
+    --watch-pid "$$" --context "$(preset_ctx_size)" --model "$model" --embedding "$embedding_model" \
     --lease-bin "$lease_bin" ${rung_args[@]+"${rung_args[@]}"} >/dev/null 2>&1 &
 }
 
@@ -746,7 +746,7 @@ print_config() {
   echo "model: $model"
   echo "base: $(base_model)"
   echo "embedding model: $embedding_model"
-  echo "num_ctx: $(modelfile_num_ctx)"
+  echo "num_ctx: $(preset_ctx_size)"
   echo "max context tokens: $(profile_context_tokens)"
   echo "max output tokens: $(profile_output_tokens)"
   echo "compacts at: $(compaction_point) tokens"

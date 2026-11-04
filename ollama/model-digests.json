@@ -5,5 +5,10 @@
   "qwen3-embedding:0.6b": "ac6da0dfba84a81fdbfbaf330198c33cd77c4cdfc53e8bc50eb581914a15621d",
   "./weights/Qwen3.8-27B-UD-Q4_K_XL.gguf": "3f227079003add2511437e5b1e94812e363385225bf6a9b47b0054a72bc8b01e",
   "./weights/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf": "707a55a8a4397ecde44de0c499d3e68c1ad1d240d1da65826b4949d1043f4450",
-  "granite4.2:3b": "40577dc168a3a9ad34e9a1234e0c2570be86097fa75a236d4574ae985705d3c4"
+  "granite4.2:3b": "40577dc168a3a9ad34e9a1234e0c2570be86097fa75a236d4574ae985705d3c4",
+  "unsloth/Qwen3.8-27B-GGUF/Qwen3.8-27B-UD-Q4_K_XL.gguf": "3f227079003add2511437e5b1e94812e363385225bf6a9b47b0054a72bc8b01e",
+  "unsloth/Qwen3.6-35B-A3B-GGUF/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf": "707a55a8a4397ecde44de0c499d3e68c1ad1d240d1da65826b4949d1043f4450",
+  "ibm-granite/granite-4.2-3b-GGUF/granite-4.2-3b-Q4_K_M.gguf": "e0406663965846ae22a403456eb826ccce5f450840491f71952f18a7cb78e7d5",
+  "Qwen/Qwen3-Embedding-0.6B-GGUF/Qwen3-Embedding-0.6B-Q8_0.gguf": "06507c7b42688469c4e7298b0a1e16deff06caf291cf0a5b278c308249c3e439",
+  "./weights/granite-4.2-3b-Q4_K_M.gguf": "e0406663965846ae22a403456eb826ccce5f450840491f71952f18a7cb78e7d5"
 }

@@ -21,6 +21,13 @@ env_table_end="<!-- profile-env:end -->"
 incident_causes="$data_dir/ollama/incidents/causes.json"
 console_causes="$data_dir/web/console/src/lib/incident-causes.generated.json"
 console_causes_name="${console_causes##*/}"
+server_ini="$profile_dir/server.ini"
+embedding_file="$profile_dir/embedding.json"
+preset_keys_file="$profile_dir/preset-keys.json"
+models_ini="$profile_dir/models.ini"
+ladder_dir="$data_dir/ollama/incidents"
+profile_overlay="$data_dir/shared/profile-overlay"
+weights_placeholder="@WEIGHTS@"
 
 sizes() {
   jq -r 'keys[]' "$sizes_file"
@@ -82,8 +89,9 @@ render_personal() {
   splice_fragments '{}' < "$personal_template"
 }
 
-render_renderer() {
-  jq -r --arg size "$1" '.[$size] | select(.renderer) | "RENDERER \(.renderer)\nPARSER \(.parser // .renderer)"' "$sizes_file"
+gguf_file() {
+  jq -er --arg size "$1" '.[$size].gguf.file // empty' "$sizes_file" ||
+    { echo "ollama-profiles: size $1 has no gguf file in sizes.json" >&2; return 1; }
 }
 
 render_parameters() {
@@ -91,9 +99,66 @@ render_parameters() {
 }
 
 render_modelfile() {
-  sed -e "s|{{BASE}}|$(field "$1" base)|" -e "s|{{CONTEXT}}|$(field "$1" context)|" -e "s|{{OUTPUT_TOKENS}}|$(output_tokens "$1")|" "$modelfile_template"
-  render_renderer "$1"
+  local file
+  file="$(gguf_file "$1")" || return 1
+  sed -e "s|{{BASE}}|./weights/$file|" -e "s|{{CONTEXT}}|$(field "$1" context)|" -e "s|{{OUTPUT_TOKENS}}|$(output_tokens "$1")|" "$modelfile_template"
   render_parameters "$1"
+}
+
+lower_context() {
+  python3 -I -c 'import sys; sys.path.insert(0, sys.argv[1]); from ladder import lower_context; print(lower_context(int(sys.argv[2]), sys.argv[3]))' \
+    "$ladder_dir" "$1" "$sizes_file"
+}
+
+preset_lines() {
+  jq -r --arg size "$1" --argjson context "$2" --arg reasoning "$3" --argjson output "$(output_tokens "$1")" \
+    --arg weights "$weights_placeholder" --slurpfile keys "$preset_keys_file" '
+    .[$size] as $spec
+    | "model = \($weights)/\($spec.gguf.file)",
+      "ctx-size = \($context)",
+      "n-predict = \($output)",
+      (($spec.parameters // {}) | to_entries
+        | map({key: ($keys[0][.key] // error("ollama-profiles: size \($size) has parameter \(.key), which has no preset key in preset-keys.json")), value})
+        | sort_by(.key)[] | "\(.key) = \(.value)"),
+      "reasoning = \($reasoning)"' "$sizes_file"
+}
+
+render_preset() {
+  printf '[%s]\n' "$1"
+  shift
+  preset_lines "$@" || return 1
+  echo
+}
+
+render_size_presets() {
+  local model context lower
+  gguf_file "$1" >/dev/null || return 1
+  model="$(field "$1" model)"
+  context="$(field "$1" context)"
+  lower="$(lower_context "$context")" || return 1
+  render_preset "$model" "$1" "$context" off || return 1
+  render_preset "$model@think" "$1" "$context" on || return 1
+  render_preset "$model@$lower" "$1" "$lower" off
+}
+
+render_embedding_preset() {
+  jq -r --arg weights "$weights_placeholder" '
+    "[\(.model | gsub(":"; "-"))]",
+    "alias = \(.model)",
+    "model = \($weights)/\(.gguf.file)",
+    "ctx-size = \(.context)",
+    "embeddings = true",
+    "pooling = last"' "$embedding_file"
+}
+
+render_models_ini() {
+  local size
+  cat "$server_ini"
+  echo
+  for size in $(sizes); do
+    render_size_presets "$size" || return 1
+  done
+  render_embedding_preset
 }
 
 env_table() {
@@ -130,8 +195,9 @@ render_all() {
   local size
   for size in $(sizes); do
     render_settings "$size" > "$1/settings.$size.json" || return 1
-    render_modelfile "$size" > "$1/Modelfile.$size"
+    render_modelfile "$size" > "$1/Modelfile.$size" || return 1
   done
+  render_models_ini > "$1/models.ini" || return 1
   render_personal > "$1/settings.tokens.json"
   cp "$env_catalogue" "$1/profile-env.generated.json"
   render_env_docs > "$1/ollama.md"
@@ -175,6 +241,7 @@ check_profiles() {
     check_size "$1" "$size" || status=1
   done
   check_unlisted || status=1
+  rendered_matches "$1/models.ini" "$models_ini" || status=1
   rendered_matches "$1/settings.tokens.json" "$personal_settings" || status=1
   rendered_matches "$1/profile-env.generated.json" "$console_env_catalogue" || status=1
   rendered_matches "$1/ollama.md" "$env_docs" || status=1
@@ -202,6 +269,7 @@ write_profiles() {
     write_size "$1" "$size"
   done
   remove_unlisted
+  cp "$1/models.ini" "$models_ini"
   cp "$1/settings.tokens.json" "$personal_settings"
   cp "$1/profile-env.generated.json" "$console_env_catalogue"
   cp "$1/ollama.md" "$env_docs"
@@ -217,11 +285,92 @@ with_rendered() {
   return "$status"
 }
 
+usage() {
+  echo "usage: ollama-profiles [--check | --user-presets [--out FILE] [--profiles-dir DIR]]" >&2
+  exit 2
+}
+
+section_lines() {
+  awk -v id="[$2]" '$0 == id { on = 1; next } /^\[/ { on = 0 } on && NF' "$1"
+}
+
+has_section() {
+  grep -qxF "[$2]" "$1"
+}
+
+add_context_preset() {
+  local presets="$1" model="$2" context="$3" lines
+  has_section "$presets" "$model@$context" && return 0
+  lines="$(section_lines "$presets" "$model" | sed "s/^ctx-size = .*/ctx-size = $context/")"
+  printf '[%s]\n%s\n\n' "$model@$context" "$lines" >> "$presets"
+}
+
+changes_sampling() {
+  jq -e 'has("output_tokens") or ((.parameters // {}) | length > 0)' "$1" >/dev/null
+}
+
+add_profile_presets() {
+  local presets="$1" size="$2" profile="$3" model context lower lines
+  [ -e "$profile" ] || [ -L "$profile" ] || return 0
+  "$profile_overlay" check "$profile" || return 1
+  model="$(field "$size" model)"
+  context="$(jq -r '.context // empty' "$profile")"
+  if [ -n "$context" ]; then
+    lower="$(lower_context "$context")" || return 1
+    add_context_preset "$presets" "$model" "$context"
+    add_context_preset "$presets" "$model" "$lower"
+  fi
+  changes_sampling "$profile" || return 0
+  lines="$(section_lines "$presets" "$model" | "$profile_overlay" preset-parameters "$profile")" || return 1
+  printf '[%s]\n%s\n\n' "$model@profile" "$lines" >> "$presets"
+}
+
+render_user_presets() {
+  local presets="$1" profiles="$2" weights="$3" content size
+  content="$(cat "$models_ini")" || return 1
+  printf '%s\n' "${content//$weights_placeholder/$weights}" > "$presets"
+  for size in $(sizes); do
+    add_profile_presets "$presets" "$size" "$profiles/ollama-$size.json" || return 1
+  done
+}
+
+write_user_presets() {
+  local out="$HOME/.claude-ollama/presets/models.ini" profiles="${XDG_CONFIG_HOME:-$HOME/.config}/claude-custom/profiles" rendered status=0
+  while [ $# -gt 0 ]; do
+    [ $# -ge 2 ] || usage
+    case "$1" in
+      --out) out="$2" ;;
+      --profiles-dir) profiles="$2" ;;
+      *) usage ;;
+    esac
+    shift 2
+  done
+  rendered="$(mktemp)"
+  if render_user_presets "$rendered" "$profiles" "${CLAUDE_OLLAMA_WEIGHTS_DIR:-$HOME/.claude-ollama/weights}"; then
+    install_user_presets "$rendered" "$out" || status=1
+  else
+    status=1
+  fi
+  rm -f "$rendered"
+  return "$status"
+}
+
+install_user_presets() {
+  mkdir -p "${2%/*}" && chmod 700 "${2%/*}" || return 1
+  if [ -f "$2" ] && cmp -s "$1" "$2"; then
+    echo unchanged
+    return 0
+  fi
+  (umask 077 && cp "$1" "$2.$$.tmp") && chmod 600 "$2.$$.tmp" && mv -f "$2.$$.tmp" "$2" || return 1
+  echo changed
+}
+
 main() {
   case "${1:-}" in
     "") with_rendered write_profiles ;;
     --check) with_rendered check_profiles ;;
-    *) echo "usage: ollama-profiles [--check]" >&2; exit 2 ;;
+    --user-presets) shift; write_user_presets "$@" ;;
+    *) usage ;;
   esac
 }
 

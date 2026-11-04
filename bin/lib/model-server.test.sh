@@ -200,6 +200,20 @@ check_eq "fetch_weights refuses a size without a gguf block" "model-server: size
 check_eq "fetch_embedding_weights fetches the embedding GGUF" yes "$(outcome fetch_embedding_weights)"
 check_eq "and keeps it beside the size weights" yes "$(outcome test -f "$sandbox/weights/embed.gguf")"
 
+printf '{"model": "tiny-cc"}\n' > "$repo/ollama/settings.tiny.json"
+printf '[*]\nflash-attn = on\n\n[tiny-cc]\nmodel = @WEIGHTS@/tiny.gguf\nctx-size = 16384\nn-predict = 8192\ntemp = 0.7\nreasoning = off\n\n[tiny-cc@think]\nmodel = @WEIGHTS@/tiny.gguf\nctx-size = 16384\nreasoning = on\n' > "$repo/ollama/models.ini"
+ln -s "$real_repo/ollama/preset-keys.json" "$repo/ollama/preset-keys.json"
+use_size tiny
+check_eq "preset_parameters prints the size's preset keys without the weights path" "ctx-size = 16384
+n-predict = 8192
+temp = 0.7
+reasoning = off" "$(preset_parameters)"
+check_eq "preset_ctx_size is the size's ctx-size" 16384 "$(preset_ctx_size)"
+mkdir -p "$HOME/.config/claude-custom/profiles"
+printf '{"context": 20480, "parameters": {"temperature": 0.3}}' > "$HOME/.config/claude-custom/profiles/ollama-tiny.json"
+check_eq "preset_ctx_size follows a profile context" 20480 "$(preset_ctx_size)"
+check_eq "preset_parameters applies the profile's parameters as preset keys" "temp = 0.3" "$(preset_parameters | grep '^temp')"
+
 if [ "$failures" -gt 0 ]; then
   echo "$failures failure(s)"
   exit 1

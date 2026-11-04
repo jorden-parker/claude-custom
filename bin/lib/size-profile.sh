@@ -40,8 +40,16 @@ base_model() {
   sed -n 's/^FROM //p' "$profile_dir/Modelfile.$size"
 }
 
-modelfile_num_ctx() {
-  modelfile_parameters | sed -n 's/^num_ctx //p'
+preset_section() {
+  awk -v id="[$(size_model)]" '$0 == id { on = 1; next } /^\[/ { on = 0 } on && NF' "$profile_dir/models.ini"
+}
+
+preset_parameters() {
+  preset_section | grep -v '^model = ' | "$profile_overlay" preset-parameters "$profile_file"
+}
+
+preset_ctx_size() {
+  preset_parameters | sed -n 's/^ctx-size = //p'
 }
 
 modelfile_parameters() {

@@ -49,7 +49,7 @@ check_digests() {
 
 check_context_sizes() {
   local ctx tokens
-  ctx="$(modelfile_num_ctx)"
+  ctx="$(preset_ctx_size)"
   tokens="$(profile_context_tokens)"
   if [ "$ctx" -ge "$tokens" ]; then
     report ok "num_ctx $ctx matches CLAUDE_CODE_MAX_CONTEXT_TOKENS $tokens; Claude Code compacts at $(compaction_point) tokens"

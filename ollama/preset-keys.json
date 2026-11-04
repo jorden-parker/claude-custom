@@ -1,0 +1,8 @@
+{
+  "temperature": "temp",
+  "top_k": "top-k",
+  "top_p": "top-p",
+  "min_p": "min-p",
+  "presence_penalty": "presence-penalty",
+  "repeat_penalty": "repeat-penalty"
+}

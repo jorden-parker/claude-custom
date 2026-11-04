@@ -1,44 +1,9 @@
 {
   "27b": {
-    "base": "qwen3.8:27b-mlx",
+    "base": "unsloth/Qwen3.8-27B-GGUF/Qwen3.8-27B-UD-Q4_K_XL.gguf",
     "model": "qwen3.8-27b-cc",
     "context": 65536,
     "output_tokens": 8192,
-    "parameters": {
-      "temperature": 0.7,
-      "top_k": 20,
-      "top_p": 0.8
-    }
-  },
-  "35b": {
-    "base": "qwen3.6:35b-mlx",
-    "model": "qwen3.6-35b-cc",
-    "context": 98304,
-    "output_tokens": 8192,
-    "parameters": {
-      "temperature": 0.7,
-      "top_k": 20,
-      "top_p": 0.8
-    }
-  },
-  "35b-coding": {
-    "base": "qwen3.6:35b-a3b-coding-nvfp4",
-    "model": "qwen3.6-35b-coding-cc",
-    "context": 98304,
-    "output_tokens": 8192,
-    "parameters": {
-      "temperature": 0.7,
-      "top_k": 20,
-      "top_p": 0.8
-    }
-  },
-  "27b-gguf": {
-    "base": "./weights/Qwen3.8-27B-UD-Q4_K_XL.gguf",
-    "model": "qwen3.8-27b-gguf-cc",
-    "context": 65536,
-    "output_tokens": 8192,
-    "renderer": "qwen3.8",
-    "parser": "qwen3.5",
     "parameters": {
       "temperature": 0.7,
       "top_k": 20,
@@ -49,15 +14,15 @@
     },
     "gguf": {
       "repo": "unsloth/Qwen3.8-27B-GGUF",
-      "revision": "4ca720788d1e01f1bff70c033e0d0028fd02e502"
+      "revision": "4ca720788d1e01f1bff70c033e0d0028fd02e502",
+      "file": "Qwen3.8-27B-UD-Q4_K_XL.gguf"
     }
   },
-  "35b-gguf": {
-    "base": "./weights/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf",
-    "model": "qwen3.6-35b-gguf-cc",
+  "35b": {
+    "base": "unsloth/Qwen3.6-35B-A3B-GGUF/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf",
+    "model": "qwen3.6-35b-cc",
     "context": 98304,
     "output_tokens": 8192,
-    "renderer": "qwen3.5",
     "parameters": {
       "temperature": 0.7,
       "top_k": 20,
@@ -68,13 +33,19 @@
     },
     "gguf": {
       "repo": "unsloth/Qwen3.6-35B-A3B-GGUF",
-      "revision": "a483e9e6cbd595906af30beda3187c2663a1118c"
+      "revision": "a483e9e6cbd595906af30beda3187c2663a1118c",
+      "file": "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf"
     }
   },
   "3b": {
-    "base": "granite4.2:3b",
+    "base": "ibm-granite/granite-4.2-3b-GGUF/granite-4.2-3b-Q4_K_M.gguf",
     "model": "granite4.2-3b-cc",
     "context": 32768,
-    "output_tokens": 8192
+    "output_tokens": 8192,
+    "gguf": {
+      "repo": "ibm-granite/granite-4.2-3b-GGUF",
+      "revision": "c40945d71cd90f249a56985e8155551a9188dc30",
+      "file": "granite-4.2-3b-Q4_K_M.gguf"
+    }
   }
 }

@@ -162,7 +162,7 @@ fit_report() {
   local embedding="" fit_result
   fit_on || return 0
   ! embedding_model_fits || embedding="$embedding_model"
-  if ! fit_result="$(run_fit "$(modelfile_num_ctx)" "$embedding" 2>&1)"; then
+  if ! fit_result="$(run_fit "$(preset_ctx_size)" "$embedding" 2>&1)"; then
     report warn "memory fit: $fit_result"
     return 0
   fi

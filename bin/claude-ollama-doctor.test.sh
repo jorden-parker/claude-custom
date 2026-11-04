@@ -133,14 +133,14 @@ check_that "doctor reports hooks" grep -qxF "ok   hook stop-verify.py present" "
 check_that "doctor reports reachability" grep -qxF "ok   ollama reachable at http://127.0.0.1:11434" "$sandbox/out"
 check_that "doctor reports server env" grep -qxF "ok   server env OLLAMA_KV_CACHE_TYPE=q8_0" "$sandbox/out"
 check_that "doctor reports no managed model allowlist" grep -qxF "ok   no managed availableModels restricts qwen3.8-27b-cc" "$sandbox/out"
-check_that "doctor reports a base that matches its pin" grep -qxF "ok   digest qwen3.8:27b-mlx matches its pin" "$sandbox/out"
+check_that "doctor reports a base that matches its pin" grep -qxF "ok   digest ./weights/Qwen3.8-27B-UD-Q4_K_XL.gguf matches its pin" "$sandbox/out"
 check_that "doctor reports the browser tools" grep -q 'browser tools' "$sandbox/out"
 check_not "doctor never mentions sandbox-runtime" grep -q 'sandbox-runtime' "$sandbox/out"
 check_not "doctor does not pull or create" grep -sqE '^(pull|create) ' "$sandbox/ollama.log"
-jq '.models[0].digest = "0000"' "$sandbox/tags.json" > "$sandbox/tags.new" && mv "$sandbox/tags.new" "$sandbox/tags.json"
+jq '.models |= map(if .name == "./weights/Qwen3.8-27B-UD-Q4_K_XL.gguf" then .digest = "0000" else . end)' "$sandbox/tags.json" > "$sandbox/tags.new" && mv "$sandbox/tags.new" "$sandbox/tags.json"
 run_doctor
 check_eq "doctor with a base that misses its pin exit status" 1 "$?"
-check_that "doctor fails a base that misses its pin" grep -qF "fail digest qwen3.8:27b-mlx is 0000, not the pinned" "$sandbox/out"
+check_that "doctor fails a base that misses its pin" grep -qF "fail digest ./weights/Qwen3.8-27B-UD-Q4_K_XL.gguf is 0000, not the pinned" "$sandbox/out"
 pinned_tags > "$sandbox/tags.json"
 
 run_doctor env HOMEBREW_PREFIX="$sandbox/brew"
@@ -206,8 +206,8 @@ check_that "doctor names the fix for missing server env" grep -qxF "     fix: cl
 
 new_sandbox
 copy_repo "$sandbox/repo"
-sed 's/num_ctx 65536/num_ctx 32768/' "$sandbox/repo/ollama/Modelfile.27b" > "$sandbox/Modelfile.27b"
-mv "$sandbox/Modelfile.27b" "$sandbox/repo/ollama/Modelfile.27b"
+sed 's/^ctx-size = 65536$/ctx-size = 32768/' "$sandbox/repo/ollama/models.ini" > "$sandbox/models.ini"
+mv "$sandbox/models.ini" "$sandbox/repo/ollama/models.ini"
 doctor="$sandbox/repo/bin/claude-ollama-doctor" run_doctor
 check_eq "doctor with mismatched context sizes exit status" 1 "$?"
 check_that "doctor fails mismatched context sizes" grep -qxF "fail num_ctx 32768 is below CLAUDE_CODE_MAX_CONTEXT_TOKENS 65536 (run bin/ollama-profiles)" "$sandbox/out"

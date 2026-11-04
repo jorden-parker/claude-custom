@@ -116,32 +116,25 @@ check_eq "the Qwen Code profile turns cross-session messaging off, since no seco
   "$(jq -r '.agents.crossSessionMessaging' "$qwen_template")"
 
 digests="$repo/ollama/model-digests.json"
-pulled_models() {
-  sed -n 's/^FROM //p' "$repo"/ollama/Modelfile.*
-  sed -n 's/^embedding_model=.*CODE_SEARCH_MODEL:-\([^}]*\)}.*/\1/p' "$repo/bin/lib/size-profile.sh"
-}
-is_sha256() {
-  [[ "$1" =~ ^[0-9a-f]{64}$ ]]
-}
-is_library_name() {
-  [[ "$1" != */* ]]
+pinned_gguf_blocks() {
+  jq -c 'to_entries[] | {name: "size \(.key)", base: .value.base, gguf: .value.gguf}' "$repo/ollama/sizes.json"
+  jq -c '{name: "the embedding model", base: null, gguf: .gguf}' "$repo/ollama/embedding.json"
 }
 is_pinned_gguf() {
-  local file="${1#./weights/}"
-  [[ "$1" == ./weights/* && "$file" != */* && "$file" == *.gguf ]] || return 1
-  jq -e --arg base "$1" '
-    [.[] | select(.base == $base) | .gguf // empty
-      | select((.repo | test("^unsloth/[A-Za-z0-9._-]+-GGUF$")) and (.revision | test("^[0-9a-f]{40}$")))
-    ] | length > 0' "$repo/ollama/sizes.json" >/dev/null
+  jq -e --slurpfile digests "$digests" '
+    (.gguf.repo // "" | test("^(unsloth|ibm-granite|Qwen)/[A-Za-z0-9._-]+-GGUF$"))
+    and (.gguf.revision // "" | test("^[0-9a-f]{40}$"))
+    and (.gguf.file // "" | test("^[A-Za-z0-9._-]+\\.gguf$"))
+    and ($digests[0]["\(.gguf.repo)/\(.gguf.file)"] // "" | test("^[0-9a-f]{64}$"))' <<<"$1" >/dev/null
 }
-is_allowed_base() {
-  is_library_name "$1" || is_pinned_gguf "$1"
+names_its_gguf() {
+  jq -e '.base == null or .base == "\(.gguf.repo)/\(.gguf.file)"' <<<"$1" >/dev/null
 }
-for name in $(pulled_models); do
-  check_that "$name is an Ollama library model or a pinned Unsloth GGUF" is_allowed_base "$name"
-  check_that "$name has a sha256 pin in model-digests.json" \
-    is_sha256 "$(jq -r ".[\"$name\"] // empty" "$digests")"
-done
+while IFS= read -r block; do
+  name="$(jq -r .name <<<"$block")"
+  check_that "$name is a GGUF from unsloth, ibm-granite or Qwen at a pinned revision, with a sha256 in model-digests.json" is_pinned_gguf "$block"
+  check_that "$name names that GGUF as its base" names_its_gguf "$block"
+done < <(pinned_gguf_blocks)
 check_that ".gitignore keeps downloaded GGUF weights out of git" grep -qx 'ollama/weights/' "$repo/.gitignore"
 
 check_eq "rendered profiles are current" 0 "$("$repo/bin/ollama-profiles" --check >/dev/null 2>&1; echo $?)"
@@ -185,7 +178,7 @@ check_eq "claude-ollama starts its three MCP servers through shared/host-env" 3 
 check_that "claude-ollama starts the incident watcher tied to its own pid" \
   grep -qF -- '--model "$model" --out "$incidents_file" --watch-pid "$$"' "$repo/bin/claude-ollama"
 check_that "claude-ollama starts the degrade ladder beside the watcher, tied to its own pid" \
-  grep -qF -- '--watch-pid "$$" --context "$(modelfile_num_ctx)"' "$repo/bin/claude-ollama"
+  grep -qF -- '--watch-pid "$$" --context "$(preset_ctx_size)"' "$repo/bin/claude-ollama"
 check_that "claude-ollama lets CLAUDE_OLLAMA_LADDER=0 turn the ladder off" grep -qF '"${CLAUDE_OLLAMA_LADDER:-}" = 0' "$repo/bin/claude-ollama"
 check_that "claude-ollama holds a session lease before it starts the indexer" \
   test "$(grep -n '^claim_session$' "$repo/bin/claude-ollama" | cut -d: -f1)" -lt "$(grep -n '^warm_search_index$' "$repo/bin/claude-ollama" | cut -d: -f1)"
@@ -291,18 +284,9 @@ done
 check_eq "settings.tokens.json leaves the hook subprocesses unconfined" null \
   "$(jq -r '.env.CLAUDE_CUSTOM_HOOK_SANDBOX' "$repo/personal/settings.tokens.json")"
 
-modelfile_num_ctx_for() {
-  sed -n 's/^PARAMETER num_ctx //p' "$repo/ollama/Modelfile.$1"
-}
-
-context_is_num_ctx() {
-  local size="${1##*/settings.}"
-  size="${size%.json}"
-  [ "$(jq -r .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS "$1")" = "$(modelfile_num_ctx_for "$size")" ]
-}
-
-modelfile_num_predict_for() {
-  sed -n 's/^PARAMETER num_predict //p' "$repo/ollama/Modelfile.$1"
+models_ini="$repo/ollama/models.ini"
+preset_value() {
+  awk -v id="[$1]" -v key="$2" '$0 == id { on = 1; next } /^\[/ { on = 0 } on && index($0, key " = ") == 1 { print substr($0, length(key) + 4) }' "$models_ini"
 }
 
 size_output_tokens() {
@@ -312,11 +296,26 @@ size_output_tokens() {
 for settings in "$repo"/ollama/settings.*.json; do
   size="${settings##*/settings.}"
   size="${size%.json}"
+  model="$(jq -r .model "$settings")"
   check_eq "${settings##*/} sends the output tokens sizes.json gives the $size size" "$(size_output_tokens "$size")" "$(jq -r .env.CLAUDE_CODE_MAX_OUTPUT_TOKENS "$settings")"
-  check_eq "Modelfile.$size caps num_predict at the same output tokens" "$(size_output_tokens "$size")" "$(modelfile_num_predict_for "$size")"
+  check_eq "the $model preset caps n-predict at the same output tokens" "$(size_output_tokens "$size")" "$(preset_value "$model" n-predict)"
+  check_eq "${settings##*/} gives Claude Code the preset's full ctx-size, since it keeps the output and a margin under it itself" "$(preset_value "$model" ctx-size)" "$(jq -r .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS "$settings")"
+  check_eq "the $model@think preset turns reasoning on" on "$(preset_value "$model@think" reasoning)"
 done
+check_eq "every chat preset turns reasoning on or off" 0 \
+  "$(awk '
+    function close_section() { if (named && !embeddings && !reasoning) missing++ }
+    /^\[/ { close_section(); named = ($0 != "[*]"); embeddings = 0; reasoning = 0; next }
+    /^embeddings = true$/ { embeddings = 1 }
+    /^reasoning = (on|off)$/ { reasoning = 1 }
+    END { close_section(); print missing + 0 }
+  ' "$models_ini")"
+embedding_name="$(jq -r .model "$repo/ollama/embedding.json")"
+embedding_preset="$(printf '%s' "$embedding_name" | tr ':' '-')"
+check_eq "the embedding preset exists and serves embeddings" true "$(preset_value "$embedding_preset" embeddings)"
+check_eq "the embedding preset answers to the embedding model name" "$embedding_name" "$(preset_value "$embedding_preset" alias)"
+check_eq "ollama/embedding.json names the default embedding model" "$(sed -n 's/^embedding_model=.*CODE_SEARCH_MODEL:-\([^}]*\)}.*/\1/p' "$repo/bin/lib/size-profile.sh")" "$embedding_name"
 for settings in "$repo"/ollama/settings.*.json; do
-  check_that "${settings##*/} gives Claude Code the full num_ctx, since it keeps the output and a margin under it itself" context_is_num_ctx "$settings"
   check_eq "${settings##*/} never precomputes a compaction summary in a second request to the one local model" false \
     "$(jq -r .precomputeCompactionEnabled "$settings")"
 done

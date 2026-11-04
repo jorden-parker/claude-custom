@@ -372,16 +372,16 @@ rm -f "$sandbox/stubbin/curl"
 OLLAMA_HOST=http://127.0.0.1:9 run_capture "$repo/bin/claude-ollama" 35b -p hi
 check_that "claude-ollama launches without curl" grep -q '^ARGS:' "$sandbox/out"
 new_sandbox
-STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" 35b -p hi
-check_that "claude-ollama 35b pulls a missing base model" grep -qxF "pull qwen3.6:35b-mlx" "$sandbox/ollama.log"
-check_that "claude-ollama 35b creates the missing model" grep -qxF "create qwen3.6-35b-cc -f $repo/ollama/Modelfile.35b" "$sandbox/ollama.log"
-check_that "claude-ollama 35b launches after pulling" grep -qF -- "--model qwen3.6-35b-cc --tools" "$sandbox/out"
+STUB_SHASUM_DIGEST=707a55a8a4397ecde44de0c499d3e68c1ad1d240d1da65826b4949d1043f4450 STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" 35b -p hi
+check_that "claude-ollama 35b downloads its pinned GGUF" grep -qF "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/a483e9e6cbd595906af30beda3187c2663a1118c/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf" "$sandbox/curl.log"
+check_that "claude-ollama 35b creates the missing model" grep -qxF "create qwen3.6-35b-cc -f Modelfile.35b" "$sandbox/ollama.log"
+check_that "claude-ollama 35b launches after importing" grep -qF -- "--model qwen3.6-35b-cc --tools" "$sandbox/out"
 settings_arg() { sed -n 's/^ARGS: --settings \([^ ]*\).*/\1/p' "$sandbox/out"; }
 check_eq "claude-ollama always passes the profile itself" "$repo/ollama/settings.35b.json" "$(settings_arg)"
 check_not "claude-ollama never creates a side model" grep -q '^create qwen3-4b-cc' "$sandbox/ollama.log"
 check_that "claude-ollama pulls a missing embedding model" grep -qxF "pull qwen3-embedding:0.6b" "$sandbox/ollama.log"
 rm -f "$sandbox/ollama.log"
-CODE_SEARCH_MODEL=nomic-embed-text STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" 35b -p hi
+CODE_SEARCH_MODEL=nomic-embed-text STUB_SHASUM_DIGEST=707a55a8a4397ecde44de0c499d3e68c1ad1d240d1da65826b4949d1043f4450 STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" 35b -p hi
 check_that "claude-ollama pulls the CODE_SEARCH_MODEL override" grep -qxF "pull nomic-embed-text" "$sandbox/ollama.log"
 rm -f "$sandbox/ollama.log"
 launcher_log="$HOME/.local/share/claude-custom/console/launcher.log"
@@ -408,59 +408,51 @@ check_that "a launcher log over 1 MiB moves aside" test "$(wc -c < "$launcher_lo
 check_that "the fresh launcher log starts with this launch" wait_for_launcher_log "claude-ollama: launch 35b"
 check_that "the fresh launcher log is small" test "$(wc -c < "$launcher_log")" -lt 4096
 rm -f "$sandbox/ollama.log"
-STUB_OLLAMA_SHOW_EXIT=1 STUB_OLLAMA_PULL_EXIT=1 run_capture "$repo/bin/claude-ollama" 35b -p hi
-check_eq "claude-ollama 35b failed pull exit status" 1 "$?"
-check_not "claude-ollama 35b failed pull does not create" grep -sq '^create ' "$sandbox/ollama.log"
-check_not "claude-ollama 35b failed pull does not launch claude" grep -q '^ARGS:' "$sandbox/out"
+STUB_OLLAMA_SHOW_EXIT=1 STUB_HF_CURL_EXIT=22 run_capture "$repo/bin/claude-ollama" 35b -p hi
+check_eq "claude-ollama 35b failed download exit status" 1 "$?"
+check_not "claude-ollama 35b failed download does not create" grep -sq '^create ' "$sandbox/ollama.log"
+check_not "claude-ollama 35b failed download does not launch claude" grep -q '^ARGS:' "$sandbox/out"
+rm -f "$repo/ollama/weights/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf.part"
 rm -f "$sandbox/ollama.log"
 run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_not "claude-ollama 27b skips pull when the model exists" grep -sqE '^(pull|create) ' "$sandbox/ollama.log"
-STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" 27b -p hi
-check_that "claude-ollama 27b pulls a missing base model" grep -qxF "pull qwen3.8:27b-mlx" "$sandbox/ollama.log"
-check_that "claude-ollama 27b creates the missing model" grep -qxF "create qwen3.8-27b-cc -f $repo/ollama/Modelfile.27b" "$sandbox/ollama.log"
-check_that "claude-ollama 27b launches after pulling" grep -qF -- "--model qwen3.8-27b-cc --tools" "$sandbox/out"
-rm -f "$sandbox/ollama.log"
-STUB_OLLAMA_SHOW_EXIT=1 STUB_OLLAMA_PULL_EXIT=1 run_capture "$repo/bin/claude-ollama" 27b -p hi
-check_eq "claude-ollama 27b failed pull exit status" 1 "$?"
-check_not "claude-ollama 27b failed pull does not create" grep -sq '^create ' "$sandbox/ollama.log"
-check_not "claude-ollama 27b failed pull does not launch claude" grep -q '^ARGS:' "$sandbox/out"
 new_sandbox
-STUB_SHASUM_DIGEST=3f227079003add2511437e5b1e94812e363385225bf6a9b47b0054a72bc8b01e STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" 27b-gguf -p hi
-check_eq "claude-ollama 27b-gguf imports after a matching digest" 0 "$?"
-check_that "claude-ollama 27b-gguf downloads the pinned Hugging Face file" grep -qF "https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/4ca720788d1e01f1bff70c033e0d0028fd02e502/Qwen3.8-27B-UD-Q4_K_XL.gguf" "$sandbox/curl.log"
-check_that "claude-ollama 27b-gguf creates the model from its Modelfile" grep -qxF "create qwen3.8-27b-gguf-cc -f Modelfile.27b-gguf" "$sandbox/ollama.log"
-check_not "claude-ollama 27b-gguf never pulls its weights" grep -q '^pull \./weights' "$sandbox/ollama.log"
-check_that "claude-ollama 27b-gguf launches after importing" grep -qF -- "--model qwen3.8-27b-gguf-cc --tools" "$sandbox/out"
-check_not "claude-ollama 27b-gguf removes the verified download" test -e "$repo/ollama/weights/Qwen3.8-27B-UD-Q4_K_XL.gguf"
-check_not "claude-ollama 27b-gguf leaves no partial download" test -e "$repo/ollama/weights/Qwen3.8-27B-UD-Q4_K_XL.gguf.part"
+STUB_SHASUM_DIGEST=3f227079003add2511437e5b1e94812e363385225bf6a9b47b0054a72bc8b01e STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_eq "claude-ollama 27b imports after a matching digest" 0 "$?"
+check_that "claude-ollama 27b downloads the pinned Hugging Face file" grep -qF "https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/4ca720788d1e01f1bff70c033e0d0028fd02e502/Qwen3.8-27B-UD-Q4_K_XL.gguf" "$sandbox/curl.log"
+check_that "claude-ollama 27b creates the model from its Modelfile" grep -qxF "create qwen3.8-27b-cc -f Modelfile.27b" "$sandbox/ollama.log"
+check_not "claude-ollama 27b never pulls its weights" grep -q '^pull \./weights' "$sandbox/ollama.log"
+check_that "claude-ollama 27b launches after importing" grep -qF -- "--model qwen3.8-27b-cc --tools" "$sandbox/out"
+check_not "claude-ollama 27b removes the verified download" test -e "$repo/ollama/weights/Qwen3.8-27B-UD-Q4_K_XL.gguf"
+check_not "claude-ollama 27b leaves no partial download" test -e "$repo/ollama/weights/Qwen3.8-27B-UD-Q4_K_XL.gguf.part"
 new_sandbox
-STUB_SHASUM_DIGEST=abc STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" 27b-gguf -p hi
-check_eq "claude-ollama 27b-gguf exits 1 on a wrong digest" 1 "$?"
-check_that "claude-ollama 27b-gguf names the actual and pinned digests" grep -qF "sha256 abc, but ollama/model-digests.json pins 3f227079003add2511437e5b1e94812e363385225bf6a9b47b0054a72bc8b01e" "$sandbox/err"
-check_not "claude-ollama 27b-gguf does not create after a wrong digest" grep -sq '^create ' "$sandbox/ollama.log"
-check_not "claude-ollama 27b-gguf does not launch after a wrong digest" grep -q '^ARGS:' "$sandbox/out"
-check_not "claude-ollama 27b-gguf removes the download after a wrong digest" test -e "$repo/ollama/weights/Qwen3.8-27B-UD-Q4_K_XL.gguf.part"
+STUB_SHASUM_DIGEST=abc STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_eq "claude-ollama 27b exits 1 on a wrong digest" 1 "$?"
+check_that "claude-ollama 27b names the actual and pinned digests" grep -qF "sha256 abc, but ollama/model-digests.json pins 3f227079003add2511437e5b1e94812e363385225bf6a9b47b0054a72bc8b01e" "$sandbox/err"
+check_not "claude-ollama 27b does not create after a wrong digest" grep -sq '^create ' "$sandbox/ollama.log"
+check_not "claude-ollama 27b does not launch after a wrong digest" grep -q '^ARGS:' "$sandbox/out"
+check_not "claude-ollama 27b removes the download after a wrong digest" test -e "$repo/ollama/weights/Qwen3.8-27B-UD-Q4_K_XL.gguf.part"
 new_sandbox
-STUB_SHASUM_DIGEST=3f227079003add2511437e5b1e94812e363385225bf6a9b47b0054a72bc8b01e STUB_INSPECT_EXIT=1 STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" 27b-gguf -p hi
-check_eq "claude-ollama 27b-gguf exits 1 when inspection fails" 1 "$?"
-check_that "claude-ollama 27b-gguf says the file failed inspection" grep -qF "failed inspection; not importing" "$sandbox/err"
-check_not "claude-ollama 27b-gguf does not create after failed inspection" grep -sq '^create ' "$sandbox/ollama.log"
-check_not "claude-ollama 27b-gguf does not launch after failed inspection" grep -q '^ARGS:' "$sandbox/out"
-check_not "claude-ollama 27b-gguf removes the download after failed inspection" test -e "$repo/ollama/weights/Qwen3.8-27B-UD-Q4_K_XL.gguf.part"
+STUB_SHASUM_DIGEST=3f227079003add2511437e5b1e94812e363385225bf6a9b47b0054a72bc8b01e STUB_INSPECT_EXIT=1 STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_eq "claude-ollama 27b exits 1 when inspection fails" 1 "$?"
+check_that "claude-ollama 27b says the file failed inspection" grep -qF "failed inspection; not importing" "$sandbox/err"
+check_not "claude-ollama 27b does not create after failed inspection" grep -sq '^create ' "$sandbox/ollama.log"
+check_not "claude-ollama 27b does not launch after failed inspection" grep -q '^ARGS:' "$sandbox/out"
+check_not "claude-ollama 27b removes the download after failed inspection" test -e "$repo/ollama/weights/Qwen3.8-27B-UD-Q4_K_XL.gguf.part"
 new_sandbox
-run_capture "$repo/bin/claude-ollama" 27b-gguf -p hi
-check_not "claude-ollama 27b-gguf does not download when the model is installed" grep -qF huggingface.co "$sandbox/curl.log"
+run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_not "claude-ollama 27b does not download when the model is installed" grep -qF huggingface.co "$sandbox/curl.log"
 new_sandbox
-STUB_HF_CURL_EXIT=18 STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" 27b-gguf -p hi
-check_eq "claude-ollama 27b-gguf exits 1 when the download breaks off" 1 "$?"
-check_that "claude-ollama 27b-gguf asks curl to resume a partial download" grep -qF -- "-C -" "$sandbox/curl.log"
-check_that "claude-ollama 27b-gguf keeps a broken-off download so the next run resumes it" test -e "$repo/ollama/weights/Qwen3.8-27B-UD-Q4_K_XL.gguf.part"
-check_not "claude-ollama 27b-gguf does not create after a broken-off download" grep -sq '^create ' "$sandbox/ollama.log"
+STUB_HF_CURL_EXIT=18 STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_eq "claude-ollama 27b exits 1 when the download breaks off" 1 "$?"
+check_that "claude-ollama 27b asks curl to resume a partial download" grep -qF -- "-C -" "$sandbox/curl.log"
+check_that "claude-ollama 27b keeps a broken-off download so the next run resumes it" test -e "$repo/ollama/weights/Qwen3.8-27B-UD-Q4_K_XL.gguf.part"
+check_not "claude-ollama 27b does not create after a broken-off download" grep -sq '^create ' "$sandbox/ollama.log"
 rm -f "$repo/ollama/weights/Qwen3.8-27B-UD-Q4_K_XL.gguf.part"
 new_sandbox
-STUB_SHASUM_DIGEST=3f227079003add2511437e5b1e94812e363385225bf6a9b47b0054a72bc8b01e STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" prepare 27b-gguf
+STUB_SHASUM_DIGEST=3f227079003add2511437e5b1e94812e363385225bf6a9b47b0054a72bc8b01e STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" prepare 27b
 check_eq "claude-ollama prepare exits 0 after importing" 0 "$?"
-check_that "claude-ollama prepare creates a missing model" grep -qxF "create qwen3.8-27b-gguf-cc -f Modelfile.27b-gguf" "$sandbox/ollama.log"
+check_that "claude-ollama prepare creates a missing model" grep -qxF "create qwen3.8-27b-cc -f Modelfile.27b" "$sandbox/ollama.log"
 check_not "claude-ollama prepare does not launch claude" grep -q '^ARGS:' "$sandbox/out"
 new_sandbox
 run_capture "$repo/bin/claude-ollama" prepare 27b
@@ -496,7 +488,7 @@ check_that "claude-ollama recreates a model with a stale num_ctx" grep -qE '^cre
 check_that "the recreated model builds on the installed one" grep -qxF "modelfile: FROM qwen3.8-27b-cc" "$sandbox/ollama.log"
 check_that "the recreated model gets the profile num_ctx" grep -qxF "modelfile: PARAMETER num_ctx 65536" "$sandbox/ollama.log"
 check_not "a stale num_ctx does not pull the base model" grep -q '^pull ' "$sandbox/ollama.log"
-check_that "claude-ollama says it recreates the model" grep -qF "recreating qwen3.8-27b-cc with num_ctx 65536 num_predict 8192 temperature 0.7 top_k 20 top_p 0.8" "$sandbox/err"
+check_that "claude-ollama says it recreates the model" grep -qF "recreating qwen3.8-27b-cc with num_ctx 65536 num_predict 8192 min_p 0 presence_penalty 0 repeat_penalty 1 temperature 0.7 top_k 20 top_p 0.8" "$sandbox/err"
 check_that "claude-ollama launches after recreating" grep -qF -- "--model qwen3.8-27b-cc --tools" "$sandbox/out"
 new_sandbox
 STUB_OLLAMA_TEMPERATURE=1 run_capture "$repo/bin/claude-ollama" 27b -p hi
@@ -508,15 +500,11 @@ run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_not "claude-ollama leaves a model whose parameters match alone" grep -q '^create ' "$sandbox/ollama.log"
 
 new_sandbox
-jq '.models[0].digest = "0000"' "$sandbox/tags.json" > "$sandbox/tags.new" && mv "$sandbox/tags.new" "$sandbox/tags.json"
-STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" 27b -p hi
-check_eq "claude-ollama exits when a pulled base misses its pin" 1 "$?"
-check_that "claude-ollama names the base that misses its pin" grep -qF "qwen3.8:27b-mlx has digest 0000" "$sandbox/err"
-check_that "claude-ollama names the upgrade command when a base misses its pin" grep -qF "or run bin/model-upgrade SIZE to test the new base and print the pin command" "$sandbox/err"
-check_not "claude-ollama does not create from a base that misses its pin" grep -sq '^create ' "$sandbox/ollama.log"
-check_not "claude-ollama does not launch with a base that misses its pin" grep -q '^ARGS:' "$sandbox/out"
+jq '.models |= map(if .name == "./weights/Qwen3.8-27B-UD-Q4_K_XL.gguf" then .digest = "0000" else . end)' "$sandbox/tags.json" > "$sandbox/tags.new" && mv "$sandbox/tags.new" "$sandbox/tags.json"
 run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_eq "claude-ollama exits when an installed base misses its pin" 1 "$?"
+check_that "claude-ollama names the base that misses its pin" grep -qF "./weights/Qwen3.8-27B-UD-Q4_K_XL.gguf has digest 0000" "$sandbox/err"
+check_that "claude-ollama names the upgrade command when a base misses its pin" grep -qF "or run bin/model-upgrade SIZE to test the new base and print the pin command" "$sandbox/err"
 check_not "claude-ollama does not launch with an installed base that misses its pin" grep -q '^ARGS:' "$sandbox/out"
 new_sandbox
 jq '.models |= map(if .name == "qwen3-embedding:0.6b" then .digest = "0000" else . end)' "$sandbox/tags.json" > "$sandbox/tags.new" && mv "$sandbox/tags.new" "$sandbox/tags.json"
@@ -527,13 +515,13 @@ new_sandbox
 jq '.models |= map(select(.name != "qwen3-embedding:0.6b"))' "$sandbox/tags.json" > "$sandbox/tags.new" && mv "$sandbox/tags.new" "$sandbox/tags.json"
 run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "claude-ollama launches when a pinned model is not installed" grep -q '^ARGS:' "$sandbox/out"
-STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" 27b -p hi
-check_that "claude-ollama creates from a base that matches its pin" grep -qxF "create qwen3.8-27b-cc -f $repo/ollama/Modelfile.27b" "$sandbox/ollama.log"
+STUB_SHASUM_DIGEST=3f227079003add2511437e5b1e94812e363385225bf6a9b47b0054a72bc8b01e STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_that "claude-ollama imports a base that matches its pin" grep -qxF "create qwen3.8-27b-cc -f Modelfile.27b" "$sandbox/ollama.log"
 
 new_sandbox
 run_capture "$repo/bin/claude-ollama" --help
 check_eq "claude-ollama help exit status" 0 "$?"
-check_that "claude-ollama help lists sizes" grep -qxF "sizes: 27b-gguf 27b 35b-coding 35b-gguf 35b 3b" "$sandbox/out"
+check_that "claude-ollama help lists sizes" grep -qxF "sizes: 27b 35b 3b" "$sandbox/out"
 check_not "claude-ollama help does not launch claude" grep -q '^ARGS:' "$sandbox/out"
 check_that "claude-ollama help names speed-check" grep -q '^speed-check: ' "$sandbox/out"
 check_that "claude-ollama help names thinking-check" grep -q '^thinking-check: ' "$sandbox/out"
@@ -554,7 +542,7 @@ run_capture "$sandbox/repo/bin/claude-ollama" 9b -p hi
 check_that "claude-ollama accepts a newly configured size" grep -qF -- "--settings $sandbox/repo/ollama/settings.9b.json" "$sandbox/out"
 check_not "claude-ollama does not pass a configured size to claude" grep -qF -- "Write 9b" "$sandbox/out"
 run_capture "$sandbox/repo/bin/claude-ollama" --help
-check_that "claude-ollama help lists sizes from config" grep -qxF "sizes: 27b-gguf 27b 35b-coding 35b-gguf 35b 3b 9b" "$sandbox/out"
+check_that "claude-ollama help lists sizes from config" grep -qxF "sizes: 27b 35b 3b 9b" "$sandbox/out"
 
 cat > "$sandbox/stubbin/go" <<'STUB'
 #!/bin/sh
@@ -669,7 +657,7 @@ check_not "print-config does not launch claude" grep -q '^ARGS:' "$sandbox/out"
 check_not "print-config does not pull or create" grep -sqE '^(pull|create) ' "$sandbox/ollama.log"
 check_that "print-config shows the size" grep -qxF "size: 35b" "$sandbox/out"
 check_that "print-config shows the model" grep -qxF "model: qwen3.6-35b-cc" "$sandbox/out"
-check_that "print-config shows the base model" grep -qxF "base: qwen3.6:35b-mlx" "$sandbox/out"
+check_that "print-config shows the base model" grep -qxF "base: ./weights/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf" "$sandbox/out"
 check_not "print-config has no side model" grep -q "^side model:" "$sandbox/out"
 check_that "print-config shows the embedding model" grep -qxF "embedding model: qwen3-embedding:0.6b" "$sandbox/out"
 check_that "print-config shows num_ctx" grep -qxF "num_ctx: 98304" "$sandbox/out"
@@ -1311,7 +1299,7 @@ printf '%s' '{"context":32768}' > "$profiles/ollama-27b.json"
 run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "a context override recreates the model with its num_ctx" grep -qxF "modelfile: PARAMETER num_ctx 32768" "$sandbox/ollama.log"
 check_that "the recreated model builds on the installed one" grep -qxF "modelfile: FROM qwen3.8-27b-cc" "$sandbox/ollama.log"
-check_that "claude-ollama says it recreates with the merged parameters" grep -qF "recreating qwen3.8-27b-cc with num_ctx 32768 num_predict 8192 temperature 0.7 top_k 20 top_p 0.8" "$sandbox/err"
+check_that "claude-ollama says it recreates with the merged parameters" grep -qF "recreating qwen3.8-27b-cc with num_ctx 32768 num_predict 8192 min_p 0 presence_penalty 0 repeat_penalty 1 temperature 0.7 top_k 20 top_p 0.8" "$sandbox/err"
 check_eq "the derived settings carry the override context" 32768 "$(jq -r '.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS' "$profile_settings")"
 check_that "the launch uses the derived settings" grep -qE -- "--settings $HOME/.claude-ollama/launch-settings/[0-9]+\.json" "$sandbox/out"
 
