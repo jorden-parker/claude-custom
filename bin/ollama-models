@@ -2,138 +2,83 @@
 set -euo pipefail
 
 repo_dir="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
-. "$repo_dir/bin/lib/weights-sha.sh"
-profile_dir="${CLAUDE_OLLAMA_PROFILE_DIR:-$repo_dir/ollama}"
-sizes_file="$profile_dir/sizes.json"
-embedding_file="$profile_dir/embedding.json"
+profile_dir="${OLLAMA_PROFILE_DIR:-$repo_dir/ollama}"
 digests_file="$profile_dir/model-digests.json"
-weights_dir="${CLAUDE_OLLAMA_WEIGHTS_DIR:-$HOME/.claude-ollama/weights}"
-hf_endpoint="${HF_ENDPOINT:-https://huggingface.co}"
-profiles_bin="${CLAUDE_OLLAMA_PROFILES_BIN:-$repo_dir/bin/ollama-profiles}"
-embedding_name=embedding
+registry="${OLLAMA_REGISTRY:-https://registry.ollama.ai}"
+ollama_url="${OLLAMA_HOST:-http://localhost:11434}"
+case "$ollama_url" in http://*|https://*) ;; *) ollama_url="http://$ollama_url" ;; esac
 
 usage() {
   cat >&2 <<'EOF'
-usage: ollama-models list | prune [--yes] | prune --yes --only FILE... | outdated [SIZE...] | pin SIZE [--revision REV]
-  list      show each file in the weights folder as pinned, mismatch, candidate, orphan or partial
-  prune     remove orphan and partial files (asks unless --yes)
-  prune --yes --only FILE...  remove just the named files that are still prunable
-  outdated [SIZE...]  compare each pinned revision (or the named sizes, or embedding) with the repo's main:
-                      current or behind, a behind line followed by its fix command
-  pin       write the repo's main revision (or REV) into ollama/sizes.json and its LFS sha256 into
-            ollama/model-digests.json, then run bin/ollama-profiles
+usage: ollama-models list | prune [--yes] | prune --yes --only NAME... | outdated [NAME...] | pin NAME[:TAG]
+  list      show each installed model as pinned, mismatch, profile, orphan, third-party or other
+  prune     remove third-party models and -cc models no profile uses (asks unless --yes)
+  prune --yes --only NAME...  remove just the named models that are still prunable
+  outdated [NAME...]  compare each pin (or the named ones) to the registry: current, behind, unknown, skipped, unpinned
+                      (a behind or unpinned line is followed by its fix command)
+  pin       record NAME's registry manifest sha256 in ollama/model-digests.json
 EOF
   exit 2
 }
 
-gguf_specs() {
-  jq -r 'to_entries[] | select(.value.gguf) | "\(.key) \(.value.gguf.repo) \(.value.gguf.revision) \(.value.gguf.file)"' "$sizes_file"
-  [ -f "$embedding_file" ] || return 0
-  jq -r --arg name "$embedding_name" '.gguf // empty | "\($name) \(.repo) \(.revision) \(.file)"' "$embedding_file"
+profile_models() {
+  jq -r '.model, .env.ANTHROPIC_DEFAULT_HAIKU_MODEL' "$profile_dir"/settings.*.json | sort -u
 }
 
-projector_specs() {
-  jq -r 'to_entries[] | (.value.gguf.mmproj? // empty) as $projector | "\(.key) \(.value.gguf.repo) \($projector.file) \($projector.local)"' "$sizes_file"
+installed_models() {
+  curl -sf -m 5 "$ollama_url/api/tags"
 }
 
-projector_file_of() {
-  projector_specs | awk -v name="$1" '$1 == name { print $3; found = 1 } END { exit found ? 0 : 1 }'
+classified_models() {
+  installed_models | jq -r --slurpfile pins "$digests_file" --arg profiles "$(profile_models)" '
+    ($profiles | split("\n")) as $profile
+    | .models[]
+    | .name as $name
+    | ($name | sub(":latest$"; "")) as $short
+    | ($pins[0][$name] // $pins[0][$short]) as $pin
+    | (if ($name | contains("/")) then "third-party"
+       elif $pin != null then (if .digest == $pin then "pinned" else "mismatch" end)
+       elif ($profile | index($short)) != null then "profile"
+       elif ($short | endswith("-cc")) then "orphan"
+       else "other" end) as $class
+    | "\($class) \($name)"'
 }
 
-spec_of() {
-  gguf_specs | awk -v name="$1" '$1 == name { print; found = 1 } END { exit found ? 0 : 1 }'
-}
-
-pin_of_file() {
-  local file="$1" name repo revision spec_file
-  while read -r name repo revision spec_file; do
-    if [ "$spec_file" = "$file" ]; then
-      jq -r --arg key "$repo/$spec_file" '.[$key] // empty' "$digests_file"
-      return 0
-    fi
-  done < <(gguf_specs)
-  while read -r name repo spec_file local_name; do
-    if [ "$local_name" = "$file" ]; then
-      jq -r --arg key "$repo/$spec_file" '.[$key] // empty' "$digests_file"
-      return 0
-    fi
-  done < <(projector_specs)
-  return 1
-}
-
-class_of() {
-  local file="$1" pin
-  case "$file" in
-    *.part) echo partial; return 0 ;;
-    *.next) echo candidate; return 0 ;;
-  esac
-  if pin="$(pin_of_file "$file")"; then
-    if [ -n "$pin" ] && [ "$(file_sha256 "$weights_dir/$file")" = "$pin" ]; then
-      echo pinned
-    else
-      echo mismatch
-    fi
-  else
-    echo orphan
-  fi
-}
-
-weight_files() {
-  [ -d "$weights_dir" ] || return 0
-  find "$weights_dir" -mindepth 1 -maxdepth 1 -type f ! -name '.*' -exec basename {} \; | LC_ALL=C sort
-}
-
-classified_files() {
-  local file
-  while IFS= read -r file; do
-    printf '%s %s\n' "$(class_of "$file")" "$file"
-  done < <(weight_files)
-}
-
-list_files() {
-  classified_files | while read -r class file; do
-    printf '%-12s %s\n' "$class" "$file"
+list_models() {
+  classified_models | while read -r class name; do
+    printf '%-12s %s\n' "$class" "$name"
   done
 }
 
-prunable_files() {
-  classified_files | awk '$1 == "orphan" || $1 == "partial" { print $2 }'
+prunable_models() {
+  classified_models | awk '$1 == "third-party" || $1 == "orphan" { print $2 }'
 }
 
 confirmed() {
   local answer=""
-  printf 'Remove these files? [y/N] ' >&2
+  printf 'Remove these models? [y/N] ' >&2
   read -r answer || true
   [ "$answer" = y ] || [ "$answer" = yes ]
 }
 
-remove_files() {
-  local file
-  for file in "$@"; do
-    rm -f "$weights_dir/$file"
-  done
-}
-
-prune_files() {
-  local files
-  files="$(prunable_files)"
-  if [ -z "$files" ]; then
+prune_models() {
+  local models
+  models="$(prunable_models)"
+  if [ -z "$models" ]; then
     echo "nothing to prune"
     return 0
   fi
-  printf '%s\n' "$files"
+  printf '%s\n' "$models"
   if [ "${1:-}" != --yes ] && ! confirmed; then
     echo "ollama-models: nothing removed" >&2
     return 1
   fi
-  local -a names
-  while IFS= read -r file; do names+=("$file"); done <<<"$files"
-  remove_files "${names[@]}"
+  echo "$models" | xargs ollama rm
 }
 
 prune_only() {
   local name prunable removable=()
-  prunable="$(prunable_files)"
+  prunable="$(prunable_models)"
   for name in "$@"; do
     if grep -Fxq -- "$name" <<<"$prunable"; then
       removable+=("$name")
@@ -146,7 +91,7 @@ prune_only() {
     return 0
   fi
   printf '%s\n' "${removable[@]}"
-  remove_files "${removable[@]}"
+  ollama rm "${removable[@]}"
 }
 
 prune_command() {
@@ -160,101 +105,99 @@ prune_command() {
     shift
     prune_only "$@"
   else
-    prune_files "$yes"
+    prune_models "$yes"
   fi
 }
 
-main_revision() {
-  curl -sf -m 30 "$hf_endpoint/api/models/$1/revision/main" | jq -er '.sha // empty'
+sha256_of_stdin() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum | cut -c1-64
+  else
+    shasum -a 256 | cut -c1-64
+  fi
 }
 
-lfs_sha256() {
-  curl -sf -m 30 "$hf_endpoint/api/models/$1/tree/$2" |
-    jq -er --arg file "$3" 'first(.[] | select(.path == $file) | .lfs.oid // empty)'
+manifest_digest() {
+  local name="${1%%:*}" tag="latest" manifest
+  case "$1" in *:*) tag="${1#*:}" ;; esac
+  manifest="$(curl -sf -m 30 -H 'Accept: application/vnd.docker.distribution.manifest.v2+json' \
+    "$registry/v2/library/$name/manifests/$tag")" || return 1
+  printf '%s' "$manifest" | sha256_of_stdin
+}
+
+pin_model() {
+  local digest updated
+  case "$1" in
+    */*) echo "ollama-models: $1 is not an Ollama library model" >&2; return 1 ;;
+  esac
+  digest="$(manifest_digest "$1")" || { echo "ollama-models: $registry has no manifest for $1" >&2; return 1; }
+  updated="$(jq --arg name "$1" --arg digest "$digest" '.[$name] = $digest' "$digests_file")"
+  printf '%s\n' "$updated" > "$digests_file"
+  echo "$1 $digest"
+}
+
+pinned_names() {
+  jq -r 'keys[]' "$digests_file"
+}
+
+size_of_base() {
+  [ -f "$profile_dir/sizes.json" ] || return 0
+  jq -r --arg base "$1" 'to_entries[] | select(.value.base == $base) | .key' "$profile_dir/sizes.json" | head -n 1
 }
 
 behind_fix() {
-  if [ "$1" = "$embedding_name" ]; then
-    printf '     fix: bin/ollama-models pin %s\n' "$1"
+  local size
+  size="$(size_of_base "$1")"
+  if [ -n "$size" ]; then
+    printf '     fix: bin/model-upgrade %s\n' "$size"
   else
-    printf '     fix: bin/model-upgrade %s\n' "$1"
+    printf '     fix: bin/ollama-models pin %s\n' "$1"
   fi
 }
 
 behind_count=0
+unpinned_count=0
 
 outdated_line() {
-  local spec name repo revision file latest
-  if ! spec="$(spec_of "$1")"; then
-    printf 'unknown  %s (not a size in ollama/sizes.json)\n' "$1"
+  local name="$1" pin registry_digest
+  pin="$(jq -r --arg name "$name" '.[$name]' "$digests_file")"
+  case "$name" in
+    ./weights/*) printf 'skipped  %s (GGUF, pinned by file sha256)\n' "$name"; return 0 ;;
+  esac
+  if [ "$pin" = null ]; then
+    printf 'unpinned %s (not in ollama/model-digests.json)\n' "$name"
+    printf '     fix: bin/ollama-models pin %s\n' "$name"
+    unpinned_count=$((unpinned_count + 1))
     return 1
   fi
-  read -r name repo revision file <<<"$spec"
-  latest="$(main_revision "$repo")" || { printf 'unknown  %s (no revision at %s)\n' "$name" "$hf_endpoint"; return 0; }
-  if [ "$latest" = "$revision" ]; then
+  registry_digest="$(manifest_digest "$name")" || { printf 'unknown  %s (no manifest at %s)\n' "$name" "$registry"; return 0; }
+  if [ "$registry_digest" = "$pin" ]; then
     printf 'current  %s\n' "$name"
-    return 0
+  else
+    printf 'behind   %s (registry %s, pin %s)\n' "$name" "${registry_digest:0:12}" "${pin:0:12}"
+    behind_fix "$name"
+    behind_count=$((behind_count + 1))
+    return 1
   fi
-  printf 'behind   %s (%s → %s)\n' "$name" "${revision:0:12}" "${latest:0:12}"
-  behind_fix "$name"
-  behind_count=$((behind_count + 1))
-  return 1
 }
 
 outdated_command() {
   local name status=0
-  if [ $# -eq 0 ]; then
-    while IFS= read -r name; do outdated_line "$name" || status=1; done < <(gguf_specs | cut -d' ' -f1)
-  else
+  if [ $# -gt 0 ]; then
     for name in "$@"; do outdated_line "$name" || status=1; done
+  else
+    while IFS= read -r name; do outdated_line "$name" || status=1; done < <(pinned_names)
   fi
-  if [ "$behind_count" -gt 0 ]; then
-    printf '%s behind: run the fix lines above, then commit ollama/sizes.json and ollama/model-digests.json\n' "$behind_count"
+  if [ "$status" -ne 0 ]; then
+    printf '%s behind, %s unpinned: run the fix lines above, then commit ollama/model-digests.json\n' "$behind_count" "$unpinned_count"
   fi
   return "$status"
 }
 
-save_json() {
-  printf '%s\n' "$2" > "$1"
-}
-
-write_revision() {
-  if [ "$1" = "$embedding_name" ]; then
-    save_json "$embedding_file" "$(jq --arg revision "$2" '.gguf.revision = $revision' "$embedding_file")"
-  else
-    save_json "$sizes_file" "$(jq --arg size "$1" --arg revision "$2" '.[$size].gguf.revision = $revision' "$sizes_file")"
-  fi
-}
-
-pin_command() {
-  local target="${1:-}" revision="" spec name repo file sha projector="" projector_sha=""
-  [ -n "$target" ] || usage
-  shift
-  if [ "${1:-}" = --revision ]; then
-    [ -n "${2:-}" ] || usage
-    revision="$2"
-  fi
-  spec="$(spec_of "$target")" || { echo "ollama-models: $target has no gguf in ollama/sizes.json or ollama/embedding.json" >&2; return 1; }
-  read -r name repo _ file <<<"$spec"
-  if [ -z "$revision" ]; then
-    revision="$(main_revision "$repo")" || { echo "ollama-models: $hf_endpoint has no main revision for $repo" >&2; return 1; }
-  fi
-  [[ "$revision" =~ ^[0-9a-f]{40}$ ]] || { echo "ollama-models: $revision is not a commit sha" >&2; return 1; }
-  sha="$(lfs_sha256 "$repo" "$revision" "$file")" || { echo "ollama-models: $repo at $revision lists no LFS sha256 for $file" >&2; return 1; }
-  if projector="$(projector_file_of "$name")"; then
-    projector_sha="$(lfs_sha256 "$repo" "$revision" "$projector")" || { echo "ollama-models: $repo at $revision lists no LFS sha256 for $projector" >&2; return 1; }
-  fi
-  write_revision "$name" "$revision"
-  save_json "$digests_file" "$(jq --arg key "$repo/$file" --arg sha "$sha" --arg projector_key "$repo/$projector" --arg projector_sha "$projector_sha" \
-    '.[$key] = $sha | if $projector_sha != "" then .[$projector_key] = $projector_sha else . end' "$digests_file")"
-  "$profiles_bin" >&2
-  echo "$name $revision $sha"
-}
-
 case "${1:-}" in
-  list) list_files ;;
+  list) list_models ;;
   prune) shift; prune_command "$@" ;;
   outdated) shift; outdated_command "$@" ;;
-  pin) shift; pin_command "$@" ;;
+  pin) [ -n "${2:-}" ] || usage; pin_model "$2" ;;
   *) usage ;;
 esac

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -9,16 +9,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 REPO_DIR = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_DIR / "shared"))
-
-import model_server
-
 USAGE = "usage: bin/model-upgrade SIZE [--eval] [--keep] [--force]"
 OPTION_FLAGS = {"--eval", "--keep", "--force"}
-THINKING_TITLE = "Thinking check"
+GGUF_REFUSAL = "GGUF sizes are pinned by file; update sizes.json by hand"
+THINKING_TITLE = "Thinking check (plan 066)"
 TASK_MEDIAN_RISE_LIMIT = 1.25
-CANDIDATE_SUFFIX = "@next"
-HASH_CHUNK_BYTES = 1 << 20
 
 
 class Refusal(Exception):
@@ -32,51 +27,35 @@ class StageFailure(Exception):
 @dataclass
 class Upgrade:
     size: str
+    base: str
     model: str
-    repo: str
-    file: str
-    pinned_revision: str
     keep: bool
     run_eval: bool
     force: bool
 
     @property
     def candidate(self):
-        return f"{self.model}{CANDIDATE_SUFFIX}"
-
-    @property
-    def weights(self):
-        return weights_dir() / self.file
-
-    @property
-    def candidate_weights(self):
-        return weights_dir() / f"{self.file}.next"
+        return f"{self.model}-next"
 
 
 @dataclass
-class Revision:
-    sha: str
-    lfs_sha256: str
+class Outdated:
+    line: str
+    word: str
+    registry_digest: str
 
     @property
-    def short(self):
-        return self.sha[:12]
+    def current(self):
+        return self.word == "current"
 
 
 def tool_path(variable, default_name):
     return os.environ.get(variable) or str(REPO_DIR / "bin" / default_name)
 
 
-def hf_endpoint():
-    return os.environ.get("HF_ENDPOINT") or "https://huggingface.co"
-
-
-def weights_dir():
-    return Path(os.environ.get("CLAUDE_OLLAMA_WEIGHTS_DIR") or Path.home() / ".claude-ollama" / "weights")
-
-
-def user_presets_file():
-    return Path.home() / ".claude-ollama" / "presets" / "models.ini"
+def ollama_base_url():
+    host = os.environ.get("OLLAMA_HOST") or "localhost:11434"
+    return host if "://" in host else f"http://{host}"
 
 
 def read_json(relative_path):
@@ -106,31 +85,20 @@ def run_captured(command):
     return subprocess.run(command, check=False, stdout=subprocess.PIPE, text=True)
 
 
-def run_step(command):
+def run_ollama(arguments):
+    command = ["ollama", *arguments]
     print("+ " + " ".join(command), flush=True)
-    result = subprocess.run(command, check=False, stdout=sys.stderr)
+    result = subprocess.run(command, check=False)
     require(result.returncode == 0, f"{' '.join(command)} failed; see the error above")
 
 
-def hf_json(path):
-    result = command_output(["curl", "-sf", "-m", "30", f"{hf_endpoint()}/api/models/{path}"])
-    if result.returncode != 0:
-        return None
-    try:
-        return json.loads(result.stdout)
-    except ValueError:
-        return None
+def ollama_answers():
+    result = command_output(["curl", "-sf", "--max-time", "5", f"{ollama_base_url()}/api/version"])
+    return result.returncode == 0
 
 
-def main_revision(repo):
-    reply = hf_json(f"{repo}/revision/main")
-    return reply.get("sha") if isinstance(reply, dict) else None
-
-
-def lfs_sha256(repo, revision, file):
-    tree = hf_json(f"{repo}/tree/{revision}")
-    entries = tree if isinstance(tree, list) else []
-    return next((entry.get("lfs", {}).get("oid") for entry in entries if entry.get("path") == file), None)
+def model_installed(model):
+    return command_output(["ollama", "show", model]).returncode == 0
 
 
 def upgrade_from_argv(argv):
@@ -140,100 +108,44 @@ def upgrade_from_argv(argv):
     size = positional[0]
     sizes = read_json("ollama/sizes.json")
     refuse(size in sizes, f"unknown size {size}; sizes are {', '.join(sizes)}")
-    gguf = sizes[size].get("gguf")
-    refuse(gguf is not None, f"size {size} has no gguf in ollama/sizes.json")
+    base = sizes[size]["base"]
+    refuse("/" not in base, GGUF_REFUSAL)
+    settings_file = f"ollama/settings.{size}.json"
+    refuse((REPO_DIR / settings_file).exists(), f"{settings_file} is missing")
     return Upgrade(
         size=size,
-        model=sizes[size]["model"],
-        repo=gguf["repo"],
-        file=gguf["file"],
-        pinned_revision=gguf["revision"],
+        base=base,
+        model=read_json(settings_file)["model"],
         keep="--keep" in flags,
         run_eval="--eval" in flags,
         force="--force" in flags,
     )
 
 
+def outdated_check(base):
+    result = command_output([tool_path("MODEL_UPGRADE_MODELS", "ollama-models"), "outdated", base])
+    line = result.stdout.strip().partition("\n")[0]
+    refuse(line != "", f"ollama-models outdated {base} printed nothing; see the error above")
+    match = re.search(r"registry ([0-9a-f]+)", line)
+    return Outdated(line=line, word=line.split()[0], registry_digest=match.group(1) if match else None)
+
+
 def preflight(upgrade):
-    refuse(model_server.up(), f"llama-server is not answering at {model_server.server_url()}: start it, then rerun")
-    latest = main_revision(upgrade.repo)
-    refuse(latest, f"{upgrade.repo} has no main revision at {hf_endpoint()}: check the network, then rerun")
-    return latest
+    refuse(ollama_answers(), f"Ollama is not answering at {ollama_base_url()}: start it, then rerun")
+    outdated = outdated_check(upgrade.base)
+    refuse(outdated.word != "unknown", f"{upgrade.base} has no manifest in the registry: check the network, then rerun")
+    refuse(outdated.word in ("current", "behind"), f"ollama-models outdated said: {outdated.line}")
+    return outdated
 
 
-def candidate_revision(upgrade, latest):
-    sha256 = lfs_sha256(upgrade.repo, latest, upgrade.file)
-    refuse(sha256, f"{upgrade.repo} at {latest} lists no LFS sha256 for {upgrade.file}")
-    return Revision(sha=latest, lfs_sha256=sha256)
+def pull_base(upgrade):
+    announce(f"Pull {upgrade.base} into the local model")
+    run_ollama(["pull", upgrade.base])
 
 
-def file_sha256(path):
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(HASH_CHUNK_BYTES), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def download_candidate(upgrade, revision):
-    announce(f"Download {upgrade.file} at {revision.short} beside the current file")
-    part = upgrade.candidate_weights.with_name(upgrade.candidate_weights.name + ".part")
-    part.parent.mkdir(parents=True, exist_ok=True)
-    url = f"{hf_endpoint()}/{upgrade.repo}/resolve/{revision.sha}/{upgrade.file}"
-    result = subprocess.run(["curl", "-fL", "--retry", "3", "-C", "-", "-o", str(part), url], check=False)
-    require(result.returncode == 0, f"the download of {upgrade.file} stopped; rerun to resume it")
-    actual = file_sha256(part)
-    if actual != revision.lfs_sha256:
-        part.unlink()
-        raise StageFailure(f"{upgrade.file} at {revision.short} has sha256 {actual}, but Hugging Face lists {revision.lfs_sha256}")
-    part.replace(upgrade.candidate_weights)
-
-
-def section_lines(text, section):
-    lines = []
-    inside = False
-    for line in text.splitlines():
-        if line.startswith("["):
-            inside = line == f"[{section}]"
-            continue
-        if inside and line.strip():
-            lines.append(line)
-    return lines
-
-
-def candidate_section(upgrade, presets):
-    lines = section_lines(presets, upgrade.model)
-    require(lines, f"the user presets have no [{upgrade.model}] section")
-    body = [f"model = {upgrade.candidate_weights}" if line.split("=")[0].strip() == "model" else line for line in lines]
-    return "\n".join([f"[{upgrade.candidate}]", *body]) + "\n"
-
-
-def write_private(path, text):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.parent.chmod(0o700)
-    staged = path.with_name(f".{path.name}.{os.getpid()}")
-    staged.write_text(text)
-    staged.chmod(0o600)
-    staged.replace(path)
-
-
-def stage_candidate_preset(upgrade):
-    announce(f"Stage the [{upgrade.candidate}] preset and restart the server")
-    staging = user_presets_file().with_name(f".models.next.{os.getpid()}.ini")
-    staging.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        run_step([tool_path("MODEL_UPGRADE_PROFILES", "ollama-profiles"), "--user-presets", "--out", str(staging)])
-        presets = staging.read_text()
-    finally:
-        staging.unlink(missing_ok=True)
-    write_private(user_presets_file(), presets.rstrip("\n") + "\n\n" + candidate_section(upgrade, presets))
-    run_step([tool_path("MODEL_UPGRADE_AGENT", "ollama-agent"), "-apply"])
-
-
-def restore_presets():
-    announce("Restore the user presets and restart the server")
-    run_step([tool_path("MODEL_UPGRADE_PROFILES", "ollama-profiles"), "--user-presets"])
-    run_step([tool_path("MODEL_UPGRADE_AGENT", "ollama-agent"), "-apply"])
+def create_candidate(upgrade):
+    modelfile = REPO_DIR / "ollama" / f"Modelfile.{upgrade.size}"
+    run_ollama(["create", upgrade.candidate, "-f", str(modelfile)])
 
 
 def run_thinking(upgrade):
@@ -284,6 +196,7 @@ def task_baseline(upgrade):
 
 
 def gather_evidence(upgrade):
+    create_candidate(upgrade)
     announce(THINKING_TITLE)
     evidence = {"thinking": run_thinking(upgrade)}
     announce("Cache probe")
@@ -355,18 +268,22 @@ def judge(evidence):
     }
 
 
-def save_report(upgrade, revision, evidence, verdict):
+def short_digest(upgrade, outdated):
+    if outdated.registry_digest:
+        return outdated.registry_digest[:12]
+    return read_json("ollama/model-digests.json")[upgrade.base][:12]
+
+
+def save_report(upgrade, outdated, evidence, verdict):
     folder = Path.home() / "bench-results"
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / f"upgrade-{upgrade.size}-{time.strftime('%Y%m%d-%H%M')}.json"
     report = {
         "size": upgrade.size,
-        "repo": upgrade.repo,
-        "file": upgrade.file,
+        "base": upgrade.base,
         "candidate": upgrade.candidate,
-        "pinned_revision": upgrade.pinned_revision,
-        "revision": revision.sha,
-        "sha256": revision.lfs_sha256,
+        "outdated": outdated.line,
+        "registry_digest": outdated.registry_digest,
         **evidence,
         "verdict": verdict,
     }
@@ -374,62 +291,55 @@ def save_report(upgrade, revision, evidence, verdict):
     return path
 
 
-def print_verdict(upgrade, revision, verdict, report_path):
+def print_verdict(upgrade, outdated, verdict, report_path):
     print()
     print(f"thinking: {verdict['thinking']}")
     print(f"cache: {verdict['cache']}")
     print(f"eval: {verdict['eval']}")
     print(f"tasks: {verdict['tasks']}")
     if verdict["passed"]:
-        print(f"Next: git add ollama/sizes.json ollama/model-digests.json && "
-              f"git commit -m 'chore: pin {upgrade.size} at {revision.short}'")
+        print(f"Next: bin/ollama-models pin {upgrade.base} && git add ollama/model-digests.json && "
+              f"git commit -m 'chore: pin {upgrade.base} at {short_digest(upgrade, outdated)}'")
     else:
-        print(f"Not pinning; {upgrade.size} stays at {upgrade.pinned_revision[:12]}.")
+        print(f"Not pinning; {upgrade.base} stays at its current pin.")
     print(f"report: {report_path}")
 
 
-def promote(upgrade, revision):
-    announce(f"Promote {upgrade.file} at {revision.short}")
-    upgrade.candidate_weights.replace(upgrade.weights)
-    pin = [tool_path("MODEL_UPGRADE_MODELS", "ollama-models"), "pin", upgrade.size, "--revision", revision.sha]
-    run_step(pin)
+def promote(upgrade):
+    announce(f"Promote {upgrade.candidate} to {upgrade.model}")
+    run_ollama(["cp", upgrade.candidate, upgrade.model])
+    run_ollama(["rm", upgrade.candidate])
 
 
-def discard_candidate(upgrade):
-    if not upgrade.keep:
-        upgrade.candidate_weights.unlink(missing_ok=True)
-
-
-def checked_candidate(upgrade, revision):
-    stage_candidate_preset(upgrade)
-    try:
-        evidence = gather_evidence(upgrade)
-        verdict = judge(evidence)
-        announce("Report")
-        report_path = save_report(upgrade, revision, evidence, verdict)
-        print_verdict(upgrade, revision, verdict, report_path)
-        if verdict["passed"]:
-            promote(upgrade, revision)
-        else:
-            discard_candidate(upgrade)
-        return verdict["passed"]
-    except StageFailure:
-        discard_candidate(upgrade)
-        raise
-    finally:
-        restore_presets()
+def rollback(upgrade):
+    announce("Roll back: restore the local base to its pin")
+    if not upgrade.keep and model_installed(upgrade.candidate):
+        run_ollama(["rm", upgrade.candidate])
+    run_ollama(["rm", upgrade.base])
 
 
 def run_upgrade(argv):
     upgrade = upgrade_from_argv(argv)
-    announce("Preflight: llama-server, size and Hugging Face")
-    latest = preflight(upgrade)
-    if latest == upgrade.pinned_revision and not upgrade.force:
-        print(f"{upgrade.size} is current at {latest[:12]}; nothing to upgrade")
+    announce("Preflight: Ollama, size and registry")
+    outdated = preflight(upgrade)
+    if outdated.current and not upgrade.force:
+        print(f"{upgrade.base} is current; nothing to upgrade")
         return 0
-    revision = candidate_revision(upgrade, latest)
-    download_candidate(upgrade, revision)
-    return 0 if checked_candidate(upgrade, revision) else 1
+    pull_base(upgrade)
+    try:
+        evidence = gather_evidence(upgrade)
+        verdict = judge(evidence)
+        announce("Report")
+        report_path = save_report(upgrade, outdated, evidence, verdict)
+    except StageFailure:
+        rollback(upgrade)
+        raise
+    print_verdict(upgrade, outdated, verdict, report_path)
+    if verdict["passed"]:
+        promote(upgrade)
+        return 0
+    rollback(upgrade)
+    return 1
 
 
 def main(argv):

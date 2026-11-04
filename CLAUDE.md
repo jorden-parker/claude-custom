@@ -20,25 +20,19 @@ four parts:
   the same checks run whichever model is driving.
 - **Work harness** (`bin/claude-ollama`, `bin/claude-ollama-doctor`,
   `bin/claude-ollama-qwen`, `bin/lib/`, `ollama/`, `go/cmd/model-picker/`):
-  starts `claude` against a local `llama-server` (Homebrew's `llama.cpp`) in
-  router mode at `LLAMA_SERVER_URL` (default `http://127.0.0.1:11435`), serving
-  pinned GGUF weights of Qwen 3.8 27b, Qwen 3.6 35b or Granite 4.2 3b. The
-  overlay only applies to that launch. Ollama itself is gone from the harness;
-  the names stay (`claude-ollama`, `~/.claude-ollama`, `CLAUDE_OLLAMA_*`,
-  `ollama/`, `ollama-lease`, `ollama-models`, `ollama-agent`, the
-  `ollama-<size>` profiles, called "the Ollama profiles" below, and the `-cc`
-  preset ids), and only the bench-off still runs an Ollama server.
+  starts `claude` against a local Ollama server (`localhost:11434`) running Qwen
+  3.8 27b or Qwen 3.6 35b. The overlay only applies to that launch.
   `claude-ollama qwen [size]` runs Qwen Code on the same model and MCP servers
   inside macOS Seatbelt (`ollama/qwen-sandbox.sb`, copied to the project's
   `.qwen/sandbox-macos-claude-ollama.sb` and excluded from git at each launch;
   `QWEN_SANDBOX=sandbox-exec`, never `SANDBOX`), with `~/.claude-ollama/qwen` as
   its `QWEN_HOME`; `qwen doctor [size]` checks that setup. The launcher runs its
-  usual pre-launch steps (weights, presets, fit, lease, indexer, warm-up), then
-  hands off to `bin/claude-ollama-qwen launch SIZE [args]`, which stages the
-  Qwen home and the Seatbelt profile and execs `qwen`; `qwen doctor` and
-  `qwen --print-config` dispatch to its `doctor` and `--print-config` modes
-  (`CLAUDE_OLLAMA_QWEN_BIN` overrides the script in tests). Its settings come
-  from `ollama/qwen-settings.template.json` and `ollama/QWEN.local.md` (see
+  usual pre-launch steps (pull, lease, fit, indexer, warm-up), then hands off to
+  `bin/claude-ollama-qwen launch SIZE [args]`, which stages the Qwen home and
+  the Seatbelt profile and execs `qwen`; `qwen doctor` and `qwen --print-config`
+  dispatch to its `doctor` and `--print-config` modes (`CLAUDE_OLLAMA_QWEN_BIN`
+  overrides the script in tests). Its settings come from
+  `ollama/qwen-settings.template.json` and `ollama/QWEN.local.md` (see
   `docs/ollama.md`). `go/cmd/model-picker/` is a Go/Bubble Tea menu for choosing
   the size.
 - **Tools TUI** (`go/cmd/claude-tools/`): a Go/Bubble Tea app that edits the
@@ -51,7 +45,7 @@ four parts:
   `$XDG_CONFIG_HOME/claude-custom/profiles/<id>.json` (validated by
   `web/console/src/lib/profile-rules.ts`; an empty PUT deletes the file). Each
   profile's Env tab groups the harness switches under "Prompt and context",
-  "Guards", "Model residency", "Diagnostics" and "Browser"
+  "Guards", "Ollama residency", "Diagnostics" and "Browser"
   (`PROFILE_ENV_GROUPS`, `envFieldsByGroup`). The `/settings` page
   (`settings-overview.tsx`) reads the same `GET /api/profiles`, whose summaries
   carry each profile's `env`, and tables every switch by key, label and default
@@ -93,16 +87,11 @@ four parts:
   the launch and prints JSON (`claude_version`, `skills`, `error`); the page
   names the folder's skills missing from that array. Tests:
   `bin/skill-check.test.sh` (stub launcher and `claude`).
-- **Agent TUI** (`go/cmd/ollama-agent/`; the name stays): a Go/Bubble Tea app
-  that edits the `local.llama-server` LaunchAgent, which runs
-  `llama-server --models-preset ~/.claude-ollama/presets/models.ini --models-max N --host 127.0.0.1 --port 11435 --log-file ~/.claude-ollama/logs/llama-server.log --metrics`.
-  Its settings are the `[*]` keys of `ollama/server.ini` plus `models-max` from
-  its `[router]` section; changes go to
-  `~/.claude-ollama/presets/server.local.ini` (only the keys that differ).
-  `-json` prints the settings without writing; `-set KEY=VALUE` (repeatable)
-  changes just those, renders the user presets and reloads; `-apply` writes the
-  agent from the settings and reloads it. The console's Server page uses `-json`
-  and `-set`. See `go/cmd/ollama-agent/README.md`.
+- **Agent TUI** (`go/cmd/ollama-agent/`): a Go/Bubble Tea app that edits the
+  `OLLAMA_*` variables in a `local.ollama` LaunchAgent and reloads it, since
+  launchd never reads `~/.zshenv`. `-json` prints the variables and conflicts
+  without writing; `-set NAME=VALUE` (repeatable) writes just those and reloads.
+  The console's Server page uses both.
 
 Every file is additive. Nothing here replaces a base config. The layer order is
 in `docs/layers.md` and install/revert steps in `docs/install.md`. Read them
@@ -130,62 +119,43 @@ before changing how any file gets applied.
 - Launcher tests: `bin/claude-ollama.test.sh` (prints `all passed`; covers
   `bin/claude-ollama` and the `claude-custom ollama|qwen|tools` subcommands; one
   dispatch case each for `doctor` and `qwen`). Doctor tests:
-  `bin/claude-ollama-doctor.test.sh` (`make test-doctor`; stub `sysctl`,
-  `gguf-inspect`, watcher). Qwen tests: `bin/claude-ollama-qwen.test.sh`
-  (`make test-qwen`; stub `qwen`, `shasum`). The launcher and doctor tests start
-  `shared/testing/stub-llama-server.py` through
-  `shared/testing/stub-llama-lib.sh` and point `LLAMA_SERVER_URL` at it;
-  `shared/testing/test-guard TEST` runs a test under a Seatbelt profile that
-  blocks writes to `~/.claude-ollama` and `~/Library/LaunchAgents`, port 11435
-  and `launchctl`, and `make test` wraps the harness tests in it.
+  `bin/claude-ollama-doctor.test.sh` (`make test-doctor`; stub `ollama`, `curl`,
+  `pgrep`, `ps`, `sysctl`, `vm_stat`, watcher). Qwen tests:
+  `bin/claude-ollama-qwen.test.sh` (`make test-qwen`; stub `qwen`, `ollama`,
+  `curl`, `pgrep`, `ps`).
 - Launcher libraries (`bin/lib/`, sourced, never run): `size-profile.sh` (sizes,
-  `use_size`, model, the preset section and its `ctx-size`, headroom, profile
-  overlay, the launch settings composition, fetch domains, MCP config),
-  `model-server.sh` (the backend seam: `server_url`, `server_up`,
-  `server_build`, `/models` entries, `model_load`/`model_unload`, server
-  settings and `models_max`, the weights folder, pins and `fetch_weights`; a
-  file's sha256 is cached by size and mtime through `weights-sha.sh`, shared
-  with `bin/ollama-models`, so a launch hashes the weights only after they
-  change; its Python twin is `shared/model_server.py`; tests:
-  `bin/lib/model-server.test.sh`), `memory-fit.sh` (lease switch,
-  `ollama-lease fit` reading), `nvm-node.sh` (nvm's Node), `session-logs.sh`
-  (console state dir, telemetry, proxy log, beacon, watcher, tool budget paths),
-  `cmux-terminal.sh` and `doctor-checks.sh` (`report` and the checks both
-  doctors share). Each lib sources the libs it reads from, so `shellcheck` sees
-  every name; `.claude/verify` runs the launcher, doctor and qwen tests for any
-  `bin/lib/` edit.
-- Weights manager (the name stays):
-  `bin/ollama-models list|outdated [SIZE...]|prune [--yes]|pin SIZE [--revision REV]`
-  works on the GGUF files in `~/.claude-ollama/weights`
-  (`CLAUDE_OLLAMA_WEIGHTS_DIR` overrides it). `list` marks each file `pinned`,
-  `mismatch` (sha256 differs from its pin), `candidate` (a `.next` file from
-  `model-upgrade`), `orphan` (no size or embedding names it) or `partial`
-  (`.part`). `outdated` compares each size's (and `embedding`'s) pinned revision
-  with the Hugging Face repo's `main`: `current`, `behind` (followed by a `fix:`
-  line naming `bin/model-upgrade SIZE`, or `bin/ollama-models pin embedding`) or
-  `unknown`, and a count line ends the listing when one is behind (exit 1).
-  `prune` removes orphan and partial files after asking
-  (`prune --yes --only FILE...` removes just the named files that are still
-  prunable, for the console's Models page). `pin` writes the repo's `main`
-  revision (or `REV`) into `ollama/sizes.json` (or `ollama/embedding.json`) and
-  its LFS sha256 into `ollama/model-digests.json`, then runs
-  `bin/ollama-profiles`. Tests: `bin/ollama-models.test.sh` (stub `curl`, stub
-  `ollama-profiles`)
-- Model upgrade: `bin/model-upgrade SIZE [--eval] [--keep] [--force]` refuses
-  unless llama-server answers, stops when the pin is already `main` (unless
-  `--force`), downloads the repo's newest `main` revision of the size's GGUF to
-  `<file>.next` in the weights folder (checked against its LFS sha256), adds a
-  `[<model>@next]` section to the user presets and restarts the server, then
-  runs `speed-check --thinking-only --model`, the cache probe and (with
-  `--eval`) `pr-review-eval` and `task-eval` on that preset, saves
-  `~/bench-results/upgrade-SIZE-*.json` and restores the presets. On a pass it
-  replaces the weights with the candidate and runs
-  `ollama-models pin SIZE --revision REV`, then prints the `git add` line; on a
-  fail it removes the candidate (`--keep` keeps it). With `--eval` the gate also
-  reads the current model's newest `~/bench-results/task-eval-*.json` and fails
-  when the candidate's green count drops or its median seconds rise by more than
-  25% (without one it only records, `tasks: ... (no baseline)`). Tests:
-  `bin/model-upgrade.test.sh` (stub llama-server, stub `curl`, stub tools)
+  `use_size`, model, Modelfile parameters, headroom, profile overlay, pins, the
+  launch settings composition, fetch domains, MCP config), `ollama-server.sh`
+  (`ollama_url`, installed digests, the running server's env and log path),
+  `memory-fit.sh` (lease switch, `ollama-lease fit` reading), `nvm-node.sh`
+  (nvm's Node), `session-logs.sh` (console state dir, telemetry, proxy log,
+  beacon, watcher, tool budget paths), `cmux-terminal.sh` and `doctor-checks.sh`
+  (`report` and the checks both doctors share). Each lib sources the libs it
+  reads from, so `shellcheck` sees every name; `.claude/verify` runs the
+  launcher, doctor and qwen tests for any `bin/lib/` edit.
+- Model manager:
+  `bin/ollama-models list|outdated [NAME...]|prune [--yes]|pin NAME[:TAG]` marks
+  installed models (pinned, mismatch, profile, orphan, third-party, other),
+  `outdated` compares each pin with the registry (current, behind, unknown,
+  skipped, unpinned; exit 1 when one is behind or unpinned; a behind or unpinned
+  line is followed by a `fix:` line naming `bin/model-upgrade SIZE` for a size's
+  base or `bin/ollama-models pin NAME` otherwise, and a count line ends the
+  listing when something needs a fix), removes third-party and orphan `-cc`
+  models after asking (`prune --yes --only NAME...` removes just the named
+  models that are still prunable, for the console's Models page), and writes a
+  registry manifest sha256 to `ollama/model-digests.json`; tests:
+  `bin/ollama-models.test.sh` (stub `ollama`, stub `curl`)
+- Model upgrade: `bin/model-upgrade SIZE [--eval] [--keep] [--force]` pulls a
+  behind base into `MODEL-next`, runs `speed-check --thinking-only --model`, the
+  cache probe and (with `--eval`) `pr-review-eval` and `task-eval`, saves
+  `~/bench-results/upgrade-SIZE-*.json`, then promotes the candidate to the
+  size's `-cc` model on a pass or removes it and the local base on a fail
+  (`--keep` keeps the candidate). With `--eval` the gate also reads the current
+  model's newest `~/bench-results/task-eval-*.json` and fails when the
+  candidate's green count drops or its median seconds rise by more than 25%
+  (without one it only records, `tasks: ... (no baseline)`). It prints the `pin`
+  command and never writes the pin; GGUF sizes are refused. Tests:
+  `bin/model-upgrade.test.sh` (stub `ollama`, stub tools)
 - Task eval:
   `bin/task-eval [size|--model M] [--task NAME]... [--runs N] [--json] [--launcher PATH]`
   times the work harness from prompt to a green test on each task in
@@ -212,7 +182,7 @@ before changing how any file gets applied.
   `ollama/skills`. Tests: `bin/skill-listing.test.sh`.
 - Sync check: `claude-custom sync-check [--write] [--against FILE]` prints the
   local fingerprint summary, one `section: <short>` line each (`commit`,
-  `dirty`, `claude_version`, `models`, `server`, `hooks`, `sandbox`,
+  `dirty`, `claude_version`, `models`, `server_env`, `hooks`, `sandbox`,
   `fingerprint`), then the sections that differ from the beacon at
   `${XDG_CONFIG_HOME:-~/.config}/claude-custom/beacon.json` (or
   `--against FILE`) as `section: local X vs beacon Y (<host>, <age>)`, with each
@@ -221,63 +191,35 @@ before changing how any file gets applied.
   copy to the other machine. `bin/sync-fingerprint` prints the JSON
   (`--out FILE` writes it 0600 in a 0700 folder, `--summary FILE` and
   `--age FILE` read one back); tests: `bin/sync-fingerprint.test.sh` (stub
-  `llama-server` binary, the stub server, `claude`, temp git repo) and
+  `curl`, `pgrep`, `ps`, `claude`, temp git repo) and
   `bin/claude-ollama.test.sh` for `sync-check`, the launch beacon and doctor's
   beacon line
 - Profile generator: `bin/ollama-profiles` renders `ollama/settings.<size>.json`
-  from `ollama/sizes.json` and `ollama/profile-template.json`, the llama-server
-  presets `ollama/models.ini` (per size a `[<model>]` section with
-  `reasoning = off`, a `[<model>@think]` one with `reasoning = on` and a
-  `[<model>@<ctx>]` one at the ladder's lower context, plus the embedding
-  section `[qwen3-embedding-0.6b]` with `alias = qwen3-embedding:0.6b`; weights
-  paths are `@WEIGHTS@/<file>`, a size's optional `chat_template` adds
-  `chat-template-file = @TEMPLATES@/<file>` from `ollama/templates/` to each of
-  its sections, a size's `gguf.mmproj` adds `mmproj = @WEIGHTS@/<local>` to each
-  of its sections, and sampling keys map through `ollama/preset-keys.json`), and
-  `personal/settings.tokens.json` from `personal/settings.tokens.template.json`.
-  The 27b's template is its pinned GGUF's own with one change: a system message
-  after the first non-system one renders as a system turn instead of
-  `raise_exception('System message must be at the beginning.')`, since Claude
-  Code sends such messages and the stock template fails every request with a 500
-  (llama.cpp #27367); `bin/check-config` fails when a named template is missing
-  or keeps that raise. `--user-presets [--check] [--out FILE]` writes
-  `~/.claude-ollama/presets/models.ini` (0600): `models.ini` with the weights
-  and templates folders filled in, the `[*]` keys of `ollama/server.ini`
-  overlaid by `server.local.ini`, plus, per Ollama profile override,
-  `[<model>@<ctx>]` sections for its `context` and that context's lower step and
-  a `[<model>@profile]` section when it sets `output_tokens` or `parameters`,
-  and prints `changed` or `unchanged`. It also copies the profile env catalogue
-  `shared/profile-env.json` to `web/console/src/lib/profile-env.generated.json`
-  and renders its table in `docs/ollama.md` between the
-  `<!-- profile-env:start -->` and `<!-- profile-env:end -->` lines;
-  `bin/ollama-profiles --check` (`make check-profiles`) fails when any of them
-  is stale (it compares JSON by content, so it needs no Prettier; writing the
-  files needs `pnpm install`); tests: `bin/ollama-profiles.test.sh`
-- GGUF inspector:
-  `bin/gguf-inspect FILE [--file-size N] [--template-out PATH] [--json]` checks
-  a GGUF header with strict bounds (never reads tensor data); `--json` prints
-  the metadata (tokenizer keys left out), which the lease's memory fit reads;
-  tests: `bin/gguf-inspect.test.sh`
-- Cache probe:
-  `bin/ollama-cache-probe [PRESET] [--prefix-tokens N] [--base-url URL] [--replay DIR] [--json]`
-  measures prompt-cache reuse through llama-server's `/v1/messages` on a preset
-  id (default the 27b's) in six scenarios (cold after an unload and reload,
-  growing chat, same prefix, late edit, early edit, eviction), reading
-  `cache_read_input_tokens` and the loaded model's `n_ctx`; `--replay` sends
-  recorded proxy bodies in ts order; its tests are
-  `bin/ollama-cache-probe.test.sh` (stub server)
+  and `ollama/Modelfile.<size>` from `ollama/sizes.json` and the two
+  `profile-template` files, and `personal/settings.tokens.json` from
+  `personal/settings.tokens.template.json`; it also copies the profile env
+  catalogue `shared/profile-env.json` to
+  `web/console/src/lib/profile-env.generated.json` and renders its table in
+  `docs/ollama.md` between the `<!-- profile-env:start -->` and
+  `<!-- profile-env:end -->` lines; `bin/ollama-profiles --check`
+  (`make check-profiles`) fails when any of them is stale (it compares JSON by
+  content, so it needs no Prettier; writing the files needs `pnpm install`);
+  tests: `bin/ollama-profiles.test.sh`
+- GGUF inspector: `bin/gguf-inspect FILE [--file-size N] [--template-out PATH]`
+  checks a GGUF header with strict bounds before Ollama parses it (never reads
+  tensor data); tests: `bin/gguf-inspect.test.sh`
+- Cache probe: `bin/ollama-cache-probe [27b|35b|MODEL] [--prefix-tokens N]`
+  measures prompt-cache reuse on a live Ollama; its tests are
+  `bin/ollama-cache-probe.test.sh` (stub server, no real Ollama)
 - Speed check: `claude-ollama speed-check` (`bin/speed-check`) checks power,
-  other sessions, llama-server and disk, downloads the 27b and 35b weights, then
-  checks that each `@think` preset thinks and the plain one does not, benches
-  each size through `messages-bench` and runs the cache probe, and prints a
-  verdict and a paste block; `CLAUDE_OLLAMA_SPEED_CHECK` and
-  `SPEED_CHECK_LAUNCHER`/`_BENCH`/ `_PROBE` override the scripts in tests;
-  tests: `bin/speed-check.test.sh`. `claude-ollama prepare [size]` downloads and
-  verifies one size's pinned GGUF and exits; `claude-ollama prepare-embedding`
-  does the same for the `semantic_search` embedding GGUF;
-  `claude-ollama thinking-check` (`bin/speed-check --thinking-only`,
-  `--model PRESET` for one preset) runs only the thinking check and exits 1 when
-  it fails
+  disk and Ollama, prepares the four MLX and GGUF sizes, then runs the thinking
+  check, the paired benches and the cache probes, and prints a verdict and a
+  paste block; `CLAUDE_OLLAMA_SPEED_CHECK` and `SPEED_CHECK_LAUNCHER`/`_BENCH`/
+  `_PROBE` override the scripts in tests; tests: `bin/speed-check.test.sh`.
+  `claude-ollama prepare [size]` pulls or imports one size and exits;
+  `claude-ollama prepare-embedding` pulls the `semantic_search` embedding model
+  and exits; `claude-ollama thinking-check` (`bin/speed-check --thinking-only`)
+  runs only the thinking check on the MLX sizes and exits 1 when it fails
 - Messages bench:
   `bin/messages-bench --model M [--base-url URL] [--thinking omit|claude-code|disabled]`
   times any `/v1/messages` server (cold/warm TTFT, prefill, decode, tool calls);
@@ -294,19 +236,14 @@ before changing how any file gets applied.
   `keep:`. `claude-ollama tool-budget [--since DAYS] [--json]` runs it on the
   session's logs before any pull or launch; tests: `bin/tool-budget.test.sh`
   (inline fixture logs), `bin/claude-ollama.test.sh` (stub script, doctor lines)
-- Bench-off (the only place Ollama still runs, on purpose; `bin/check-config`
-  fails on an `ollama` command or Ollama API path anywhere else in `bin/`,
-  `shared/` or `web/console/src/lib`, apart from a short allowlist: the install
-  hint about removing old Ollama models, `prefix-ab --unload ollama` for the
-  bench-off's Ollama cell, and tests asserting the absence):
-  `bin/backend-bench-off install|download|all` benches Ollama, oMLX and
-  vllm-mlx, each with MTP off (stock MLX weights) and on (`oQ4e` MTP weights),
-  plus llama.cpp's `llama-server` on the pinned Unsloth GGUFs (`gguf_spec`:
-  repo, revision, files) with the Mac settings in `llama_args`, MTP on through
-  `--spec-type draft-mtp` (the 27B's separate head goes in `--spec-draft-model`;
-  acceptance read from its log), model by model, and streams each run's JSONL
-  into one side-by-side HTML page that reloads while it runs
-  (`bin/backend-bench-report`, default `~/bench-results/bench-off.html`);
+- Bench-off: `bin/backend-bench-off install|download|all` benches Ollama, oMLX
+  and vllm-mlx, each with MTP off (stock MLX weights) and on (`oQ4e` MTP
+  weights), plus llama.cpp's `llama-server` on the pinned Unsloth GGUFs
+  (`gguf_spec`: repo, revision, files) with the Mac settings in `llama_args`,
+  MTP on through `--spec-type draft-mtp` (the 27B's separate head goes in
+  `--spec-draft-model`; acceptance read from its log), model by model, and
+  streams each run's JSONL into one side-by-side HTML page that reloads while it
+  runs (`bin/backend-bench-report`, default `~/bench-results/bench-off.html`);
   `run SERVER MODEL` reruns one cell; MTP-on vllm-mlx runs copy the head with
   `bin/extract-mtp-weights`; the console's server list (`bench-choices.ts`) must
   match the script's; each run also replays `BENCH_REPLAY_DIR` through
@@ -326,22 +263,18 @@ before changing how any file gets applied.
 - Launch the work harness: `claude-ollama [27b|35b] [claude args...]`, which
   runs `claude` on the profile in `ollama/settings.<size>.json` (27b is the
   default size; `--help` lists sizes)
-- Check the work harness: `claude-ollama doctor [size]` (exit 1 when
-  llama-server does not answer, the size's preset is not in its `/models`, the
-  weights are missing or fail their pin, a hook is missing or the context does
-  not match; it warns on a server build below 9200, stale user presets, a GPU
-  wired limit (`iogpu.wired_limit_mb`) below model plus KV, naming the
-  `sudo sysctl` line, and a memory fit that is short; needs `jq`; the launcher
+- Check the work harness: `claude-ollama doctor [size]` (exit 1 on a missing
+  model, hook, context mismatch or server env var; needs `jq`; the launcher
   resolves the size and execs `bin/claude-ollama-doctor SIZE`, which
   `CLAUDE_OLLAMA_DOCTOR_BIN` overrides in tests) and
   `claude-ollama --print-config [size]` (resolved values, no launch). Follow the
-  server log: `claude-ollama logs [-n LINES]` follows
-  `~/.claude-ollama/logs/llama-server.log` (the LaunchAgent's `--log-file`);
+  server log: `claude-ollama logs [-n LINES]` (the running launchd job's log,
+  else the LaunchAgent plist path, else the Homebrew log, else the app log);
   `claude-ollama logs --path` prints that path instead of following it. Each
   launch also copies its own stderr, up to the hand-off to `claude`, to
   `$CLAUDE_CONSOLE_STATE_DIR/launcher.log` (0600, moved to `launcher.log.1` past
-  1 MiB); the console's Logs page has Server (llama-server), Launcher, Incidents
-  and Proxy tabs (`/api/logs/path` and `/api/logs/events` take
+  1 MiB); the console's Logs page has Ollama server, Launcher, Incidents and
+  Proxy tabs (`/api/logs/path` and `/api/logs/events` take
   `?source=server|launcher|incidents|proxy`)
 - Explain the last bad run: `claude-ollama why [--since MINUTES] [--json]`
   (dispatched like `logs`, before any pull or launch, no size needed) runs
@@ -355,13 +288,12 @@ before changing how any file gets applied.
   (stdlib; `CLAUDE_OLLAMA_PREFIX_AB` overrides it for tests), which replays the
   recorded bodies twice in ts order, verbatim and through the proxy's
   `stabilize_bodies` (the script is imported as a module, no server starts),
-  clearing the cache before each pass (`--unload llama-slots`, the default,
-  unloads and reloads the preset on a router llama-server, else erases slot 0;
-  `ollama` unloads an Ollama model and is kept only for the bench-off's Ollama
-  cell; `none` sends nothing; `--auth-token` sets the key sent), and prints a
-  two-column table of cache hit % per request (from `cache_read_input_tokens`
-  counted against `input_tokens` plus the cached tokens, else prefill time per
-  token against the first request, like the probe's fallback), a `mean` row and
+  clearing the cache before each pass (`--unload ollama`, the default, unloads
+  the model; `llama-slots` erases llama-server's slot 0; `none` sends nothing;
+  `--auth-token` sets the key sent), and prints a two-column table of cache hit
+  % per request (from `cache_read_input_tokens` counted against `input_tokens`
+  plus the cached tokens, else prefill time per token against the first request,
+  like the probe's fallback), a `mean` row and
   `stabilize: worth it (+N points mean hit rate)` or `stabilize: no gain` (under
   one point); `--json` prints `requests`, `mean`, `gain_points` and `verdict`.
   Tests: `bin/prefix-ab.test.sh` (stub server)
@@ -373,21 +305,21 @@ before changing how any file gets applied.
   and a five-line summary (`doctor:`, `lease:`, `incidents:`, `proxy:`,
   `memory:`) and exits 0 unless `--out` cannot be written. Its sections, each
   capped and redacted: `doctor` output, `--print-config` output, the
-  `sync-fingerprint` JSON, llama-server's `/props` (build, role) and its preset
-  models from `/models` with their status (at `LLAMA_SERVER_URL`), the lease
-  holders and the session's rung, the last 50 incident rows with per-cause
-  counts over the whole file, the proxy log's prefix hit rate (requests that
-  kept every section but the newest message) and its top three diverging
-  sections with their last diff over the last `--since` minutes (default 120)
-  plus the record dir and its count when `~/.claude-ollama/proxy/record` exists,
-  the launcher log tail (60 lines), the llama-server log tail (60 lines, through
+  `sync-fingerprint` JSON, the running server's `OLLAMA_*` env (the launcher
+  hands it over in a temp file) and the `/api/ps` runners, the lease holders and
+  the session's rung, the last 50 incident rows with per-cause counts over the
+  whole file, the proxy log's prefix hit rate (requests that kept every section
+  but the newest message) and its top three diverging sections with their last
+  diff over the last `--since` minutes (default 120) plus the record dir and its
+  count when `~/.claude-ollama/proxy/record` exists, the launcher log tail (60
+  lines), the Ollama server log tail (60 lines, through
   `claude-ollama logs --path`), the first 20 lines of the newest note in
   `<git common dir>/handoff/`, and free memory. Any token-looking string (40+
   base64 chars, `sk-`, `ghp_`, `Bearer `) becomes `<redacted>` and `$HOME`
   becomes `~`; whatever it cannot read becomes one `unavailable: <why>` line
   under its heading. Tests: `ollama/rescue.test.sh` (stub launcher, lease and
-  fingerprint tools, a stub llama-server, fixture logs),
-  `bin/claude-ollama.test.sh` (dispatch).
+  fingerprint tools, a stub `/api/ps`, fixture logs),
+  `bin/claude-ollama.test.sh` (dispatch and the server env hand-off).
 - Console: `claude-ollama ui [--port N]` serves `web/console` (Next.js with AI
   Elements) at `http://127.0.0.1:8765/`, built on first run with pnpm
   (reinstalled when `pnpm-lock.yaml` is newer than `node_modules/.modules.yaml`,
@@ -396,18 +328,6 @@ before changing how any file gets applied.
   that link. A start on a port that already answers prints the running console's
   tokened link and starts nothing, writing a new token file if the old one was
   lost. Its tests run with `make test-web`.
-- Console Models and Server pages: they talk to llama-server at
-  `LLAMA_SERVER_URL` (`web/console/src/lib/model-server.ts`). `GET /api/models`
-  (`models.ts`) joins the router's `/models` presets with
-  `bin/ollama-models list` (the weights files and their states) per size and for
-  the embedding model; `POST /api/models/load` and `/api/models/unload` send a
-  preset id to `/models/load` or `/models/unload`; the page starts `prepare`,
-  `prepare-embedding`, `prune` (`--yes --only FILE...`), `models-outdated` and
-  `model-upgrade` through `console-run`. `GET /api/server` reads
-  `ollama-agent -json`, and the page changes settings through the `server-set`
-  command (`-set KEY=VALUE` per change) and reapplies through `server-apply`
-  (`-apply`); `GET /api/server/ping` reports `up`, `loading` or `down` with the
-  `/props` build (`model-server-health.ts`).
 - Console smoke check: `bin/console-smoke [--port N] [--keep]` starts
   `claude-ollama ui` on a temp state dir, checks every page, the token gate and
   the same-origin rule, then prints `all passed` (`make smoke-console`; `--keep`
@@ -430,33 +350,18 @@ before changing how any file gets applied.
 - `bin/claude-custom`, `bin/claude-ollama`, `bin/claude-ollama-doctor`,
   `bin/claude-ollama-qwen`, `bin/lib/*.sh`, `bin/claude-tools` and
   `bin/ollama-agent` must stay bash-3.2 compatible (macOS `/bin/bash`).
-  `bin/claude-custom` must never write `~/.zshenv` or `~/.local/bin/claude`. The
-  sizes, their preset ids and their weights come from `ollama/sizes.json`;
-  `ollama/settings.<size>.json` and `ollama/models.ini` are rendered from it.
-  Adding a size means one `sizes.json` entry, then `bin/ollama-profiles`; never
-  hand-edit the rendered files. Every size's `gguf` (and
-  `ollama/embedding.json`'s) must be a `<file>.gguf` from an `unsloth/`,
-  `ibm-granite/` or `Qwen/` `*-GGUF` repo at a pinned 40-hex revision, its
-  `base` must be `<repo>/<file>`, and `ollama/model-digests.json` must hold
-  exactly those `<repo>/<file>` keys, each with Hugging Face's LFS sha256 of
-  that file at that revision
-  (`https://huggingface.co/api/models/<repo>/tree/<revision>` lists `lfs.oid`);
-  `bin/check-config` checks all of it. The weights live in
-  `~/.claude-ollama/weights/<file>`, never in the repo: `fetch_gguf`
-  (`bin/lib/model-server.sh`) downloads a missing or mismatched file to
-  `<file>.part` from `<repo>/resolve/<revision>/<file>` (resuming with
-  `curl -C -`), keeps it only when its sha256 equals the pin and
-  `bin/gguf-inspect` passes it, and `bin/claude-ollama` runs it before every
-  launch and exits 1 when it fails; `doctor` reports a missing or mismatched
-  file. A size that can see images (the 27b and 35b) also pins its vision
-  projector as `gguf.mmproj` (`file`, the repo's name, and `local`, a name
-  unique in the weights folder, since both repos call it `mmproj-F16.gguf`); its
-  `<repo>/<file>` digest sits in `ollama/model-digests.json` too, and fetch,
-  `doctor` (`vision projector` line), `ollama-models list` and `pin` and the
-  memory fit (model bytes are the GGUF plus the projector) all count it. A size
-  without one (the 3b) gets `--images-as-note` on its messages proxy, which
-  replaces each `image` block (also inside a `tool_result`) with a text note,
-  since llama-server answers 500 to an image without a projector.
+  `bin/claude-custom` must never write `~/.zshenv` or `~/.local/bin/claude`, and
+  derives Ollama model names from `ollama/settings.<size>.json` and
+  `ollama/Modelfile.<size>`, both rendered from `ollama/sizes.json`. Adding a
+  size means one `sizes.json` entry, then `bin/ollama-profiles`; never hand-edit
+  the rendered files. Every `base` (plus the default embedding model) must be an
+  Ollama library model (no `/` in the name) with a manifest sha256 in
+  `ollama/model-digests.json`, or a `./weights/<file>.gguf` from an
+  `unsloth/*-GGUF` repo at a pinned commit whose file sha256 is the pin;
+  `bin/check-config` checks both. `bin/claude-ollama` checks `/api/tags` against
+  the pin after pulling a base and before each launch, exits 1 on a mismatch,
+  and `doctor` reports it. A pin is the sha256 of the registry manifest
+  (`https://registry.ollama.ai/v2/library/NAME/manifests/TAG`).
 - Go module `go/` (all three apps; `go/cmd/model-picker/`,
   `go/cmd/claude-tools/`, `go/cmd/ollama-agent/`): `cd go && go test ./...`. One
   test: `cd go && go test ./internal/tools/ui -run TestSwitching`. Run the
@@ -465,16 +370,10 @@ before changing how any file gets applied.
   picker when no size is given on a terminal. See
   `go/cmd/claude-tools/README.md` and `go/cmd/ollama-agent/README.md`.
 
-`claude-custom install` (and `update`, which runs it) sets up llama-server on
-macOS: it boots out an old `local.ollama` LaunchAgent when one is loaded and
-prints one line on removing the Ollama models by hand (`ollama rm NAME` for
-each, then `brew uninstall ollama`; it never runs `ollama` itself), skips the
-rest with `brew install llama.cpp` when `llama-server` is not on `PATH`, warns
-below build 9200 (`brew upgrade llama.cpp`), writes the user presets
-(`bin/ollama-profiles --user-presets`) and runs `ollama-agent -apply`, which
-writes and reloads `local.llama-server` (a failed apply only warns). It
-downloads no weights; `claude-ollama prepare [size]` does. `update` execs the
-pulled `claude-custom finish-update`, which runs the install again.
+`claude-custom install` (and `update`, which runs it) restarts a running Ollama
+server through `ollama-agent -apply` when it lacks a value from
+`ollama/server.env` (macOS only; a failed restart only warns). `update` execs
+the pulled `claude-custom finish-update`, which runs the install again.
 
 There is no build step outside the Go module. `claude-custom install` builds
 `go/cmd/claude-tools/claude-tools`, `go/cmd/model-picker/model-picker` and
@@ -575,8 +474,8 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `MAX_LINES` in `bash-output-trim.py` (`bin/check-config` checks it).
 - `shared/preferences/PREFERENCES.md` holds the prose rules no tool can check,
   including token discipline. `bin/claude-custom install` `@`-imports it into
-  `~/.claude/CLAUDE.md`, so both backends load it. Keep it short: the local
-  models have 32k-96k context.
+  `~/.claude/CLAUDE.md`, so both backends load it. Keep it short: Ollama has
+  64k-96k context.
 - `shared/agents/pr-review.md` is a Claude Code subagent definition that
   `bin/claude-custom install` links into `~/.claude/agents/`. It reviews a
   GitHub PR from a temporary worktree (`gh pr view`/`diff`, callers via Grep,
@@ -662,10 +561,9 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   matters); there is no `ts-vitest`, since vitest needs `node_modules`.
 - Mockup spike: `claude-ollama mock-spike [size] [--runs N] [--brief NAME]...`
   (`bin/mock-spike --model M [--base-url URL] [--out FILE]`) streams three
-  mockup briefs through llama-server's streaming `/v1/chat/completions` (SSE
-  `choices[0].delta.content`) with the json-render catalog prompt from
-  `web/console/src/lib/mock-spike/catalog.ts`, scores each reply (patch lines,
-  elements, catalog validation, first-patch time) with
+  mockup briefs through Ollama `/api/chat` with the json-render catalog prompt
+  from `web/console/src/lib/mock-spike/catalog.ts`, scores each reply (patch
+  lines, elements, catalog validation, first-patch time) with
   `web/console/src/lib/mock-spike/score.ts`, prints a `verdict:` line (`sound`,
   `repairable`, `poor`) and saves `~/bench-results/mock-spike-*.json`. The CLI
   is `web/console/scripts/mock-spike.mts`, run through the console's `tsx` so
@@ -868,13 +766,13 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
 - `shared/relaunch_dir.py` (stdlib only) owns the relaunch dir protocol (terms
   in `CONTEXT.md`): its path (`~/.claude-ollama/relaunch/<launcher pid>`), the
   signal files (requests `relaunch` `{note, prompt, percent}`, `ladder`
-  `{rung, context, reason}`, `ladder-up` `{rung, reason}`; flag `embed-off`),
-  `claude.pid`, and the SIGTERM sent only when `ps -o comm=` names a node or
-  claude process. Requests are validated against their schema and written
-  through a temp file and `os.replace` (0600); `take` reads and removes one, and
-  a malformed one is removed with a stderr line. Python callers import
-  `RelaunchDir` (`handoff-relaunch.py`, `ladder.py` and `code-search.py` add
-  `shared/` to `sys.path`); `bin/claude-ollama` (`relaunch_signal`) and the
+  `{rung, context, reason}`, `ladder-up` `{rung, reason}`; flags `embed-off`,
+  `heartbeat-fast`), `claude.pid`, and the SIGTERM sent only when `ps -o comm=`
+  names a node or claude process. Requests are validated against their schema
+  and written through a temp file and `os.replace` (0600); `take` reads and
+  removes one, and a malformed one is removed with a stderr line. Python callers
+  import `RelaunchDir` (`handoff-relaunch.py`, `ladder.py` and `code-search.py`
+  add `shared/` to `sys.path`); `bin/claude-ollama` (`relaunch_signal`) and the
   console's promote run its CLI:
   `[--dir D | --root R --pid N] prepare|request NAME JSON|take|has|raise|lower|path NAME|claude-pid PID`
   (`--dir` defaults to `CLAUDE_OLLAMA_RELAUNCH_DIR`; exit 1 absent, 2 usage or
@@ -978,31 +876,29 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `Bash(git commit *)`, `Bash(git push *)` and
   `Bash(dangerouslyDisableSandbox:true)`; `bin/check-config` checks both. The
   profiles also set `CLAUDE_CODE_EXTRA_BODY` to
-  `{"thinking":{"type":"disabled"}}` (harmless: the plain presets already set
-  `reasoning = off`); `bin/check-config` checks it.
-  `shared/hooks/git-push-guard.py` (Ollama-only, PreToolUse on Bash) denies
-  force pushes, remote deletes, `--mirror`, `--prune`, `-c alias.*`, pushes to
-  `main` or `master`, and any push not spelled `git push ...` at the head of a
-  command (`-C`, `--git-dir`, a path to `git`), which the `Bash(git push *)` ask
-  rule and `excludedCommands` would otherwise miss. The personal overlay also
-  denies unused tools by bare name (`Artifact`, `Workflow`, `ScheduleWakeup`,
-  `SendFeedback` and the deferred ones), since a bare deny removes the tool's
-  schema from the request; `bin/check-config` fails when an Ollama profile lacks
-  one of those bare denies. The personal overlay's sandbox allows the same
-  caches and loopback addresses; `bin/check-config` checks they match the Ollama
-  profiles.
+  `{"thinking":{"type":"disabled"}}` so Ollama skips reasoning;
+  `bin/check-config` checks it. `shared/hooks/git-push-guard.py` (Ollama-only,
+  PreToolUse on Bash) denies force pushes, remote deletes, `--mirror`,
+  `--prune`, `-c alias.*`, pushes to `main` or `master`, and any push not
+  spelled `git push ...` at the head of a command (`-C`, `--git-dir`, a path to
+  `git`), which the `Bash(git push *)` ask rule and `excludedCommands` would
+  otherwise miss. The personal overlay also denies unused tools by bare name
+  (`Artifact`, `Workflow`, `ScheduleWakeup`, `SendFeedback` and the deferred
+  ones), since a bare deny removes the tool's schema from the request;
+  `bin/check-config` fails when an Ollama profile lacks one of those bare
+  denies. The personal overlay's sandbox allows the same caches and loopback
+  addresses; `bin/check-config` checks they match the Ollama profiles.
 - `bin/sync-fingerprint` (bash 3.2, jq) says what a checkout runs: `commit`
-  (HEAD of `repo_dir`), `dirty` (tracked changes only), `models` (per size its
-  preset id, GGUF file, pin state from `ollama-models list` (`ok`, `mismatch`,
-  `missing`) and, when `ok`, `sha256:<pin>` as its digest), `server` (`build`,
-  from `/props` or `llama-server --version`, null when neither answers, and
-  `settings`: the `[*]` keys of `server.ini`, the user presets and
-  `server.local.ini`, plus `models-max`), `hooks` (sha256 per
-  `shared/hooks/*.py` and `*.sh`, by basename, `*.test.sh` left out), `sandbox`
-  (sha256 of the rendered `sandbox` block of `ollama/settings.27b.json`),
-  `claude_version` (first line of `claude --version`, else null), `host`, `ts`,
-  and `fingerprint`, the sha256 of the canonical JSON (`jq -cS`) of everything
-  but `host` and `ts`. Every `bin/claude-ollama` launch writes it to
+  (HEAD of `repo_dir`), `dirty` (tracked changes only), `models` (per size the
+  `-cc` model's `/api/tags` digest or `missing`, plus the base's pin state as
+  doctor sees it: `ok`, `mismatch`, `missing`, `unpinned`), `server_env` (the
+  running server's `OLLAMA_*` values, read like doctor does; `{}` when down),
+  `hooks` (sha256 per `shared/hooks/*.py` and `*.sh`, by basename, `*.test.sh`
+  left out), `sandbox` (sha256 of the rendered `sandbox` block of
+  `ollama/settings.27b.json`), `claude_version` (first line of
+  `claude --version`, else null), `host`, `ts`, and `fingerprint`, the sha256 of
+  the canonical JSON (`jq -cS`) of everything but `host` and `ts`. Every
+  `bin/claude-ollama` launch writes it to
   `$CLAUDE_CONSOLE_STATE_DIR/beacon/<host>.json` (0700 folder, 0600 file) in the
   background before the hand-off (`CLAUDE_OLLAMA_BEACON=0` skips it), and
   `claude-custom install` (so `update`, through `finish-update`) refreshes it.
@@ -1038,17 +934,13 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `--mcp-config` for the code-search server, `--model` with the profile's
   `model` (it also unsets `ANTHROPIC_MODEL`, which would otherwise win over the
   settings file), and restricts tools with `--tools` (built-in tools only; MCP
-  tools still load). `--model` is the composed preset id (`<model>`,
-  `<model>@think`, `<model>@<ctx>` or `<model>@profile`, from
-  `shared/profile-overlay`). Before launching, it downloads and checks the
-  size's weights, renders the user presets (and runs `ollama-agent -apply` when
-  they changed), waits for llama-server, fetches the embedding weights, runs the
-  memory fit, exits 1 when llama-server's `/models` lacks the preset id, claims
-  the session lease, then asks the router to load the preset (and the embedding
-  preset when embeddings are on) in the background. `doctor` and
-  `--print-config` are dispatched before any download or launch; `doctor`
-  (`bin/claude-ollama-doctor`) reads hook names from the profile's settings
-  file, not from `~/.claude/hooks`.
+  tools still load). Before launching, it pulls the base model and creates the
+  `-cc` model when `ollama show` can't find the `-cc` model. When the installed
+  model's `num_ctx` or a sampling parameter differs from its Modelfile, it
+  recreates that model `FROM` itself with every Modelfile `PARAMETER` (no pull).
+  `doctor` and `--print-config` are dispatched before any pull or launch;
+  `doctor` (`bin/claude-ollama-doctor`) reads hook names from the profile's
+  settings file, not from `~/.claude/hooks`.
 - The session config dir `~/.claude-ollama` is `CLAUDE_CONFIG_DIR`:
   `prepare_session_config` seeds `.claude.json` with `hasCompletedOnboarding`
   (an existing file is kept), copies `~/.claude/CLAUDE.md` and
@@ -1094,9 +986,8 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `doctor` prints `ok   node <path> (...)`, `(no nvm)` for the PATH node, or
   `warn node: none on PATH`. Tests: `bin/claude-ollama.test.sh`.
 - `bin/claude-ollama` reads the configured sizes from `ollama/` (a
-  `settings.<size>.json` whose size is a key of `ollama/sizes.json`; the
-  console's `sizes.ts` uses the same rule), never a hardcoded list. A first arg
-  that matches launches that size. Otherwise, on a terminal it runs
+  `settings.<size>.json` plus a `Modelfile.<size>`), never a hardcoded list. A
+  first arg that matches launches that size. Otherwise, on a terminal it runs
   `go/cmd/model-picker` (which renders on stderr and prints the chosen size on
   stdout); without one it uses 27b. A first arg that is neither a size nor a
   flag is dropped so it doesn't reach `claude` as a prompt.
@@ -1185,28 +1076,21 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
 - Incidents: `ollama/incidents/watcher.py` (stdlib only) runs outside the
   sandbox beside the draft opener (`--watch-pid $$`, `CLAUDE_OLLAMA_INCIDENTS=0`
   turns it off, `CLAUDE_OLLAMA_INCIDENT_WATCHER` overrides the script for
-  tests). It follows the llama-server log (`server_log_path`,
-  `~/.claude-ollama/logs/llama-server.log`) from its end, reopening when the
-  file shrinks, and the session's transcripts under `~/.claude-ollama/projects`
-  for new `compact_boundary` lines, and classifies each new line with an ordered
-  regex table into `aborted` (`http client error: Canceled`, a cancelled
-  request), `truncated` (`exceeds the available context size` and its siblings),
-  `reprefilled` (`forcing full prompt re-processing`, or a child's
-  `prompt eval time ... / N tokens` count of 1000 or more within 300 tokens of
-  its `n_ctx` or of its previous `total time ... / N tokens`), `evicted`
-  (`stopping model instance name=`, `evicting idle LRU name=`, or a
-  `spawning server instance` line), `compacted` (with `preTokens`) or `unknown`
-  (a line naming the session's preset or an `instance` that fits no rule, never
-  dropped); the rest of the router's load sequence (`[ preset]`,
-  `proxying request to model`, queue and exit lines) is skipped. Each rule has
-  an id (`aborted/cancelled`, `truncated/context-overflow`,
-  `reprefilled/full-reprocess`, `evicted/unload`, `evicted/runner-start`,
+  tests). It follows the Ollama server log (`server_log_path`) from its end,
+  reopening when the file shrinks, and the session's transcripts under
+  `~/.claude-ollama/projects` for new `compact_boundary` lines, and classifies
+  each new line with an ordered regex table into `aborted` (`context canceled`),
+  `evicted` (an unload or a runner start), `truncated`
+  (`truncating input prompt`), `reprefilled` (a llama.cpp
+  `prompt eval time ... / N tokens` count within 300 tokens of `n_ctx` or of the
+  previous `total time ... / N tokens`), `compacted` (with `preTokens`) or
+  `unknown` (a line naming the model or a runner that fits no rule, never
+  dropped); the rest of a load sequence (`loaded runners`, `template selection`)
+  is skipped. Each rule has an id (`aborted/context-canceled`,
+  `truncated/input-prompt`, `evicted/unload`, `evicted/runner-start`,
   `ignored/load-sequence`, `reprefilled/prompt-eval`, `compacted/transcript`).
-  `forcing full prompt re-processing` is logged only at verbosity 4, which the
-  LaunchAgent does not pass, so `reprefilled/prompt-eval` is the rule that fires
-  in practice. `ollama/incidents/incident_log.py` (stdlib only) owns the record
-  and is the only writer: the watcher, the ladder and the launcher
-  (`append_incident` runs
+  `ollama/incidents/incident_log.py` (stdlib only) owns the record and is the
+  only writer: the watcher, the ladder and the launcher (`append_incident` runs
   `incident_log.py append --file F --cause C --detail D [--tokens N] [--rule R]`)
   all append through it. Each incident is one JSON line (`ts`, `cause`, `detail`
   of 200 chars, `tokens`, `rule`, null for `unknown`) appended to
@@ -1215,12 +1099,12 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   session's file; rows with a `kind` (`health`, `ladder`) go through
   `record_kind_row` and never reach `.latest`. A `reprefilled` row also carries
   `preceded_by`, the last `{kind, ts}` event seen in the log before it (`embed`:
-  the router proxying a request to the embedding preset; `load`: a child spawn
-  or model load; `unload`: a stop or LRU eviction), or null; no other cause has
-  the key. The causes are the keys of `ollama/incidents/causes.json` (cause to
-  console log level: the watcher's six plus `relaunched` and `recovered` from
-  the launcher and `degraded` from the ladder); appending any other cause raises
-  (the CLI exits 2). `bin/ollama-profiles` copies that file, key order kept, to
+  an `/api/embed` request; `load`: a runner start; `unload`; `expired`: a
+  keep-alive expiry), or null; no other cause has the key. The causes are the
+  keys of `ollama/incidents/causes.json` (cause to console log level: the
+  watcher's six plus `relaunched` and `recovered` from the launcher and
+  `degraded` from the ladder); appending any other cause raises (the CLI exits
+  2). `bin/ollama-profiles` copies that file, key order kept, to
   `web/console/src/lib/incident-causes.generated.json`, which `incidents.ts`
   imports for `INCIDENT_CAUSES` and the levels, and `make check-profiles` fails
   when the copy is stale. Tests: `ollama/incidents/incident_log.test.sh`. The
@@ -1231,8 +1115,8 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   and in `--once`; every reader skips rows with a `kind`.
   `watcher.py --check-rules --log PATH [--model NAME] [--lines N]` (default 400)
   replays the log's last lines, prints each rule id with its hits, then `blind`
-  (exit 1: 50 or more lines name the preset or an instance and no rule matched)
-  or `ok`; `claude-ollama doctor` runs it as `check_classifier` on
+  (exit 1: 50 or more lines name the model or a runner and no rule matched) or
+  `ok`; `claude-ollama doctor` runs it as `check_classifier` on
   `server_log_path` and fails when the classifier is blind (`rules: N` counts
   the rules that hit). The launcher exports `CLAUDE_OLLAMA_INCIDENTS_FILE` to
   the session, and `shared/hooks/incident-note.py` (UserPromptSubmit, in
@@ -1248,22 +1132,20 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   and rule as sub-labels (`reprefilled · after embed · reprefilled/prompt-eval`;
   `web/console/src/lib/incidents.ts`: `parseIncident`, `parseHealth`,
   `latestHealth`). Tests: `ollama/incidents/watcher.test.sh`
-  (`fixtures/llama-server-log.txt` covers every cause and passes
-  `--check-rules`), `shared/hooks/incident-note.test.sh`,
-  `bin/claude-ollama.test.sh` (stub watcher; doctor runs the real one on a stub
-  log), the console's vitest suite.
+  (`fixtures/server-log.txt` covers every cause and passes `--check-rules`),
+  `shared/hooks/incident-note.test.sh`, `bin/claude-ollama.test.sh` (stub
+  watcher; doctor runs the real one on a stub log), the console's vitest suite.
 - Messages proxy:
   `bin/messages-proxy --upstream URL --port N --log FILE [--port-file PATH] [--watch-pid PID]`
   (stdlib only) listens on `127.0.0.1:N` (`0` picks a free port and
   `--port-file` publishes it, 0600) and forwards `POST /v1/messages`,
-  `POST /v1/messages/count_tokens`, `GET /v1/models`, `GET /health` and
-  `GET /models` to llama-server unchanged (404 for any other route), SSE
-  streamed back as it arrives; it exits when the watched pid dies. It answers
-  403 when the `Host` is not `127.0.0.1`, `localhost` or `[::1]` (any port) or
-  an `Origin` is not a loopback origin, and forwards the original `Origin` so
-  the server's own check still runs, since the proxy rewrites `Host` to the
-  upstream. For each `POST /v1/messages` it hashes the body's sections in order
-  (`system`, `tools`, each `messages` entry, each as
+  `GET /v1/models`, `/api/version` and `/api/tags` to Ollama unchanged (404 for
+  any other route), SSE streamed back as it arrives; it exits when the watched
+  pid dies. It answers 403 when the `Host` is not `127.0.0.1`, `localhost` or
+  `[::1]` (any port) or an `Origin` is not a loopback origin, and forwards the
+  original `Origin` so Ollama's own check still runs, since the proxy rewrites
+  `Host` to the upstream. For each `POST /v1/messages` it hashes the body's
+  sections in order (`system`, `tools`, each `messages` entry, each as
   `json.dumps(sort_keys=True, separators=(",", ":"))`) as cumulative sha256
   prefixes, compares them with the previous request's and appends one JSON line
   to `--log` (0700 dir, 0600 file): `ts`, `request_id` (uuid4, also sent
@@ -1287,10 +1169,7 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   settings with `env.ANTHROPIC_BASE_URL` pointed at the proxy (the proxy layer
   of `compose_launch_settings`); when the port never appears it warns and keeps
   the direct URL. By default it only observes: no rewriting, no tool pruning.
-  `--images-as-note` (passed for a size without a vision projector) replaces
-  each `image` block with a one-line text note, re-serialising the body only
-  when one was found, and adds `images_as_note` (the count) to the row;
-  `--record` keeps the original. `--stabilize` (the launcher passes it only when
+  `--stabilize` (the launcher passes it only when
   `CLAUDE_OLLAMA_PROXY_STABILIZE=1`) adds the prefix stabiliser: when two
   consecutive requests differ inside `system` by a span that, widened to whole
   lines, is at most 400 bytes with the rest identical, each changed line's text
@@ -1352,26 +1231,25 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   last `--since` minutes, joins each incident to the last request at most 5 s
   before it, and prints a one-screen verdict chosen by a fixed priority:
   `truncated` > `evicted` (evicted rows, or `reprefilled` after `embed`, `load`
-  or `unload`) > `prompt drift at system|tools` (a request that diverged before
-  the messages, preferring the one joined to an incident) > `compacted` >
-  `degraded` > `reprefilled` with no known event > `nothing wrong`; `aborted`
-  never decides. The lines are `verdict:` (cause, summary, window), `evidence:`
-  (counts, the last time, the preceding event or the diverging section, offset
-  and diff, and the joined request: `the request Ns before it diverged at X` or
-  `no request within 5s before it`), `fix:` (one command or variable:
-  `bin/ollama-profiles` and `claude-ollama doctor`,
-  `ollama-agent -set models-max=2` plus `CLAUDE_OLLAMA_LEASE`,
+  or `unload`) > `reprefilled after expired` > `prompt drift at system|tools` (a
+  request that diverged before the messages, preferring the one joined to an
+  incident) > `compacted` > `degraded` > `reprefilled` with no known event >
+  `nothing wrong`; `aborted` never decides. The lines are `verdict:` (cause,
+  summary, window), `evidence:` (counts, the last time, the preceding event or
+  the diverging section, offset and diff, and the joined request:
+  `the request Ns before it diverged at X` or `no request within 5s before it`),
+  `fix:` (one command or variable: `bin/ollama-profiles`,
+  `OLLAMA_MAX_LOADED_MODELS=2` plus `CLAUDE_OLLAMA_LEASE`, `OLLAMA_KEEP_ALIVE`,
   `move the volatile line after the stable prefix: "<diff>"` followed by
   `CLAUDE_OLLAMA_PROXY_STABILIZE=1` and `claude-ollama prefix-ab`,
-  `CLAUDE_OLLAMA_HANDOFF_PCT`, `ladder.py --inspect`,
-  `ollama-agent -set ctx-checkpoints=256`, or `nothing to do`),
-  `prefix: N% of M requests stable through tools` (a request counts when
-  `diverged_at` is null or a `message:N`; the first row, with nothing to
-  compare, is skipped) and `drift:` with the top three diverging sections and
-  counts (`none`). `--json` prints one object (`verdict`, `summary`, `evidence`,
-  `fix`, `prefix`, `diverging`, `incidents`, `window`). Tests:
-  `ollama/incidents/why.test.sh` (inline fixture logs for every rung, the join
-  window, `--since`, `.latest` and empty or unreadable inputs),
+  `CLAUDE_OLLAMA_HANDOFF_PCT`, `ladder.py --inspect`, `claude-ollama doctor`, or
+  `nothing to do`), `prefix: N% of M requests stable through tools` (a request
+  counts when `diverged_at` is null or a `message:N`; the first row, with
+  nothing to compare, is skipped) and `drift:` with the top three diverging
+  sections and counts (`none`). `--json` prints one object (`verdict`,
+  `summary`, `evidence`, `fix`, `prefix`, `diverging`, `incidents`, `window`).
+  Tests: `ollama/incidents/why.test.sh` (inline fixture logs for every rung, the
+  join window, `--since`, `.latest` and empty or unreadable inputs),
   `bin/claude-ollama.test.sh` (stub `why`; `why` never launches, starts no proxy
   and no watcher).
 - Residency lease: `bin/ollama-lease` (bash 3.2, `jq`) keeps one file per
@@ -1382,57 +1260,47 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   is dead.
   `acquire NAME [--model M] [--pid N] [--num-ctx N] [--rung R] [--exclusive] [--wait SECONDS]`
   succeeds at once when no `session` lease is held by another pid, or when the
-  router's `models-max` (`models_max`: the LaunchAgent plist's `--models-max`,
-  else `/props` `max_instances`, else 2) is at least the number of distinct
-  models the holders plus the request would load; otherwise it exits 3 with one
-  stderr line,
-  `ollama lease: held by <name> (pid N, model M); run after that session ends or run claude-custom agent -set models-max=2`,
+  running server's `OLLAMA_MAX_LOADED_MODELS` (read like `claude-ollama` does)
+  is at least the number of distinct models the holders plus the request would
+  load; otherwise it exits 3 with one stderr line,
+  `ollama lease: held by <name> (pid N, model M); run after that session ends or set OLLAMA_MAX_LOADED_MODELS=2`,
   after polling every `CLAUDE_OLLAMA_LEASE_POLL` seconds (default 1) for
   `--wait`. `--exclusive` refuses while any other holder exists.
   `release NAME [--pid N]` removes that pid's file, `holders` prints
   `live NAME pid N model M rung R` or `stale NAME pid N model M` (and removes
-  the stale file). There is no heartbeat: every preset sets
-  `sleep-idle-seconds = -1`, so the router never unloads an idle model.
-  `bin/claude-ollama` acquires `session` (preset id, `num_ctx`) right after the
-  preset check and before the indexer, so the indexer's `embedding` lease (held
-  by the `sh -c` pid that execs `code-search.py --index`; a refusal sets
-  `CODE_SEARCH_EMBED=0`, words only) never crowds the session out; the EXIT trap
-  (`end_launch`) releases the lease and removes the relaunch dir. `review` and
-  `mock-spike` acquire their own names with the size's model, `speed-check` and
-  `thinking-check` acquire `--exclusive`, and each exits 3 on a refusal.
-  `CLAUDE_OLLAMA_LEASE=0` turns all of it off; `CLAUDE_OLLAMA_LEASE_BIN`
-  overrides the script for tests. `doctor` prints
+  the stale file), and
+  `heartbeat --watch-pid N [--model M] [--fast-marker FILE]` sends a
+  `keep_alive` generate request for the leased model every
+  `${CLAUDE_OLLAMA_LEASE_HEARTBEAT:-120}` seconds (halved while the marker
+  exists) until the pid dies. `bin/claude-ollama` acquires `session` (model,
+  `num_ctx`) right after the model checks and before the indexer, so the
+  indexer's `embedding` lease (held by the `sh -c` pid that execs
+  `code-search.py --index`; a refusal sets `CODE_SEARCH_EMBED=0`, words only)
+  never crowds the session out; `launch_claude` starts the heartbeat and the
+  EXIT trap (`end_launch`) stops it, releases the lease and removes the relaunch
+  dir. `review` and `mock-spike` acquire their own names with the size's model,
+  `speed-check` and `thinking-check` acquire `--exclusive`, and each exits 3 on
+  a refusal. `CLAUDE_OLLAMA_LEASE=0` turns all of it off;
+  `CLAUDE_OLLAMA_LEASE_BIN` overrides the script for tests. `doctor` prints
   `ok   lease held by NAME (pid N, model M)`,
   `warn stale lease NAME (pid N) removed` or `ok   no lease holders`.
   `fit --model M --num-ctx N [--embedding E]` prints one JSON line
   `{model_bytes, kv_bytes, embedding_bytes, total_bytes, free_bytes, fits, margin_bytes, estimate}`:
-  `M` and `E` are preset ids (or aliases) looked up in the user presets (else
-  `ollama/models.ini` with the weights folder filled in), and the model and
-  embedding bytes are the size of each preset's GGUF file plus its `mmproj` file
-  when the preset names one (exit 1 naming `claude-ollama prepare` when it is
-  missing); the KV bytes are `num_ctx` times the per-token K and V widths read
-  from `bin/gguf-inspect --json`
-  (`block_count / full_attention_interval * head_count_kv * (key_length + value_length)`,
-  or the sum over a per-layer `head_count_kv` array) times the bytes per element
-  of the server's `cache-type-k` (f16 2, q8_0 1, q4_0 0.5), or 25% of the model
-  bytes scaled by `num_ctx / 65536` with `estimate: rough` when a field is
-  missing (so a context-down rung lowers the estimate too); the free bytes are
-  `sysctl -n hw.memsize` minus the active and wired pages of `vm_stat` on macOS,
-  or `MemAvailable` from `/proc/meminfo` (`CLAUDE_OLLAMA_MEMINFO` overrides the
-  path) when that file is readable, plus the GGUF file size of every preset
-  `/models` shows `loaded` that uses the same GGUF as `M` or `E` (the fit asks
-  about the plain id, while a session may have run `@think`, `@<ctx>` or
-  `@profile`), since their pages are already counted as used (the router's
-  `/models` carries no size). It exits 1 with
-  `ollama lease: no preset M in <presets file>` or
-  `ollama lease: cannot read the free memory`.
-  `idle-siblings --model M [--pid N]` prints those loaded presets of `M`'s GGUF
-  other than `M` that no live lease of another pid names; `bin/claude-ollama`
-  unloads them before loading the session's preset, so the credit holds and the
-  weights are never resident twice. `bin/claude-ollama` runs it before claiming
-  the session lease (`CLAUDE_OLLAMA_FIT=0` skips it; a fit that fails prints
-  `claude-ollama: memory fit: unknown (<reason>)` and the launch goes on) and
-  prints
+  the model and embedding bytes are the `size` of each in `/api/tags`; the KV
+  bytes are `num_ctx * block_count * 2 * head_count_kv * key_length * bytes`
+  from the `Metadata` of `ollama show M --verbose` with `OLLAMA_KV_CACHE_TYPE`
+  of the running server as the bytes per element (f16 2, q8_0 1, q4_0 0.5), or
+  25% of the model bytes scaled by `num_ctx / 65536` with `estimate: rough` when
+  a field is missing (so a context-down rung lowers the estimate too); the free
+  bytes are `sysctl -n hw.memsize` minus the active and wired pages of `vm_stat`
+  on macOS, or `MemAvailable` from `/proc/meminfo` (`CLAUDE_OLLAMA_MEMINFO`
+  overrides the path) when that file is readable, plus the `/api/ps` size of the
+  model and embedding model when already loaded, since their pages are already
+  counted as used. It exits 1 with `ollama lease: /api/tags lists no M` or
+  `ollama lease: cannot read the free memory`. `bin/claude-ollama` runs it
+  before claiming the session lease (`CLAUDE_OLLAMA_FIT=0` skips it; a fit that
+  fails prints `claude-ollama: memory fit: unknown (<reason>)` and the launch
+  goes on) and prints
   `claude-ollama: memory fit: model 16.0 GiB + kv 8.0 GiB + embedding 0.6 GiB = 24.6 GiB of 28.9 GiB free`.
   When it does not fit the launcher starts on the lowest rung that does:
   `claude-ollama: ladder embeddings-off: does not fit with the embedding model (N GiB short)`
@@ -1443,15 +1311,12 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   1024 and never below 16384, through the same context layer of the launch
   settings, one step only;
   `claude-ollama: memory fit: still N GiB short at num_ctx M with the embeddings off`
-  when even that is short, then
-  `claude-ollama: not starting: the model does not fit in memory (set CLAUDE_OLLAMA_FIT=0 to start anyway)`
-  and exit 1; `review`, `mock-spike` and `task-eval` refuse the same way,
-  without the ladder). The session lease records the rung and the lower
+  when even that is short). The session lease records the rung and the lower
   `num_ctx`, and the ladder is started with one `--rung R` per rung in effect.
   `doctor` prints `ok   memory fit: ...` or
-  `warn memory fit: ... (N GiB short)`. Tests: `bin/ollama-lease.test.sh` (the
-  stub llama-server, stub `sysctl`, `vm_stat`, a `meminfo` file, sleeping pids),
-  `bin/claude-ollama.test.sh` (`STUB_MEMSIZE`).
+  `warn memory fit: ... (N GiB short)`. Tests: `bin/ollama-lease.test.sh` (stub
+  `pgrep`, `ps`, `curl`, `ollama`, `sysctl`, `vm_stat`, a `meminfo` file,
+  sleeping pids), `bin/claude-ollama.test.sh` (`STUB_MEMSIZE`, `show-verbose`).
 - Degrade ladder: `ollama/incidents/ladder.py` (stdlib only; it imports
   `FileTail` and `process_alive` from `watcher.py` and `IncidentLog`,
   `incident`, `incident_rows` and `now_iso` from `incident_log.py`) runs outside
@@ -1463,33 +1328,33 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   follows the session's incidents file from its start and binds each rung to
   evidence, at most once per session: three `reprefilled` rows whose
   `preceded_by.kind` is `embed` within 10 minutes fire `embeddings-off` (touches
-  `$CLAUDE_OLLAMA_RELAUNCH_DIR/embed-off`); three `truncated` rows fire
-  `context-down` (writes `ladder` as `{"rung", "context", "reason"}`, the
-  context being the next lower size in `ollama/sizes.json` or 75% of the current
-  rounded down to 1024 and never below 16384, then sends SIGTERM to the pid in
-  `claude.pid` only when `ps -o comm=` names a node or claude process, like
-  `handoff-relaunch.py`). A fired rung appends a `degraded` incident
-  (`detail: "<rung>: <reason>"`, `rule: "ladder/<rung>"`, also to `.latest`); a
-  row no rung is bound to only appends
-  `{"kind": "ladder", "ts", "note": "<cause> after <kind>: no rung"}` once per
-  note. Recovery ratchet: the ladder remembers the newest row of each fired
-  rung's cause (a `--rung R` given at start counts as fired at launch), and once
-  `embeddings-off` or `context-down` has seen none for `--quiet-seconds`
-  (default 1200) it runs
+  `$CLAUDE_OLLAMA_RELAUNCH_DIR/embed-off`); three after `expired` fire
+  `heartbeat` (touches `heartbeat-fast`, which halves the lease heartbeat
+  interval); three `truncated` rows fire `context-down` (writes `ladder` as
+  `{"rung", "context", "reason"}`, the context being the next lower size in
+  `ollama/sizes.json` or 75% of the current rounded down to 1024 and never below
+  16384, then sends SIGTERM to the pid in `claude.pid` only when `ps -o comm=`
+  names a node or claude process, like `handoff-relaunch.py`). A fired rung
+  appends a `degraded` incident (`detail: "<rung>: <reason>"`,
+  `rule: "ladder/<rung>"`, also to `.latest`); a row no rung is bound to only
+  appends `{"kind": "ladder", "ts", "note": "<cause> after <kind>: no rung"}`
+  once per note. Recovery ratchet: the ladder remembers the newest row of each
+  fired rung's cause (a `--rung R` given at start counts as fired at launch),
+  and once `embeddings-off` or `context-down` has seen none for
+  `--quiet-seconds` (default 1200) it runs
   `ollama-lease fit --model M --num-ctx N [--embedding E]` (the context before
   that rung, the other rung's degradation kept; at most once a minute) and, when
   `fits` is true, writes `$CLAUDE_OLLAMA_RELAUNCH_DIR/ladder-up` as
   `{"rung", "reason": "20 minutes without <description>, memory fits"}`. It
   proposes the last rung down first, one rung at a time: the next is considered
   only after the launcher removed the file, which also lets that rung fire again
-  on new evidence. There is no heartbeat rung, since no preset unloads when
-  idle. `ladder.py --inspect FILE` prints the `<rung>: <reason>` lines an
-  incidents file would fire, then `up <rung>: 20 minutes without <description>`
-  for each pending recovery, or `none`. The launcher honours `ladder-up` only on
-  a handoff relaunch (never on its own, and never on a ladder relaunch): it
-  removes `embed-off` and allows the embeddings again for `embeddings-off`, or
-  drops the ladder context and returns to the profile settings for
-  `context-down`, prints
+  on new evidence. `heartbeat` is never recovered. `ladder.py --inspect FILE`
+  prints the `<rung>: <reason>` lines an incidents file would fire, then
+  `up <rung>: 20 minutes without <description>` for each pending recovery, or
+  `none`. The launcher honours `ladder-up` only on a handoff relaunch (never on
+  its own, and never on a ladder relaunch): it removes `embed-off` and allows
+  the embeddings again for `embeddings-off`, or drops the ladder context and
+  returns to the profile settings for `context-down`, prints
   `claude-ollama: ladder up: <rung> recovered (<reason>)`, appends a `recovered`
   incident (`detail: "<rung>: <reason>"`, `rule: "ladder/up"`) and re-acquires
   the session lease with the rung still in effect, if any. The launcher's
@@ -1519,64 +1384,60 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `proxy.ts` applies.
 - `shared/mcp/code-search.py` is the `semantic_search` MCP server (JSON-RPC over
   stdio, stdlib only). It ranks 40-line chunks by their words (BM25) on every
-  search, adds a vector ranking through llama-server's `/v1/embeddings` (the
-  `qwen3-embedding:0.6b` alias of the `[qwen3-embedding-0.6b]` preset) only
-  while the router's `/models` shows that preset `loaded`, keeps its index in
-  memory and reloads `.git/code-search/index.json` when `--index` (the only
-  writer) produced a newer one. `claude-ollama` starts `code-search.py --index`
-  in the background on launch (`CLAUDE_OLLAMA_NO_INDEX=1` skips it) with
+  search, adds a vector ranking through Ollama `/api/embed` only while
+  `GET /api/ps` shows the embedding model loaded, keeps its index in memory and
+  reloads `.git/code-search/index.json` when `--index` (the only writer)
+  produced a newer one. `claude-ollama` starts `code-search.py --index` in the
+  background on launch (`CLAUDE_OLLAMA_NO_INDEX=1` skips it) with
   `--watch-pid $$`, so it stops embedding when the session ends; an `flock` on
   `.git/code-search/index.lock` keeps it to one indexer per repo, and it saves
-  the vectors it made when it stops early. `bin/claude-ollama` downloads its
-  GGUF (`ollama/embedding.json`; `CODE_SEARCH_MODEL`, default
-  `qwen3-embedding:0.6b`, names the preset); the model picker's "Set up
-  embedding model" row runs `claude-ollama prepare-embedding` too. The default
-  name appears once in each of `bin/lib/size-profile.sh`, `code-search.py` and
+  the vectors it made when it stops early. `bin/claude-ollama` pulls its model
+  (`CODE_SEARCH_MODEL`, default `qwen3-embedding:0.6b`); the model picker's "Set
+  up embedding model" row pulls it too. The default name appears once in each of
+  `bin/lib/size-profile.sh`, `code-search.py` and
   `go/internal/picker/profiles/embedding.go`, and `bin/check-config` checks they
   agree. The Ollama profiles allow the tool in `permissions.allow`.
-- `ollama/server.ini` holds the llama-server settings every preset shares
-  (`[*]`: `n-gpu-layers = 99`, `flash-attn = on`, `batch-size` and
-  `ubatch-size = 2048`, `cache-type-k`/`cache-type-v = q8_0`, `parallel = 1`,
-  `cache-ram = 8192`, `ctx-checkpoints = 128`, `checkpoint-min-step = 128`,
-  `cache-reuse = 256`, `prio = 2`, `sleep-idle-seconds = -1`, `jinja = true`)
-  and `[router]` `models-max = 2`, which goes on the LaunchAgent command line.
-  `bin/claude-ollama` reads `models-max` (`models_max`): at 2 or more (the main
-  and embedding presets) it exports `CODE_SEARCH_EMBED=1` (the search server
-  then uses the embedding preset) and loads the embedding preset beside the
-  session's; otherwise `semantic_search` ranks by words only. Before each launch
-  `bin/claude-ollama` runs `bin/ollama-profiles --user-presets` and, when that
-  prints `changed`, `ollama-agent -apply` (`CLAUDE_OLLAMA_AGENT` overrides the
-  command; tests stub it), then waits for llama-server to answer and asks the
-  router to load the session's preset in the background (`/models/load`) before
+- `ollama/server.env` documents the Ollama server env the profiles expect,
+  including `OLLAMA_MAX_LOADED_MODELS`, which `bin/claude-ollama` reads from the
+  running server: at 2 or more (the main and embedding models) it exports
+  `CODE_SEARCH_EMBED=1` (the search server then loads and uses the embedding
+  model) and warms the model before the indexer; otherwise `semantic_search`
+  ranks by words only. `bin/ollama-agent` passes it as `-server-env`, so a new
+  LaunchAgent starts from its values. Before each launch `bin/claude-ollama`
+  runs `ollama-agent -apply` (`CLAUDE_OLLAMA_AGENT` overrides the command; tests
+  stub it) when the running server lacks a value: it merges `server.env` into
+  the `local.ollama` plist, stops `brew services ollama` if loaded, reloads, and
+  waits for `/api/version`. It refuses while the Ollama app runs
+  (`go/internal/agent/apply`). `bin/claude-ollama` sends a background warm-up
+  `keep_alive` request to `OLLAMA_HOST` (default `localhost:11434`) before
   `exec claude`.
-- `go/internal/agent/` has five packages: `apply` (`-apply` and `-set`: saves
-  `server.local.ini`, renders the user presets, writes the plist, stops
-  `brew services` `llama.cpp` when loaded, reloads), `launchd` (renders and
-  reads the `local.llama-server` plist and its `--models-max`, saves atomically,
-  builds the `launchctl bootout`/`bootstrap` reload command), `variables` (the
-  built-in settings, the `server.ini`/`server.local.ini` parser, overrides and
-  `ParseAssignment` for `-set`), `snapshot` (the `-json` view: current,
-  recommended and conflicts) and `ui` (the Bubble Tea model; `Config.Reload` is
-  injected so tests never call launchctl). Saving rewrites the whole plist.
+- `go/internal/agent/` has five packages (`apply` is the `-apply` mode):
+  `launchd` (renders and reads the plist, saves atomically, builds the
+  `launchctl bootout`/`bootstrap` reload command), `variables` (the known
+  `OLLAMA_*` list, the `server.env` parser and `ParseAssignment` for `-set`),
+  `snapshot` (the `-json` view: current, recommended and conflicts) and `ui`
+  (the Bubble Tea model; `Config.Reload` is injected so tests never call
+  launchctl). Saving rewrites the whole plist, so hand edits to keys other than
+  `EnvironmentVariables` are lost.
 - `ollama/CLAUDE.local.md` is the appended system prompt for every size, for
   small local models, not memory files. Keep it terse: the 27b has a 64k
-  context, the 35b 96k and the 3b 32k. It must name every tool the session can
-  call (the launcher's `--tools` list and each MCP server's tool names);
+  context, the other sizes 96k. It must name every tool the session can call
+  (the launcher's `--tools` list and each MCP server's tool names);
   `bin/check-config` fails when one is missing. `ollama/sizes.json` is the
   single source for each size's `context` and `output_tokens`:
-  `bin/ollama-profiles` writes them to the size's preset in `ollama/models.ini`
-  (`ctx-size`, `n-predict`) and to `CLAUDE_CODE_MAX_OUTPUT_TOKENS`, and the full
-  context to `CLAUDE_CODE_MAX_CONTEXT_TOKENS`: Claude Code itself keeps every
-  prompt plus its output 3000 tokens under that number and compacts at
+  `bin/ollama-profiles` writes them to `Modelfile.<size>` (`num_ctx`,
+  `num_predict`) and to `CLAUDE_CODE_MAX_OUTPUT_TOKENS`, and the full context to
+  `CLAUDE_CODE_MAX_CONTEXT_TOKENS`: Claude Code itself keeps every prompt plus
+  its output 3000 tokens under that number and compacts at
   `min(window × 88%, window − 13000)` of the window left after the output, so
-  subtracting the output again only made it compact at half of `ctx-size` (a
-  size without `output_tokens` takes `headroom.json`'s; `bin/check-config`
-  asserts the context equals `ctx-size`, that `n-predict`,
+  subtracting the output again only made it compact at half of `num_ctx` (a size
+  without `output_tokens` takes `headroom.json`'s; `bin/check-config` asserts
+  the context equals `num_ctx`, that `num_predict`,
   `CLAUDE_CODE_MAX_OUTPUT_TOKENS` and `sizes.json` agree per size, and that
   `precomputeCompactionEnabled` is false, since a background summary is a second
   full prefill on the one local model; `doctor` and `--print-config` print the
   compaction point, and a profile's `context` override sets the max context
-  tokens through `shared/profile-overlay`); the preset section names are the
+  tokens through `shared/profile-overlay`); the `ollama create` names are the
   ones that `model` and the `ANTHROPIC_DEFAULT_*_MODEL` vars refer to. A managed
   `availableModels` that lacks the model makes Claude Code substitute a `[1m]`
   ID, which assumes a 1M window; `claude-ollama doctor` warns when that happens.
@@ -1598,15 +1459,12 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   the repo). `~/.config/claude-custom/profiles/<id>.json` (`claude-code`, or
   `ollama-<size>`) layers on top through `shared/profile-overlay` (POSIX sh +
   jq): `settings` applies tool states, `sandbox:false` (claude-code only),
-  `context` (the model becomes `<model>@<ctx>`), `output_tokens` (1024 to 16384:
-  `CLAUDE_CODE_MAX_OUTPUT_TOKENS` and the preset's `n-predict`; with
-  `parameters`, the model becomes `<model>@profile`) and `thinking:true` (Ollama
-  profiles only: the model becomes `<model>@think`, whose preset sets
-  `reasoning = on`, and the `CLAUDE_CODE_EXTRA_BODY` that turns thinking off is
-  dropped; a profile with both `thinking` and `context` is refused); `tools`,
-  `env`, `mcp`, `parameters`, `summary` and `check` serve `bin/claude-ollama`.
-  `env` exports only the keys of the profile env catalogue
-  `shared/profile-env.json` (an ordered list of
+  `context`, `output_tokens` (1024 to 16384: `CLAUDE_CODE_MAX_OUTPUT_TOKENS` and
+  the `num_predict` parameter) and `thinking:true` (Ollama only; it drops the
+  `CLAUDE_CODE_EXTRA_BODY` that turns thinking off, so Claude Code's own
+  adaptive request reaches Ollama); `tools`, `env`, `mcp`, `parameters`,
+  `summary` and `check` serve `bin/claude-ollama`. `env` exports only the keys
+  of the profile env catalogue `shared/profile-env.json` (an ordered list of
   `{key, group, kind, default, min, max, step | choices, label, help, ollamaOnly}`,
   `kind` one of `switch`, `integer`, `choice`; values are not checked there):
   the 0/1 switches `CLAUDE_OLLAMA_TELEMETRY` (default off),
@@ -1617,11 +1475,12 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `CLAUDE_OLLAMA_LEASE` (on), `CLAUDE_OLLAMA_LADDER` (on), `CLAUDE_OLLAMA_FIT`
   (on), `CLAUDE_OLLAMA_BEACON` (on), `CLAUDE_OLLAMA_RULE_CARDS` (on) and
   `CLAUDE_OLLAMA_EDIT_NUDGE` (on), plus `CLAUDE_OLLAMA_HANDOFF_PCT` (a whole
-  percent from 30 to 85, default 70), `CLAUDE_OLLAMA_TEST_AFTER_EDIT` (`0`,
+  percent from 30 to 85, default 70), `CLAUDE_OLLAMA_LEASE_HEARTBEAT` (whole
+  seconds from 30 to 600, default 120) `CLAUDE_OLLAMA_TEST_AFTER_EDIT` (`0`,
   `suggest` or `run`, default `suggest`) and `CLAUDE_CODE_EFFORT_LEVEL` (`low`,
   `medium` or `xhigh`, default `xhigh`; Claude Code's own variable, read by Qwen
-  3.8's chat template through llama-server when the profile's thinking is on,
-  ignored by Qwen 3.6). Adding a switch is one catalogue entry, then
+  3.8's chat template through Ollama when the profile's thinking is on, ignored
+  by Qwen 3.6). Adding a switch is one catalogue entry, then
   `bin/ollama-profiles` (which renders the console's copy and the
   `docs/ollama.md` table) and a mention here (`bin/check-config` fails when this
   file lacks a key). `context-budget.py` and `test-after-edit.py` read their
@@ -1665,7 +1524,7 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   rules are in `go/cmd/claude-tools/README.md`.
 
 - `go/internal/history` records every write to `~/.claude/settings.json` and the
-  `local.llama-server` plist before the rename, as `index.jsonl` plus
+  `local.ollama` plist before the rename, as `index.jsonl` plus
   `<id>.before`/`<id>.after` in `<state>/history` (0700 folder, 0600 files).
   `CLAUDE_CUSTOM_HISTORY=off` turns it off; the console's History page and
   `/api/history` read the same format, and restore writes the before bytes back.

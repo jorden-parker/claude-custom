@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	embeddingSetupScript = "claude-ollama prepare-embedding"
+	embeddingSetupScript = `ollama pull "$1"`
 	ollamaErrorPrefix    = "Error: "
 )
 
@@ -29,8 +29,8 @@ type setupDoneMsg struct {
 	ollamaError string
 }
 
-func embeddingSetup() setupTask {
-	return setupTask{label: "embedding model", script: embeddingSetupScript}
+func embeddingSetup(name string) setupTask {
+	return setupTask{label: "embedding model", script: embeddingSetupScript, args: []string{name}}
 }
 
 func setupCommand(task setupTask, errorOutput io.Writer) *exec.Cmd {

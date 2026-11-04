@@ -1,6 +1,0 @@
-#!/bin/sh
-profile="$(cd "$(dirname "$0")" && pwd)/test-guard.sb"
-if [ "${CLAUDE_CUSTOM_TEST_GUARD:-}" = 1 ] || [ "$(uname -s)" != Darwin ] || ! command -v sandbox-exec >/dev/null 2>&1; then
-  exec "$@"
-fi
-CLAUDE_CUSTOM_TEST_GUARD=1 exec sandbox-exec -D "HOME_DIR=$HOME" -f "$profile" "$@"

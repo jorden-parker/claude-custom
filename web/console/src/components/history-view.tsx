@@ -262,7 +262,7 @@ function RestoreConfirm({
           <AlertDialogDescription>
             {path} returns to the version before this change.
             {kind === "launch-agent"
-              ? " Then use Apply on the Server page to reload the model server."
+              ? " Then use Apply on the Server page to reload Ollama."
               : null}
           </AlertDialogDescription>
         </AlertDialogHeader>

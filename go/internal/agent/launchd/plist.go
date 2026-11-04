@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
+	"slices"
 	"strings"
 )
 
@@ -15,51 +17,28 @@ const (
 <plist version="1.0">
 <dict>
 `
-	plistFooter  = "</dict>\n</plist>\n"
-	argumentsKey = "ProgramArguments"
-	Host         = "127.0.0.1"
-	Port         = "11435"
+	plistFooter    = "</dict>\n</plist>\n"
+	environmentKey = "EnvironmentVariables"
 )
 
 type Agent struct {
-	Label     string
-	Arguments []string
-	LogPath   string
-}
-
-type Server struct {
-	Program   string
-	Presets   string
-	ModelsMax string
-	LogFile   string
-	LogPath   string
-}
-
-func (s Server) Agent() Agent {
-	return Agent{
-		Label:   Label,
-		LogPath: s.LogPath,
-		Arguments: []string{
-			s.Program,
-			"--models-preset", s.Presets,
-			"--models-max", s.ModelsMax,
-			"--host", Host,
-			"--port", Port,
-			"--log-file", s.LogFile,
-			"--metrics",
-		},
-	}
+	Label   string
+	Program string
+	LogPath string
+	Env     map[string]string
 }
 
 func Render(agent Agent) []byte {
 	var b strings.Builder
 	b.WriteString(plistHeader)
 	writeEntry(&b, "Label", stringValue(agent.Label))
-	b.WriteString("  <key>" + argumentsKey + "</key>\n  <array>\n")
-	for _, argument := range agent.Arguments {
-		b.WriteString("    " + stringValue(argument) + "\n")
+	writeEntry(&b, "ProgramArguments", "<array>"+stringValue(agent.Program)+stringValue("serve")+"</array>")
+	b.WriteString("  <key>" + environmentKey + "</key>\n  <dict>\n")
+	for _, name := range slices.Sorted(maps.Keys(agent.Env)) {
+		b.WriteString("  ")
+		writeEntry(&b, name, stringValue(agent.Env[name]))
 	}
-	b.WriteString("  </array>\n")
+	b.WriteString("  </dict>\n")
 	writeEntry(&b, "RunAtLoad", "<true/>")
 	writeEntry(&b, "KeepAlive", "<true/>")
 	if agent.LogPath != "" {
@@ -84,12 +63,12 @@ func escape(text string) string {
 	return b.String()
 }
 
-func ReadArguments(data []byte) ([]string, error) {
+func ReadEnv(data []byte) (map[string]string, error) {
 	decoder := xml.NewDecoder(bytes.NewReader(data))
 	for {
 		start, err := nextStart(decoder)
 		if errors.Is(err, io.EOF) {
-			return []string{}, nil
+			return map[string]string{}, nil
 		}
 		if err != nil {
 			return nil, err
@@ -101,34 +80,36 @@ func ReadArguments(data []byte) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		if name == argumentsKey {
-			return readStringArray(decoder)
+		if name == environmentKey {
+			return readStringDict(decoder)
 		}
 	}
 }
 
-func readStringArray(decoder *xml.Decoder) ([]string, error) {
-	if _, err := expectStart(decoder, "array"); err != nil {
+func readStringDict(decoder *xml.Decoder) (map[string]string, error) {
+	if _, err := expectStart(decoder, "dict"); err != nil {
 		return nil, err
 	}
-	arguments := []string{}
+	env := map[string]string{}
 	for {
 		token, err := nextElementToken(decoder)
 		if err != nil {
 			return nil, err
 		}
 		if _, closing := token.(xml.EndElement); closing {
-			return arguments, nil
+			return env, nil
 		}
-		start := token.(xml.StartElement)
-		if start.Name.Local != "string" {
-			return nil, fmt.Errorf("%s: expected <string>", argumentsKey)
-		}
-		text, err := elementText(decoder, start)
+		name, err := elementText(decoder, token.(xml.StartElement))
 		if err != nil {
 			return nil, err
 		}
-		arguments = append(arguments, text)
+		valueStart, err := expectStart(decoder, "string")
+		if err != nil {
+			return nil, fmt.Errorf("%s %s: %w", environmentKey, name, err)
+		}
+		if env[name], err = elementText(decoder, valueStart); err != nil {
+			return nil, err
+		}
 	}
 }
 

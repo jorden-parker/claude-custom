@@ -3,7 +3,7 @@ set -euo pipefail
 
 repo_dir="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 . "$repo_dir/bin/lib/size-profile.sh"
-. "$repo_dir/bin/lib/model-server.sh"
+. "$repo_dir/bin/lib/ollama-server.sh"
 . "$repo_dir/bin/lib/memory-fit.sh"
 . "$repo_dir/bin/lib/nvm-node.sh"
 . "$repo_dir/bin/lib/session-logs.sh"
@@ -14,10 +14,9 @@ go_dir="$repo_dir/go"
 picker_binary="$go_dir/cmd/model-picker/model-picker"
 default_size=27b
 tools="Bash,Read,Edit,Write,Skill,TaskStop"
+keep_alive="${CLAUDE_OLLAMA_KEEP_ALIVE:-30m}"
 ollama_agent="${CLAUDE_OLLAMA_AGENT:-$repo_dir/bin/ollama-agent}"
-profiles_bin="$repo_dir/bin/ollama-profiles"
-server_wait="${CLAUDE_OLLAMA_SERVER_WAIT:-60}"
-session_model=""
+gguf_inspect="${CLAUDE_OLLAMA_GGUF_INSPECT:-$repo_dir/bin/gguf-inspect}"
 drafts_dir="$session_config_dir/drafts"
 relaunch_root="$session_config_dir/relaunch"
 relaunch_dir="$relaunch_root/$$"
@@ -26,6 +25,7 @@ relaunch_args=()
 relaunch_note=""
 relaunch_prompt=""
 relaunch_percent=""
+heartbeat_pid=""
 ladder_rung=""
 ladder_context=""
 ladder_reason=""
@@ -71,72 +71,128 @@ choose_size() {
   fi
 }
 
-ensure_weights() {
-  fetch_weights "$size" || exit 1
+installed_parameters_match() {
+  local installed key value
+  installed="$(ollama show "$1" --parameters 2>/dev/null)"
+  while read -r key value; do
+    [ "$(printf '%s\n' "$installed" | awk -v key="$key" '$1 == key { print $2 }')" = "$value" ] || return 1
+  done <<EOF
+$(modelfile_parameters)
+EOF
 }
 
-ensure_embedding_weights() {
-  fetch_embedding_weights && return 0
-  echo "claude-ollama: no embedding weights; semantic_search ranks by words until claude-ollama prepare-embedding succeeds" >&2
+refresh_parameters() {
+  local name="$1" modelfile
+  installed_parameters_match "$name" && return 0
+  echo "claude-ollama: recreating $name with $(modelfile_parameters | tr '\n' ' ' | sed 's/ $//')" >&2
+  modelfile="$(mktemp -t claude-ollama-modelfile.XXXXXX)"
+  { printf 'FROM %s\n' "$name"; modelfile_parameters | sed 's/^/PARAMETER /'; } > "$modelfile"
+  ollama create "$name" -f "$modelfile"
+  rm -f "$modelfile"
 }
 
-prepare_embedding() {
-  fetch_embedding_weights || exit 1
-  exit 0
+check_pin() {
+  local name="$1" actual="$2" pin
+  pin="$(pinned_digest "$name")"
+  [ -z "$pin" ] || [ "$actual" = "$pin" ] && return 0
+  echo "claude-ollama: $name has digest ${actual:-none}, but ollama/model-digests.json pins $pin; remove it with 'ollama rm $name' and relaunch, or run bin/model-upgrade SIZE to test the new base and print the pin command" >&2
+  return 1
 }
 
-render_user_presets() {
-  local result
-  if ! result="$("$profiles_bin" --user-presets)"; then
-    echo "claude-ollama: could not render the user presets; run bin/ollama-profiles --user-presets" >&2
-    return 0
-  fi
-  [ "$result" = changed ] || return 0
-  echo "claude-ollama: user presets changed; applying the LaunchAgent" >&2
-  "$ollama_agent" -apply >&2 || echo "claude-ollama: could not apply the LaunchAgent; set it up with: claude-custom agent" >&2
+verify_pulled() {
+  check_pin "$1" "$(installed_digest "$1")"
 }
 
-wait_for_server() {
-  local deadline=$((SECONDS + server_wait))
-  until server_up; do
-    if [ "$SECONDS" -ge "$deadline" ]; then
-      echo "claude-ollama: llama-server is not answering at $(server_url); see claude-ollama logs" >&2
-      exit 1
-    fi
-    sleep 0.5
+verify_installed() {
+  local actual
+  actual="$(installed_digest "$1")"
+  [ -z "$actual" ] || check_pin "$1" "$actual"
+}
+
+verify_installed_models() {
+  local name
+  for name in $(pinned_models); do
+    verify_installed "$name" || exit 1
   done
 }
 
-require_preset() {
-  model_listed "$session_model" && return 0
-  echo "claude-ollama: llama-server lists no preset $session_model; run claude-custom agent -apply" >&2
-  exit 1
+gguf_source() {
+  jq -r --arg size "$size" '.[$size].gguf // empty | "\(.repo) \(.revision)"' "$profile_dir/sizes.json"
+}
+
+is_gguf_base() {
+  case "$(base_model)" in
+    ./weights/*.gguf) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+import_gguf() {
+  local base source repo revision name file part pin actual created=0
+  base="$(base_model)"
+  source="$(gguf_source)"
+  pin="$(pinned_digest "$base")"
+  if [ -z "$source" ] || [ -z "$pin" ]; then
+    echo "claude-ollama: $base needs a pinned source in sizes.json and a digest in model-digests.json; refusing to download" >&2
+    return 1
+  fi
+  read -r repo revision <<<"$source"
+  name="${base##*/}"
+  file="$profile_dir/${base#./}"
+  part="$file.part"
+  mkdir -p "$profile_dir/weights"
+  echo "claude-ollama: downloading $repo/$name (pinned $revision)" >&2
+  if ! curl -fL --retry 3 -C - -o "$part" "https://huggingface.co/$repo/resolve/$revision/$name"; then
+    echo "claude-ollama: the download of $name stopped; run the same command again to resume it" >&2
+    return 1
+  fi
+  actual="$(shasum -a 256 "$part" | cut -d' ' -f1)"
+  if [ "$actual" != "$pin" ]; then
+    echo "claude-ollama: $name has sha256 $actual, but ollama/model-digests.json pins $pin; not importing" >&2
+    rm -f "$part"
+    return 1
+  fi
+  if ! "$gguf_inspect" "$part" >&2; then
+    echo "claude-ollama: $name failed inspection; not importing" >&2
+    rm -f "$part"
+    return 1
+  fi
+  mv "$part" "$file"
+  (cd "$profile_dir" && ollama create "$model" -f "Modelfile.$size") && created=1
+  rm -f "$file"
+  [ "$created" = 1 ]
+}
+
+ensure_model() {
+  if ollama show "$model" >/dev/null 2>&1; then
+    refresh_parameters "$model"
+    return
+  fi
+  if is_gguf_base; then
+    import_gguf || exit 1
+  else
+    ollama pull "$(base_model)"
+    verify_pulled "$(base_model)" || exit 1
+    ollama create "$model" -f "$profile_dir/Modelfile.$size"
+  fi
+  refresh_parameters "$model"
+}
+
+ensure_embedding_model() {
+  ollama show "$embedding_model" >/dev/null 2>&1 && return 0
+  ollama pull "$embedding_model" ||
+    echo "claude-ollama: could not pull $embedding_model; semantic_search will fail until you run claude-ollama and pick 'Set up embedding model'" >&2
+}
+
+prepare_embedding() {
+  ollama show "$embedding_model" >/dev/null 2>&1 && exit 0
+  exec ollama pull "$embedding_model"
 }
 
 warm_model() {
-  model_load "$1" >/dev/null 2>&1 &
-}
-
-composed_model() {
-  jq -r .model "$launch_settings"
-}
-
-choose_session_model() {
-  if [ "$harness" = qwen ]; then
-    session_model="$model"
-    return 0
-  fi
-  launch_fetch_domains="$(fetch_domains)"
-  prepare_launch_settings_dir
-  compose_launch_settings
-  session_model="$(composed_model)"
-}
-
-switch_session_model() {
-  local previous="$session_model"
-  session_model="$(composed_model)"
-  [ "$session_model" != "$previous" ] || return 0
-  { model_unload "$previous"; model_load "$session_model"; } >/dev/null 2>&1 &
+  command -v curl >/dev/null 2>&1 || return 0
+  curl -s -o /dev/null -m 2 -X POST "$ollama_url/api/generate" \
+    -d "{\"model\":\"$model\",\"keep_alive\":\"$keep_alive\"}" >/dev/null 2>&1 &
 }
 
 embeddings_wanted() {
@@ -152,17 +208,11 @@ allow_search_embeddings() {
   export CODE_SEARCH_EMBED=1
 }
 
-unload_idle_siblings() {
-  local sibling
-  for sibling in $("$lease_bin" idle-siblings --model "$session_model" --pid "$$" 2>/dev/null); do
-    model_unload "$sibling" >/dev/null 2>&1 || true
-  done
-}
-
-load_session_models() {
-  unload_idle_siblings
-  warm_model "$session_model"
-  ! embeddings_wanted || warm_model "$embedding_model"
+warm_embedding_model() {
+  embeddings_wanted || return 0
+  command -v curl >/dev/null 2>&1 || return 0
+  curl -s -o /dev/null -m 30 -X POST "$ollama_url/api/embed" \
+    -d "{\"model\":\"$embedding_model\",\"input\":\"warm up\",\"keep_alive\":\"$keep_alive\"}" >/dev/null 2>&1 || true
 }
 
 acquire_lease() {
@@ -176,17 +226,17 @@ release_session_lease() {
 }
 
 session_num_ctx() {
-  if [ -n "$ladder_context" ]; then echo "$ladder_context"; else preset_ctx_size; fi
+  if [ -n "$ladder_context" ]; then echo "$ladder_context"; else modelfile_num_ctx; fi
 }
 
 claim_session() {
   lease_on || return 0
-  acquire_lease session --model "$session_model" --num-ctx "$(session_num_ctx)" --rung "$session_rung" || exit 3
+  acquire_lease session --model "$model" --num-ctx "$(session_num_ctx)" --rung "$session_rung" || exit 3
   trap end_launch EXIT
 }
 
 record_session_rung() {
-  acquire_lease session --model "$session_model" --num-ctx "$(session_num_ctx)" --rung "$session_rung" >/dev/null 2>&1 || true
+  acquire_lease session --model "$model" --num-ctx "$(session_num_ctx)" --rung "$session_rung" >/dev/null 2>&1 || true
 }
 
 measure_fit() {
@@ -212,48 +262,44 @@ start_without_embeddings() {
   fit_embed_off=1
   session_rung=embeddings-off
   echo "claude-ollama: ladder embeddings-off: does not fit with the embedding model ($(fit_shortfall) short)" >&2
-  measure_fit "$(preset_ctx_size)" "" || return 1
+  measure_fit "$(modelfile_num_ctx)" "" || return 1
   fit_fits "$fit_result"
 }
 
 start_on_lower_context() {
   ladder_rung=context-down
-  ladder_context="$(lower_context_of "$(preset_ctx_size)")"
+  ladder_context="$(lower_context_of "$(modelfile_num_ctx)")"
   session_rung=context-down
-  echo "claude-ollama: ladder context-down: does not fit at num_ctx $(preset_ctx_size) ($(fit_shortfall) short); starting at $ladder_context" >&2
-  measure_fit "$ladder_context" "" || return 0
-  fit_fits "$fit_result" && return 0
-  echo "claude-ollama: memory fit: still $(fit_shortfall) short at num_ctx $ladder_context with the embeddings off" >&2
-  return 1
-}
-
-require_model_fits() {
-  fit_on || return 0
-  measure_fit "$(preset_ctx_size)" "" || return 0
-  fit_fits "$fit_result" && return 0
-  echo "claude-ollama: memory fit: $(fit_summary)" >&2
-  refuse_unfit_launch
-}
-
-refuse_unfit_launch() {
-  echo "claude-ollama: not starting: the model does not fit in memory (set CLAUDE_OLLAMA_FIT=0 to start anyway)" >&2
-  exit 1
+  echo "claude-ollama: ladder context-down: does not fit at num_ctx $(modelfile_num_ctx) ($(fit_shortfall) short); starting at $ladder_context" >&2
+  measure_fit "$ladder_context" "" || return 1
+  fit_fits "$fit_result" || echo "claude-ollama: memory fit: still $(fit_shortfall) short at num_ctx $ladder_context with the embeddings off" >&2
 }
 
 check_memory_fit() {
   local embedding="" fit_result
   fit_on || return 0
   ! embedding_model_fits || embedding="$embedding_model"
-  measure_fit "$(preset_ctx_size)" "$embedding" || return 0
+  measure_fit "$(modelfile_num_ctx)" "$embedding" || return 0
   echo "claude-ollama: memory fit: $(fit_summary)" >&2
   fit_fits "$fit_result" && return 0
   if [ -n "$embedding" ]; then
     start_without_embeddings && return 0
   fi
-  start_on_lower_context || refuse_unfit_launch
+  start_on_lower_context || true
+}
+
+start_heartbeat() {
+  lease_on || return 0
+  nohup "$lease_bin" heartbeat --watch-pid "$$" --fast-marker "$(relaunch_signal path heartbeat-fast)" >/dev/null 2>&1 &
+  heartbeat_pid=$!
+}
+
+stop_heartbeat() {
+  [ -z "$heartbeat_pid" ] || kill "$heartbeat_pid" 2>/dev/null || true
 }
 
 end_launch() {
+  stop_heartbeat
   release_session_lease
   remove_relaunch_dir
   remove_composed_settings
@@ -293,7 +339,7 @@ start_ladder() {
   [ -n "${CLAUDE_OLLAMA_INCIDENTS_FILE:-}" ] || return 0
   while IFS= read -r arg; do rung_args+=("$arg"); done < <(ladder_rung_args)
   nohup "$(ladder_bin)" --incidents "$CLAUDE_OLLAMA_INCIDENTS_FILE" --relaunch-dir "$relaunch_dir" \
-    --watch-pid "$$" --context "$(preset_ctx_size)" --model "$model" --embedding "$embedding_model" \
+    --watch-pid "$$" --context "$(modelfile_num_ctx)" --model "$model" --embedding "$embedding_model" \
     --lease-bin "$lease_bin" ${rung_args[@]+"${rung_args[@]}"} >/dev/null 2>&1 &
 }
 
@@ -430,12 +476,12 @@ wait_for_proxy_port() {
 start_messages_proxy() {
   [ "${CLAUDE_OLLAMA_PROXY:-}" = 0 ] && return 0
   local upstream port
-  upstream="$(server_url)"
+  upstream="$(jq -r '.env.ANTHROPIC_BASE_URL // empty' "$launch_settings")"
+  [ -n "$upstream" ] || return 0
   rm -f "$proxy_port_file"
   local proxy_mode_args=()
   [ "${CLAUDE_OLLAMA_PROXY_RECORD:-}" != 1 ] || proxy_mode_args=(--record "$proxy_record_dir")
   [ "${CLAUDE_OLLAMA_PROXY_STABILIZE:-}" != 1 ] || proxy_mode_args+=(--stabilize)
-  mmproj_spec "$size" >/dev/null || proxy_mode_args+=(--images-as-note)
   nohup "$(messages_proxy)" --upstream "$upstream" --port 0 --port-file "$proxy_port_file" \
     --log "$(proxy_log_dir)/requests.jsonl" --watch-pid "$$" ${proxy_mode_args[@]+"${proxy_mode_args[@]}"} >/dev/null 2>&1 &
   if ! wait_for_proxy_port; then
@@ -611,7 +657,7 @@ apply_ladder() {
   [ -n "$ladder_rung" ] || return 0
   session_rung="$ladder_rung"
   echo "claude-ollama: ladder $ladder_rung: $ladder_reason" >&2
-  [ -z "$ladder_context" ] || { compose_launch_settings && switch_session_model && build_claude_args; }
+  [ -z "$ladder_context" ] || { compose_launch_settings && build_claude_args; }
   record_session_rung
 }
 
@@ -632,7 +678,6 @@ restore_context() {
   ladder_rung=""
   ladder_context=""
   compose_launch_settings
-  switch_session_model
   build_claude_args
 }
 
@@ -680,6 +725,7 @@ launch_claude() {
     exec "$repo_dir/shared/sandbox-env" claude "${claude_args[@]}" "$@"
   fi
   prepare_relaunch_dir
+  start_heartbeat
   start_ladder
   local status=0
   run_claude "${claude_args[@]}" "$@" || status=$?
@@ -698,13 +744,9 @@ cmux_tools_on() {
 print_config() {
   echo "size: $size"
   echo "model: $model"
-  echo "preset: $session_model"
-  echo "server: $(server_url) (build $(server_build || echo unknown))"
-  echo "weights: $(weights_path "$size")"
-  echo "models-max: $(models_max)"
-  echo "user presets: $user_presets_file"
+  echo "base: $(base_model)"
   echo "embedding model: $embedding_model"
-  echo "num_ctx: $(preset_ctx_size)"
+  echo "num_ctx: $(modelfile_num_ctx)"
   echo "max context tokens: $(profile_context_tokens)"
   echo "max output tokens: $(profile_output_tokens)"
   echo "compacts at: $(compaction_point) tokens"
@@ -724,6 +766,27 @@ require_qwen() {
   exit 1
 }
 
+wait_for_server() {
+  local tries=50
+  while [ "$tries" -gt 0 ]; do
+    curl -fs -o /dev/null -m 1 "$ollama_url/api/version" 2>/dev/null && return 0
+    sleep 0.2
+    tries=$((tries - 1))
+  done
+  echo "claude-ollama: ollama is not answering at $ollama_url yet" >&2
+}
+
+apply_server_env() {
+  local missing
+  missing="$(missing_server_env 2>/dev/null)" && [ -z "$missing" ] && return 0
+  echo "claude-ollama: the Ollama server lacks ollama/server.env values; applying them" >&2
+  if "$ollama_agent" -apply >&2; then
+    wait_for_server
+  else
+    echo "claude-ollama: could not apply server.env; set it up with: claude-custom agent" >&2
+  fi
+}
+
 report_tool_budget() {
   run_tool_budget "$@"
   exit "$?"
@@ -736,14 +799,13 @@ explain_last_bad_run() {
 
 follow_logs() {
   local lines=50 path
-  path="$(server_log_path)"
+  if ! path="$(server_log_path)"; then
+    echo "claude-ollama: no Ollama log found (LaunchAgent, Homebrew service or app); a server started with 'ollama serve' logs to its own terminal" >&2
+    exit 1
+  fi
   if [ "${1:-}" = --path ]; then
     echo "$path"
     exit 0
-  fi
-  if [ ! -e "$path" ]; then
-    echo "claude-ollama: no llama-server log yet at $path; start the server with claude-custom agent -apply" >&2
-    exit 1
   fi
   if [ "${1:-}" = -n ] && [ -n "${2:-}" ]; then
     lines="$2"
@@ -854,13 +916,13 @@ case "${1:-}" in
     echo "usage: claude-ollama [size] [claude args...]"
     echo "qwen [size] [qwen args...]: launch Qwen Code (brew install qwen-code) on the size's model, in macOS Seatbelt with ollama/qwen-sandbox.sb, with the same MCP servers"
     echo "qwen --print-config [size]: print the resolved settings and the qwen command"
-    echo "qwen doctor [size]: check qwen, the model, context sizes, the settings template and llama-server"
+    echo "qwen doctor [size]: check qwen, the model, context sizes, the settings template and Ollama"
     echo "sizes: $(configured_sizes | tr '\n' ' ' | sed 's/ $//')"
     echo "no size: pick one in a menu (or $default_size without a terminal)"
     echo "sandbox: Bash runs in Claude Code's sandbox (cmux, gh, short and git push run outside it, each after a prompt)"
-    echo "doctor [size]: check llama-server, its presets and weights, context sizes, hooks, memory fit and the launch beacon"
+    echo "doctor [size]: check models, context sizes, hooks, Ollama, the server env and the launch beacon"
     echo "--print-config [size]: print the resolved settings and the claude command"
-    echo "logs [-n LINES|--path]: follow the llama-server log, or print its path"
+    echo "logs [-n LINES|--path]: follow the Ollama server log (LaunchAgent, Homebrew service or app), or print its path"
     echo "why [--since MINUTES] [--json]: name the most likely cause of the last bad run from the proxy log and the incidents, with one fix"
     echo "tool-budget [--since DAYS] [--json]: rank each tool schema's bytes per request against its calls from the proxy and telemetry logs, and suggest which to drop"
     echo "rescue [size] [--out FILE] [--since MINUTES]: write one redacted markdown report (doctor, config, logs, incidents, proxy stats) to paste into a bug report"
@@ -871,10 +933,10 @@ case "${1:-}" in
     echo "ui [--port N]: serve the console (runs, health, logs, models, reviews) at http://127.0.0.1:8765/"
     echo "reviews [--port N]: serve live and past reviews at http://127.0.0.1:8765/"
     echo "fetch domains: list hostnames in ~/.config/claude-custom/fetch-domains to give sessions WebFetch for them"
-    echo "prepare [size]: download and verify the size's pinned GGUF and stop, without starting claude"
-    echo "prepare-embedding: download and verify the semantic_search embedding GGUF and stop, without starting claude"
-    echo "speed-check: check thinking on the @think presets and bench each size on llama-server, then print a verdict"
-    echo "thinking-check: check @think presets think and the plain presets do not, and print PASS or FAIL"
+    echo "prepare [size]: pull or import the size's model and stop, without starting claude"
+    echo "prepare-embedding: pull the semantic_search embedding model and stop, without starting claude"
+    echo "speed-check: check thinking is off and bench the GGUF sizes against the MLX ones, then print a verdict"
+    echo "thinking-check: check thinking is off on the MLX sizes and print PASS or FAIL"
     exit 0 ;;
 esac
 
@@ -932,10 +994,9 @@ run_review() {
   local target="$1"
   shift
   acquire_lease review --model "$model" || exit 3
-  ensure_weights
-  require_model_fits
-  warm_model "$model"
-  exec "${CLAUDE_OLLAMA_REVIEWER:-$repo_dir/bin/pr-review-local}" --model "$model" --base-url "$(server_url)" "$@" "$target"
+  ensure_model
+  warm_model
+  exec "${CLAUDE_OLLAMA_REVIEWER:-$repo_dir/bin/pr-review-local}" --model "$model" --base-url "$ollama_url" "$@" "$target"
 }
 
 rescue_bin() {
@@ -943,30 +1004,34 @@ rescue_bin() {
 }
 
 run_rescue() {
-  exec "$(rescue_bin)" --launcher "$repo_dir/bin/claude-ollama" --size "$size" \
+  local env_file status=0
+  env_file="$(mktemp "${TMPDIR:-/tmp}/claude-ollama-rescue-env.XXXXXX")"
+  running_server_env > "$env_file" 2>/dev/null || true
+  "$(rescue_bin)" --launcher "$repo_dir/bin/claude-ollama" --size "$size" \
     --fingerprint-bin "$repo_dir/bin/sync-fingerprint" --lease-bin "$lease_bin" \
-    --session-dir "$session_config_dir" --state-dir "$console_state_dir" "$@"
+    --session-dir "$session_config_dir" --state-dir "$console_state_dir" \
+    --ollama-url "$ollama_url" --server-env "$env_file" "$@" || status=$?
+  rm -f "$env_file"
+  exit "$status"
 }
 
 run_mock_spike() {
   acquire_lease mock-spike --model "$model" || exit 3
-  ensure_weights
-  require_model_fits
-  warm_model "$model"
-  exec "${CLAUDE_OLLAMA_MOCK_SPIKE:-$repo_dir/bin/mock-spike}" --model "$model" --base-url "$(server_url)" "$@"
+  ensure_model
+  warm_model
+  exec "${CLAUDE_OLLAMA_MOCK_SPIKE:-$repo_dir/bin/mock-spike}" --model "$model" --base-url "$ollama_url" "$@"
 }
 
 run_task_eval() {
   acquire_lease task-eval --model "$model" || exit 3
-  ensure_weights
-  require_model_fits
-  warm_model "$model"
+  ensure_model
+  warm_model
   exec "${CLAUDE_OLLAMA_TASK_EVAL:-$repo_dir/bin/task-eval}" "$size" --launcher "$repo_dir/bin/claude-ollama" "$@"
 }
 
 run_prefix_ab() {
   acquire_lease prefix-ab --model "$model" || exit 3
-  exec "${CLAUDE_OLLAMA_PREFIX_AB:-$repo_dir/bin/prefix-ab}" --record "$proxy_record_dir" --model "$model" --base-url "$(server_url)" "$@"
+  exec "${CLAUDE_OLLAMA_PREFIX_AB:-$repo_dir/bin/prefix-ab}" --record "$proxy_record_dir" --model "$model" --base-url "$ollama_url" "$@"
 }
 
 if [ $# -gt 0 ] && is_configured_size "$1"; then
@@ -990,7 +1055,6 @@ case "$mode" in
     launch_fetch_domains="$(fetch_domains)"
     use_throwaway_settings
     compose_launch_settings
-    session_model="$(composed_model)"
     print_config
     exit 0 ;;
   doctor) if [ "$harness" = qwen ]; then exec "$qwen_bin" doctor "$size"; else exec "$doctor_bin" "$size"; fi ;;
@@ -999,23 +1063,22 @@ case "$mode" in
   mock-spike) run_mock_spike "$@" ;;
   task-eval) run_task_eval "$@" ;;
   prefix-ab) run_prefix_ab "$@" ;;
-  prepare) ensure_weights; exit 0 ;;
+  prepare) ensure_model; exit 0 ;;
 esac
 
 start_launcher_log
 use_nvm_node
 [ "$harness" != qwen ] || require_qwen
-ensure_weights
-render_user_presets
-wait_for_server
-ensure_embedding_weights
+apply_server_env
+ensure_model
+ensure_embedding_model
+verify_installed_models
 check_memory_fit
-choose_session_model
-require_preset
 claim_session
 allow_search_embeddings
-load_session_models
+warm_embedding_model
 warm_search_index
+warm_model
 
 unset ANTHROPIC_API_KEY ANTHROPIC_MODEL CLAUDE_OLLAMA_DRAFTS_DIR
 export CLAUDE_CUSTOM_HOME="$repo_dir"
@@ -1036,6 +1099,9 @@ if [ "$harness" = qwen ]; then
   stop_launcher_log qwen
   exec "$qwen_bin" launch "$size" "$@"
 fi
+launch_fetch_domains="$(fetch_domains)"
+prepare_launch_settings_dir
+compose_launch_settings
 start_messages_proxy
 write_append_prompt
 build_claude_args() {
@@ -1045,7 +1111,7 @@ build_claude_args() {
     --append-system-prompt-file "$append_prompt"
     --strict-mcp-config
     --mcp-config "$(mcp_config)"
-    --model "$session_model"
+    --model "$model"
     --tools "$(launch_tools)"
   )
 }

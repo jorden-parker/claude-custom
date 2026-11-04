@@ -2,75 +2,54 @@
 set -u
 repo_dir="$(cd "$(dirname "$0")/.." && pwd -P)"
 check_script="$repo_dir/bin/model-upgrade"
-. "$repo_dir/shared/testing/stub-llama-lib.sh"
 tmp="$(mktemp -d)"
 failures=0
-trap 'stop_stub_llama; rm -rf "$tmp"' EXIT
-
-pinned_revision="$(jq -r '.["27b"].gguf.revision' "$repo_dir/ollama/sizes.json")"
-weights_file="$(jq -r '.["27b"].gguf.file' "$repo_dir/ollama/sizes.json")"
-repo_name="$(jq -r '.["27b"].gguf.repo' "$repo_dir/ollama/sizes.json")"
-new_revision=dddddddddddddddddddddddddddddddddddddddd
-new_sha="$(printf 'new-weights' | shasum -a 256 | cut -c1-64)"
+trap 'rm -rf "$tmp"' EXIT
 
 stubs="$tmp/stubs"
 mkdir -p "$stubs"
 
-cat > "$stubs/curl" <<EOF
+cat > "$stubs/curl" <<'EOF'
 #!/bin/sh
-out=""
-url=""
-while [ \$# -gt 0 ]; do
-  case "\$1" in
-    -o) out="\$2"; shift ;;
-    http*) url="\$1" ;;
-  esac
-  shift
-done
-echo "curl \$url" >> "\$CURL_CALLS"
-[ -n "\${STUB_HF_DOWN:-}" ] && exit 22
-revision="${new_revision}"
-[ -n "\${STUB_HF_CURRENT:-}" ] && revision="${pinned_revision}"
-case "\$url" in
-  */api/models/${repo_name}/revision/main) printf '{"sha":"%s"}' "\$revision" ;;
-  */api/models/${repo_name}/tree/*) printf '[{"path":"${weights_file}","lfs":{"oid":"${new_sha}"}}]' ;;
-  */${repo_name}/resolve/*/${weights_file})
-    [ -n "\${STUB_DOWNLOAD_FAIL:-}" ] && exit 22
-    if [ -n "\${STUB_BAD_DOWNLOAD:-}" ]; then printf 'tampered' > "\$out"; else printf 'new-weights' > "\$out"; fi ;;
-  *) exit 22 ;;
+[ -n "${STUB_OLLAMA_DOWN:-}" ] && exit 7
+echo '{"version":"0.40.8"}'
+EOF
+
+cat > "$stubs/ollama" <<'EOF'
+#!/bin/sh
+case "$1" in
+  pull) echo "ollama $*" >> "$CALLS"; [ -z "${STUB_PULL_FAIL:-}" ] ;;
+  create|cp|rm) echo "ollama $*" >> "$CALLS" ;;
 esac
-EOF
-
-cat > "$stubs/ollama-profiles" <<'EOF'
-#!/bin/sh
-echo "ollama-profiles $1${2:+ $2}" >> "$CALLS"
-presets="$HOME/.claude-ollama/presets/models.ini"
-[ "${2:-}" = --out ] && presets="$3"
-mkdir -p "$(dirname "$presets")"
-printf '[*]\njinja = true\n\n[qwen3.8-27b-cc]\nmodel = /weights/Qwen3.8-27B-UD-Q4_K_XL.gguf\nctx-size = 65536\nreasoning = off\n\n[qwen3.8-27b-cc@think]\nmodel = /weights/Qwen3.8-27B-UD-Q4_K_XL.gguf\nreasoning = on\n' > "$presets"
-echo changed
-EOF
-
-cat > "$stubs/ollama-agent" <<'EOF'
-#!/bin/sh
-echo "ollama-agent $*" >> "$CALLS"
 EOF
 
 cat > "$stubs/ollama-models" <<'EOF'
 #!/bin/sh
 echo "ollama-models $*" >> "$CALLS"
-[ -z "${STUB_PIN_FAIL:-}" ]
+if [ -n "${STUB_OUTDATED_CURRENT:-}" ]; then
+  echo "current  $2"
+  exit 0
+fi
+if [ -n "${STUB_OUTDATED_UNKNOWN:-}" ]; then
+  echo "unknown  $2 (no manifest at https://registry.ollama.ai)"
+  exit 0
+fi
+if [ -n "${STUB_OUTDATED_UNPINNED:-}" ]; then
+  echo "unpinned $2 (not in ollama/model-digests.json)"
+  exit 1
+fi
+echo "behind   $2 (registry abcdef123456, pin 5642e97495e1)"
+exit 1
 EOF
 
 cat > "$stubs/speed-check" <<'EOF'
 #!/bin/sh
 echo "speed-check $*" >> "$CALLS"
-cp "$HOME/.claude-ollama/presets/models.ini" "$RUN_DIR/presets-during.ini"
 if [ -n "${STUB_NO_THINKING:-}" ]; then
-  echo "Thinking off: FAIL (qwen3.8-27b-cc@next think 500 -> 40)"
+  echo "Plan 066 (thinking off): FAIL (qwen3.8-27b-cc-next think 500 -> 40)"
   exit 1
 fi
-echo "Thinking off: PASS (qwen3.8-27b-cc@next think 500 -> 0)"
+echo "Plan 066 (thinking off): PASS (qwen3.8-27b-cc-next think 500 -> 0)"
 EOF
 
 cat > "$stubs/ollama-cache-probe" <<'EOF'
@@ -89,14 +68,10 @@ EOF
 cat > "$stubs/task-eval" <<'EOF'
 #!/bin/sh
 echo "task-eval $*" >> "$CALLS"
-echo "{\"model\": \"qwen3.8-27b-cc@next\", \"size\": \"27b\", \"runs\": [], \"total\": {\"green\": ${STUB_TASK_GREEN:-5}, \"runs\": 5, \"median_seconds\": ${STUB_TASK_MEDIAN:-40.0}, \"p90_seconds\": 60.0}}"
+echo "{\"model\": \"qwen3.8-27b-cc-next\", \"size\": \"27b\", \"runs\": [], \"total\": {\"green\": ${STUB_TASK_GREEN:-5}, \"runs\": 5, \"median_seconds\": ${STUB_TASK_MEDIAN:-40.0}, \"p90_seconds\": 60.0}}"
 EOF
 
 chmod +x "$stubs"/*
-
-printf '{"models": {"qwen3.8-27b-cc": {}}}\n' > "$tmp/stub-state.json"
-start_stub_llama "$tmp/stub-state.json" || exit 1
-server_url="$LLAMA_SERVER_URL"
 
 fail() {
   echo "FAIL: $1"
@@ -113,43 +88,40 @@ baseline_dir=""
 
 run_upgrade() {
   run_dir="$(mktemp -d "$tmp/run.XXXXXX")"
-  export RUN_DIR="$run_dir"
   export CALLS="$run_dir/calls.log"
-  export CURL_CALLS="$run_dir/curl.log"
   : > "$CALLS"
-  mkdir -p "$run_dir/home" "$run_dir/weights"
-  printf 'old-weights' > "$run_dir/weights/$weights_file"
-  [ -z "$baseline_dir" ] || cp -R "$baseline_dir" "$run_dir/home/bench-results"
-  env PATH="$stubs:$PATH" HOME="$run_dir/home" HF_ENDPOINT="https://hf.test" \
-    LLAMA_SERVER_URL="$server_url" CLAUDE_OLLAMA_WEIGHTS_DIR="$run_dir/weights" \
+  [ -z "$baseline_dir" ] || { mkdir -p "$run_dir/home"; cp -R "$baseline_dir" "$run_dir/home/bench-results"; }
+  env PATH="$stubs:$PATH" HOME="$run_dir/home" \
     MODEL_UPGRADE_MODELS="$stubs/ollama-models" MODEL_UPGRADE_SPEED_CHECK="$stubs/speed-check" \
     MODEL_UPGRADE_PROBE="$stubs/ollama-cache-probe" MODEL_UPGRADE_EVAL="$stubs/pr-review-eval" \
-    MODEL_UPGRADE_TASK_EVAL="$stubs/task-eval" MODEL_UPGRADE_PROFILES="$stubs/ollama-profiles" \
-    MODEL_UPGRADE_AGENT="$stubs/ollama-agent" \
+    MODEL_UPGRADE_TASK_EVAL="$stubs/task-eval" \
     "$@" "$check_script" ${upgrade_args[@]+"${upgrade_args[@]}"} > "$run_dir/out" 2> "$run_dir/err"
   status=$?
 }
 
-weights_are() {
-  [ "$(cat "$run_dir/weights/$weights_file" 2>/dev/null)" = "$1" ]
-}
-
 pass_calls="$(printf '%s\n' \
-  "ollama-profiles --user-presets --out" \
-  "ollama-agent -apply" \
-  "speed-check --thinking-only --model qwen3.8-27b-cc@next" \
-  "ollama-cache-probe qwen3.8-27b-cc@next --json" \
-  "ollama-models pin 27b --revision $new_revision" \
-  "ollama-profiles --user-presets" \
-  "ollama-agent -apply")"
+  "ollama-models outdated qwen3.8:27b-mlx" \
+  "ollama pull qwen3.8:27b-mlx" \
+  "ollama create qwen3.8-27b-cc-next -f $repo_dir/ollama/Modelfile.27b" \
+  "speed-check --thinking-only --model qwen3.8-27b-cc-next" \
+  "ollama-cache-probe qwen3.8-27b-cc-next --json" \
+  "ollama cp qwen3.8-27b-cc-next qwen3.8-27b-cc" \
+  "ollama rm qwen3.8-27b-cc-next")"
 
 fail_calls="$(printf '%s\n' \
-  "ollama-profiles --user-presets --out" \
-  "ollama-agent -apply" \
-  "speed-check --thinking-only --model qwen3.8-27b-cc@next" \
-  "ollama-cache-probe qwen3.8-27b-cc@next --json" \
-  "ollama-profiles --user-presets" \
-  "ollama-agent -apply")"
+  "ollama-models outdated qwen3.8:27b-mlx" \
+  "ollama pull qwen3.8:27b-mlx" \
+  "ollama create qwen3.8-27b-cc-next -f $repo_dir/ollama/Modelfile.27b" \
+  "speed-check --thinking-only --model qwen3.8-27b-cc-next" \
+  "ollama-cache-probe qwen3.8-27b-cc-next --json" \
+  "ollama rm qwen3.8-27b-cc-next" \
+  "ollama rm qwen3.8:27b-mlx")"
+
+upgrade_args=(27b-gguf)
+run_upgrade
+[ "$status" -eq 2 ] || fail "a GGUF size exits 2 (got $status)"
+has "GGUF sizes are pinned by file" err || fail "a GGUF size says to update sizes.json by hand"
+[ -s "$CALLS" ] && fail "a GGUF size runs nothing"
 
 upgrade_args=(nosuch)
 run_upgrade
@@ -157,77 +129,61 @@ run_upgrade
 has "unknown size nosuch" err || fail "an unknown size names the problem"
 
 upgrade_args=(27b)
-run_upgrade LLAMA_SERVER_URL=http://127.0.0.1:9
-[ "$status" -eq 2 ] || fail "a stopped llama-server exits 2 (got $status)"
-has "llama-server is not answering at http://127.0.0.1:9" err || fail "a stopped llama-server says to start it"
-[ -s "$CALLS" ] && fail "a stopped llama-server runs nothing"
+run_upgrade STUB_OLLAMA_DOWN=1
+[ "$status" -eq 2 ] || fail "a stopped Ollama exits 2 (got $status)"
+has "Ollama is not answering" err || fail "a stopped Ollama says to start it"
+[ -s "$CALLS" ] && fail "a stopped Ollama runs nothing"
 
-run_upgrade STUB_HF_DOWN=1
-[ "$status" -eq 2 ] || fail "an unanswered Hugging Face API exits 2 (got $status)"
-has "has no main revision at https://hf.test" err || fail "an unanswered API says to check the network"
-[ -s "$CALLS" ] && fail "an unanswered API runs nothing"
-
-run_upgrade STUB_HF_CURRENT=1
-[ "$status" -eq 0 ] || fail "a current size exits 0 (got $status)"
-has "27b is current at ${pinned_revision:0:12}; nothing to upgrade" out || fail "a current size says there is nothing to upgrade"
-grep -q '/resolve/' "$CURL_CALLS" && fail "a current size downloads nothing"
+run_upgrade STUB_OUTDATED_CURRENT=1
+[ "$status" -eq 0 ] || fail "a current base exits 0 (got $status)"
+has "qwen3.8:27b-mlx is current; nothing to upgrade" out || fail "a current base says there is nothing to upgrade"
+grep -q '^ollama ' "$CALLS" && fail "a current base pulls nothing"
 
 upgrade_args=(27b --force)
-run_upgrade STUB_HF_CURRENT=1
-[ "$status" -eq 0 ] || fail "--force upgrades a current size (got $status)"
-grep -qxF "curl https://hf.test/$repo_name/resolve/$pinned_revision/$weights_file" "$CURL_CALLS" || fail "--force downloads the pinned revision"
+run_upgrade STUB_OUTDATED_CURRENT=1
+[ "$status" -eq 0 ] || fail "--force upgrades a current base (got $status)"
+grep -qxF 'ollama pull qwen3.8:27b-mlx' "$CALLS" || fail "--force pulls a current base"
+has "at 5642e97495e1" out || fail "--force on a current base pins the digest already pinned"
 upgrade_args=(27b)
 
+run_upgrade STUB_OUTDATED_UNKNOWN=1
+[ "$status" -eq 2 ] || fail "a base with no registry manifest exits 2 (got $status)"
+has "has no manifest in the registry" err || fail "a base with no registry manifest says to check the network"
+grep -q '^ollama ' "$CALLS" && fail "a base with no registry manifest pulls nothing"
+
+run_upgrade STUB_OUTDATED_UNPINNED=1
+[ "$status" -eq 2 ] || fail "a base with no pin exits 2 (got $status)"
+has "ollama-models outdated said: unpinned qwen3.8:27b-mlx" err || fail "a base with no pin quotes the outdated line"
+grep -q '^ollama ' "$CALLS" && fail "a base with no pin pulls nothing"
+
 run_upgrade
-[ "$status" -eq 0 ] || fail "a behind size that passes exits 0 (got $status)"
-[ "$(cat "$CALLS")" = "$pass_calls" ] || fail "a pass stages the preset, checks, pins and restores in order"
-grep -qxF "curl https://hf.test/$repo_name/resolve/$new_revision/$weights_file" "$CURL_CALLS" || fail "the candidate is the repo's newest revision"
-grep -qxF '[qwen3.8-27b-cc@next]' "$run_dir/presets-during.ini" || fail "the checks run against an @next preset"
-grep -qxF "model = $run_dir/weights/$weights_file.next" "$run_dir/presets-during.ini" || fail "the @next preset loads the downloaded file"
-grep -qxF 'ctx-size = 65536' "$run_dir/presets-during.ini" || fail "the @next preset keeps the size's settings"
-[ "$(stat -f %Lp "$run_dir/home/.claude-ollama/presets/models.ini" 2>/dev/null || stat -c %a "$run_dir/home/.claude-ollama/presets/models.ini")" = 600 ] || fail "the staged preset file is private"
-grep -qF '@next' "$run_dir/home/.claude-ollama/presets/models.ini" && fail "the @next preset is gone afterwards"
-weights_are new-weights || fail "a pass moves the candidate over the current file"
-[ -e "$run_dir/weights/$weights_file.next" ] && fail "a pass leaves no candidate behind"
+[ "$status" -eq 0 ] || fail "a behind base that passes exits 0 (got $status)"
+[ "$(cat "$CALLS")" = "$pass_calls" ] || fail "a pass pulls, creates, checks, promotes and removes the candidate in order"
 has "thinking: PASS" out || fail "a pass prints the thinking verdict"
 has "cache: reused" out || fail "a pass prints the cache verdict"
 has "eval: skipped" out || fail "without --eval the verdict says the eval was skipped"
-has "Next: git add ollama/sizes.json ollama/model-digests.json && git commit -m 'chore: pin 27b at dddddddddddd'" out || fail "a pass prints the git commands"
-grep -q "\"revision\": \"$new_revision\"" "$run_dir"/home/bench-results/upgrade-27b-*.json || fail "the report keeps the candidate revision"
-
-run_upgrade STUB_BAD_DOWNLOAD=1
-[ "$status" -eq 1 ] || fail "a download with the wrong sha256 exits 1 (got $status)"
-has "sha256" err || fail "a wrong sha256 names the hashes"
-[ -e "$run_dir/weights/$weights_file.next" ] && fail "a wrong sha256 keeps no candidate"
-[ -e "$run_dir/weights/$weights_file.next.part" ] && fail "a wrong sha256 keeps no partial file"
-[ -s "$CALLS" ] && fail "a wrong sha256 stages no preset"
-weights_are old-weights || fail "a wrong sha256 keeps the current file"
-
-run_upgrade STUB_DOWNLOAD_FAIL=1
-[ "$status" -eq 1 ] || fail "a failed download exits 1 (got $status)"
-has "model-upgrade stopped" err || fail "a failed download says the upgrade stopped"
+has "Next: bin/ollama-models pin qwen3.8:27b-mlx && git add ollama/model-digests.json && git commit -m 'chore: pin qwen3.8:27b-mlx at abcdef123456'" out || fail "a pass prints the pin command"
+grep -q '"registry_digest": "abcdef123456"' "$run_dir"/home/bench-results/upgrade-27b-*.json || fail "the report keeps the registry digest"
 
 run_upgrade STUB_NO_THINKING=1
 [ "$status" -eq 1 ] || fail "a failed thinking check exits 1 (got $status)"
 has "thinking: FAIL" out || fail "a failed thinking check prints FAIL"
-has "Not pinning; 27b stays at ${pinned_revision:0:12}." out || fail "a failed thinking check says it is not pinning"
-[ "$(cat "$CALLS")" = "$fail_calls" ] || fail "a failed check restores the presets and pins nothing"
-[ -e "$run_dir/weights/$weights_file.next" ] && fail "a failed check removes the candidate"
-weights_are old-weights || fail "a failed check keeps the current file"
+has "Not pinning; qwen3.8:27b-mlx stays at its current pin." out || fail "a failed thinking check says it is not pinning"
+[ "$(cat "$CALLS")" = "$fail_calls" ] || fail "a failed check removes the candidate, then the base, and promotes nothing"
 
 upgrade_args=(27b --keep)
 run_upgrade STUB_NO_THINKING=1
 [ "$status" -eq 1 ] || fail "--keep with a failed check exits 1 (got $status)"
-[ -e "$run_dir/weights/$weights_file.next" ] || fail "--keep leaves the candidate for inspection"
-weights_are old-weights || fail "--keep still keeps the current file"
+grep -qxF 'ollama rm qwen3.8-27b-cc-next' "$CALLS" && fail "--keep leaves the candidate for inspection"
+grep -qxF 'ollama rm qwen3.8:27b-mlx' "$CALLS" || fail "--keep still removes the base"
 upgrade_args=(27b)
 
 upgrade_args=(27b --eval)
 run_upgrade
 [ "$status" -eq 0 ] || fail "--eval passes a clean review (got $status)"
-grep -qxF 'pr-review-eval --model qwen3.8-27b-cc@next --json' "$CALLS" || fail "--eval runs the review eval on the candidate"
+grep -qxF 'pr-review-eval --model qwen3.8-27b-cc-next --json' "$CALLS" || fail "--eval runs the review eval on the candidate"
 has "eval: 4 of 4 bugs caught, 0 false blockers, 0 unparsable" out || fail "--eval prints the eval verdict"
-grep -qxF 'task-eval --model qwen3.8-27b-cc@next --json' "$CALLS" || fail "--eval runs the task eval on the candidate"
+grep -qxF 'task-eval --model qwen3.8-27b-cc-next --json' "$CALLS" || fail "--eval runs the task eval on the candidate"
 has "tasks: 5/5 green, median 40.0s (no baseline)" out || fail "--eval without a baseline only records the task eval"
 grep -q '"task_eval"' "$run_dir"/home/bench-results/upgrade-27b-*.json || fail "the report keeps the task eval"
 
@@ -239,7 +195,7 @@ baseline_dir="$tmp/baselines"
 mkdir -p "$baseline_dir"
 write_baseline 20250101-000000 qwen3.8-27b-cc 5 100.0
 write_baseline 20250102-000000 qwen3.8-27b-cc 5 40.0
-write_baseline 20250103-000000 qwen3.8-27b-cc@next 5 10.0
+write_baseline 20250103-000000 qwen3.8-27b-cc-next 5 10.0
 run_upgrade
 [ "$status" -eq 0 ] || fail "--eval passes when the task eval matches the newest baseline (got $status)"
 has "tasks: 5/5 green, median 40.0s (baseline 5/5, 40.0s): PASS" out || fail "--eval names the current model's newest baseline"
@@ -269,15 +225,15 @@ run_upgrade STUB_CACHE_REUSED=false
 [ "$status" -eq 1 ] || fail "a prompt cache that is not reused fails the upgrade (got $status)"
 has "cache: not reused" out || fail "a prompt cache that is not reused says so"
 
+run_upgrade STUB_PULL_FAIL=1
+[ "$status" -eq 1 ] || fail "a failed pull exits 1 (got $status)"
+has "model-upgrade stopped" err || fail "a failed pull says the upgrade stopped"
+grep -q '^ollama rm' "$CALLS" && fail "a failed pull removes nothing"
+
 run_upgrade STUB_PROBE_FAIL=1
 [ "$status" -eq 1 ] || fail "a probe that crashes exits 1 (got $status)"
-[ -e "$run_dir/weights/$weights_file.next" ] && fail "a probe that crashes removes the candidate"
-grep -qxF 'ollama-profiles --user-presets' "$CALLS" || fail "a probe that crashes restores the presets"
-
-run_upgrade STUB_PIN_FAIL=1
-[ "$status" -eq 1 ] || fail "a failed pin exits 1 (got $status)"
-has "ollama-models pin 27b" err || fail "a failed pin names the command to rerun"
-grep -qxF 'ollama-profiles --user-presets' "$CALLS" || fail "a failed pin still restores the presets"
+grep -qxF 'ollama rm qwen3.8-27b-cc-next' "$CALLS" || fail "a probe that crashes removes the candidate"
+grep -qxF 'ollama rm qwen3.8:27b-mlx' "$CALLS" || fail "a probe that crashes restores the base"
 
 if [ "$failures" -eq 0 ]; then
   echo "all passed"

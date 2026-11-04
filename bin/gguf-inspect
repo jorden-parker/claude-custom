@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import argparse
 import enum
-import json
 import math
 import re
 import struct
@@ -19,8 +18,6 @@ MAX_ALIGNMENT = 4096
 MAX_TENSOR_COUNT = 20000
 MAX_KEYVALUE_COUNT = 10000
 MAX_ARRAY_COUNT = 10_000_000
-MAX_KEPT_ARRAY_COUNT = 4096
-MAX_KEPT_TOTAL = 65536
 MAX_STRING_BYTES = 16 * 1024 * 1024
 MAX_NAME_BYTES = 256
 MAX_DIMS = 4
@@ -149,7 +146,6 @@ class Malformed(Exception):
 class ArrayValue:
     element_type: int
     count: int
-    values: tuple = ()
 
 
 @dataclass(frozen=True)
@@ -180,7 +176,6 @@ class Reader:
     def __init__(self, data):
         self.data = data
         self.position = 0
-        self.kept_values = 0
 
     def require(self, count):
         if count > len(self.data) - self.position:
@@ -225,10 +220,6 @@ def read_array(reader):
     if element_type == STRING_TYPE:
         for _ in range(count):
             reader.string()
-    elif element_type in SCALAR_FORMATS and count <= MAX_KEPT_ARRAY_COUNT and reader.kept_values + count <= MAX_KEPT_TOTAL:
-        code = SCALAR_FORMATS[element_type][0]
-        reader.kept_values += count
-        return ArrayValue(element_type, count, tuple(reader.unpack(code) for _ in range(count)))
     elif element_type in SCALAR_FORMATS:
         reader.skip(count * struct.calcsize("<" + SCALAR_FORMATS[element_type][0]))
     else:
@@ -473,29 +464,11 @@ def print_summary(header, file_size):
         emit(f"{kv.key}  {TYPE_NAMES[kv.type_id]}  {describe(kv.value)}")
 
 
-def json_value(value):
-    if isinstance(value, ArrayValue):
-        return list(value.values) if value.values else {"type": TYPE_NAMES[value.element_type], "count": value.count}
-    return value
-
-
-def print_json(keyvalues, file_size, failures):
-    metadata = {kv.key: json_value(kv.value) for kv in keyvalues if not kv.key.startswith("tokenizer.")}
-    report = {
-        "architecture": find_value(keyvalues, ARCHITECTURE_KEY),
-        "file_size": file_size,
-        "metadata": metadata,
-        "failures": failures,
-    }
-    print(json.dumps(report, ensure_ascii=True))
-
-
 def parse_args(argv):
-    parser = argparse.ArgumentParser(description="Check a GGUF header before a server parses it. Never reads tensor data.")
+    parser = argparse.ArgumentParser(description="Check a GGUF header before Ollama parses it. Never reads tensor data.")
     parser.add_argument("file", type=Path)
     parser.add_argument("--file-size", type=int)
     parser.add_argument("--template-out", type=Path)
-    parser.add_argument("--json", action="store_true", help="print the metadata (tokenizer keys left out) and failures as one JSON object")
     return parser.parse_args(argv)
 
 
@@ -513,17 +486,11 @@ def main(argv):
         print("truncated: the header runs past the bytes in FILE; inspect a longer prefix", file=sys.stderr)
         return EXIT_TRUNCATED
     except Malformed as error:
-        if args.json:
-            print_json([], file_size, [str(error)])
-        else:
-            emit(f"FAIL: {error}")
+        emit(f"FAIL: {error}")
         return EXIT_FAILED
     failures = check_header(header, file_size) + template_failures(header.keyvalues)
     if args.template_out is not None and not failures:
         failures.extend(write_templates(header.keyvalues, args.template_out))
-    if args.json:
-        print_json(header.keyvalues, file_size, failures)
-        return EXIT_FAILED if failures else EXIT_OK
     for failure in failures:
         emit(f"FAIL: {failure}")
     for warning in template_warnings(header.keyvalues):

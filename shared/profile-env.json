@@ -5,7 +5,7 @@
     "kind": "switch",
     "default": "1",
     "label": "Observe prompt drift through the messages proxy",
-    "help": "A proxy between claude and llama-server logs where each request's prompt diverged from the last one, so a cache miss has a cause.",
+    "help": "A proxy between claude and Ollama logs where each request's prompt diverged from the last one, so a cache miss has a cause.",
     "ollamaOnly": true
   },
   {
@@ -131,20 +131,32 @@
   },
   {
     "key": "CLAUDE_OLLAMA_LEASE",
-    "group": "Model residency",
+    "group": "Ollama residency",
     "kind": "switch",
     "default": "1",
-    "label": "Hold a residency lease",
-    "help": "A second session or bench waits instead of evicting this one's model from llama-server.",
+    "label": "Hold an Ollama residency lease and heartbeat",
+    "help": "A second session or bench waits instead of evicting this one's model, and a keep-alive request keeps it loaded.",
+    "ollamaOnly": true
+  },
+  {
+    "key": "CLAUDE_OLLAMA_LEASE_HEARTBEAT",
+    "group": "Ollama residency",
+    "kind": "integer",
+    "default": "120",
+    "min": 30,
+    "max": 600,
+    "step": 10,
+    "label": "Seconds between keep-alive heartbeats",
+    "help": "Whole seconds from 30 to 600; empty keeps 120, halved while the ladder asks for a faster one.",
     "ollamaOnly": true
   },
   {
     "key": "CLAUDE_OLLAMA_FIT",
-    "group": "Model residency",
+    "group": "Ollama residency",
     "kind": "switch",
     "default": "1",
     "label": "Check memory fit before launch",
-    "help": "The launch stops with a reason when the model plus its context will not fit in memory, instead of the server swapping mid-session.",
+    "help": "The launch stops with a reason when the model plus its context will not fit in memory, instead of Ollama swapping mid-session.",
     "ollamaOnly": true
   },
   {
@@ -161,7 +173,7 @@
     "group": "Diagnostics",
     "kind": "switch",
     "default": "1",
-    "label": "Record llama-server incidents",
+    "label": "Record Ollama incidents",
     "help": "Logs page, Incidents tab.",
     "ollamaOnly": true
   },

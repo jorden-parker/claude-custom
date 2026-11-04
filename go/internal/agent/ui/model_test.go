@@ -10,29 +10,18 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/jordenparker/claude-custom/go/internal/agent/apply"
 	"github.com/jordenparker/claude-custom/go/internal/agent/launchd"
 	"github.com/jordenparker/claude-custom/go/internal/agent/variables"
 )
 
-var recommended = map[string]string{"cache-type-k": "q8_0", "models-max": "2"}
+var serverEnv = map[string]string{"OLLAMA_KEEP_ALIVE": "30m", "OLLAMA_FLASH_ATTENTION": "1"}
 
 func newConfig(t *testing.T) Config {
-	dir := t.TempDir()
-	t.Setenv("CLAUDE_CONSOLE_STATE_DIR", t.TempDir())
 	return Config{
-		Setup: apply.Setup{
-			Path: filepath.Join(dir, "local.llama-server.plist"),
-			Server: launchd.Server{
-				Program: "/opt/homebrew/bin/llama-server",
-				Presets: filepath.Join(dir, "models.ini"),
-				LogFile: filepath.Join(dir, "logs", "llama-server.log"),
-			},
-			Recommended:   recommended,
-			OverridesPath: filepath.Join(dir, "server.local.ini"),
-			Render:        func() *exec.Cmd { return exec.Command("true") },
-			Reload:        func() *exec.Cmd { return exec.Command("true") },
-		},
+		Agent:     launchd.Agent{Label: launchd.Label, Program: "/opt/homebrew/bin/ollama"},
+		Path:      filepath.Join(t.TempDir(), "local.ollama.plist"),
+		ServerEnv: serverEnv,
+		Reload:    func() *exec.Cmd { return exec.Command("true") },
 	}
 }
 
@@ -73,46 +62,35 @@ func typeText(m Model, text string) Model {
 	return m
 }
 
-func savedOverrides(t *testing.T, config Config) map[string]string {
-	overrides, err := variables.Load(config.OverridesPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return overrides
-}
-
-func savedModelsMax(t *testing.T, config Config) string {
-	value, found, err := launchd.ModelsMax(config.Path)
+func savedEnv(t *testing.T, path string) map[string]string {
+	env, found, err := launchd.Load(path)
 	if err != nil || !found {
-		t.Fatalf("models-max: %v, %v", found, err)
+		t.Fatalf("load %s: %v, %v", path, found, err)
 	}
-	return value
+	return env
 }
 
-func TestWithoutAnAgentStartsFromTheRecommendedValuesAndIsDirty(t *testing.T) {
+func TestWithoutAnAgentStartsFromServerEnvAndIsDirty(t *testing.T) {
 	m := newModel(t, newConfig(t))
-	if m.values["cache-type-k"] != "q8_0" || !m.dirty() {
+	if m.values["OLLAMA_KEEP_ALIVE"] != "30m" || !m.dirty() {
 		t.Fatalf("values %v, dirty %v", m.values, m.dirty())
 	}
 }
 
-func TestOverridesWin(t *testing.T) {
+func TestExistingAgentValuesWin(t *testing.T) {
 	config := newConfig(t)
-	if err := variables.Save(config.OverridesPath, map[string]string{"cache-type-k": "f16"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := apply.Save(config.Setup, map[string]string{"cache-type-k": "f16", "models-max": "2"}); err != nil {
+	if err := launchd.Save(config.Path, launchd.Agent{Label: "x", Program: "y", Env: map[string]string{"OLLAMA_KEEP_ALIVE": "-1"}}); err != nil {
 		t.Fatal(err)
 	}
 	m := newModel(t, config)
-	if m.values["cache-type-k"] != "f16" || m.dirty() {
+	if m.values["OLLAMA_KEEP_ALIVE"] != "-1" || m.dirty() {
 		t.Fatalf("values %v, dirty %v", m.values, m.dirty())
 	}
 }
 
-func TestBrokenOverridesFileIsAnError(t *testing.T) {
+func TestBrokenAgentFileIsAnError(t *testing.T) {
 	config := newConfig(t)
-	if err := os.WriteFile(config.OverridesPath, []byte("[*]\nbroken\n"), 0o600); err != nil {
+	if err := os.WriteFile(config.Path, []byte("<plist><dict><key>EnvironmentVariables</key>"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := New(config); err == nil {
@@ -120,17 +98,17 @@ func TestBrokenOverridesFileIsAnError(t *testing.T) {
 	}
 }
 
-func TestEditingModelsMaxThenSavingWritesTheOverrideAndThePlist(t *testing.T) {
+func TestEditingAValueThenSavingWritesThePlist(t *testing.T) {
 	config := newConfig(t)
 	m := newModel(t, config)
-	m, _ = press(m, "enter", "backspace")
-	m = typeText(m, "3")
-	m, _ = press(m, "enter", "w")
-	if got := savedOverrides(t, config)["models-max"]; got != "3" {
-		t.Fatalf("saved %q", got)
+	m, _ = press(m, "enter")
+	for range len("30m") {
+		m, _ = press(m, "backspace")
 	}
-	if got := savedModelsMax(t, config); got != "3" {
-		t.Fatalf("plist models-max %q", got)
+	m = typeText(m, "-1")
+	m, _ = press(m, "enter", "w")
+	if got := savedEnv(t, config.Path)["OLLAMA_KEEP_ALIVE"]; got != "-1" {
+		t.Fatalf("saved %q", got)
 	}
 	if m.dirty() {
 		t.Fatal("still dirty after save")
@@ -142,8 +120,8 @@ func TestTypedLettersGoToTheInputNotTheKeymap(t *testing.T) {
 	m, _ = press(m, "down", "enter")
 	m = typeText(m, "qwx")
 	m, _ = press(m, "enter")
-	if m.values["n-gpu-layers"] != "qwx" {
-		t.Fatalf("got %q", m.values["n-gpu-layers"])
+	if m.values["OLLAMA_MAX_LOADED_MODELS"] != "qwx" {
+		t.Fatalf("got %q", m.values["OLLAMA_MAX_LOADED_MODELS"])
 	}
 }
 
@@ -152,27 +130,34 @@ func TestEscCancelsTheEdit(t *testing.T) {
 	m, _ = press(m, "enter")
 	m = typeText(m, "9")
 	m, _ = press(m, "esc")
-	if m.editing || m.values["models-max"] != "2" {
-		t.Fatalf("editing %v, value %q", m.editing, m.values["models-max"])
+	if m.editing || m.values["OLLAMA_KEEP_ALIVE"] != "30m" {
+		t.Fatalf("editing %v, value %q", m.editing, m.values["OLLAMA_KEEP_ALIVE"])
 	}
 }
 
-func TestResetRestoresTheRecommendedValue(t *testing.T) {
+func TestClearingAValueUnsetsIt(t *testing.T) {
+	config := newConfig(t)
+	m := newModel(t, config)
+	m, _ = press(m, "x", "w")
+	if _, set := savedEnv(t, config.Path)["OLLAMA_KEEP_ALIVE"]; set {
+		t.Fatal("OLLAMA_KEEP_ALIVE still set")
+	}
+}
+
+func TestResetRestoresTheServerEnvValue(t *testing.T) {
 	m := newModel(t, newConfig(t))
-	m, _ = press(m, "enter", "backspace")
-	m = typeText(m, "4")
-	m, _ = press(m, "enter", "r")
-	if m.values["models-max"] != "2" {
-		t.Fatalf("got %q", m.values["models-max"])
+	m, _ = press(m, "x", "r")
+	if m.values["OLLAMA_KEEP_ALIVE"] != "30m" {
+		t.Fatalf("got %q", m.values["OLLAMA_KEEP_ALIVE"])
 	}
 }
 
-func TestResetWithoutRecommendedValueUnsets(t *testing.T) {
+func TestResetWithoutServerEnvValueUnsets(t *testing.T) {
 	m := newModel(t, newConfig(t))
 	m, _ = press(m, "down", "enter")
 	m = typeText(m, "3")
 	m, _ = press(m, "enter", "r")
-	if _, set := m.values["n-gpu-layers"]; set {
+	if _, set := m.values["OLLAMA_MAX_LOADED_MODELS"]; set {
 		t.Fatal("still set")
 	}
 }
@@ -194,7 +179,7 @@ func TestApplySavesThenReloads(t *testing.T) {
 	if !reloaded || !strings.Contains(m.status, "reloaded") {
 		t.Fatalf("reloaded %v, status %q", reloaded, m.status)
 	}
-	savedModelsMax(t, config)
+	savedEnv(t, config.Path)
 }
 
 func TestFailedReloadShowsLaunchctlOutput(t *testing.T) {
@@ -230,23 +215,21 @@ func TestCursorStaysInRange(t *testing.T) {
 
 func TestViewShowsValuesSummariesAndConflicts(t *testing.T) {
 	config := newConfig(t)
-	config.Conflicts = []string{"brew services is also running llama.cpp"}
+	config.Conflicts = []string{"brew services is also running ollama"}
 	m := newModel(t, config)
 	view := ansi.Strip(m.View().Content)
-	for _, want := range []string{"llama-server LaunchAgent", "cache-type-k", "q8_0", variables.Summary("models-max"), "brew services is also running llama.cpp", config.Path} {
+	for _, want := range []string{"OLLAMA_KEEP_ALIVE", "30m", variables.Summary("OLLAMA_KEEP_ALIVE"), "brew services is also running ollama", config.Path} {
 		if !strings.Contains(view, want) {
 			t.Errorf("missing %q in\n%s", want, view)
 		}
 	}
 }
 
-func TestViewMarksValuesThatDifferFromServerINI(t *testing.T) {
+func TestViewMarksValuesThatDifferFromServerEnv(t *testing.T) {
 	m := newModel(t, newConfig(t))
-	m, _ = press(m, "enter", "backspace")
-	m = typeText(m, "5")
-	m, _ = press(m, "enter")
-	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "server.ini: 2") {
-		t.Fatalf("missing server.ini hint in\n%s", view)
+	m, _ = press(m, "x")
+	if view := ansi.Strip(m.View().Content); !strings.Contains(view, "server.env: 30m") {
+		t.Fatalf("missing server.env hint in\n%s", view)
 	}
 }
 

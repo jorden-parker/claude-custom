@@ -64,6 +64,10 @@ describe("profiles", () => {
       path.join(repoDir, "ollama", "settings.27b.json"),
       JSON.stringify({ model: "qwen3.8-27b-cc" }),
     );
+    fs.writeFileSync(
+      path.join(repoDir, "ollama", "Modelfile.27b"),
+      "FROM qwen3.8:27b-mlx\n",
+    );
   }
 
   it("lists claude-code and one profile per configured size", () => {

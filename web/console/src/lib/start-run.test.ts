@@ -29,7 +29,7 @@ describe("startRun", () => {
     repo = fs.mkdtempSync(path.join(os.tmpdir(), "start-run-repo-"));
     fs.mkdirSync(path.join(repo, "ollama"));
     fs.writeFileSync(path.join(repo, "ollama", "settings.27b.json"), "{}");
-    fs.writeFileSync(path.join(repo, "ollama", "sizes.json"), JSON.stringify({ "27b": {} }));
+    fs.writeFileSync(path.join(repo, "ollama", "Modelfile.27b"), "");
     runsDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "start-run-runs-"));
     spawnDetached = vi.fn<StartDeps["spawnDetached"]>();
   });

@@ -1,6 +1,5 @@
 #!/bin/bash
-. "$(dirname "${BASH_SOURCE[0]}")/model-server.sh"
-minimum_server_build=9200
+. "$(dirname "${BASH_SOURCE[0]}")/ollama-server.sh"
 
 require_jq() {
   command -v jq >/dev/null 2>&1 && return 0
@@ -19,9 +18,38 @@ report() {
   [ "$1" != fail ]
 }
 
+check_model_present() {
+  local label="$1" name="$2" fix="$3" level="${4:-fail}"
+  if ollama show "$name" >/dev/null 2>&1; then
+    report ok "$label $name"
+  else
+    report "$level" "$label $name missing ($fix)"
+  fi
+}
+
+check_digest() {
+  local name="$1" actual pin
+  actual="$(installed_digest "$name")"
+  pin="$(pinned_digest "$name")"
+  [ -n "$actual" ] && [ -n "$pin" ] || return 0
+  if [ "$actual" = "$pin" ]; then
+    report ok "digest $name matches its pin"
+  else
+    report fail "digest $name is $actual, not the pinned $pin (ollama rm $name, then relaunch)"
+  fi
+}
+
+check_digests() {
+  local name status=0
+  for name in $(pinned_models); do
+    check_digest "$name" || status=1
+  done
+  return "$status"
+}
+
 check_context_sizes() {
   local ctx tokens
-  ctx="$(preset_ctx_size)"
+  ctx="$(modelfile_num_ctx)"
   tokens="$(profile_context_tokens)"
   if [ "$ctx" -ge "$tokens" ]; then
     report ok "num_ctx $ctx matches CLAUDE_CODE_MAX_CONTEXT_TOKENS $tokens; Claude Code compacts at $(compaction_point) tokens"
@@ -30,70 +58,31 @@ check_context_sizes() {
   fi
 }
 
-server_address() {
-  local url
-  url="$(server_url)"
-  url="${url#*://}"
-  printf '%s\n' "${url%%/*}"
+check_reachable() {
+  if curl -sf -m 2 "$ollama_url/api/version" >/dev/null 2>&1; then
+    report ok "ollama reachable at $ollama_url"
+  else
+    report fail "ollama not reachable at $ollama_url (brew services start ollama)"
+  fi
 }
 
-check_server() {
-  local build
-  if ! server_up; then
-    report fail "llama-server not answering at $(server_url) (claude-custom agent -apply, then claude-ollama logs)"
+check_server_env() {
+  local missing wanted status=0
+  if ! missing="$(missing_server_env)"; then
+    report fail "ollama server not running (brew services start ollama)"
     return 1
   fi
-  build="$(server_build || echo 0)"
-  if [ "$build" -ge "$minimum_server_build" ] 2>/dev/null; then
-    report ok "llama-server build $build on $(server_address)"
-  else
-    report warn "llama-server build $build on $(server_address) is below $minimum_server_build (brew upgrade llama.cpp)"
-  fi
-}
-
-check_preset_listed() {
-  server_up || return 0
-  if model_listed "$1"; then
-    report ok "preset $1 listed"
-  else
-    report fail "preset $1 not in llama-server's /models (claude-custom agent -apply)"
-  fi
-}
-
-check_weights_file() {
-  local label="$1" spec="$2" fix="$3" level="$4" file
-  file="${spec##* }"
-  if gguf_file_ok "$spec"; then
-    report ok "$label $file (sha256 matches)"
-  elif [ -f "$(weights_dir)/$file" ]; then
-    report "$level" "$label $file does not match its pin ($fix)"
-  else
-    report "$level" "$label $file missing ($fix)"
-  fi
-}
-
-check_weights() {
-  local spec projector status=0
-  spec="$(size_gguf "$size")" || { report fail "size $size has no pinned gguf in ollama/sizes.json"; return 1; }
-  check_weights_file weights "$spec" "claude-ollama prepare $size" fail || status=1
-  if projector="$(mmproj_spec "$size")"; then
-    check_weights_file "vision projector" "$projector" "claude-ollama prepare $size" fail || status=1
-  fi
+  while IFS= read -r wanted; do
+    [ -n "$wanted" ] || continue
+    if printf '%s\n' "$missing" | grep -qxF "$wanted"; then
+      report fail "server env $wanted not set on the running server"
+      status=1
+    else
+      report ok "server env $wanted"
+    fi
+  done < "$profile_dir/server.env"
+  [ "$status" -eq 0 ] || echo "     fix: claude-custom agent -apply"
   return "$status"
-}
-
-check_embedding_weights() {
-  local spec
-  spec="$(embedding_gguf)" || { report warn "ollama/embedding.json has no pinned gguf"; return 0; }
-  check_weights_file "embedding weights" "$spec" "claude-ollama prepare-embedding" warn
-}
-
-check_user_presets() {
-  if "$repo_dir/bin/ollama-profiles" --user-presets --check >/dev/null 2>&1; then
-    report ok "user presets current"
-  else
-    report warn "user presets stale: run claude-custom agent -apply"
-  fi
 }
 
 check_gh_login() {

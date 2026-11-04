@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { CONTEXT_CAP, LOCAL_MCP_SERVERS, type ProfileOverride, type ProfileRules } from "./profile-rules";
+import { CONTEXT_CAP, OLLAMA_MCP_SERVERS, type ProfileOverride, type ProfileRules } from "./profile-rules";
 import { profileKind, sizeOfProfile, type ProfileSummary } from "./profiles";
 import { sizeSettings } from "./size-models";
 import { consoleRepoDir } from "./sizes";
@@ -60,7 +60,7 @@ export async function loadProfileBase(id: string): Promise<BaseLoad> {
       outputTokens: sizing?.outputTokens ?? null,
       parameters: sizing?.parameters ?? {},
       hooks: hookLines(readJsonFile(settingsPath)),
-      mcpServers: size === null ? [] : LOCAL_MCP_SERVERS,
+      mcpServers: size === null ? [] : OLLAMA_MCP_SERVERS,
     },
   };
 }

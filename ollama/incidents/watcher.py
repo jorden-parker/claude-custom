@@ -15,17 +15,18 @@ REPREFILL_MIN_TOKENS = 1000
 BLIND_MIN_MENTIONS = 50
 IGNORED = "ignored"
 
+LOG_TIME = re.compile(r"\btime=(\S+)")
 TRANSCRIPT_TIME = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?")
 CONTEXT_SIZE = re.compile(r"\bn_ctx(?:_slot)?\s*=\s*(\d+)")
-PROMPT_EVAL = re.compile(r"prompt eval time\s*=\s*[\d.]+ ms /\s*(\d+) tokens")
+PROMPT_EVAL = re.compile(
+    r"prompt eval time\s*=\s*[\d.]+ ms /\s*(\d+) tokens|\bn_prompt_tokens\s*=\s*(\d+)|\bprompt_eval_count[=:]\s*(\d+)"
+)
 REQUEST_TOTAL = re.compile(
     r"total time\s*=\s*[\d.]+ ms /\s*(\d+) tokens|\bn_tokens\s*=\s*(\d+),\s*truncated\s*="
 )
-OVERFLOW_TOKENS = re.compile(r"(?:request|input) \((\d+) tokens\)")
-CHILD_PORT = re.compile(r"^\[(\d+)\]")
-SPAWN = re.compile(r"spawning server instance with name=(\S+) on port (\d+)")
-INSTANCE_NAME = re.compile(r"\bname=(\S+)")
-INSTANCE_MENTION = re.compile(r"\binstance\b")
+TRUNCATED_PROMPT = re.compile(r"\bprompt=(\d+)")
+RUNNER_MENTION = re.compile(r"\brunners?\b")
+RUNNER_START = r"starting (?:llama-server|go runner|runner)\b|runner started"
 
 Rule = namedtuple("Rule", "id pattern cause")
 
@@ -34,33 +35,22 @@ def rule(cause, name, pattern):
     return Rule(f"{cause}/{name}", re.compile(pattern), cause)
 
 
-LOAD_SEQUENCE_RULE = f"{IGNORED}/load-sequence"
 CAUSE_RULES = (
-    rule("aborted", "cancelled", r"http client error: Canceled|cancelled while model name=|cancelling the pending request"),
-    rule(
-        "truncated",
-        "context-overflow",
-        r"exceeds the available context size|is larger than the max context size|Context size has been exceeded",
-    ),
-    rule("reprefilled", "full-reprocess", r"forcing full prompt re-processing"),
-    rule("evicted", "unload", r"stopping model instance name=|evicting idle LRU name="),
-    rule("evicted", "runner-start", SPAWN.pattern),
-    rule(
-        IGNORED,
-        "load-sequence",
-        r"\[\s*preset\]|spawning server instance with args|\bload: {3}|proxying request to model"
-        r"|queued at position|joined the queue|ensure_model:|exited with status|exit command received"
-        r"|monitoring thread started|models_max limit reached",
-    ),
+    rule("aborted", "context-canceled", r"context canceled"),
+    rule("truncated", "input-prompt", r"truncating input prompt"),
+    rule("evicted", "unload", r"\bunload"),
+    rule("evicted", "runner-start", RUNNER_START),
+    rule(IGNORED, "load-sequence", r"loaded runners|template selection"),
 )
 REPREFILL_RULE = "reprefilled/prompt-eval"
 COMPACTION_RULE = "compacted/transcript"
 RULE_IDS = tuple(each.id for each in CAUSE_RULES) + (REPREFILL_RULE, COMPACTION_RULE)
 
 EVENT_PATTERNS = (
-    ("embed", re.compile(r"proxying request to model \S*embed")),
-    ("unload", re.compile(r"stopping model instance name=|evicting idle LRU name=")),
-    ("load", re.compile(SPAWN.pattern + r"|loading model '")),
+    ("embed", re.compile(r"/api/embed")),
+    ("expired", re.compile(r"\bexpired\b|expiring to unload")),
+    ("unload", re.compile(r"\bunload")),
+    ("load", re.compile(RUNNER_START + r"|loading model")),
 )
 
 
@@ -100,6 +90,11 @@ def process_alive(pid):
     return True
 
 
+def line_time(line):
+    match = LOG_TIME.search(line)
+    return match.group(1) if match else now_iso()
+
+
 def first_group(match):
     return next((int(group) for group in match.groups() if group is not None), None)
 
@@ -130,82 +125,58 @@ class RuleStats:
         }
 
 
-class ChildCounts:
-    def __init__(self):
-        self.context_size = None
-        self.previous_total = None
-        self.reprocessed = False
-
-
 class LogClassifier:
     def __init__(self, model):
         self.model = model
-        self.port_names = {}
-        self.children = {}
+        self.context_size = None
+        self.previous_total = None
         self.last_event = None
         self.stats = RuleStats()
 
-    def child_of(self, line):
-        port = CHILD_PORT.match(line)
-        key = self.port_names.get(port.group(1), port.group(1)) if port else None
-        return self.children.setdefault(key, ChildCounts())
-
-    def note_counts(self, line, child):
-        spawn = SPAWN.search(line)
-        if spawn:
-            self.port_names[spawn.group(2)] = spawn.group(1)
+    def note_counts(self, line):
         context = CONTEXT_SIZE.search(line)
         if context:
-            child.context_size = int(context.group(1))
+            self.context_size = int(context.group(1))
         total = REQUEST_TOTAL.search(line)
         if total:
-            child.previous_total = first_group(total)
+            self.previous_total = first_group(total)
 
     def note_event(self, line):
         for kind, pattern in EVENT_PATTERNS:
             if pattern.search(line):
-                self.last_event = {"kind": kind, "ts": now_iso()}
+                self.last_event = {"kind": kind, "ts": line_time(line)}
                 return
 
-    @staticmethod
-    def is_reprefill(child, tokens):
+    def is_reprefill(self, tokens):
         if tokens < REPREFILL_MIN_TOKENS:
             return False
         near_context = (
-            child.context_size is not None
-            and tokens >= child.context_size - REPREFILL_MARGIN_TOKENS
+            self.context_size is not None
+            and tokens >= self.context_size - REPREFILL_MARGIN_TOKENS
         )
         near_previous = (
-            child.previous_total is not None
-            and abs(tokens - child.previous_total) <= REPREFILL_MARGIN_TOKENS
+            self.previous_total is not None
+            and abs(tokens - self.previous_total) <= REPREFILL_MARGIN_TOKENS
         )
         return near_context or near_previous
 
-    def is_session_instance(self, name):
-        return name == self.model or name.startswith(f"{self.model}@")
-
-    def names_other_instance(self, line):
-        name = INSTANCE_NAME.search(line)
-        return self.model is not None and name is not None and not self.is_session_instance(name.group(1))
-
     def mentions_session(self, line):
         names_model = self.model is not None and self.model in line
-        return names_model or INSTANCE_MENTION.search(line) is not None
+        return names_model or RUNNER_MENTION.search(line) is not None
 
     def classify(self, line):
         self.stats.lines += 1
-        child = self.child_of(line)
-        prompt_eval = PROMPT_EVAL.search(line)
-        if prompt_eval:
-            return self.reprefill(line, child, first_group(prompt_eval))
-        self.note_counts(line, child)
+        self.note_counts(line)
         self.note_event(line)
         mentions = self.mentions_session(line)
         if mentions:
             self.stats.mentions += 1
         matched = self.matching_rule(line)
         if matched is not None:
-            return self.ruled_incident(line, matched, child)
+            return self.ruled_incident(line, matched)
+        prompt_eval = PROMPT_EVAL.search(line)
+        if prompt_eval:
+            return self.reprefill(line, first_group(prompt_eval))
         if mentions:
             self.stats.unmatched += 1
             return line_incident(line, "unknown", None)
@@ -215,22 +186,16 @@ class LogClassifier:
     def matching_rule(line):
         return next((each for each in CAUSE_RULES if each.pattern.search(line)), None)
 
-    def ruled_incident(self, line, matched, child):
-        if matched.cause == "evicted" and self.names_other_instance(line):
-            matched = next(each for each in CAUSE_RULES if each.id == LOAD_SEQUENCE_RULE)
+    def ruled_incident(self, line, matched):
         self.stats.hit(matched.id)
         if matched.cause == IGNORED:
             return None
-        if matched.cause == "reprefilled":
-            child.reprocessed = True
-            return line_incident(line, matched.cause, None, rule=matched.id, preceded_by=self.last_event)
-        return line_incident(line, matched.cause, self.tokens_of(line, matched.cause), rule=matched.id)
+        return line_incident(
+            line, matched.cause, self.tokens_of(line, matched.cause), rule=matched.id
+        )
 
-    def reprefill(self, line, child, tokens):
-        if child.reprocessed:
-            child.reprocessed = False
-            return None
-        if not self.is_reprefill(child, tokens):
+    def reprefill(self, line, tokens):
+        if not self.is_reprefill(tokens):
             return None
         self.stats.hit(REPREFILL_RULE)
         return line_incident(
@@ -241,12 +206,12 @@ class LogClassifier:
     def tokens_of(line, cause):
         if cause != "truncated":
             return None
-        match = OVERFLOW_TOKENS.search(line)
+        match = TRUNCATED_PROMPT.search(line)
         return int(match.group(1)) if match else None
 
 
 def line_incident(line, cause, tokens, rule=None, preceded_by=None):
-    return incident(now_iso(), cause, line, tokens, rule, preceded_by)
+    return incident(line_time(line), cause, line, tokens, rule, preceded_by)
 
 
 def compaction(line):

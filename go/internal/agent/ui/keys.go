@@ -6,6 +6,7 @@ type keyMap struct {
 	Up     key.Binding
 	Down   key.Binding
 	Edit   key.Binding
+	Unset  key.Binding
 	Reset  key.Binding
 	Save   key.Binding
 	Apply  key.Binding
@@ -23,7 +24,8 @@ func newKeyMap() keyMap {
 		Up:     key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("↑/k", "up")),
 		Down:   key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("↓/j", "down")),
 		Edit:   key.NewBinding(key.WithKeys("enter", "e"), key.WithHelp("enter", "edit")),
-		Reset:  key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "server.ini value")),
+		Unset:  key.NewBinding(key.WithKeys("x", "delete"), key.WithHelp("x", "unset")),
+		Reset:  key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "server.env value")),
 		Save:   key.NewBinding(key.WithKeys("w", "ctrl+s"), key.WithHelp("w", "save")),
 		Apply:  key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "save + reload")),
 		Quit:   key.NewBinding(key.WithKeys("q", "esc", "ctrl+c"), key.WithHelp("q", "quit")),
@@ -33,7 +35,7 @@ func newKeyMap() keyMap {
 }
 
 func (k keyMap) ShortHelp() []key.Binding {
-	return []key.Binding{k.Up, k.Down, k.Edit, k.Reset, k.Save, k.Apply, k.Quit}
+	return []key.Binding{k.Up, k.Down, k.Edit, k.Unset, k.Reset, k.Save, k.Apply, k.Quit}
 }
 
 func (k keyMap) FullHelp() [][]key.Binding {

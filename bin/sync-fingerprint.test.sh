@@ -41,33 +41,40 @@ sha256_stdin() {
   fi
 }
 
-. "$repo/shared/testing/stub-llama-lib.sh"
-file_27b="$(jq -r '.["27b"].gguf.file' "$repo/ollama/sizes.json")"
-key_27b="$(jq -r '.["27b"].gguf | "\(.repo)/\(.file)"' "$repo/ollama/sizes.json")"
-printf '{"models": {}, "build": 11429, "models_max": 2}\n' > "${TMPDIR:-/tmp}/sync-fingerprint-stub-$$.json"
-start_stub_llama "${TMPDIR:-/tmp}/sync-fingerprint-stub-$$.json" || exit 1
-server_url="$LLAMA_SERVER_URL"
-trap 'stop_stub_llama; rm -f "${TMPDIR:-/tmp}/sync-fingerprint-stub-$$.json"; remove_sandboxes' EXIT
+base_27b="$(sed -n 's/^FROM //p' "$repo/ollama/Modelfile.27b")"
+pin_27b="$(jq -r --arg name "$base_27b" '.[$name]' "$repo/ollama/model-digests.json")"
+
+write_tags() {
+  jq -n --arg base "$base_27b" --arg digest "$1" \
+    '{models: [{name: $base, digest: $digest}, {name: "qwen3.8-27b-cc:latest", digest: "sha256:cc27"}]}' > "$sandbox/tags.json"
+}
 
 new_sandbox() {
   sandbox="$(made="$(mktemp -d "${TMPDIR:-/tmp}/sync-fingerprint-test.XXXXXX")" && cd "$made" && pwd -P)" || exit 1
   sandboxes="$sandboxes $sandbox"
   export HOME="$sandbox/home"
-  mkdir -p "$HOME" "$sandbox/stubbin" "$sandbox/repo/bin/lib" "$sandbox/repo/ollama" "$sandbox/repo/shared/hooks" "$sandbox/weights"
-  cp "$repo/bin/sync-fingerprint" "$repo/bin/ollama-models" "$sandbox/repo/bin/"
-  cp "$repo"/bin/lib/*.sh "$sandbox/repo/bin/lib/"
-  cp "$repo"/ollama/settings.*.json "$repo"/ollama/sizes.json "$repo"/ollama/embedding.json "$repo"/ollama/server.ini "$sandbox/repo/ollama/"
-  printf 'weights-27b' > "$sandbox/weights/$file_27b"
-  jq --arg key "$key_27b" --arg sha "$(printf 'weights-27b' | sha256_stdin)" '.[$key] = $sha' "$repo/ollama/model-digests.json" > "$sandbox/repo/ollama/model-digests.json"
+  mkdir -p "$HOME" "$sandbox/stubbin" "$sandbox/repo/bin" "$sandbox/repo/ollama" "$sandbox/repo/shared/hooks"
+  cp "$repo/bin/sync-fingerprint" "$sandbox/repo/bin/"
+  cp "$repo"/ollama/settings.*.json "$repo"/ollama/Modelfile.* "$repo/ollama/model-digests.json" "$sandbox/repo/ollama/"
   cp "$repo"/shared/hooks/*.py "$repo"/shared/hooks/*.sh "$sandbox/repo/shared/hooks/"
   git -C "$sandbox/repo" init -q
   git -C "$sandbox/repo" add -A
   git -C "$sandbox/repo" -c user.name=t -c user.email=t@t commit -qm initial
-  export CLAUDE_OLLAMA_WEIGHTS_DIR="$sandbox/weights" LLAMA_SERVER_URL="$server_url"
-  export LLAMA_SERVER_PLIST="$sandbox/no-plist" LLAMA_SERVER_BIN="$sandbox/stubbin/llama-server"
-  cat > "$sandbox/stubbin/llama-server" <<'EOF'
+  unset STUB_CURL_EXIT STUB_OLLAMA_PID STUB_OLLAMA_ENV
+  write_tags "$pin_27b"
+  cat > "$sandbox/stubbin/curl" <<EOF
 #!/bin/sh
-echo "version: 0.6.0 (build 11000, commit abcdef123)"
+[ "\${STUB_CURL_EXIT:-0}" = 0 ] || exit "\$STUB_CURL_EXIT"
+case "\$*" in *api/tags*) cat "$sandbox/tags.json" ;; esac
+EOF
+  cat > "$sandbox/stubbin/pgrep" <<'EOF'
+#!/bin/sh
+[ -n "${STUB_OLLAMA_PID:-}" ] || exit 1
+echo "$STUB_OLLAMA_PID"
+EOF
+  cat > "$sandbox/stubbin/ps" <<'EOF'
+#!/bin/sh
+echo "ollama serve ${STUB_OLLAMA_ENV:-}"
 EOF
   cat > "$sandbox/stubbin/claude" <<'EOF'
 #!/bin/sh
@@ -88,20 +95,16 @@ field() {
 }
 
 new_sandbox
-run_capture "$fingerprint"
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_MAX_LOADED_MODELS=2" run_capture "$fingerprint"
 check_eq "sync-fingerprint exit status" 0 "$?"
 check_eq "commit is the repo HEAD" "$(git -C "$sandbox/repo" rev-parse HEAD)" "$(field .commit)"
 check_eq "a clean tree is not dirty" false "$(field .dirty)"
 check_eq "the 27b model is named" qwen3.8-27b-cc "$(field '.models["27b"].name')"
-check_eq "the 27b weights file is named" "$file_27b" "$(field '.models["27b"].file')"
-check_eq "the 27b weights match their pin" ok "$(field '.models["27b"].pin')"
-check_eq "the 35b weights are missing when the file is not there" missing "$(field '.models["35b"].pin')"
-check_eq "pinned weights carry their pinned sha256 as the digest" "sha256:$(printf 'weights-27b' | sha256_stdin)" "$(field '.models["27b"].digest')"
-check_eq "missing weights carry missing as the digest" missing "$(field '.models["35b"].digest')"
-check_eq "the server section holds the running build" 11429 "$(field '.server.build')"
-check_eq "the server settings hold the shared preset keys" q8_0 "$(field '.server.settings["cache-type-k"]')"
-check_eq "the server settings hold models-max" 2 "$(field '.server.settings["models-max"]')"
-check_eq "the server settings hold every [*] key plus models-max" "$(($(awk '/^\[/ { star = ($0 == "[*]"); next } star && / = /' "$repo/ollama/server.ini" | wc -l) + 1))" "$(field '.server.settings | length')"
+check_eq "the 27b model digest comes from /api/tags" sha256:cc27 "$(field '.models["27b"].digest')"
+check_eq "the 27b base matches its pin" ok "$(field '.models["27b"].pin')"
+check_eq "the 35b model is missing when /api/tags lacks it" missing "$(field '.models["35b"].digest')"
+check_eq "server env holds the running OLLAMA_* values" q8_0 "$(field '.server_env.OLLAMA_KV_CACHE_TYPE')"
+check_eq "server env holds every OLLAMA_* value" 3 "$(field '.server_env | length')"
 check_eq "hooks are hashed by basename" "$(sha256_stdin < "$repo/shared/hooks/tdd-guard.py")" "$(field '.hooks["tdd-guard.py"]')"
 check_eq "hook tests are left out" null "$(field '.hooks["tdd-guard.test.sh"]')"
 check_eq "sandbox is the hash of the rendered 27b sandbox block" "$(jq -cS .sandbox "$repo/ollama/settings.27b.json" | sha256_stdin)" "$(field .sandbox)"
@@ -112,35 +115,28 @@ check_eq "fingerprint is the sha256 of the canonical JSON without host, ts and i
   "$(jq -cS 'del(.host, .ts, .fingerprint)' "$sandbox/out" | sha256_stdin)" "$(field .fingerprint)"
 first_fingerprint="$(field .fingerprint)"
 sleep 1
-run_capture "$fingerprint"
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_MAX_LOADED_MODELS=2" run_capture "$fingerprint"
 check_eq "the fingerprint is the same across two runs" "$first_fingerprint" "$(field .fingerprint)"
 
 printf '\nprint("changed")\n' >> "$sandbox/repo/shared/hooks/tdd-guard.py"
-run_capture "$fingerprint"
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_MAX_LOADED_MODELS=2" run_capture "$fingerprint"
 check_ne "a changed hook changes the fingerprint" "$first_fingerprint" "$(field .fingerprint)"
 check_eq "a changed tracked file flips dirty" true "$(field .dirty)"
 git -C "$sandbox/repo" checkout -q -- shared/hooks/tdd-guard.py
 : > "$sandbox/repo/untracked.txt"
-run_capture "$fingerprint"
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_MAX_LOADED_MODELS=2" run_capture "$fingerprint"
 check_eq "an untracked file does not flip dirty" false "$(field .dirty)"
 check_eq "and the fingerprint is back" "$first_fingerprint" "$(field .fingerprint)"
 
-LLAMA_SERVER_URL=http://127.0.0.1:9 run_capture "$fingerprint"
-check_eq "with llama-server down the build comes from the binary" 11000 "$(field '.server.build')"
-check_eq "with llama-server down models-max is the default" 2 "$(field '.server.settings["models-max"]')"
-check_ne "llama-server down changes the fingerprint" "$first_fingerprint" "$(field .fingerprint)"
+STUB_CURL_EXIT=7 run_capture "$fingerprint"
+check_eq "with ollama down the model digest is missing" missing "$(field '.models["27b"].digest')"
+check_eq "with ollama down the pin is missing" missing "$(field '.models["27b"].pin')"
+check_eq "with ollama down the server env is empty" '{}' "$(jq -c .server_env "$sandbox/out")"
+check_ne "ollama down changes the fingerprint" "$first_fingerprint" "$(field .fingerprint)"
 
-mkdir -p "$HOME/.claude-ollama/presets"
-printf '[*]\ncache-type-k = f16\n\n[qwen3.8-27b-cc]\nctx-size = 1\n' > "$HOME/.claude-ollama/presets/models.ini"
+write_tags sha256:other
 run_capture "$fingerprint"
-check_eq "the user presets file overrides a shared key" f16 "$(field '.server.settings["cache-type-k"]')"
-check_eq "a preset section's keys stay out of the settings" null "$(field '.server.settings["ctx-size"]')"
-rm -rf "$HOME/.claude-ollama/presets"
-
-printf 'other-weights' > "$sandbox/weights/$file_27b"
-run_capture "$fingerprint"
-check_eq "weights off their pin are a mismatch" mismatch "$(field '.models["27b"].pin')"
-check_eq "weights off their pin carry mismatch as the digest" mismatch "$(field '.models["27b"].digest')"
+check_eq "a base digest off its pin is a mismatch" mismatch "$(field '.models["27b"].pin')"
 
 printf '#!/bin/sh\nexit 127\n' > "$sandbox/stubbin/claude"
 run_capture "$fingerprint"
@@ -160,7 +156,7 @@ check_that "--summary prints the short commit" grep -qxF "commit: $(git -C "$san
 check_that "--summary prints dirty" grep -qxF "dirty: false" "$sandbox/out"
 check_that "--summary prints claude_version" grep -qxF "claude_version: none" "$sandbox/out"
 check_that "--summary prints a short models hash" grep -qE '^models: [0-9a-f]{12}$' "$sandbox/out"
-check_that "--summary prints a short server hash" grep -qE '^server: [0-9a-f]{12}$' "$sandbox/out"
+check_that "--summary prints a short server_env hash" grep -qE '^server_env: [0-9a-f]{12}$' "$sandbox/out"
 check_that "--summary prints a short hooks hash" grep -qE '^hooks: [0-9a-f]{12}$' "$sandbox/out"
 check_that "--summary prints a short sandbox hash" grep -qxF "sandbox: $(jq -r '.sandbox[:12]' "$beacon")" "$sandbox/out"
 check_that "--summary prints the short fingerprint" grep -qxF "fingerprint: $(jq -r '.fingerprint[:12]' "$beacon")" "$sandbox/out"

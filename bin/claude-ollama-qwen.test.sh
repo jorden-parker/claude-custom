@@ -5,7 +5,7 @@ qwen_script="$repo/bin/claude-ollama-qwen"
 failures=0
 sandboxes=""
 system_tools=""
-unset LLAMA_SERVER_URL
+healthy_server_env="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2 OLLAMA_NUM_PARALLEL=1"
 
 remove_sandboxes() {
   local dir
@@ -65,23 +65,30 @@ new_sandbox() {
   sandboxes="$sandboxes $sandbox"
   export HOME="$sandbox/home"
   mkdir -p "$HOME" "$sandbox/stubbin"
-  unset XDG_CONFIG_HOME CLAUDE_OLLAMA_SANDBOX_EXEC
+  unset XDG_CONFIG_HOME STUB_OLLAMA_SHOW_EXIT STUB_OLLAMA_PID STUB_OLLAMA_ENV CLAUDE_OLLAMA_SANDBOX_EXEC
   write_stub qwen <<EOF
 #!/bin/sh
 echo "QWEN ARGS: \$*"
 env > "$sandbox/qwen-env"
 EOF
-  write_stub shasum <<EOF
+  write_stub ollama <<'EOF'
 #!/bin/sh
-name="\${3##*/}"
-key="\$(jq -r --arg name "\$name" 'first(.[].gguf | select(.mmproj.local? == \$name) | "\(.repo)/\(.mmproj.file)") // empty' "$repo/ollama/sizes.json")"
-echo "\$(jq -r --arg name "/\$name" --arg key "\$key" 'if \$key != "" then .[\$key] else first(to_entries[] | select(.key | endswith(\$name)) | .value) end' "$repo/ollama/model-digests.json")  \$3"
+[ "$1" = show ] && exit "${STUB_OLLAMA_SHOW_EXIT:-0}"
+exit 0
 EOF
-  export CLAUDE_OLLAMA_WEIGHTS_DIR="$sandbox/weights"
-  mkdir -p "$CLAUDE_OLLAMA_WEIGHTS_DIR"
-  for weights_file in $(jq -r '.[] | .gguf.file // empty, .gguf.mmproj.local // empty' "$repo/ollama/sizes.json"); do
-    : > "$CLAUDE_OLLAMA_WEIGHTS_DIR/$weights_file"
-  done
+  write_stub curl <<EOF
+#!/bin/sh
+case "\$*" in *api/tags*) jq '{models: [to_entries[] | {name: .key, digest: .value}]}' "$repo/ollama/model-digests.json" ;; esac
+exit 0
+EOF
+  write_stub pgrep <<'EOF'
+#!/bin/sh
+[ -n "${STUB_OLLAMA_PID:-}" ] && echo "$STUB_OLLAMA_PID"
+EOF
+  write_stub ps <<'EOF'
+#!/bin/sh
+echo "ollama serve ${STUB_OLLAMA_ENV:-}"
+EOF
   [ -n "$system_tools" ] || build_system_tools
   export PATH="$sandbox/stubbin:$system_tools"
 }
@@ -117,11 +124,9 @@ done
 check_not "an outer OPENAI_API_KEY never reaches the session" grep -q '^OPENAI_API_KEY=' "$sandbox/qwen-env"
 check_eq "the rendered settings name the size's model" "qwen3.8-27b-cc qwen3.8-27b-cc" \
   "$(jq -r '[.model.name, .modelProviders.openai[0].id] | join(" ")' "$qwen_home/settings.json")"
-check_eq "and point it at llama-server's OpenAI endpoint by address, since the sandbox resolves names only from /etc/hosts" "http://127.0.0.1:11435/v1" "$(jq -r '.modelProviders.openai[0].baseUrl' "$qwen_home/settings.json")"
-check_eq "and carry the preset's ctx-size as the context window" 65536 "$(jq -r '.modelProviders.openai[0].generationConfig.contextWindowSize' "$qwen_home/settings.json")"
-check_eq "and use a placeholder key that names no Ollama variable" "LLAMA_SERVER_API_KEY llama-server" \
-  "$(jq -r '[.modelProviders.openai[0].envKey, .env.LLAMA_SERVER_API_KEY] | join(" ")' "$qwen_home/settings.json")"
-check_eq "and ask llama-server for no thinking" none "$(jq -r '.modelProviders.openai[0].generationConfig.extra_body.reasoning_effort' "$qwen_home/settings.json")"
+check_eq "and point it at Ollama's OpenAI endpoint by address, since the sandbox resolves names only from /etc/hosts" "http://127.0.0.1:11434/v1" "$(jq -r '.modelProviders.openai[0].baseUrl' "$qwen_home/settings.json")"
+check_eq "and carry the Modelfile's num_ctx as the context window" 65536 "$(jq -r '.modelProviders.openai[0].generationConfig.contextWindowSize' "$qwen_home/settings.json")"
+check_eq "and ask Ollama for no thinking" none "$(jq -r '.modelProviders.openai[0].generationConfig.extra_body.reasoning_effort' "$qwen_home/settings.json")"
 check_eq "and turn cross-session messaging off, whose socket the sandbox would refuse" false "$(jq -r '.agents.crossSessionMessaging' "$qwen_home/settings.json")"
 check_that "the global QWEN.md starts with the preferences" \
   test "$(head -1 "$qwen_home/QWEN.md")" = "$(head -1 "$repo/shared/preferences/PREFERENCES.md")"
@@ -178,35 +183,24 @@ check_not "qwen print-config does not launch qwen" grep -q '^QWEN ARGS:' "$sandb
 check_that "qwen print-config names the harness" grep -qxF "harness: qwen" "$sandbox/out"
 check_that "qwen print-config shows the model" grep -qxF "model: qwen3.6-35b-cc" "$sandbox/out"
 check_that "qwen print-config shows the context window" grep -qxF "context window: 98304" "$sandbox/out"
-check_that "qwen print-config shows the server" grep -qxF "server: http://127.0.0.1:11435" "$sandbox/out"
-check_that "qwen print-config shows the weights" grep -qxF "weights: $CLAUDE_OLLAMA_WEIGHTS_DIR/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf" "$sandbox/out"
 check_that "qwen print-config names the Qwen sandbox" grep -q '^sandbox: ' "$sandbox/out"
 check_that "qwen print-config shows the qwen command" grep -q '^command: qwen --auth-type openai ' "$sandbox/out"
 
-. "$repo/shared/testing/stub-llama-lib.sh"
-stub_state="$sandbox/stub-state.json"
-jq -n '{models_max: 2, models: {"qwen3.8-27b-cc": {}}}' > "$stub_state"
-start_stub_llama "$stub_state" || exit 1
-trap 'stop_stub_llama; remove_sandboxes' EXIT
-run_capture "$qwen_script" doctor 27b
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_server_env" run_capture "$qwen_script" doctor 27b
 check_eq "qwen doctor exit status" 0 "$?"
 check_that "qwen doctor reports qwen on PATH" grep -q '^ok   qwen on PATH' "$sandbox/out"
-check_that "qwen doctor reports the server" grep -qxF "ok   llama-server build 11429 on ${LLAMA_SERVER_URL#http://}" "$sandbox/out"
-check_that "qwen doctor reports the preset" grep -qxF "ok   preset qwen3.8-27b-cc listed" "$sandbox/out"
-check_that "qwen doctor reports the weights" grep -qxF "ok   weights Qwen3.8-27B-UD-Q4_K_XL.gguf (sha256 matches)" "$sandbox/out"
+check_that "qwen doctor reports the main model" grep -qxF "ok   model qwen3.8-27b-cc" "$sandbox/out"
 check_that "qwen doctor reports the settings template parses" grep -qxF "ok   qwen settings template parses" "$sandbox/out"
 check_that "qwen doctor warns that no hooks are wired" grep -qxF "warn qwen hooks: none wired (docs/ollama.md)" "$sandbox/out"
 check_not "qwen doctor skips the Claude hook check" grep -q '^ok   hook ' "$sandbox/out"
 check_not "qwen doctor skips the Claude model allowlist check" grep -q 'availableModels' "$sandbox/out"
 check_not "qwen doctor never launches qwen" grep -q '^QWEN ARGS:' "$sandbox/out"
 check_that "qwen doctor reports the sandbox" grep -q 'qwen sandbox: ' "$sandbox/out"
-jq '.health_status = 503' "$stub_state" > "$stub_state.new" && mv "$stub_state.new" "$stub_state"
-run_capture "$qwen_script" doctor 27b
-check_eq "qwen doctor without a server exit status" 1 "$?"
-check_that "qwen doctor fails a server that is not answering" grep -qxF "fail llama-server not answering at $LLAMA_SERVER_URL (claude-custom agent -apply, then claude-ollama logs)" "$sandbox/out"
-jq '.health_status = 200' "$stub_state" > "$stub_state.new" && mv "$stub_state.new" "$stub_state"
+STUB_OLLAMA_PID=42 run_capture "$qwen_script" doctor 27b
+check_eq "qwen doctor with missing server env exit status" 1 "$?"
+check_that "qwen doctor fails missing server env" grep -qxF "fail server env OLLAMA_FLASH_ATTENTION=1 not set on the running server" "$sandbox/out"
 rm -f "$sandbox/stubbin/qwen"
-run_capture "$qwen_script" doctor 27b
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_server_env" run_capture "$qwen_script" doctor 27b
 check_eq "qwen doctor without qwen exit status" 1 "$?"
 check_that "qwen doctor fails a missing qwen" grep -q '^fail qwen missing' "$sandbox/out"
 

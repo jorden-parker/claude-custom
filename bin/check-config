@@ -49,11 +49,11 @@ for settings in "$repo"/ollama/settings.*.json; do
     "$(jq -c .modelOverrides "$settings")"
   check_eq "${settings##*/} lists only its main model in availableModels" \
     "$(jq -c '[.model]' "$settings")" "$(jq -c '.availableModels' "$settings")"
-  check_eq "${settings##*/} waits the full 30 minutes for a silent llama-server stream" "1800000 1800000" \
+  check_eq "${settings##*/} waits the full 30 minutes for a silent Ollama stream" "1800000 1800000" \
     "$(jq -r '[.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS, .env.API_TIMEOUT_MS] | join(" ")' "$settings")"
-  check_eq "${settings##*/} keeps the prompt prefix stable so llama-server reuses its cache" "0 off" \
+  check_eq "${settings##*/} keeps the prompt prefix stable so Ollama reuses its cache" "0 off" \
     "$(jq -r '[.env.CLAUDE_CODE_ATTRIBUTION_HEADER, .env.CLAUDE_CODE_TOTAL_TOKENS_REMINDER] | join(" ")' "$settings")"
-  check_eq "${settings##*/} asks llama-server for no thinking, since Claude Code's adaptive thinking would otherwise reach it as effort high (a profile's thinking:true drops it)" \
+  check_eq "${settings##*/} asks Ollama for no thinking, since Claude Code's adaptive thinking reaches Ollama as effort high (a profile's thinking:true drops it)" \
     '{"thinking":{"type":"disabled"}}' \
     "$(jq -r .env.CLAUDE_CODE_EXTRA_BODY "$settings" | jq -c .)"
   check_eq "${settings##*/} sends no telemetry, error reports, surveys, feedback drafts, update checks or marketplace installs home" "1 1 1 1 1 1 0 1 0 off 0" \
@@ -73,18 +73,18 @@ for settings in "$repo"/ollama/settings.*.json; do
     "$(jq '.sandbox.filesystem.denyRead | (["~/.ssh", "~/.aws", "~/.config/gh", "~/.npmrc", "~/Library/Keychains", "~/.claude", "~/.qwen", "~/.local/share/claude-custom", "~/.config/context7"] - .) == []' "$settings")"
   check_eq "${settings##*/} unsets the GitHub and Shortcut tokens for sandboxed commands" '["GH_TOKEN","GITHUB_TOKEN","SHORTCUT_API_TOKEN"]' \
     "$(jq -c '[.sandbox.credentials.envVars[] | select(.mode == "deny") | .name]' "$settings")"
-  check_eq "${settings##*/} starts in default mode with auto mode off, since its classifier would call llama-server for a Claude model" "default disable" \
+  check_eq "${settings##*/} starts in default mode with auto mode off, since its classifier would call Ollama for a Claude model" "default disable" \
     "$(jq -r '[.permissions.defaultMode, .permissions.disableAutoMode] | join(" ")' "$settings")"
   check_eq "${settings##*/} asks before a commit, a push and a command that leaves the sandbox, and before nothing else" '["Bash(git commit *)","Bash(git push *)","Bash(dangerouslyDisableSandbox:true)"]' \
     "$(jq -c .permissions.ask "$settings")"
 done
 
 qwen_template="$repo/ollama/qwen-settings.template.json"
-check_eq "the Qwen Code profile talks to llama-server as an OpenAI endpoint with a placeholder key" "openai LLAMA_SERVER_API_KEY llama-server" \
-  "$(jq -r '[.security.auth.selectedType, .modelProviders.openai[0].envKey, .env.LLAMA_SERVER_API_KEY] | join(" ")' "$qwen_template")"
-check_eq "the Qwen Code profile asks llama-server for no thinking, which /v1/chat/completions reads as reasoning_effort" none \
+check_eq "the Qwen Code profile talks to Ollama as an OpenAI endpoint with a placeholder key" "openai OLLAMA_API_KEY ollama" \
+  "$(jq -r '[.security.auth.selectedType, .modelProviders.openai[0].envKey, .env.OLLAMA_API_KEY] | join(" ")' "$qwen_template")"
+check_eq "the Qwen Code profile asks Ollama for no thinking, which /v1/chat/completions reads as reasoning_effort" none \
   "$(jq -r '.modelProviders.openai[0].generationConfig.extra_body.reasoning_effort' "$qwen_template")"
-check_eq "the Qwen Code profile waits the full 30 minutes for a silent llama-server stream" "1800000 1800000" \
+check_eq "the Qwen Code profile waits the full 30 minutes for a silent Ollama stream" "1800000 1800000" \
   "$(jq -r '.modelProviders.openai[0].generationConfig | [.timeout, .streamIdleTimeoutMs] | join(" ")' "$qwen_template")"
 check_eq "the Qwen Code profile sends nothing home and never self-updates" "false false false" \
   "$(jq -r '[.privacy.usageStatisticsEnabled, .telemetry.enabled, .general.enableAutoUpdate] | map(tostring) | join(" ")' "$qwen_template")"
@@ -116,64 +116,33 @@ check_eq "the Qwen Code profile turns cross-session messaging off, since no seco
   "$(jq -r '.agents.crossSessionMessaging' "$qwen_template")"
 
 digests="$repo/ollama/model-digests.json"
-pinned_gguf_blocks() {
-  jq -c 'to_entries[] | {name: "size \(.key)", base: .value.base, gguf: .value.gguf}' "$repo/ollama/sizes.json"
-  jq -c '{name: "the embedding model", base: null, gguf: .gguf}' "$repo/ollama/embedding.json"
+pulled_models() {
+  sed -n 's/^FROM //p' "$repo"/ollama/Modelfile.*
+  sed -n 's/^embedding_model=.*CODE_SEARCH_MODEL:-\([^}]*\)}.*/\1/p' "$repo/bin/lib/size-profile.sh"
+}
+is_sha256() {
+  [[ "$1" =~ ^[0-9a-f]{64}$ ]]
+}
+is_library_name() {
+  [[ "$1" != */* ]]
 }
 is_pinned_gguf() {
-  jq -e --slurpfile digests "$digests" '
-    (.gguf.repo // "" | test("^(unsloth|ibm-granite|Qwen)/[A-Za-z0-9._-]+-GGUF$"))
-    and (.gguf.revision // "" | test("^[0-9a-f]{40}$"))
-    and (.gguf.file // "" | test("^[A-Za-z0-9._-]+\\.gguf$"))
-    and ($digests[0]["\(.gguf.repo)/\(.gguf.file)"] // "" | test("^[0-9a-f]{64}$"))' <<<"$1" >/dev/null
+  local file="${1#./weights/}"
+  [[ "$1" == ./weights/* && "$file" != */* && "$file" == *.gguf ]] || return 1
+  jq -e --arg base "$1" '
+    [.[] | select(.base == $base) | .gguf // empty
+      | select((.repo | test("^unsloth/[A-Za-z0-9._-]+-GGUF$")) and (.revision | test("^[0-9a-f]{40}$")))
+    ] | length > 0' "$repo/ollama/sizes.json" >/dev/null
 }
-names_its_gguf() {
-  jq -e '.base == null or .base == "\(.gguf.repo)/\(.gguf.file)"' <<<"$1" >/dev/null
+is_allowed_base() {
+  is_library_name "$1" || is_pinned_gguf "$1"
 }
-while IFS= read -r block; do
-  name="$(jq -r .name <<<"$block")"
-  check_that "$name is a GGUF from unsloth, ibm-granite or Qwen at a pinned revision, with a sha256 in model-digests.json" is_pinned_gguf "$block"
-  check_that "$name names that GGUF as its base" names_its_gguf "$block"
-done < <(pinned_gguf_blocks)
-is_pinned_projector() {
-  jq -e --slurpfile digests "$digests" '
-    (.mmproj.file | test("^[A-Za-z0-9._-]+\\.gguf$"))
-    and (.mmproj.local | test("^[A-Za-z0-9._-]+\\.gguf$"))
-    and ($digests[0]["\(.repo)/\(.mmproj.file)"] // "" | test("^[0-9a-f]{64}$"))' <<<"$1" >/dev/null
-}
-while IFS=' ' read -r size gguf; do
-  check_that "size $size's vision projector is a pinned GGUF in the size's repo, with a sha256 in model-digests.json" is_pinned_projector "$gguf"
-done < <(jq -r 'to_entries[] | select(.value.gguf.mmproj) | "\(.key) \(.value.gguf | tojson)"' "$repo/ollama/sizes.json")
-check_eq "every weights file has its own name in the weights folder, since every repo calls its projector mmproj" "" \
-  "$({ jq -r '.[].gguf | .file, (.mmproj.local // empty)' "$repo/ollama/sizes.json"; jq -r .gguf.file "$repo/ollama/embedding.json"; } | sort | uniq -d)"
-check_eq "model-digests.json pins exactly the sizes', their projectors' and the embedding model's GGUF files" \
-  "$({ jq -r '.[].gguf | "\(.repo)/\(.file)", (select(.mmproj) | "\(.repo)/\(.mmproj.file)")' "$repo/ollama/sizes.json"; jq -r '.gguf | "\(.repo)/\(.file)"' "$repo/ollama/embedding.json"; } | sort -u)" \
-  "$(jq -r 'keys[]' "$digests" | sort)"
+for name in $(pulled_models); do
+  check_that "$name is an Ollama library model or a pinned Unsloth GGUF" is_allowed_base "$name"
+  check_that "$name has a sha256 pin in model-digests.json" \
+    is_sha256 "$(jq -r ".[\"$name\"] // empty" "$digests")"
+done
 check_that ".gitignore keeps downloaded GGUF weights out of git" grep -qx 'ollama/weights/' "$repo/.gitignore"
-while IFS=' ' read -r size template; do
-  check_that "size $size's chat template $template is a file in ollama/templates" test -f "$repo/ollama/templates/$template"
-  check_not "size $size's chat template keeps a mid-conversation system message, which Claude Code sends, instead of failing the request" \
-    grep -qF "System message must be at the beginning" "$repo/ollama/templates/$template"
-done < <(jq -r 'to_entries[] | select(.value.chat_template) | "\(.key) \(.value.chat_template)"' "$repo/ollama/sizes.json")
-
-ollama_pattern='\bollama (pull|create|show|rm|cp|list|ps|serve|run)\b|/api/(tags|ps|generate|chat|embed|version|show|pull)'
-unallowed_ollama_lines() {
-  local hit file text
-  while IFS= read -r hit; do
-    file="${hit%%:*}"
-    text="${hit#*:*:}"
-    case "$file:$text" in
-      "bin/claude-custom:"*"(ollama rm NAME for each, then brew uninstall ollama)"*) ;;
-      "bin/prefix-ab:"*'post_json(base_url, "/api/chat", {"model": model, "messages": [], "keep_alive": 0})'*) ;;
-      "bin/prefix-ab.test.sh:"*'"--unload ollama is still accepted"'*) ;;
-      "bin/messages-proxy.test.sh:"*'"an Ollama route is refused"'*) ;;
-      "shared/testing/stub-llama-server.test.sh:"*'"an unknown route is a 404"'*) ;;
-      "shared/mcp/code-search.test.sh:"*'"a failed embedding no longer names ollama commands"'*) ;;
-      *) printf '%s\n' "$hit" ;;
-    esac
-  done < <(cd "$repo" && grep -rInE --exclude='backend-bench-off*' --exclude='backend-bench-report*' --exclude=check-config "$ollama_pattern" bin shared web/console/src/lib)
-}
-check_eq "bin, shared and web/console/src/lib run no ollama command and call no Ollama API path, outside the bench-off" "" "$(unallowed_ollama_lines)"
 
 check_eq "rendered profiles are current" 0 "$("$repo/bin/ollama-profiles" --check >/dev/null 2>&1; echo $?)"
 
@@ -216,7 +185,7 @@ check_eq "claude-ollama starts its three MCP servers through shared/host-env" 3 
 check_that "claude-ollama starts the incident watcher tied to its own pid" \
   grep -qF -- '--model "$model" --out "$incidents_file" --watch-pid "$$"' "$repo/bin/claude-ollama"
 check_that "claude-ollama starts the degrade ladder beside the watcher, tied to its own pid" \
-  grep -qF -- '--watch-pid "$$" --context "$(preset_ctx_size)"' "$repo/bin/claude-ollama"
+  grep -qF -- '--watch-pid "$$" --context "$(modelfile_num_ctx)"' "$repo/bin/claude-ollama"
 check_that "claude-ollama lets CLAUDE_OLLAMA_LADDER=0 turn the ladder off" grep -qF '"${CLAUDE_OLLAMA_LADDER:-}" = 0' "$repo/bin/claude-ollama"
 check_that "claude-ollama holds a session lease before it starts the indexer" \
   test "$(grep -n '^claim_session$' "$repo/bin/claude-ollama" | cut -d: -f1)" -lt "$(grep -n '^warm_search_index$' "$repo/bin/claude-ollama" | cut -d: -f1)"
@@ -322,9 +291,18 @@ done
 check_eq "settings.tokens.json leaves the hook subprocesses unconfined" null \
   "$(jq -r '.env.CLAUDE_CUSTOM_HOOK_SANDBOX' "$repo/personal/settings.tokens.json")"
 
-models_ini="$repo/ollama/models.ini"
-preset_value() {
-  awk -v id="[$1]" -v key="$2" '$0 == id { on = 1; next } /^\[/ { on = 0 } on && index($0, key " = ") == 1 { print substr($0, length(key) + 4) }' "$models_ini"
+modelfile_num_ctx_for() {
+  sed -n 's/^PARAMETER num_ctx //p' "$repo/ollama/Modelfile.$1"
+}
+
+context_is_num_ctx() {
+  local size="${1##*/settings.}"
+  size="${size%.json}"
+  [ "$(jq -r .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS "$1")" = "$(modelfile_num_ctx_for "$size")" ]
+}
+
+modelfile_num_predict_for() {
+  sed -n 's/^PARAMETER num_predict //p' "$repo/ollama/Modelfile.$1"
 }
 
 size_output_tokens() {
@@ -334,26 +312,11 @@ size_output_tokens() {
 for settings in "$repo"/ollama/settings.*.json; do
   size="${settings##*/settings.}"
   size="${size%.json}"
-  model="$(jq -r .model "$settings")"
   check_eq "${settings##*/} sends the output tokens sizes.json gives the $size size" "$(size_output_tokens "$size")" "$(jq -r .env.CLAUDE_CODE_MAX_OUTPUT_TOKENS "$settings")"
-  check_eq "the $model preset caps n-predict at the same output tokens" "$(size_output_tokens "$size")" "$(preset_value "$model" n-predict)"
-  check_eq "${settings##*/} gives Claude Code the preset's full ctx-size, since it keeps the output and a margin under it itself" "$(preset_value "$model" ctx-size)" "$(jq -r .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS "$settings")"
-  check_eq "the $model@think preset turns reasoning on" on "$(preset_value "$model@think" reasoning)"
+  check_eq "Modelfile.$size caps num_predict at the same output tokens" "$(size_output_tokens "$size")" "$(modelfile_num_predict_for "$size")"
 done
-check_eq "every chat preset turns reasoning on or off" 0 \
-  "$(awk '
-    function close_section() { if (named && !embeddings && !reasoning) missing++ }
-    /^\[/ { close_section(); named = ($0 != "[*]"); embeddings = 0; reasoning = 0; next }
-    /^embeddings = true$/ { embeddings = 1 }
-    /^reasoning = (on|off)$/ { reasoning = 1 }
-    END { close_section(); print missing + 0 }
-  ' "$models_ini")"
-embedding_name="$(jq -r .model "$repo/ollama/embedding.json")"
-embedding_preset="$(printf '%s' "$embedding_name" | tr ':' '-')"
-check_eq "the embedding preset exists and serves embeddings" true "$(preset_value "$embedding_preset" embeddings)"
-check_eq "the embedding preset answers to the embedding model name" "$embedding_name" "$(preset_value "$embedding_preset" alias)"
-check_eq "ollama/embedding.json names the default embedding model" "$(sed -n 's/^embedding_model=.*CODE_SEARCH_MODEL:-\([^}]*\)}.*/\1/p' "$repo/bin/lib/size-profile.sh")" "$embedding_name"
 for settings in "$repo"/ollama/settings.*.json; do
+  check_that "${settings##*/} gives Claude Code the full num_ctx, since it keeps the output and a margin under it itself" context_is_num_ctx "$settings"
   check_eq "${settings##*/} never precomputes a compaction summary in a second request to the one local model" false \
     "$(jq -r .precomputeCompactionEnabled "$settings")"
 done

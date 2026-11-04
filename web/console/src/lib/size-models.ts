@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const SIZE_NAME = /^[a-z0-9][a-z0-9-]*$/;
+const FROM_LINE = /^FROM\s+(\S+)/m;
 
 export function modelForSize(repoDir: string, size: string): string | null {
   if (!SIZE_NAME.test(size)) {
@@ -28,11 +29,15 @@ export function sizeSettings(repoDir: string, size: string): SizeSettings {
   };
 }
 
-type SizesEntry = { context?: unknown; output_tokens?: unknown; parameters?: unknown; gguf?: unknown };
+type SizesEntry = { context?: unknown; output_tokens?: unknown; parameters?: unknown };
 
 function sizesEntry(repoDir: string, size: string): SizesEntry | null {
-  const sizes = readJsonRecord(join(repoDir, "ollama", "sizes.json"));
-  return sizes !== null && Object.hasOwn(sizes, size) ? (sizes[size] as SizesEntry) : null;
+  try {
+    const sizes = JSON.parse(readFileSync(join(repoDir, "ollama", "sizes.json"), "utf8")) as Record<string, SizesEntry>;
+    return Object.hasOwn(sizes, size) ? sizes[size] : null;
+  } catch {
+    return null;
+  }
 }
 
 function numericParameters(raw: unknown): Record<string, number> {
@@ -44,32 +49,13 @@ function numericParameters(raw: unknown): Record<string, number> {
   );
 }
 
-export function weightsFileForSize(repoDir: string, size: string): string | null {
-  return ggufFileOf(sizesEntry(repoDir, size));
-}
-
-export type EmbeddingPreset = { model: string; file: string | null };
-
-export function embeddingPreset(repoDir: string): EmbeddingPreset | null {
-  const entry = readJsonRecord(join(repoDir, "ollama", "embedding.json"));
-  if (entry === null || typeof entry.model !== "string") {
+export function baseModelForSize(repoDir: string, size: string): string | null {
+  if (!SIZE_NAME.test(size)) {
     return null;
   }
-  return { model: entry.model, file: ggufFileOf(entry) };
-}
-
-function ggufFileOf(entry: { gguf?: unknown } | null): string | null {
-  const gguf = entry?.gguf;
-  if (typeof gguf !== "object" || gguf === null || !("file" in gguf)) {
-    return null;
-  }
-  return typeof gguf.file === "string" ? gguf.file : null;
-}
-
-function readJsonRecord(file: string): Record<string, unknown> | null {
   try {
-    const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
-    return typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : null;
+    const modelfile = readFileSync(join(repoDir, "ollama", `Modelfile.${size}`), "utf8");
+    return FROM_LINE.exec(modelfile)?.[1] ?? null;
   } catch {
     return null;
   }

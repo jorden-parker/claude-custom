@@ -28,42 +28,40 @@ def word_vector(text):
     return [value / norm for value in vector]
 
 
-EMBEDDING_ID = "qwen3-embedding-0.6b"
-EMBEDDING_ALIAS = "qwen3-embedding:0.6b"
-
-
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         return
 
-    def send_json(self, code, payload):
-        data = json.dumps(payload).encode()
-        self.send_response(code)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(data)))
-        self.end_headers()
-        self.wfile.write(data)
-
     def do_GET(self):
-        if self.path != "/models":
-            self.send_json(404, {"error": {"code": 404, "message": "File Not Found", "type": "not_found_error"}})
+        if self.path != "/api/ps":
+            self.send_response(404)
+            self.end_headers()
             return
-        status = "loaded" if os.path.exists(flag_path) else "unloaded"
-        self.send_json(200, {"object": "list", "data": [{"id": EMBEDDING_ID, "aliases": [EMBEDDING_ALIAS], "status": {"value": status}}]})
+        models = [{"name": "qwen3-embedding:0.6b", "model": "qwen3-embedding:0.6b"}] if os.path.exists(flag_path) else []
+        payload = json.dumps({"models": models}).encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
 
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         with open(log_path, "a") as log:
-            log.write(json.dumps({"path": self.path, "model": body["model"], "inputs": len(body["input"])}) + "\n")
-        if self.path != "/v1/embeddings":
-            self.send_json(404, {"error": {"code": 404, "message": "File Not Found", "type": "not_found_error"}})
-        elif any("BREAK" in text for text in body["input"]):
-            self.send_json(500, {"error": {"code": 500, "message": "runner stopped", "type": "server_error"}})
-        elif body["model"] not in (EMBEDDING_ID, EMBEDDING_ALIAS):
-            self.send_json(400, {"error": {"code": 400, "message": f"model '{body['model']}' not found", "type": "invalid_request_error"}})
+            log.write(json.dumps({"path": self.path, "model": body["model"], "inputs": len(body["input"]), "keep_alive": body.get("keep_alive")}) + "\n")
+        if any("BREAK" in text for text in body["input"]):
+            payload = json.dumps({"error": "runner stopped"}).encode()
+            self.send_response(500)
+        elif body["model"] == "missing-model":
+            payload = json.dumps({"error": 'model "missing-model" not found, try pulling it first'}).encode()
+            self.send_response(404)
         else:
-            data = [{"object": "embedding", "index": index, "embedding": word_vector(text)} for index, text in enumerate(body["input"])]
-            self.send_json(200, {"object": "list", "model": body["model"], "data": list(reversed(data))})
+            payload = json.dumps({"embeddings": [word_vector(text) for text in body["input"]]}).encode()
+            self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
 
 
 server = HTTPServer(("127.0.0.1", 0), Handler)
@@ -114,8 +112,8 @@ start_stub() {
   python3 "$tmp/stub.py" "$tmp/embed.log" "$tmp/port" "$tmp/loaded" &
   stub_pid=$!
   while [ ! -s "$tmp/port" ]; do sleep 0.05; done
-  LLAMA_SERVER_URL="http://127.0.0.1:$(cat "$tmp/port")"
-  export LLAMA_SERVER_URL
+  CODE_SEARCH_OLLAMA_URL="http://127.0.0.1:$(cat "$tmp/port")"
+  export CODE_SEARCH_OLLAMA_URL
 }
 
 stop_stub() {
@@ -225,8 +223,7 @@ check "the best match scores 1.00" contains "$first_text" "src/auth.py:1-2  1.00
 check "files with no matching word are left out" lacks "$first_text" "src/chart.py"
 check "lockfiles are not indexed" lacks "$first_text" "package-lock.json"
 check "a search embeds only the query" [ "$(embedded_inputs_last_call)" = "1" ]
-check "the query is embedded through the OpenAI embeddings route" grep -q '"path": "/v1/embeddings"' "$tmp/embed.log"
-check "the query names the embedding model by its preset alias" grep -q '"model": "qwen3-embedding:0.6b"' "$tmp/embed.log"
+check "the query embedding keeps the model alive" grep -q '"keep_alive": "30m"' "$tmp/embed.log"
 check "no words-only note while the model is loaded" lacks "$first_text" "words only"
 
 svg="$(search "svg axis" | reply_text)"
@@ -335,11 +332,11 @@ stop_server
 
 stop_stub
 down="$(search "filler")"
-check "an unreachable llama-server still answers from the word index" [ "$(printf '%s' "$down" | reply_is_error)" = "False" ]
-check "an unreachable llama-server is reported as words only" contains "$(printf '%s' "$down" | reply_text)" "words only"
+check "an unreachable Ollama still answers from the word index" [ "$(printf '%s' "$down" | reply_is_error)" = "False" ]
+check "an unreachable Ollama is reported as words only" contains "$(printf '%s' "$down" | reply_text)" "words only"
 down_allowed="$(CODE_SEARCH_EMBED=1 search "filler")"
-check "an unreachable llama-server with embeddings allowed is not a tool error" [ "$(printf '%s' "$down_allowed" | reply_is_error)" = "False" ]
-check "an unreachable llama-server with embeddings allowed says words only and why" contains "$(printf '%s' "$down_allowed" | reply_text)" "words only: Embedding request to"
+check "an unreachable Ollama with embeddings allowed is not a tool error" [ "$(printf '%s' "$down_allowed" | reply_is_error)" = "False" ]
+check "an unreachable Ollama with embeddings allowed says words only and why" contains "$(printf '%s' "$down_allowed" | reply_text)" "words only: Embedding request to"
 
 outside="$(cd "$tmp" && python3 "$tmp/client.py" "$server" semantic_search '{"query": "x"}' | reply_text)"
 check "outside a git repo the tool explains why it can't search" contains "$outside" "git repository"
@@ -370,14 +367,12 @@ check "an unreadable file is skipped, not fatal" [ "$(printf '%s' "$survived" | 
 check "symlinks are not indexed" lacks "$(printf '%s' "$survived" | reply_text)" "src/link-out"
 
 missing="$(CODE_SEARCH_EMBED=1 CODE_SEARCH_MODEL=missing-model search "filler" | reply_text)"
-check "a llama-server error reply is shown with its reason" contains "$missing" "model 'missing-model' not found"
-check "a failed embedding names llama-server and the prepare command" contains "$missing" "claude-ollama prepare-embedding"
-check "a failed embedding no longer names ollama commands" lacks "$missing" "ollama pull"
+check "an Ollama error reply is shown with its reason" contains "$missing" 'model "missing-model" not found, try pulling it first'
 
-stub_url="$LLAMA_SERVER_URL"
+stub_host="${CODE_SEARCH_OLLAMA_URL#http://}"
 rm -f "$tmp/embed.log"
-(cd "$repo" && env LLAMA_SERVER_URL=http://127.0.0.1:9 CODE_SEARCH_OLLAMA_URL="$stub_url" OLLAMA_HOST="${stub_url#http://}" CODE_SEARCH_EMBED=1 python3 "$tmp/client.py" "$server" semantic_search '{"query": "filler"}' >/dev/null)
-check "CODE_SEARCH_OLLAMA_URL and OLLAMA_HOST no longer pick the embedding server" [ ! -e "$tmp/embed.log" ]
+(cd "$repo" && env -u CODE_SEARCH_OLLAMA_URL OLLAMA_HOST="$stub_host" CODE_SEARCH_EMBED=1 python3 "$tmp/client.py" "$server" semantic_search '{"query": "filler"}' >/dev/null)
+check "OLLAMA_HOST picks the Ollama server when CODE_SEARCH_OLLAMA_URL is unset" [ -s "$tmp/embed.log" ]
 
 resume="$tmp/resume-repo"
 mkdir -p "$resume"

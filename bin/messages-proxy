@@ -18,18 +18,10 @@ REQUEST_ID_HEADER = "X-Claude-Ollama-Request"
 DIFF_CHARS = 200
 WATCH_INTERVAL_SECONDS = 1.0
 STREAM_CHUNK_BYTES = 4096
-IMAGE_NOTE = "[image omitted: this model cannot see images; ask the user to describe it]"
 UPSTREAM_TIMEOUT_SECONDS = 1800
 HOP_BY_HOP_HEADERS = {"connection", "keep-alive", "proxy-connection", "transfer-encoding", "upgrade", "host", "content-length"}
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "[::1]"}
-FORWARDED_ROUTES = {
-    ("POST", MESSAGES_PATH),
-    ("POST", "/v1/messages/count_tokens"),
-    ("GET", "/v1/models"),
-    ("GET", "/health"),
-    ("GET", "/models"),
-}
-DEFAULT_UPSTREAM = "http://127.0.0.1:11435"
+FORWARDED_ROUTES = {("POST", MESSAGES_PATH), ("GET", "/v1/models"), ("GET", "/api/version"), ("GET", "/api/tags")}
 VOLATILE_SPAN_BYTES = 400
 DIGIT = re.compile(r"\d")
 WEEKDAY = re.compile(r"\b(?:mon|tues|wednes|thurs|fri|satur|sun)day\b", re.IGNORECASE)
@@ -48,14 +40,13 @@ TOKEN_EDGE_PUNCTUATION = "()[].!-"
 
 
 def parse_args(argv):
-    parser = argparse.ArgumentParser(description="Observe /v1/messages traffic between Claude Code and llama-server without changing it.")
-    parser.add_argument("--upstream", default=os.environ.get("LLAMA_SERVER_URL", DEFAULT_UPSTREAM))
+    parser = argparse.ArgumentParser(description="Observe /v1/messages traffic between Claude Code and Ollama without changing it.")
+    parser.add_argument("--upstream", required=True)
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--port-file")
     parser.add_argument("--log", required=True)
     parser.add_argument("--record", help="folder that gets each /v1/messages body as <request_id>.json")
     parser.add_argument("--stabilize", action="store_true", help="move learned volatile system lines after the stable prefix")
-    parser.add_argument("--images-as-note", action="store_true", help="replace image blocks with a text note, for a model without a vision projector")
     parser.add_argument("--watch-pid", type=int)
     return parser.parse_args(argv)
 
@@ -423,59 +414,21 @@ def parse_body(body):
     return parsed if isinstance(parsed, dict) else None
 
 
-def blocks_with_notes(blocks):
-    replaced = 0
-    kept = []
-    for block in blocks:
-        if isinstance(block, dict) and block.get("type") == "image":
-            kept.append({"type": "text", "text": IMAGE_NOTE})
-            replaced += 1
-            continue
-        if isinstance(block, dict) and isinstance(block.get("content"), list):
-            inner, inner_replaced = blocks_with_notes(block["content"])
-            if inner_replaced:
-                block = dict(block, content=inner)
-                replaced += inner_replaced
-        kept.append(block)
-    return kept, replaced
+def forwarded_body(parsed, body, stabilizer):
+    if stabilizer is None:
+        return parsed, body, []
+    stabilized, moved = stabilizer.stabilize(parsed)
+    if not moved:
+        return parsed, body, []
+    return stabilized, json.dumps(stabilized, ensure_ascii=False).encode("utf-8"), moved
 
 
-def images_as_notes(parsed):
-    messages = parsed.get("messages")
-    if not isinstance(messages, list):
-        return parsed, 0
-    replaced = 0
-    noted = []
-    for message in messages:
-        if isinstance(message, dict) and isinstance(message.get("content"), list):
-            content, count = blocks_with_notes(message["content"])
-            if count:
-                message = dict(message, content=content)
-                replaced += count
-        noted.append(message)
-    return (dict(parsed, messages=noted), replaced) if replaced else (parsed, 0)
-
-
-def forwarded_body(parsed, body, stabilizer, images_as_note=False):
-    noted = 0
-    if images_as_note:
-        parsed, noted = images_as_notes(parsed)
-    moved = []
-    if stabilizer is not None:
-        stabilized, moved = stabilizer.stabilize(parsed)
-        if moved:
-            parsed = stabilized
-    if not moved and not noted:
-        return parsed, body, [], 0
-    return parsed, json.dumps(parsed, ensure_ascii=False).encode("utf-8"), moved, noted
-
-
-def observe_request(body, tracker, log, recorder, stabilizer=None, images_as_note=False):
+def observe_request(body, tracker, log, recorder, stabilizer=None):
     parsed = parse_body(body)
     if parsed is None:
         return None, body
     request_id = str(uuid.uuid4())
-    forwarded, forwarded_bytes, moved, noted = forwarded_body(parsed, body, stabilizer, images_as_note)
+    forwarded, forwarded_bytes, moved = forwarded_body(parsed, body, stabilizer)
     row = {"ts": now_iso(), "request_id": request_id}
     row.update(tracker.compare(prompt_sections(forwarded)))
     row["prompt_bytes"] = len(forwarded_bytes)
@@ -483,8 +436,6 @@ def observe_request(body, tracker, log, recorder, stabilizer=None, images_as_not
     if stabilizer is not None:
         row["stabilized"] = stabilized_keys(moved)
         row["moved_bytes"] = span_bytes(moved)
-    if images_as_note:
-        row["images_as_note"] = noted
     log.append(row)
     if recorder is not None:
         recorder.save(request_id, body)
@@ -498,7 +449,6 @@ class ProxyHandler(BaseHTTPRequestHandler):
     log = None
     recorder = None
     stabilizer = None
-    images_as_note = False
     response_started = False
 
     def log_message(self, format, *args):
@@ -537,7 +487,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
         if reason:
             self.refuse(403, reason)
         elif (self.command, self.route_path()) not in FORWARDED_ROUTES:
-            self.refuse(404, "messages-proxy forwards only /v1/messages, /v1/messages/count_tokens, /v1/models, /health and /models")
+            self.refuse(404, "messages-proxy forwards only /v1/messages, /v1/models, /api/version and /api/tags")
         else:
             self.forward(body)
 
@@ -554,7 +504,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
         self.response_started = False
         request_id = None
         if self.command == "POST" and self.route_path() == MESSAGES_PATH:
-            request_id, body = observe_request(body, self.tracker, self.log, self.recorder, self.stabilizer, self.images_as_note)
+            request_id, body = observe_request(body, self.tracker, self.log, self.recorder, self.stabilizer)
         connection = http.client.HTTPConnection(self.upstream.hostname, self.upstream.port, timeout=UPSTREAM_TIMEOUT_SECONDS)
         try:
             connection.putrequest(self.command, self.path, skip_host=True, skip_accept_encoding=True)
@@ -620,7 +570,6 @@ def serve(options):
         "log": RequestLog(options.log),
         "recorder": BodyRecorder(options.record) if options.record else None,
         "stabilizer": PrefixStabilizer() if options.stabilize else None,
-        "images_as_note": options.images_as_note,
     })
     server = ThreadingHTTPServer(("127.0.0.1", options.port), handler)
     server.daemon_threads = True

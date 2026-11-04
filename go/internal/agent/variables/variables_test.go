@@ -4,167 +4,113 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"slices"
 	"strings"
 	"testing"
-
-	"github.com/jordenparker/claude-custom/go/internal/history"
 )
 
-const serverINI = `[*]
-n-gpu-layers = 99
-cache-type-k = q8_0
-jinja = true
+func TestParseServerEnvReadsAssignments(t *testing.T) {
+	env, err := ParseServerEnv([]byte("OLLAMA_FLASH_ATTENTION=1\n\nOLLAMA_KEEP_ALIVE=30m\n"))
+	want := map[string]string{"OLLAMA_FLASH_ATTENTION": "1", "OLLAMA_KEEP_ALIVE": "30m"}
+	if err != nil || !reflect.DeepEqual(env, want) {
+		t.Fatalf("got %v, %v", env, err)
+	}
+}
 
-[router]
-models-max = 2
-`
+func TestParseServerEnvRejectsLinesWithoutAssignment(t *testing.T) {
+	if _, err := ParseServerEnv([]byte("OLLAMA_DEBUG\n")); err == nil {
+		t.Fatal("expected an error")
+	}
+}
 
-func writeFile(t *testing.T, name, text string) string {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), name)
-	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+func TestLoadServerEnvReadsTheRepoFile(t *testing.T) {
+	env, err := LoadServerEnv(filepath.Join("..", "..", "..", "..", "ollama", "server.env"))
+	if err != nil || env["OLLAMA_KV_CACHE_TYPE"] != "q8_0" {
+		t.Fatalf("got %v, %v", env, err)
+	}
+}
+
+func TestLoadServerEnvMissingFileIsEmpty(t *testing.T) {
+	env, err := LoadServerEnv(filepath.Join(t.TempDir(), "server.env"))
+	if err != nil || len(env) != 0 {
+		t.Fatalf("got %v, %v", env, err)
+	}
+}
+
+func TestLoadServerEnvReportsUnreadableFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "server.env"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	return path
-}
-
-func TestEveryKnownSettingHasASummary(t *testing.T) {
-	for _, setting := range Known {
-		if setting.Summary == "" {
-			t.Errorf("%s has no summary", setting.Name)
-		}
-	}
-	if Summary(ModelsMax) == "" || Summary("cache-type-k") == "" {
-		t.Fatal("models-max and cache-type-k must be known")
+	if _, err := LoadServerEnv(filepath.Join(dir, "server.env")); err == nil {
+		t.Fatal("expected an error")
 	}
 }
 
-func TestLoadReadsTheSharedKeysAndTheRouterFlag(t *testing.T) {
-	values, err := Load(writeFile(t, "server.ini", serverINI))
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := map[string]string{"n-gpu-layers": "99", "cache-type-k": "q8_0", "jinja": "true", ModelsMax: "2"}
-	if !reflect.DeepEqual(values, want) {
-		t.Fatalf("got %v", values)
-	}
-}
-
-func TestLoadIgnoresOtherSectionsAndComments(t *testing.T) {
-	values, err := Load(writeFile(t, "models.ini", "; note\n[*]\nparallel = 1\n\n[qwen]\nctx-size = 4096\n[router]\nother = 3\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(values, map[string]string{"parallel": "1"}) {
-		t.Fatalf("got %v", values)
-	}
-}
-
-func TestLoadOfAMissingFileIsEmpty(t *testing.T) {
-	values, err := Load(filepath.Join(t.TempDir(), "missing.ini"))
-	if err != nil || len(values) != 0 {
-		t.Fatalf("got %v, %v", values, err)
-	}
-}
-
-func TestLoadRejectsALineWithoutAnEquals(t *testing.T) {
-	if _, err := Load(writeFile(t, "bad.ini", "[*]\nflash-attn\n")); err == nil || !strings.Contains(err.Error(), "line 2") {
-		t.Fatalf("got %v", err)
-	}
-}
-
-func TestEffectiveLaysOverridesOverTheRecommendedValues(t *testing.T) {
-	got := Effective(map[string]string{"parallel": "1", ModelsMax: "2"}, map[string]string{ModelsMax: "3"})
-	if !reflect.DeepEqual(got, map[string]string{"parallel": "1", ModelsMax: "3"}) {
-		t.Fatalf("got %v", got)
-	}
-}
-
-func TestOverridesKeepOnlyWhatDiffersFromTheRecommendedValues(t *testing.T) {
-	got := Overrides(map[string]string{"parallel": "1", ModelsMax: "2"}, map[string]string{"parallel": "1", ModelsMax: "3", "prio": "1"})
-	if !reflect.DeepEqual(got, map[string]string{ModelsMax: "3", "prio": "1"}) {
-		t.Fatalf("got %v", got)
-	}
-}
-
-func TestRenderSortsTheSharedKeysAndPutsTheRouterFlagLast(t *testing.T) {
-	got := string(Render(map[string]string{ModelsMax: "3", "prio": "1", "cache-reuse": "512"}))
-	want := "[*]\ncache-reuse = 512\nprio = 1\n\n[router]\nmodels-max = 3\n"
-	if got != want {
-		t.Fatalf("got %q", got)
-	}
-}
-
-func TestRenderOfNoOverridesIsEmpty(t *testing.T) {
-	if got := Render(map[string]string{}); len(got) != 0 {
-		t.Fatalf("got %q", got)
-	}
-}
-
-func TestSaveThenLoadRoundTrips(t *testing.T) {
-	t.Setenv("CLAUDE_CONSOLE_STATE_DIR", t.TempDir())
-	path := filepath.Join(t.TempDir(), "presets", "server.local.ini")
-	values := map[string]string{ModelsMax: "3", "cache-type-k": "f16"}
-	if err := Save(path, values); err != nil {
-		t.Fatal(err)
-	}
-	loaded, err := Load(path)
-	if err != nil || !reflect.DeepEqual(loaded, values) {
-		t.Fatalf("got %v, %v", loaded, err)
-	}
-	info, err := os.Stat(path)
-	if err != nil || info.Mode().Perm() != 0o600 {
-		t.Fatalf("mode %v, %v", info.Mode().Perm(), err)
-	}
-}
-
-func TestSaveRecordsTheChange(t *testing.T) {
-	t.Setenv("CLAUDE_CONSOLE_STATE_DIR", t.TempDir())
-	t.Setenv("CLAUDE_CUSTOM_HISTORY", "")
-	path := filepath.Join(t.TempDir(), "server.local.ini")
-	if err := Save(path, map[string]string{"prio": "1"}); err != nil {
-		t.Fatal(err)
-	}
-	entries, err := history.List(history.Dir())
-	if err != nil || len(entries) != 1 || entries[0].Kind != "server-settings" {
-		t.Fatalf("entries = %v, %v", entries, err)
-	}
-}
-
-func TestSaveWritesNothingWhenTheFileAlreadyMatches(t *testing.T) {
-	t.Setenv("CLAUDE_CONSOLE_STATE_DIR", t.TempDir())
-	t.Setenv("CLAUDE_CUSTOM_HISTORY", "")
-	missing := filepath.Join(t.TempDir(), "server.local.ini")
-	if err := Save(missing, map[string]string{}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(missing); !os.IsNotExist(err) {
-		t.Fatalf("no overrides wrote a file: %v", err)
-	}
-	if entries, _ := history.List(history.Dir()); len(entries) != 0 {
-		t.Fatalf("entries = %v", entries)
-	}
-}
-
-func TestParseAssignmentAcceptsAKnownKey(t *testing.T) {
-	name, value, err := ParseAssignment("cache-type-k=f16")
-	if err != nil || name != "cache-type-k" || value != "f16" {
-		t.Fatalf("got %q %q %v", name, value, err)
-	}
-}
-
-func TestParseAssignmentRejectsBadInput(t *testing.T) {
-	for _, text := range []string{"cache-type-k", "OLLAMA_KEEP_ALIVE=1", "prio=", "prio=1\n2", "prio=" + strings.Repeat("9", 300), "prio=[x]"} {
-		if _, _, err := ParseAssignment(text); err == nil {
-			t.Errorf("%q: expected an error", text)
-		}
-	}
-}
-
-func TestNamesListsKnownKeysThenExtrasSorted(t *testing.T) {
-	names := Names(map[string]string{"zz-extra": "1", "aa-extra": "2", "prio": "2"})
-	if names[0] != Known[0].Name || !slices.Equal(names[len(names)-2:], []string{"aa-extra", "zz-extra"}) {
+func TestNamesPutsKnownVariablesFirstThenExtrasSorted(t *testing.T) {
+	names := Names(map[string]string{"ZED": "1", "OLLAMA_KEEP_ALIVE": "-1"}, map[string]string{"ALPHA": "2"})
+	if names[0] != Known[0].Name || names[len(names)-2] != "ALPHA" || names[len(names)-1] != "ZED" {
 		t.Fatalf("got %v", names)
+	}
+	if len(names) != len(Known)+2 {
+		t.Fatalf("got %d names, want %d", len(names), len(Known)+2)
+	}
+}
+
+func TestSummaryOfUnknownVariableIsEmpty(t *testing.T) {
+	if Summary("ZED") != "" || Summary("OLLAMA_KEEP_ALIVE") == "" {
+		t.Fatal("wrong summaries")
+	}
+}
+
+func TestWithServerEnvAddsAndOverridesOnlyServerEnvNames(t *testing.T) {
+	current := map[string]string{"OLLAMA_KEEP_ALIVE": "5m", "OLLAMA_DEBUG": "1", "OLLAMA_FLASH_ATTENTION": "1"}
+	serverEnv := map[string]string{"OLLAMA_KEEP_ALIVE": "30m", "OLLAMA_FLASH_ATTENTION": "1", "OLLAMA_MAX_LOADED_MODELS": "2"}
+	env, changed := WithServerEnv(current, serverEnv)
+	want := map[string]string{"OLLAMA_KEEP_ALIVE": "30m", "OLLAMA_DEBUG": "1", "OLLAMA_FLASH_ATTENTION": "1", "OLLAMA_MAX_LOADED_MODELS": "2"}
+	if !reflect.DeepEqual(env, want) {
+		t.Fatalf("env %v", env)
+	}
+	if !reflect.DeepEqual(changed, []string{"OLLAMA_KEEP_ALIVE", "OLLAMA_MAX_LOADED_MODELS"}) {
+		t.Fatalf("changed %v", changed)
+	}
+	if current["OLLAMA_KEEP_ALIVE"] != "5m" {
+		t.Fatal("current was modified")
+	}
+}
+
+func TestWithServerEnvStartsFromNoAgent(t *testing.T) {
+	env, changed := WithServerEnv(nil, map[string]string{"OLLAMA_KEEP_ALIVE": "30m"})
+	if env["OLLAMA_KEEP_ALIVE"] != "30m" || len(changed) != 1 {
+		t.Fatalf("got %v, %v", env, changed)
+	}
+}
+
+func TestParseAssignmentSplitsNameAndValue(t *testing.T) {
+	name, value, err := ParseAssignment("OLLAMA_KEEP_ALIVE=30m")
+	if err != nil || name != "OLLAMA_KEEP_ALIVE" || value != "30m" {
+		t.Fatalf("got %q, %q, %v", name, value, err)
+	}
+}
+
+func TestParseAssignmentRejects(t *testing.T) {
+	longValue := "OLLAMA_KEEP_ALIVE=" + strings.Repeat("x", 257)
+	cases := map[string]string{
+		"no equals sign":   "OLLAMA_KEEP_ALIVE",
+		"unknown name":     "OLLAMA_NOPE=1",
+		"newline in value": "OLLAMA_KEEP_ALIVE=1\n2",
+		"nul in value":     "OLLAMA_KEEP_ALIVE=1\x002",
+		"value too long":   longValue,
+	}
+	for label, text := range cases {
+		if _, _, err := ParseAssignment(text); err == nil {
+			t.Fatalf("%s: expected an error for %q", label, text)
+		}
+	}
+}
+
+func TestParseAssignmentAcceptsValueAtLimit(t *testing.T) {
+	text := "OLLAMA_KEEP_ALIVE=" + strings.Repeat("x", 256)
+	if _, _, err := ParseAssignment(text); err != nil {
+		t.Fatalf("got %v", err)
 	}
 }

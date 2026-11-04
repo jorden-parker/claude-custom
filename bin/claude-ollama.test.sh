@@ -15,40 +15,7 @@ remove_sandboxes() {
   done
 }
 
-. "$repo/shared/testing/stub-llama-lib.sh"
-stub_dir="$(made="$(mktemp -d)" && cd "$made" && pwd -P)" || exit 1
-stub_state="$stub_dir/state.json"
-sandboxes="$sandboxes $stub_dir"
-trap 'stop_stub_llama; remove_sandboxes' EXIT
-
-default_stub_state() {
-  awk '/^\[/ && $0 != "[*]" { print substr($0, 2, length($0) - 2) }' "$repo/ollama/models.ini" |
-    jq -Rn '{models_max: 2, models: ([inputs | {key: ., value: (if . == "qwen3-embedding-0.6b" then {aliases: ["qwen3-embedding:0.6b"]} else {} end)}] | from_entries)}'
-}
-
-stub_state_set() {
-  jq "$1" "$stub_state" > "$stub_state.new" && mv "$stub_state.new" "$stub_state"
-}
-
-server_keeps() {
-  stub_state_set ".models_max = $1"
-}
-
-requests_to() {
-  jq -r --arg path "$1" 'select(.path == $path) | .body.model // empty' "$STUB_LLAMA_LOG" 2>/dev/null
-}
-
-wait_for_request() {
-  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25; do
-    requests_to "$1" | grep -qxF -- "$2" && return 0
-    sleep 0.2
-  done
-  return 1
-}
-
-default_stub_state > "$stub_state"
-start_stub_llama "$stub_state" || exit 1
-stub_url="$LLAMA_SERVER_URL"
+trap remove_sandboxes EXIT
 
 fail() {
   echo "FAIL: $1"
@@ -82,19 +49,31 @@ check_not() {
   fi
 }
 
+record_installed_parameters() {
+  local size model
+  mkdir -p "$sandbox/parameters"
+  jq -r 'to_entries[] | "\(.key) \(.value.model)"' "$repo/ollama/sizes.json" \
+    | while read -r size model; do sed -n 's/^PARAMETER //p' "$repo/ollama/Modelfile.$size" > "$sandbox/parameters/$model"; done
+}
+
+pinned_tags() {
+  jq '{models: [to_entries[] | {name: .key, digest: .value}]}' "$repo/ollama/model-digests.json"
+}
+
 new_sandbox() {
   sandbox="$(made="$(mktemp -d "${1:-${TMPDIR:-/tmp}}/claude-ollama-test.XXXXXX")" && cd "$made" && pwd -P)" || exit 1
   sandboxes="$sandboxes $sandbox"
   export HOME="$sandbox/home"
   mkdir -p "$HOME" "$sandbox/stubbin"
-  unset NVM_DIR ZDOTDIR XDG_CONFIG_HOME CLAUDE_CONFIG_DIR
-  unset STUB_CURL_EXIT STUB_HF_CURL_EXIT STUB_AGENT_EXIT CMUX_SOCKET_PATH CLAUDE_OLLAMA_CMUX
+  unset NVM_DIR ZDOTDIR XDG_CONFIG_HOME CLAUDE_CONFIG_DIRSTUB_OLLAMA_SHOW_EXIT STUB_OLLAMA_PULL_EXIT
+  unset STUB_OLLAMA_PID STUB_OLLAMA_ENV STUB_CURL_EXIT STUB_OLLAMA_NUM_CTX STUB_AGENT_EXIT CMUX_SOCKET_PATH CLAUDE_OLLAMA_CMUX
   unset STUB_SHASUM_DIGEST STUB_INSPECT_EXIT STUB_CLAUDE_STDERR CLAUDE_CONSOLE_STATE_DIR
   unset CLAUDE_TOOL_TELEMETRY CLAUDE_OLLAMA_TELEMETRY STUB_CLAUDE_RELAUNCH_ONCE STUB_CLAUDE_RELAUNCH_PROMPT STUB_CLAUDE_EXIT CLAUDE_OLLAMA_RELAUNCH
-  unset STUB_CLAUDE_LADDER_ONCE STUB_CLAUDE_EMBED_OFF STUB_CLAUDE_SLEEP CLAUDE_OLLAMA_LEASE CLAUDE_OLLAMA_LADDER
+  unset STUB_CLAUDE_LADDER_ONCE STUB_CLAUDE_EMBED_OFF STUB_CLAUDE_SLEEP CLAUDE_OLLAMA_LEASE CLAUDE_OLLAMA_LADDER CLAUDE_OLLAMA_LEASE_HEARTBEAT
   unset STUB_CLAUDE_LADDER_UP STUB_CLAUDE_LADDER_UP_AFTER_LADDER STUB_CLAUDE_LADDER_UP_NO_HANDOFF STUB_MEMSIZE CLAUDE_OLLAMA_FIT
   export CLAUDE_OLLAMA_MEMINFO="$sandbox/no-meminfo"
   export SHELL=/bin/zsh
+  record_installed_parameters
   export CLAUDE_OLLAMA_MANAGED_SETTINGS="$sandbox/managed-settings.json"
   cat > "$sandbox/stubbin/claude" <<EOF
 #!/bin/sh
@@ -155,46 +134,51 @@ EOF
 echo "\$*" >> "$sandbox/open.log"
 EOF
   chmod +x "$sandbox/stubbin/open"
+  cat > "$sandbox/stubbin/ollama" <<EOF
+#!/bin/sh
+echo "\$*" >> "$sandbox/ollama.log"
+if [ "\$1" = show ]; then
+  if [ "\$3" = --parameters ]; then
+    { cat "$sandbox/parameters/\$2" 2>/dev/null || echo "num_ctx 98304"; } \\
+      | awk -v ctx="\$STUB_OLLAMA_NUM_CTX" -v temperature="\$STUB_OLLAMA_TEMPERATURE" \\
+        '\$1 == "num_ctx" && ctx { \$2 = ctx } \$1 == "temperature" && temperature { \$2 = temperature } { print }'
+  fi
+  if [ "\$3" = --verbose ]; then cat "$sandbox/show-verbose" 2>/dev/null; fi
+  exit "\${STUB_OLLAMA_SHOW_EXIT:-0}"
+fi
+if [ "\$1" = create ]; then sed 's/^/modelfile: /' "\$4" >> "$sandbox/ollama.log"; fi
+if [ "\$1" = pull ]; then exit "\${STUB_OLLAMA_PULL_EXIT:-0}"; fi
+exit 0
+EOF
   cat > "$sandbox/stubbin/curl" <<EOF
 #!/bin/sh
 arguments="\$*"
 echo "\$arguments" >> "$sandbox/curl.log"
-case "\$arguments" in *"$stub_url"*) exec /usr/bin/curl "\$@" ;; esac
 case "\$arguments" in */health*) [ -e "$sandbox/console-running" ] && exit 0; exit 7 ;; esac
 output=""
 while [ \$# -gt 0 ]; do
   [ "\$1" = -o ] && output="\$2"
   shift
 done
+case "\$arguments" in *api/tags*) cat "$sandbox/tags.json" ;; esac
+case "\$arguments" in *api/embed*) exit "\${STUB_EMBED_CURL_EXIT:-0}" ;; esac
 case "\$arguments" in *huggingface.co*) printf 'stub weights' > "\$output"; exit "\${STUB_HF_CURL_EXIT:-0}" ;; esac
 exit "\${STUB_CURL_EXIT:-0}"
 EOF
-  cat > "$sandbox/stubbin/shasum" <<EOF
+  cat > "$sandbox/stubbin/shasum" <<'EOF'
 #!/bin/sh
-if [ -n "\${STUB_SHASUM_DIGEST:-}" ]; then
-  echo "\$STUB_SHASUM_DIGEST  \$3"
-  exit 0
-fi
-name="\${3##*/}"
-name="\${name%.part}"
-key="\$(jq -r --arg name "\$name" 'first(.[].gguf | select(.mmproj.local? == \$name) | "\(.repo)/\(.mmproj.file)") // empty' "$repo/ollama/sizes.json")"
-echo "\$(jq -r --arg name "/\$name" --arg key "\$key" 'if \$key != "" then .[\$key] else first(to_entries[] | select(.key | endswith(\$name)) | .value) end' "$repo/ollama/model-digests.json")  \$3"
+echo "${STUB_SHASUM_DIGEST:-0000000000000000000000000000000000000000000000000000000000000000}  $2"
 EOF
   cat > "$sandbox/stubbin/gguf-inspect" <<EOF
 #!/bin/sh
 echo "\$*" >> "$sandbox/inspect.log"
-case "\$*" in *--json*) cat "$sandbox/inspect-json" 2>/dev/null ;; esac
 exit "\${STUB_INSPECT_EXIT:-0}"
 EOF
-  cat > "$sandbox/stubbin/llama-server" <<'EOF'
-#!/bin/sh
-echo "version: 11429 (d81235049) (build 11429)"
-EOF
+  pinned_tags > "$sandbox/tags.json"
   cat > "$sandbox/stubbin/python3" <<EOF
 #!/bin/sh
 case "\$1" in
   */shared/relaunch_dir.py|*/ollama/incidents/incident_log.py) exec "$real_python3" "\$@" ;;
-  */bin/gguf-inspect) echo "\$*" >> "$sandbox/inspect.log"; exit "\${STUB_INSPECT_EXIT:-0}" ;;
 esac
 echo "\$*" >> "$sandbox/python.log"
 echo "\${CODE_SEARCH_EMBED-unset}" > "$sandbox/indexer-embed-env"
@@ -206,16 +190,15 @@ exit "\${STUB_AGENT_EXIT:-0}"
 EOF
   export CLAUDE_OLLAMA_AGENT="$sandbox/stubbin/ollama-agent"
   export CLAUDE_OLLAMA_GGUF_INSPECT="$sandbox/stubbin/gguf-inspect"
-  export LLAMA_SERVER_PLIST="$sandbox/no-agent.plist"
-  export CLAUDE_OLLAMA_WEIGHTS_DIR="$sandbox/weights"
-  export CLAUDE_OLLAMA_SERVER_WAIT=5
-  mkdir -p "$CLAUDE_OLLAMA_WEIGHTS_DIR"
-  for weights_file in $(jq -r '.[] | .gguf.file // empty, .gguf.mmproj.local // empty' "$repo/ollama/sizes.json") "$(jq -r .gguf.file "$repo/ollama/embedding.json")"; do
-    : > "$CLAUDE_OLLAMA_WEIGHTS_DIR/$weights_file"
-  done
-  default_stub_state > "$stub_state"
-  : > "$STUB_LLAMA_LOG"
-  chmod +x "$sandbox/stubbin/claude" "$sandbox/stubbin/qwen" "$sandbox/stubbin/ollama-agent" "$sandbox/stubbin/curl" "$sandbox/stubbin/python3" "$sandbox/stubbin/shasum" "$sandbox/stubbin/gguf-inspect" "$sandbox/stubbin/llama-server"
+  cat > "$sandbox/stubbin/pgrep" <<'EOF'
+#!/bin/sh
+[ -n "${STUB_OLLAMA_PID:-}" ] && echo "$STUB_OLLAMA_PID"
+EOF
+  cat > "$sandbox/stubbin/ps" <<'EOF'
+#!/bin/sh
+echo "ollama serve ${STUB_OLLAMA_ENV:-}"
+EOF
+  chmod +x "$sandbox/stubbin/claude" "$sandbox/stubbin/qwen" "$sandbox/stubbin/ollama" "$sandbox/stubbin/ollama-agent" "$sandbox/stubbin/curl" "$sandbox/stubbin/python3" "$sandbox/stubbin/pgrep" "$sandbox/stubbin/ps" "$sandbox/stubbin/shasum" "$sandbox/stubbin/gguf-inspect"
   link_system_tools
   export PATH="$sandbox/stubbin:$sandbox/sysbin"
   cat > "$sandbox/stubbin/draft-opener" <<EOF
@@ -353,8 +336,13 @@ check_that "claude-ollama replaces the default system prompt and appends its own
   grep -qF -- "--system-prompt-file $repo/ollama/system-prompt.md --append-system-prompt-file $append_prompt" "$sandbox/out"
 check_eq "the appended prompt is the shared local prompt" "$(cat "$repo/ollama/CLAUDE.local.md")" "$(cat "$append_prompt")"
 check_that "claude-ollama 35b passes claude args through" grep -qF -- "--tools Bash,Read,Edit,Write,Skill,TaskStop -p hi" "$sandbox/out"
-check_that "claude-ollama loads the session model in the background" wait_for_request /models/load qwen3.6-35b-cc
-check_that "claude-ollama applies the LaunchAgent after rendering new user presets" grep -qxF -- "-apply" "$sandbox/agent.log"
+check_that "claude-ollama warms the main model" grep -q '127.0.0.1:11434/api/generate' "$sandbox/curl.log"
+check_that "claude-ollama warm-up names the model" grep -q '"model":"qwen3.6-35b-cc"' "$sandbox/curl.log"
+check_that "claude-ollama warm-up sets keep_alive" grep -q '"keep_alive":"30m"' "$sandbox/curl.log"
+rm -f "$sandbox/curl.log"
+OLLAMA_HOST=http://box:1 run_capture "$repo/bin/claude-ollama" 35b -p hi
+check_that "claude-ollama warm-up follows OLLAMA_HOST" grep -q 'box:1/api/generate' "$sandbox/curl.log"
+check_not "claude-ollama 35b skips pull when the model exists" grep -sqE '^(pull|create) ' "$sandbox/ollama.log"
 check_that "claude-ollama starts the code-search, repo and dev MCP servers" grep -qF -- "--strict-mcp-config --mcp-config {\"mcpServers\":{\"code-search\":{\"command\":\"$repo/shared/host-env\",\"args\":[\"python3\",\"$repo/shared/mcp/code-search.py\"]},\"repo\":{\"command\":\"$repo/shared/host-env\",\"args\":[\"python3\",\"$repo/shared/mcp/repo-tools.py\"]},\"dev\":{\"command\":\"$repo/shared/host-env\",\"args\":[\"python3\",\"$repo/shared/mcp/dev-server.py\"]}}}" "$sandbox/out"
 rm -f "$sandbox/python.log"
 run_capture "$repo/bin/claude-ollama" 35b -p hi
@@ -365,54 +353,37 @@ rm -f "$sandbox/python.log"
 run_capture env CLAUDE_OLLAMA_NO_INDEX=1 "$repo/bin/claude-ollama" 35b -p hi
 check_not "CLAUDE_OLLAMA_NO_INDEX skips the indexer" test -e "$sandbox/python.log"
 new_sandbox
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2 OLLAMA_NUM_PARALLEL=1" run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_that "claude-ollama warms the embedding model when the server keeps two models" grep -q '127.0.0.1:11434/api/embed' "$sandbox/curl.log"
+check_that "the embedding warm-up names the model and keeps it alive" grep -q '"model":"qwen3-embedding:0.6b","input":"warm up","keep_alive":"30m"' "$sandbox/curl.log"
+check_eq "claude-ollama allows the search server to load embeddings when the server keeps two models" 1 "$(cat "$sandbox/embed-env")"
+rm -f "$sandbox/out"
+STUB_EMBED_CURL_EXIT=28 STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2 OLLAMA_NUM_PARALLEL=1" run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_that "an embedding warm-up that times out still launches claude" grep -q '^ARGS:' "$sandbox/out"
+rm -f "$sandbox/curl.log"
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=1" run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_not "claude-ollama skips the embedding warm-up when the server keeps one model" grep -q 'api/embed' "$sandbox/curl.log"
+check_that "claude-ollama does not allow embeddings when the server keeps one model" grep -qxF unset "$sandbox/embed-env"
+rm -f "$sandbox/curl.log"
 run_capture "$repo/bin/claude-ollama" 27b -p hi
-check_that "claude-ollama loads the embedding model when the router keeps two models" wait_for_request /models/load qwen3-embedding:0.6b
-check_eq "claude-ollama allows the search server to load embeddings when the router keeps two models" 1 "$(cat "$sandbox/embed-env")"
+check_not "claude-ollama skips the embedding warm-up when no server is running" grep -q 'api/embed' "$sandbox/curl.log"
 new_sandbox
-stub_state_set '.loaded = ["qwen3.8-27b-cc@think"] | .loading = {}'
-: > "$STUB_LLAMA_LOG"
-run_capture "$repo/bin/claude-ollama" 27b -p hi
-check_that "a launch unloads a loaded preset of its own weights that no session holds, so the model is never resident twice" wait_for_request /models/unload qwen3.8-27b-cc@think
-check_that "and loads its own preset" wait_for_request /models/load qwen3.8-27b-cc
-check_not "and never unloads its own preset" sh -c "jq -r 'select(.path == \"/models/unload\") | .body.model' '$STUB_LLAMA_LOG' | grep -qxF qwen3.8-27b-cc"
+rm -f "$sandbox/stubbin/curl"
+OLLAMA_HOST=http://127.0.0.1:9 run_capture "$repo/bin/claude-ollama" 35b -p hi
+check_that "claude-ollama launches without curl" grep -q '^ARGS:' "$sandbox/out"
 new_sandbox
-stub_state_set '.load_polls = 100000'
-run_capture env MODEL_LOAD_TIMEOUT=2 "$repo/bin/claude-ollama" 27b -p hi
-check_that "a slow model load never holds up the launch" grep -q '^ARGS:' "$sandbox/out"
-new_sandbox
-server_keeps 1
-run_capture "$repo/bin/claude-ollama" 27b -p hi
-sleep 1
-check_not "claude-ollama loads no embedding model when the router keeps one model" grep -qxF qwen3-embedding:0.6b <<< "$(requests_to /models/load)"
-check_that "claude-ollama does not allow embeddings when the router keeps one model" grep -qxF unset "$sandbox/embed-env"
-new_sandbox
-stub_state_set '.health_status = 503'
-run_capture env CLAUDE_OLLAMA_SERVER_WAIT=1 "$repo/bin/claude-ollama" 27b -p hi
-check_eq "claude-ollama exits 1 when llama-server never answers" 1 "$?"
-check_that "the refusal names the server and claude-ollama logs" grep -qxF "claude-ollama: llama-server is not answering at $stub_url; see claude-ollama logs" "$sandbox/err"
-check_not "a launch without a server does not start claude" grep -q '^ARGS:' "$sandbox/out"
-new_sandbox
-stub_state_set 'del(.models["qwen3.8-27b-cc"])'
-run_capture "$repo/bin/claude-ollama" 27b -p hi
-check_eq "claude-ollama exits 1 when the router lacks the size's preset" 1 "$?"
-check_that "the refusal names the preset and the fix" grep -qxF "claude-ollama: llama-server lists no preset qwen3.8-27b-cc; run claude-custom agent -apply" "$sandbox/err"
-check_not "a launch without its preset does not start claude" grep -q '^ARGS:' "$sandbox/out"
-new_sandbox
-rm -f "$CLAUDE_OLLAMA_WEIGHTS_DIR/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf"
-run_capture "$repo/bin/claude-ollama" 35b -p hi
-check_that "claude-ollama 35b downloads its pinned GGUF" grep -qF "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/a483e9e6cbd595906af30beda3187c2663a1118c/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf" "$sandbox/curl.log"
-check_that "the download lands in the weights folder" test -f "$CLAUDE_OLLAMA_WEIGHTS_DIR/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf"
-check_that "the download is inspected" grep -qF "$CLAUDE_OLLAMA_WEIGHTS_DIR/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf" "$sandbox/inspect.log"
-check_that "claude-ollama 35b launches after downloading" grep -qF -- "--model qwen3.6-35b-cc --tools" "$sandbox/out"
+STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" 35b -p hi
+check_that "claude-ollama 35b pulls a missing base model" grep -qxF "pull qwen3.6:35b-mlx" "$sandbox/ollama.log"
+check_that "claude-ollama 35b creates the missing model" grep -qxF "create qwen3.6-35b-cc -f $repo/ollama/Modelfile.35b" "$sandbox/ollama.log"
+check_that "claude-ollama 35b launches after pulling" grep -qF -- "--model qwen3.6-35b-cc --tools" "$sandbox/out"
 settings_arg() { sed -n 's/^ARGS: --settings \([^ ]*\).*/\1/p' "$sandbox/out"; }
 check_eq "claude-ollama always passes the profile itself" "$repo/ollama/settings.35b.json" "$(settings_arg)"
-rm -f "$CLAUDE_OLLAMA_WEIGHTS_DIR/Qwen3-Embedding-0.6B-Q8_0.gguf" "$sandbox/curl.log"
-run_capture "$repo/bin/claude-ollama" 35b -p hi
-check_that "claude-ollama downloads a missing embedding GGUF" grep -qF "https://huggingface.co/Qwen/Qwen3-Embedding-0.6B-GGUF/resolve/370f27d7550e0def9b39c1f16d3fbaa13aa67728/Qwen3-Embedding-0.6B-Q8_0.gguf" "$sandbox/curl.log"
-rm -f "$CLAUDE_OLLAMA_WEIGHTS_DIR/Qwen3-Embedding-0.6B-Q8_0.gguf"
-STUB_HF_CURL_EXIT=22 run_capture "$repo/bin/claude-ollama" 35b -p hi
-check_that "a failed embedding download still launches claude" grep -q '^ARGS:' "$sandbox/out"
-check_that "and says how to fetch it later" grep -qF "claude-ollama prepare-embedding" "$sandbox/err"
+check_not "claude-ollama never creates a side model" grep -q '^create qwen3-4b-cc' "$sandbox/ollama.log"
+check_that "claude-ollama pulls a missing embedding model" grep -qxF "pull qwen3-embedding:0.6b" "$sandbox/ollama.log"
+rm -f "$sandbox/ollama.log"
+CODE_SEARCH_MODEL=nomic-embed-text STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" 35b -p hi
+check_that "claude-ollama pulls the CODE_SEARCH_MODEL override" grep -qxF "pull nomic-embed-text" "$sandbox/ollama.log"
+rm -f "$sandbox/ollama.log"
 launcher_log="$HOME/.local/share/claude-custom/console/launcher.log"
 
 wait_for_launcher_log() {
@@ -436,61 +407,81 @@ run_capture "$repo/bin/claude-ollama" 35b -p hi
 check_that "a launcher log over 1 MiB moves aside" test "$(wc -c < "$launcher_log.1")" -ge 1100000
 check_that "the fresh launcher log starts with this launch" wait_for_launcher_log "claude-ollama: launch 35b"
 check_that "the fresh launcher log is small" test "$(wc -c < "$launcher_log")" -lt 4096
-new_sandbox
-rm -f "$CLAUDE_OLLAMA_WEIGHTS_DIR/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf"
-STUB_HF_CURL_EXIT=22 run_capture "$repo/bin/claude-ollama" 35b -p hi
-check_eq "claude-ollama 35b failed download exit status" 1 "$?"
-check_not "claude-ollama 35b failed download does not launch claude" grep -q '^ARGS:' "$sandbox/out"
-new_sandbox
+rm -f "$sandbox/ollama.log"
+STUB_OLLAMA_SHOW_EXIT=1 STUB_OLLAMA_PULL_EXIT=1 run_capture "$repo/bin/claude-ollama" 35b -p hi
+check_eq "claude-ollama 35b failed pull exit status" 1 "$?"
+check_not "claude-ollama 35b failed pull does not create" grep -sq '^create ' "$sandbox/ollama.log"
+check_not "claude-ollama 35b failed pull does not launch claude" grep -q '^ARGS:' "$sandbox/out"
+rm -f "$sandbox/ollama.log"
 run_capture "$repo/bin/claude-ollama" 27b -p hi
-check_not "claude-ollama 27b does not download weights that match their pin" grep -sqF huggingface.co "$sandbox/curl.log"
+check_not "claude-ollama 27b skips pull when the model exists" grep -sqE '^(pull|create) ' "$sandbox/ollama.log"
+STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_that "claude-ollama 27b pulls a missing base model" grep -qxF "pull qwen3.8:27b-mlx" "$sandbox/ollama.log"
+check_that "claude-ollama 27b creates the missing model" grep -qxF "create qwen3.8-27b-cc -f $repo/ollama/Modelfile.27b" "$sandbox/ollama.log"
+check_that "claude-ollama 27b launches after pulling" grep -qF -- "--model qwen3.8-27b-cc --tools" "$sandbox/out"
+rm -f "$sandbox/ollama.log"
+STUB_OLLAMA_SHOW_EXIT=1 STUB_OLLAMA_PULL_EXIT=1 run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_eq "claude-ollama 27b failed pull exit status" 1 "$?"
+check_not "claude-ollama 27b failed pull does not create" grep -sq '^create ' "$sandbox/ollama.log"
+check_not "claude-ollama 27b failed pull does not launch claude" grep -q '^ARGS:' "$sandbox/out"
 new_sandbox
-STUB_SHASUM_DIGEST=abc run_capture "$repo/bin/claude-ollama" 27b -p hi
-check_eq "claude-ollama 27b exits 1 on a wrong digest" 1 "$?"
-check_that "claude-ollama 27b names the actual and pinned digests" grep -qF "sha256 abc, but ollama/model-digests.json pins 3f227079003add2511437e5b1e94812e363385225bf6a9b47b0054a72bc8b01e" "$sandbox/err"
-check_not "claude-ollama 27b does not launch after a wrong digest" grep -q '^ARGS:' "$sandbox/out"
-check_not "claude-ollama 27b removes the download after a wrong digest" test -e "$CLAUDE_OLLAMA_WEIGHTS_DIR/Qwen3.8-27B-UD-Q4_K_XL.gguf.part"
+STUB_SHASUM_DIGEST=3f227079003add2511437e5b1e94812e363385225bf6a9b47b0054a72bc8b01e STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" 27b-gguf -p hi
+check_eq "claude-ollama 27b-gguf imports after a matching digest" 0 "$?"
+check_that "claude-ollama 27b-gguf downloads the pinned Hugging Face file" grep -qF "https://huggingface.co/unsloth/Qwen3.8-27B-GGUF/resolve/4ca720788d1e01f1bff70c033e0d0028fd02e502/Qwen3.8-27B-UD-Q4_K_XL.gguf" "$sandbox/curl.log"
+check_that "claude-ollama 27b-gguf creates the model from its Modelfile" grep -qxF "create qwen3.8-27b-gguf-cc -f Modelfile.27b-gguf" "$sandbox/ollama.log"
+check_not "claude-ollama 27b-gguf never pulls its weights" grep -q '^pull \./weights' "$sandbox/ollama.log"
+check_that "claude-ollama 27b-gguf launches after importing" grep -qF -- "--model qwen3.8-27b-gguf-cc --tools" "$sandbox/out"
+check_not "claude-ollama 27b-gguf removes the verified download" test -e "$repo/ollama/weights/Qwen3.8-27B-UD-Q4_K_XL.gguf"
+check_not "claude-ollama 27b-gguf leaves no partial download" test -e "$repo/ollama/weights/Qwen3.8-27B-UD-Q4_K_XL.gguf.part"
 new_sandbox
-rm -f "$CLAUDE_OLLAMA_WEIGHTS_DIR/Qwen3.8-27B-UD-Q4_K_XL.gguf"
-STUB_INSPECT_EXIT=1 run_capture "$repo/bin/claude-ollama" 27b -p hi
-check_eq "claude-ollama 27b exits 1 when inspection fails" 1 "$?"
-check_that "claude-ollama 27b says the file failed inspection" grep -qF "failed inspection; not keeping it" "$sandbox/err"
-check_not "claude-ollama 27b does not launch after failed inspection" grep -q '^ARGS:' "$sandbox/out"
-check_not "claude-ollama 27b removes weights that failed inspection" test -e "$CLAUDE_OLLAMA_WEIGHTS_DIR/Qwen3.8-27B-UD-Q4_K_XL.gguf"
+STUB_SHASUM_DIGEST=abc STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" 27b-gguf -p hi
+check_eq "claude-ollama 27b-gguf exits 1 on a wrong digest" 1 "$?"
+check_that "claude-ollama 27b-gguf names the actual and pinned digests" grep -qF "sha256 abc, but ollama/model-digests.json pins 3f227079003add2511437e5b1e94812e363385225bf6a9b47b0054a72bc8b01e" "$sandbox/err"
+check_not "claude-ollama 27b-gguf does not create after a wrong digest" grep -sq '^create ' "$sandbox/ollama.log"
+check_not "claude-ollama 27b-gguf does not launch after a wrong digest" grep -q '^ARGS:' "$sandbox/out"
+check_not "claude-ollama 27b-gguf removes the download after a wrong digest" test -e "$repo/ollama/weights/Qwen3.8-27B-UD-Q4_K_XL.gguf.part"
 new_sandbox
-rm -f "$CLAUDE_OLLAMA_WEIGHTS_DIR/Qwen3.8-27B-UD-Q4_K_XL.gguf"
-STUB_HF_CURL_EXIT=18 run_capture "$repo/bin/claude-ollama" 27b -p hi
-check_eq "claude-ollama 27b exits 1 when the download breaks off" 1 "$?"
-check_that "claude-ollama 27b asks curl to resume a partial download" grep -qF -- "-C -" "$sandbox/curl.log"
-check_that "claude-ollama 27b keeps a broken-off download so the next run resumes it" test -e "$CLAUDE_OLLAMA_WEIGHTS_DIR/Qwen3.8-27B-UD-Q4_K_XL.gguf.part"
+STUB_SHASUM_DIGEST=3f227079003add2511437e5b1e94812e363385225bf6a9b47b0054a72bc8b01e STUB_INSPECT_EXIT=1 STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" 27b-gguf -p hi
+check_eq "claude-ollama 27b-gguf exits 1 when inspection fails" 1 "$?"
+check_that "claude-ollama 27b-gguf says the file failed inspection" grep -qF "failed inspection; not importing" "$sandbox/err"
+check_not "claude-ollama 27b-gguf does not create after failed inspection" grep -sq '^create ' "$sandbox/ollama.log"
+check_not "claude-ollama 27b-gguf does not launch after failed inspection" grep -q '^ARGS:' "$sandbox/out"
+check_not "claude-ollama 27b-gguf removes the download after failed inspection" test -e "$repo/ollama/weights/Qwen3.8-27B-UD-Q4_K_XL.gguf.part"
 new_sandbox
-rm -f "$CLAUDE_OLLAMA_WEIGHTS_DIR/Qwen3.8-27B-UD-Q4_K_XL.gguf"
-run_capture "$repo/bin/claude-ollama" prepare 27b
-check_eq "claude-ollama prepare exits 0 after downloading" 0 "$?"
-check_that "claude-ollama prepare downloads missing weights" test -f "$CLAUDE_OLLAMA_WEIGHTS_DIR/Qwen3.8-27B-UD-Q4_K_XL.gguf"
+run_capture "$repo/bin/claude-ollama" 27b-gguf -p hi
+check_not "claude-ollama 27b-gguf does not download when the model is installed" grep -qF huggingface.co "$sandbox/curl.log"
+new_sandbox
+STUB_HF_CURL_EXIT=18 STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" 27b-gguf -p hi
+check_eq "claude-ollama 27b-gguf exits 1 when the download breaks off" 1 "$?"
+check_that "claude-ollama 27b-gguf asks curl to resume a partial download" grep -qF -- "-C -" "$sandbox/curl.log"
+check_that "claude-ollama 27b-gguf keeps a broken-off download so the next run resumes it" test -e "$repo/ollama/weights/Qwen3.8-27B-UD-Q4_K_XL.gguf.part"
+check_not "claude-ollama 27b-gguf does not create after a broken-off download" grep -sq '^create ' "$sandbox/ollama.log"
+rm -f "$repo/ollama/weights/Qwen3.8-27B-UD-Q4_K_XL.gguf.part"
+new_sandbox
+STUB_SHASUM_DIGEST=3f227079003add2511437e5b1e94812e363385225bf6a9b47b0054a72bc8b01e STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" prepare 27b-gguf
+check_eq "claude-ollama prepare exits 0 after importing" 0 "$?"
+check_that "claude-ollama prepare creates a missing model" grep -qxF "create qwen3.8-27b-gguf-cc -f Modelfile.27b-gguf" "$sandbox/ollama.log"
 check_not "claude-ollama prepare does not launch claude" grep -q '^ARGS:' "$sandbox/out"
-check_not "claude-ollama prepare loads no model" grep -q . <<< "$(requests_to /models/load)"
 new_sandbox
 run_capture "$repo/bin/claude-ollama" prepare 27b
-check_eq "claude-ollama prepare exits 0 when the weights are in place" 0 "$?"
-check_not "claude-ollama prepare leaves verified weights alone" grep -sqF huggingface.co "$sandbox/curl.log"
+check_eq "claude-ollama prepare exits 0 when the model is installed" 0 "$?"
+check_not "claude-ollama prepare leaves an installed model alone" grep -sq '^create ' "$sandbox/ollama.log"
+check_not "claude-ollama prepare of an installed model does not launch claude" grep -q '^ARGS:' "$sandbox/out"
 
 new_sandbox
-rm -f "$CLAUDE_OLLAMA_WEIGHTS_DIR/Qwen3-Embedding-0.6B-Q8_0.gguf"
-run_capture "$repo/bin/claude-ollama" prepare-embedding
-check_eq "claude-ollama prepare-embedding exits 0 after downloading" 0 "$?"
-check_that "claude-ollama prepare-embedding downloads the embedding GGUF" test -f "$CLAUDE_OLLAMA_WEIGHTS_DIR/Qwen3-Embedding-0.6B-Q8_0.gguf"
+STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" prepare-embedding
+check_eq "claude-ollama prepare-embedding exits 0 after pulling" 0 "$?"
+check_that "claude-ollama prepare-embedding pulls the embedding model" grep -qxF "pull qwen3-embedding:0.6b" "$sandbox/ollama.log"
 check_not "claude-ollama prepare-embedding does not launch claude" grep -q '^ARGS:' "$sandbox/out"
 
 new_sandbox
 run_capture "$repo/bin/claude-ollama" prepare-embedding
-check_eq "claude-ollama prepare-embedding exits 0 when the weights are in place" 0 "$?"
-check_not "claude-ollama prepare-embedding downloads nothing when the weights are in place" grep -sqF huggingface.co "$sandbox/curl.log"
+check_eq "claude-ollama prepare-embedding exits 0 when the model is installed" 0 "$?"
+check_not "claude-ollama prepare-embedding pulls nothing when the model is installed" grep -sq '^pull ' "$sandbox/ollama.log"
 
 new_sandbox
-rm -f "$CLAUDE_OLLAMA_WEIGHTS_DIR/Qwen3-Embedding-0.6B-Q8_0.gguf"
-STUB_HF_CURL_EXIT=22 run_capture "$repo/bin/claude-ollama" prepare-embedding
-check_eq "claude-ollama prepare-embedding exits 1 when the download fails" 1 "$?"
+STUB_OLLAMA_SHOW_EXIT=1 STUB_OLLAMA_PULL_EXIT=1 run_capture "$repo/bin/claude-ollama" prepare-embedding
+check_eq "claude-ollama prepare-embedding exits 1 when the pull fails" 1 "$?"
 new_sandbox
 printf '#!/bin/sh\necho "speed-check args: $*"\n' > "$sandbox/stubbin/speed-check"
 chmod +x "$sandbox/stubbin/speed-check"
@@ -500,9 +491,49 @@ check_not "claude-ollama speed-check does not launch claude" grep -q '^ARGS:' "$
 CLAUDE_OLLAMA_SPEED_CHECK="$sandbox/stubbin/speed-check" run_capture "$repo/bin/claude-ollama" thinking-check
 check_that "claude-ollama thinking-check runs the speed check's thinking-only mode" grep -qxF "speed-check args: --thinking-only" "$sandbox/out"
 new_sandbox
+STUB_OLLAMA_NUM_CTX=16384 run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_that "claude-ollama recreates a model with a stale num_ctx" grep -qE '^create qwen3.8-27b-cc -f ' "$sandbox/ollama.log"
+check_that "the recreated model builds on the installed one" grep -qxF "modelfile: FROM qwen3.8-27b-cc" "$sandbox/ollama.log"
+check_that "the recreated model gets the profile num_ctx" grep -qxF "modelfile: PARAMETER num_ctx 65536" "$sandbox/ollama.log"
+check_not "a stale num_ctx does not pull the base model" grep -q '^pull ' "$sandbox/ollama.log"
+check_that "claude-ollama says it recreates the model" grep -qF "recreating qwen3.8-27b-cc with num_ctx 65536 num_predict 8192 temperature 0.7 top_k 20 top_p 0.8" "$sandbox/err"
+check_that "claude-ollama launches after recreating" grep -qF -- "--model qwen3.8-27b-cc --tools" "$sandbox/out"
+new_sandbox
+STUB_OLLAMA_TEMPERATURE=1 run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_that "claude-ollama recreates a model with a stale sampling parameter" grep -qE '^create qwen3.8-27b-cc -f ' "$sandbox/ollama.log"
+check_that "the recreated model gets every profile parameter" grep -qxF "modelfile: PARAMETER temperature 0.7" "$sandbox/ollama.log"
+check_that "the recreated model keeps the profile num_ctx" grep -qxF "modelfile: PARAMETER num_ctx 65536" "$sandbox/ollama.log"
+new_sandbox
+run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_not "claude-ollama leaves a model whose parameters match alone" grep -q '^create ' "$sandbox/ollama.log"
+
+new_sandbox
+jq '.models[0].digest = "0000"' "$sandbox/tags.json" > "$sandbox/tags.new" && mv "$sandbox/tags.new" "$sandbox/tags.json"
+STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_eq "claude-ollama exits when a pulled base misses its pin" 1 "$?"
+check_that "claude-ollama names the base that misses its pin" grep -qF "qwen3.8:27b-mlx has digest 0000" "$sandbox/err"
+check_that "claude-ollama names the upgrade command when a base misses its pin" grep -qF "or run bin/model-upgrade SIZE to test the new base and print the pin command" "$sandbox/err"
+check_not "claude-ollama does not create from a base that misses its pin" grep -sq '^create ' "$sandbox/ollama.log"
+check_not "claude-ollama does not launch with a base that misses its pin" grep -q '^ARGS:' "$sandbox/out"
+run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_eq "claude-ollama exits when an installed base misses its pin" 1 "$?"
+check_not "claude-ollama does not launch with an installed base that misses its pin" grep -q '^ARGS:' "$sandbox/out"
+new_sandbox
+jq '.models |= map(if .name == "qwen3-embedding:0.6b" then .digest = "0000" else . end)' "$sandbox/tags.json" > "$sandbox/tags.new" && mv "$sandbox/tags.new" "$sandbox/tags.json"
+run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_eq "claude-ollama exits when the embedding model misses its pin" 1 "$?"
+check_that "claude-ollama names the embedding model that misses its pin" grep -qF "qwen3-embedding:0.6b has digest 0000" "$sandbox/err"
+new_sandbox
+jq '.models |= map(select(.name != "qwen3-embedding:0.6b"))' "$sandbox/tags.json" > "$sandbox/tags.new" && mv "$sandbox/tags.new" "$sandbox/tags.json"
+run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_that "claude-ollama launches when a pinned model is not installed" grep -q '^ARGS:' "$sandbox/out"
+STUB_OLLAMA_SHOW_EXIT=1 run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_that "claude-ollama creates from a base that matches its pin" grep -qxF "create qwen3.8-27b-cc -f $repo/ollama/Modelfile.27b" "$sandbox/ollama.log"
+
+new_sandbox
 run_capture "$repo/bin/claude-ollama" --help
 check_eq "claude-ollama help exit status" 0 "$?"
-check_that "claude-ollama help lists sizes" grep -qxF "sizes: 27b 35b 3b" "$sandbox/out"
+check_that "claude-ollama help lists sizes" grep -qxF "sizes: 27b-gguf 27b 35b-coding 35b-gguf 35b 3b" "$sandbox/out"
 check_not "claude-ollama help does not launch claude" grep -q '^ARGS:' "$sandbox/out"
 check_that "claude-ollama help names speed-check" grep -q '^speed-check: ' "$sandbox/out"
 check_that "claude-ollama help names thinking-check" grep -q '^thinking-check: ' "$sandbox/out"
@@ -516,13 +547,14 @@ check_that "claude-ollama unknown size keeps claude args" grep -qF -- "TaskStop 
 new_sandbox
 copy_repo "$sandbox/repo"
 cp "$sandbox/repo/ollama/settings.27b.json" "$sandbox/repo/ollama/settings.9b.json"
+cp "$sandbox/repo/ollama/Modelfile.27b" "$sandbox/repo/ollama/Modelfile.9b"
 jq '. + {"9b": .["27b"]}' "$sandbox/repo/ollama/sizes.json" > "$sandbox/sizes.json" && mv "$sandbox/sizes.json" "$sandbox/repo/ollama/sizes.json"
 cp "$sandbox/repo/ollama/settings.27b.json" "$sandbox/repo/ollama/settings.70b.json"
 run_capture "$sandbox/repo/bin/claude-ollama" 9b -p hi
 check_that "claude-ollama accepts a newly configured size" grep -qF -- "--settings $sandbox/repo/ollama/settings.9b.json" "$sandbox/out"
 check_not "claude-ollama does not pass a configured size to claude" grep -qF -- "Write 9b" "$sandbox/out"
 run_capture "$sandbox/repo/bin/claude-ollama" --help
-check_that "claude-ollama help lists sizes from config" grep -qxF "sizes: 27b 35b 3b 9b" "$sandbox/out"
+check_that "claude-ollama help lists sizes from config" grep -qxF "sizes: 27b-gguf 27b 35b-coding 35b-gguf 35b 3b 9b" "$sandbox/out"
 
 cat > "$sandbox/stubbin/go" <<'STUB'
 #!/bin/sh
@@ -634,14 +666,10 @@ new_sandbox
 run_capture "$repo/bin/claude-ollama" --print-config 35b
 check_eq "print-config exit status" 0 "$?"
 check_not "print-config does not launch claude" grep -q '^ARGS:' "$sandbox/out"
+check_not "print-config does not pull or create" grep -sqE '^(pull|create) ' "$sandbox/ollama.log"
 check_that "print-config shows the size" grep -qxF "size: 35b" "$sandbox/out"
 check_that "print-config shows the model" grep -qxF "model: qwen3.6-35b-cc" "$sandbox/out"
-check_that "print-config shows the server" grep -qxF "server: $stub_url (build 11429)" "$sandbox/out"
-check_that "print-config shows the preset id" grep -qxF "preset: qwen3.6-35b-cc" "$sandbox/out"
-check_that "print-config shows the weights path" grep -qxF "weights: $CLAUDE_OLLAMA_WEIGHTS_DIR/Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf" "$sandbox/out"
-check_that "print-config shows models-max" grep -qxF "models-max: 2" "$sandbox/out"
-check_that "print-config shows the user preset file" grep -qxF "user presets: $HOME/.claude-ollama/presets/models.ini" "$sandbox/out"
-check_not "print-config loads no model" grep -q . <<< "$(requests_to /models/load)"
+check_that "print-config shows the base model" grep -qxF "base: qwen3.6:35b-mlx" "$sandbox/out"
 check_not "print-config has no side model" grep -q "^side model:" "$sandbox/out"
 check_that "print-config shows the embedding model" grep -qxF "embedding model: qwen3-embedding:0.6b" "$sandbox/out"
 check_that "print-config shows num_ctx" grep -qxF "num_ctx: 98304" "$sandbox/out"
@@ -659,28 +687,53 @@ cat > "$sandbox/stubbin/tail" <<EOF
 echo "\$*" >> "$sandbox/tail.log"
 EOF
 chmod +x "$sandbox/stubbin/tail"
-server_log="$HOME/.claude-ollama/logs/llama-server.log"
-run_capture "$repo/bin/claude-ollama" logs
+cat > "$sandbox/stubbin/launchctl" <<EOF
+#!/bin/sh
+printf 'PID\tStatus\tLabel\n'
+[ "\$1" = list ] && cat "$sandbox/launchctl-list" 2>/dev/null
+exit 0
+EOF
+chmod +x "$sandbox/stubbin/launchctl"
+HOMEBREW_PREFIX="$sandbox/brew" run_capture "$repo/bin/claude-ollama" logs
 check_eq "logs without a log file exits 1" 1 "$?"
-check_that "logs without a log file names where it will be" grep -qxF "claude-ollama: no llama-server log yet at $server_log; start the server with claude-custom agent -apply" "$sandbox/err"
-mkdir -p "${server_log%/*}"
-: > "$server_log"
-run_capture "$repo/bin/claude-ollama" logs
+check_that "logs without a log file says so" grep -q 'no Ollama log found' "$sandbox/err"
+mkdir -p "$HOME/.ollama/logs"
+: > "$HOME/.ollama/logs/server.log"
+HOMEBREW_PREFIX="$sandbox/brew" run_capture "$repo/bin/claude-ollama" logs
 check_eq "logs exit status" 0 "$?"
-check_that "logs follows the llama-server log" grep -qxF -- "-n 50 -F $server_log" "$sandbox/tail.log"
-check_that "logs names the file it follows" grep -qxF "claude-ollama: following $server_log" "$sandbox/err"
+check_that "logs follows the app log when nothing else exists" grep -qxF -- "-n 50 -F $HOME/.ollama/logs/server.log" "$sandbox/tail.log"
+check_that "logs names the file it follows" grep -qxF "claude-ollama: following $HOME/.ollama/logs/server.log" "$sandbox/err"
 check_not "logs does not launch claude" grep -q '^ARGS:' "$sandbox/out"
+mkdir -p "$sandbox/brew/var/log"
+: > "$sandbox/brew/var/log/ollama.log"
 rm -f "$sandbox/tail.log"
-run_capture "$repo/bin/claude-ollama" logs -n 200
-check_that "logs passes the line count" grep -qxF -- "-n 200 -F $server_log" "$sandbox/tail.log"
+HOMEBREW_PREFIX="$sandbox/brew" run_capture "$repo/bin/claude-ollama" logs -n 200
+check_that "logs prefers the Homebrew service log and passes the line count" grep -qxF -- "-n 200 -F $sandbox/brew/var/log/ollama.log" "$sandbox/tail.log"
+mkdir -p "$HOME/Library/LaunchAgents"
+printf '<plist><dict>\n  <key>Label</key><string>local.ollama</string>\n  <key>StandardOutPath</key><string>%s</string>\n  <key>StandardErrorPath</key><string>%s</string>\n</dict></plist>\n' "$sandbox/agent-ollama.log" "$sandbox/agent-ollama.log" > "$HOME/Library/LaunchAgents/local.ollama.plist"
+: > "$sandbox/agent-ollama.log"
+rm -f "$sandbox/tail.log"
+HOMEBREW_PREFIX="$sandbox/brew" run_capture "$repo/bin/claude-ollama" logs
+check_that "logs prefers the LaunchAgent log" grep -qxF -- "-n 50 -F $sandbox/agent-ollama.log" "$sandbox/tail.log"
 rm -f "$sandbox/tail.log"
 run_capture "$repo/bin/claude-ollama" logs --path
 check_eq "logs --path exit status" 0 "$?"
-check_that "logs --path prints only the log path" test "$(cat "$sandbox/out")" = "$server_log"
+check_that "logs --path prints only the chosen log path" test "$(cat "$sandbox/out")" = "$sandbox/agent-ollama.log"
 check_not "logs --path does not tail the log" test -e "$sandbox/tail.log"
-rm -f "$server_log"
-run_capture "$repo/bin/claude-ollama" logs --path
-check_that "logs --path prints the path before the server has written it" test "$(cat "$sandbox/out")" = "$server_log"
+printf -- '-\t1\tlocal.ollama\n4242\t0\tsh.brew.ollama\n' > "$sandbox/launchctl-list"
+HOMEBREW_PREFIX="$sandbox/brew" run_capture "$repo/bin/claude-ollama" logs --path
+check_that "logs --path follows the running Homebrew service over a dead LaunchAgent" test "$(cat "$sandbox/out")" = "$sandbox/brew/var/log/ollama.log"
+printf '<plist><dict>\n  <key>StandardOutPath</key><string>%s</string>\n</dict></plist>\n' "$sandbox/brew-custom.log" > "$HOME/Library/LaunchAgents/sh.brew.ollama.plist"
+: > "$sandbox/brew-custom.log"
+HOMEBREW_PREFIX="$sandbox/brew" run_capture "$repo/bin/claude-ollama" logs --path
+check_that "logs --path reads the running service's own plist" test "$(cat "$sandbox/out")" = "$sandbox/brew-custom.log"
+printf -- '4343\t0\tlocal.ollama\n-\t0\thomebrew.mxcl.ollama\n' > "$sandbox/launchctl-list"
+HOMEBREW_PREFIX="$sandbox/brew" run_capture "$repo/bin/claude-ollama" logs --path
+check_that "logs --path follows the running LaunchAgent" test "$(cat "$sandbox/out")" = "$sandbox/agent-ollama.log"
+rm -f "$sandbox/launchctl-list"
+HOME="$sandbox/bare-home" HOMEBREW_PREFIX="$sandbox/brew-none" run_capture "$repo/bin/claude-ollama" logs --path
+check_eq "logs --path without a log file exits 1" 1 "$?"
+check_that "logs --path without a log file says so" grep -q 'no Ollama log found' "$sandbox/err"
 new_sandbox
 cat > "$sandbox/stubbin/pr-review-local" <<EOF
 #!/bin/sh
@@ -694,10 +747,10 @@ check_that "review without a target says so" grep -q 'pull request number, URL o
 run_capture "$repo/bin/claude-ollama" review 27b 123 </dev/null
 check_eq "review exit status" 0 "$?"
 check_that "review runs the reviewer with the size's model and server" \
-  grep -qxF "REVIEW: --model qwen3.8-27b-cc --base-url $stub_url 123" "$sandbox/out"
+  grep -qxF "REVIEW: --model qwen3.8-27b-cc --base-url http://127.0.0.1:11434 123" "$sandbox/out"
 warm_up_logged() {
   for _ in $(seq 50); do
-    grep -q . <<< "$(requests_to /models/load)" && return 0
+    grep -q 'api/generate' "$sandbox/curl.log" 2>/dev/null && return 0
     sleep 0.1
   done
   return 1
@@ -706,7 +759,7 @@ check_that "review warms the model" warm_up_logged
 check_not "review does not launch claude" grep -q '^ARGS:' "$sandbox/out"
 run_capture "$repo/bin/claude-ollama" review 27b --post 45 </dev/null
 check_that "review passes its own flags before the target" \
-  grep -qxF "REVIEW: --model qwen3.8-27b-cc --base-url $stub_url --post 45" "$sandbox/out"
+  grep -qxF "REVIEW: --model qwen3.8-27b-cc --base-url http://127.0.0.1:11434 --post 45" "$sandbox/out"
 run_capture "$repo/bin/claude-ollama" review 9 </dev/null
 check_that "review without a size uses the default" grep -q 'REVIEW: --model qwen3.8-27b-cc ' "$sandbox/out"
 cat > "$sandbox/stubbin/mock-spike" <<EOF
@@ -718,7 +771,7 @@ export CLAUDE_OLLAMA_MOCK_SPIKE="$sandbox/stubbin/mock-spike"
 run_capture "$repo/bin/claude-ollama" mock-spike 27b --runs 2 </dev/null
 check_eq "mock-spike exit status" 0 "$?"
 check_that "mock-spike runs the spike with the size's model and server" \
-  grep -qxF "SPIKE: --model qwen3.8-27b-cc --base-url $stub_url --runs 2" "$sandbox/out"
+  grep -qxF "SPIKE: --model qwen3.8-27b-cc --base-url http://127.0.0.1:11434 --runs 2" "$sandbox/out"
 unset CLAUDE_OLLAMA_MOCK_SPIKE
 cat > "$sandbox/stubbin/task-eval" <<EOF
 #!/bin/sh
@@ -726,8 +779,7 @@ echo "TASKS: \$*"
 EOF
 chmod +x "$sandbox/stubbin/task-eval"
 export CLAUDE_OLLAMA_TASK_EVAL="$sandbox/stubbin/task-eval"
-default_stub_state > "$stub_state"
-: > "$STUB_LLAMA_LOG"
+: > "$sandbox/curl.log"
 run_capture "$repo/bin/claude-ollama" task-eval 27b --runs 2 --task shell-fix </dev/null
 check_eq "task-eval exit status" 0 "$?"
 check_that "task-eval runs the eval with the size and this launcher" \
@@ -746,7 +798,7 @@ rm -f "$sandbox/proxy-args"
 CLAUDE_OLLAMA_PREFIX_AB="$sandbox/stubbin/prefix-ab" run_capture "$repo/bin/claude-ollama" prefix-ab 27b --limit 3 </dev/null
 check_eq "prefix-ab exit status" 0 "$?"
 check_that "prefix-ab replays the session record dir with the size's model and server" \
-  grep -qxF "AB: --record $HOME/.claude-ollama/proxy/record --model qwen3.8-27b-cc --base-url $stub_url --limit 3" "$sandbox/out"
+  grep -qxF "AB: --record $HOME/.claude-ollama/proxy/record --model qwen3.8-27b-cc --base-url http://127.0.0.1:11434 --limit 3" "$sandbox/out"
 check_not "prefix-ab does not launch claude" grep -q '^ARGS:' "$sandbox/out"
 check_not "prefix-ab does not start the proxy" test -e "$sandbox/proxy-args"
 CLAUDE_OLLAMA_PREFIX_AB="$sandbox/stubbin/prefix-ab" run_capture "$repo/bin/claude-ollama" prefix-ab </dev/null
@@ -757,6 +809,7 @@ check_that "claude-ollama help lists logs" grep -q '^logs \[-n LINES|--path\]: '
 check_that "claude-ollama help lists task-eval" grep -q '^task-eval \[size\] \[--task NAME\]... \[--runs N\] \[--json\]: ' "$sandbox/out"
 
 new_sandbox
+healthy_server_env="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2 OLLAMA_NUM_PARALLEL=1"
 cat > "$sandbox/stubbin/doctor" <<'EOF'
 #!/bin/sh
 echo "DOCTOR: $*"
@@ -767,11 +820,12 @@ STUB_DOCTOR_EXIT=1 run_capture env CLAUDE_OLLAMA_DOCTOR_BIN="$sandbox/stubbin/do
 check_eq "claude-ollama doctor exits with the doctor's status" 1 "$?"
 check_that "claude-ollama doctor runs bin/claude-ollama-doctor with the size" grep -qxF "DOCTOR: 27b" "$sandbox/out"
 check_not "doctor does not launch claude" grep -q '^ARGS:' "$sandbox/out"
-check_not "doctor does not apply the LaunchAgent" grep -sqxF -- "-apply" "$sandbox/agent.log"
+check_not "doctor does not pull or create" grep -sqE '^(pull|create) ' "$sandbox/ollama.log"
+check_not "doctor does not apply server.env" grep -sqxF -- "-apply" "$sandbox/agent.log"
 run_capture env CLAUDE_OLLAMA_DOCTOR_BIN="$sandbox/stubbin/doctor" "$repo/bin/claude-ollama" doctor </dev/null
 check_that "claude-ollama doctor without a size uses the default" grep -qxF "DOCTOR: 27b" "$sandbox/out"
-run_capture "$repo/bin/claude-ollama" doctor 35b
-check_that "claude-ollama doctor runs the real doctor by default" grep -qxF "ok   llama-server build 11429 on ${stub_url#http://}" "$sandbox/out"
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_server_env" run_capture "$repo/bin/claude-ollama" doctor 35b
+check_that "claude-ollama doctor runs the real doctor by default" grep -qxF "ok   model qwen3.6-35b-cc" "$sandbox/out"
 
 new_sandbox
 nojq="$sandbox/nojq"
@@ -784,21 +838,22 @@ check_eq "doctor without jq exit status" 1 "$?"
 check_that "doctor without jq says jq is required" grep -qxF "claude-ollama: jq is required (brew install jq)" "$sandbox/err"
 check_not "doctor without jq does not launch claude" grep -q '^ARGS:' "$sandbox/out"
 
+full_server_env="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2 OLLAMA_NUM_PARALLEL=1"
 new_sandbox
-user_presets="$HOME/.claude-ollama/presets/models.ini"
-run_capture "$repo/bin/claude-ollama" 27b -p hi
-check_that "a launch renders the user presets" test -f "$user_presets"
-check_that "the user presets point at the weights folder" grep -qxF "model = $CLAUDE_OLLAMA_WEIGHTS_DIR/Qwen3.8-27B-UD-Q4_K_XL.gguf" "$user_presets"
-check_that "new user presets get the LaunchAgent applied" grep -qxF -- "-apply" "$sandbox/agent.log"
-check_that "claude-ollama says it applies them" grep -qF "claude-ollama: user presets changed; applying the LaunchAgent" "$sandbox/err"
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$full_server_env" run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_not "a server with every server.env value is left alone" test -e "$sandbox/agent.log"
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_KEEP_ALIVE=30m" run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_that "a server missing server.env values gets them applied" grep -qxF -- "-apply" "$sandbox/agent.log"
+check_that "claude-ollama says it applies server.env" grep -qF "applying them" "$sandbox/err"
+check_that "claude-ollama launches after applying server.env" grep -qF -- "--model qwen3.8-27b-cc --tools" "$sandbox/out"
 rm -f "$sandbox/agent.log"
 run_capture "$repo/bin/claude-ollama" 27b -p hi
-check_not "unchanged user presets leave the LaunchAgent alone" test -e "$sandbox/agent.log"
-rm -f "$user_presets"
-STUB_AGENT_EXIT=1 run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_that "a stopped server gets server.env applied" grep -qxF -- "-apply" "$sandbox/agent.log"
+STUB_AGENT_EXIT=1 STUB_OLLAMA_PID=42 run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "a failed apply says how to fix it" grep -qF "claude-custom agent" "$sandbox/err"
 check_that "claude-ollama still launches after a failed apply" grep -qF -- "--model qwen3.8-27b-cc --tools" "$sandbox/out"
 rm -f "$sandbox/agent.log"
+
 export PNPM_LOG="$sandbox/pnpm.log"
 export PR_REVIEW_LOG_DIR="$sandbox/reviews"
 export CLAUDE_CONSOLE_STATE_DIR="$sandbox/console"
@@ -983,7 +1038,7 @@ launch_base_url() {
 }
 run_capture env -u CLAUDE_OLLAMA_PROXY "$repo/bin/claude-ollama" 27b -p hi
 proxy_args="$(cat "$sandbox/proxy-args" 2>/dev/null)"
-check_that "the messages proxy forwards to llama-server" contains "$proxy_args" "--upstream $stub_url "
+check_that "the messages proxy forwards to the profile's Ollama URL" contains "$proxy_args" "--upstream $(jq -r .env.ANTHROPIC_BASE_URL "$repo/ollama/settings.27b.json")"
 check_that "the messages proxy picks a free loopback port" contains "$proxy_args" "--port 0 "
 check_that "the messages proxy publishes its port" contains "$proxy_args" "--port-file $session_config/proxy.port"
 check_that "the messages proxy logs under the default console state dir" contains "$proxy_args" "--log $HOME/.local/share/claude-custom/console/proxy/requests.jsonl"
@@ -997,7 +1052,7 @@ check_eq "claude is pointed at the proxy's published port" "http://127.0.0.1:480
 rm -f "$sandbox/proxy-args"
 run_capture env CLAUDE_OLLAMA_PROXY=0 "$repo/bin/claude-ollama" 27b -p hi
 check_not "CLAUDE_OLLAMA_PROXY=0 starts no proxy" test -e "$sandbox/proxy-args"
-check_eq "and claude keeps the profile's direct URL" "$(jq -r .env.ANTHROPIC_BASE_URL "$repo/ollama/settings.27b.json")" "$(launch_base_url)"
+check_eq "and claude keeps the direct Ollama URL" "$(jq -r .env.ANTHROPIC_BASE_URL "$repo/ollama/settings.27b.json")" "$(launch_base_url)"
 rm -f "$sandbox/proxy-args"
 run_capture env -u CLAUDE_OLLAMA_PROXY CLAUDE_OLLAMA_PROXY_RECORD=1 "$repo/bin/claude-ollama" 27b -p hi
 check_that "CLAUDE_OLLAMA_PROXY_RECORD=1 records bodies under the session proxy dir" contains "$(cat "$sandbox/proxy-args")" "--record $session_config/proxy/record"
@@ -1008,17 +1063,18 @@ check_that "CLAUDE_OLLAMA_PROXY_STABILIZE=1 passes --stabilize to the proxy" con
 rm -f "$sandbox/proxy-args"
 run_capture env -u CLAUDE_OLLAMA_PROXY "$repo/bin/claude-ollama" 27b -p hi
 check_not "the proxy records nothing by default" contains "$(cat "$sandbox/proxy-args")" "--record"
-check_not "a size with a vision projector gets its images" contains "$(cat "$sandbox/proxy-args")" "--images-as-note"
-rm -f "$sandbox/proxy-args"
-run_capture env -u CLAUDE_OLLAMA_PROXY "$repo/bin/claude-ollama" 3b -p hi
-check_that "a size without a vision projector has the proxy turn images into a note" contains "$(cat "$sandbox/proxy-args" 2>/dev/null)" "--images-as-note"
 cat > "$sandbox/stubbin/rescue" <<EOF
 #!/bin/sh
 printf '%s\n' "\$*" > "$sandbox/rescue-args"
+while [ \$# -gt 0 ]; do
+  [ "\$1" = --server-env ] && cp "\$2" "$sandbox/rescue-server-env"
+  shift
+done
 echo "~/.claude-ollama/rescue/x.md"
 EOF
 chmod +x "$sandbox/stubbin/rescue"
-run_capture env CLAUDE_OLLAMA_RESCUE_BIN="$sandbox/stubbin/rescue" "$repo/bin/claude-ollama" rescue 27b --since 30 --out "$sandbox/rescue.md"
+rm -f "$sandbox/ollama.log"
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_KEEP_ALIVE=30m" run_capture env CLAUDE_OLLAMA_RESCUE_BIN="$sandbox/stubbin/rescue" "$repo/bin/claude-ollama" rescue 27b --since 30 --out "$sandbox/rescue.md"
 check_eq "rescue exit status" 0 "$?"
 rescue_args="$(cat "$sandbox/rescue-args" 2>/dev/null)"
 check_that "rescue hands the script the launcher" contains "$rescue_args" "/bin/claude-ollama --size 27b"
@@ -1026,17 +1082,17 @@ check_that "rescue hands the script the fingerprint tool" contains "$rescue_args
 check_that "rescue hands the script the lease tool" contains "$rescue_args" "--lease-bin "
 check_that "rescue hands the script the session dir" contains "$rescue_args" "--session-dir $session_config"
 check_that "rescue hands the script the console state dir" contains "$rescue_args" "--state-dir "
-check_not "rescue hands over no Ollama URL" contains "$rescue_args" "--ollama-url"
-check_not "rescue hands over no server env file" contains "$rescue_args" "--server-env"
+check_that "rescue hands the script the Ollama URL" contains "$rescue_args" "--ollama-url http://127.0.0.1:11434"
 check_that "rescue passes its own flags through" contains "$rescue_args" "--since 30 --out $sandbox/rescue.md"
+check_that "rescue hands over the running server env" grep -qx "OLLAMA_KEEP_ALIVE=30m" "$sandbox/rescue-server-env"
 check_that "rescue prints the script's output" grep -q "rescue/x.md" "$sandbox/out"
 check_not "rescue does not launch claude" grep -q '^ARGS:' "$sandbox/out"
+check_not "rescue does not pull or create" grep -sqE '^(pull|create) ' "$sandbox/ollama.log"
 rm -f "$sandbox/rescue-args"
 run_capture env CLAUDE_OLLAMA_RESCUE_BIN="$sandbox/stubbin/rescue" "$repo/bin/claude-ollama" rescue
 check_that "rescue without a size uses the default size" contains "$(cat "$sandbox/rescue-args" 2>/dev/null)" "--size 27b"
 run_capture "$repo/bin/claude-ollama" --help
 check_that "usage lists rescue" grep -q '^rescue ' "$sandbox/out"
-check_not "usage names neither Ollama nor the MLX sizes" grep -qE 'Ollama|MLX' "$sandbox/out"
 cmux_socket="$sandbox/cmux.sock"
 /usr/bin/python3 -c 'import socket, sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])' "$cmux_socket"
 cat > "$sandbox/stubbin/cmux" <<'EOF'
@@ -1224,6 +1280,7 @@ rm -f "$sandbox/stubbin/qwen"
 run_capture "$repo/bin/claude-ollama" qwen 27b -p hi
 check_eq "claude-ollama qwen without qwen exits 1" 1 "$?"
 check_that "and says how to install it" grep -qxF "claude-ollama: qwen is missing (brew install qwen-code)" "$sandbox/err"
+check_not "and pulls no model first" grep -sqE '^(pull|create) ' "$sandbox/ollama.log"
 cd "$qwen_return_dir" || exit 1
 
 run_capture "$repo/bin/claude-ollama" --help
@@ -1252,9 +1309,9 @@ mkdir -p "$profiles"
 profile_settings="$sandbox/settings-seen"
 printf '%s' '{"context":32768}' > "$profiles/ollama-27b.json"
 run_capture "$repo/bin/claude-ollama" 27b -p hi
-check_eq "a context override picks the preset for its context" qwen3.8-27b-cc@32768 "$(jq -r .model "$profile_settings")"
-check_that "the launch passes that preset" grep -qF -- "--model qwen3.8-27b-cc@32768 --tools" "$sandbox/out"
-check_that "the launch loads that preset" wait_for_request /models/load qwen3.8-27b-cc@32768
+check_that "a context override recreates the model with its num_ctx" grep -qxF "modelfile: PARAMETER num_ctx 32768" "$sandbox/ollama.log"
+check_that "the recreated model builds on the installed one" grep -qxF "modelfile: FROM qwen3.8-27b-cc" "$sandbox/ollama.log"
+check_that "claude-ollama says it recreates with the merged parameters" grep -qF "recreating qwen3.8-27b-cc with num_ctx 32768 num_predict 8192 temperature 0.7 top_k 20 top_p 0.8" "$sandbox/err"
 check_eq "the derived settings carry the override context" 32768 "$(jq -r '.env.CLAUDE_CODE_MAX_CONTEXT_TOKENS' "$profile_settings")"
 check_that "the launch uses the derived settings" grep -qE -- "--settings $HOME/.claude-ollama/launch-settings/[0-9]+\.json" "$sandbox/out"
 
@@ -1334,14 +1391,16 @@ check_eq "CLAUDE_OLLAMA_RELAUNCH=0 execs claude in the launcher's place" "$$" "$
 check_eq "and sets no relaunch dir" unset "$(cat "$sandbox/relaunch-dir-env")"
 
 lease_dir="$HOME/.claude-ollama/lease"
+healthy_two="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2 OLLAMA_NUM_PARALLEL=1"
 rm -rf "$lease_dir" "$sandbox/lease-seen" "$sandbox/ladder-args"
-run_capture env STUB_CLAUDE_SLEEP=0.5 "$repo/bin/claude-ollama" 27b -p hi
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture env CLAUDE_OLLAMA_LEASE_HEARTBEAT=0.1 STUB_CLAUDE_SLEEP=0.5 "$repo/bin/claude-ollama" 27b -p hi
 session_lease="$(grep '"name":"session"' "$sandbox/lease-seen" | head -n 1)"
 check_eq "a launch holds a session lease while claude runs" session "$(printf '%s\n' "$session_lease" | jq -r .name)"
 check_eq "the session lease names the model" qwen3.8-27b-cc "$(printf '%s\n' "$session_lease" | jq -r .model)"
 check_eq "the session lease records the model's num_ctx" 65536 "$(printf '%s\n' "$session_lease" | jq -r .num_ctx)"
 check_that "the indexer holds an embedding lease" grep -q '"name":"embedding","model":"qwen3-embedding:0.6b"' "$sandbox/lease-seen"
 check_eq "the launcher releases the session lease on exit" "" "$(ls "$lease_dir"/*.json 2>/dev/null)"
+check_that "a heartbeat keeps the model alive while claude runs" test "$(grep -c '"model":"qwen3.8-27b-cc","keep_alive":"30m"' "$sandbox/curl.log")" -ge 2
 check_eq "the indexer may embed when the server keeps the session and the embedding model" 1 "$(cat "$sandbox/indexer-embed-env")"
 ladder_args="$(for _ in $(seq 25); do [ -s "$sandbox/ladder-args" ] && break; sleep 0.2; done; cat "$sandbox/ladder-args" 2>/dev/null)"
 check_that "the ladder follows the session's incidents file" contains "$ladder_args" "--incidents $(cat "$incidents_dir/current")"
@@ -1349,47 +1408,41 @@ check_that "the ladder knows the relaunch dir" contains "$ladder_args" "--relaun
 check_that "the ladder stops with the launch" contains "$ladder_args" "--watch-pid "
 check_that "the ladder knows the model's context" contains "$ladder_args" "--context 65536"
 rm -f "$sandbox/ladder-args"
-run_capture env CLAUDE_OLLAMA_LADDER=0 "$repo/bin/claude-ollama" 27b -p hi
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture env CLAUDE_OLLAMA_LADDER=0 "$repo/bin/claude-ollama" 27b -p hi
 sleep 1
 check_not "CLAUDE_OLLAMA_LADDER=0 starts no ladder" test -e "$sandbox/ladder-args"
 
 holder_pid="$(sleep 60 >/dev/null 2>&1 & echo $!)"
 mkdir -p "$lease_dir"
 printf '{"name":"review","model":"qwen3.6-35b-cc","num_ctx":null,"rung":null,"started":"2026-01-01T00:00:00Z"}\n' > "$lease_dir/$holder_pid.json"
-run_capture "$repo/bin/claude-ollama" 27b -p hi
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "a review lease on another model still lets a session launch when the server keeps two" grep -q '^ARGS:' "$sandbox/out"
 check_eq "but the indexer runs words-only when the embedding model would be a third" 0 "$(cat "$sandbox/indexer-embed-env")"
 printf '{"name":"session","model":"qwen3.6-35b-cc","num_ctx":null,"rung":null,"started":"2026-01-01T00:00:00Z"}\n' > "$lease_dir/$holder_pid.json"
-server_keeps 1
-run_capture "$repo/bin/claude-ollama" 27b -p hi
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=1" run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_eq "a second session on another model is refused when the server keeps one" 3 "$?"
-server_keeps 2
-check_that "the refusal names the holder" grep -qxF "ollama lease: held by session (pid $holder_pid, model qwen3.6-35b-cc); run after that session ends or run claude-custom agent -set models-max=2" "$sandbox/err"
+check_that "the refusal names the holder" grep -qxF "ollama lease: held by session (pid $holder_pid, model qwen3.6-35b-cc); run after that session ends or set OLLAMA_MAX_LOADED_MODELS=2" "$sandbox/err"
 check_not "a refused launch does not start claude" grep -q '^ARGS:' "$sandbox/out"
-CLAUDE_OLLAMA_SPEED_CHECK="$sandbox/stubbin/speed-check" run_capture "$repo/bin/claude-ollama" speed-check
+CLAUDE_OLLAMA_SPEED_CHECK="$sandbox/stubbin/speed-check" STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture "$repo/bin/claude-ollama" speed-check
 check_eq "speed-check is refused while a session lease exists" 3 "$?"
 check_that "the speed-check refusal names the holder" grep -qF "ollama lease: held by session (pid $holder_pid" "$sandbox/err"
 check_not "a refused speed-check never runs" grep -q 'speed-check args' "$sandbox/out"
 printf '#!/bin/sh\necho "reviewer args: $*"\n' > "$sandbox/stubbin/reviewer"
 chmod +x "$sandbox/stubbin/reviewer"
-server_keeps 1
-CLAUDE_OLLAMA_REVIEWER="$sandbox/stubbin/reviewer" run_capture "$repo/bin/claude-ollama" review 27b 12
+CLAUDE_OLLAMA_REVIEWER="$sandbox/stubbin/reviewer" STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_MAX_LOADED_MODELS=1" run_capture "$repo/bin/claude-ollama" review 27b 12
 check_eq "a review on another model is refused when the server keeps one" 3 "$?"
-server_keeps 2
 check_not "a refused review never runs" grep -q 'reviewer args' "$sandbox/out"
-CLAUDE_OLLAMA_REVIEWER="$sandbox/stubbin/reviewer" run_capture "$repo/bin/claude-ollama" review 27b 12
+CLAUDE_OLLAMA_REVIEWER="$sandbox/stubbin/reviewer" STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture "$repo/bin/claude-ollama" review 27b 12
 check_that "a review runs when the server keeps two models" grep -q '^reviewer args' "$sandbox/out"
 CLAUDE_OLLAMA_LEASE_DIR="$lease_dir" "$repo/bin/ollama-lease" holders >/dev/null
-server_keeps 1
-run_capture env CLAUDE_OLLAMA_LEASE=0 "$repo/bin/claude-ollama" 27b -p hi
-server_keeps 2
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="OLLAMA_MAX_LOADED_MODELS=1" run_capture env CLAUDE_OLLAMA_LEASE=0 "$repo/bin/claude-ollama" 27b -p hi
 check_that "CLAUDE_OLLAMA_LEASE=0 launches past a held lease" grep -q '^ARGS:' "$sandbox/out"
 check_eq "CLAUDE_OLLAMA_LEASE=0 writes no lease" "$lease_dir/$holder_pid.json" "$(ls "$lease_dir"/*.json)"
 kill "$holder_pid" 2>/dev/null
 wait "$holder_pid" 2>/dev/null
 
 rm -f "$sandbox/laddered" "$sandbox/lease-seen"
-run_capture env STUB_CLAUDE_LADDER_ONCE=1 STUB_CLAUDE_EMBED_OFF=1 "$repo/bin/claude-ollama" 27b "finish the tests"
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture env STUB_CLAUDE_LADDER_ONCE=1 STUB_CLAUDE_EMBED_OFF=1 "$repo/bin/claude-ollama" 27b "finish the tests"
 check_eq "a ladder file starts claude a second time" 2 "$(grep -c '^ARGS:' "$sandbox/out")"
 check_that "the ladder relaunch names the rung and the reason" grep -qxF "claude-ollama: ladder context-down: 3 truncated prompts within 10 minutes" "$sandbox/err"
 ladder_settings="$(settings_arg | tail -n 1)"
@@ -1399,22 +1452,17 @@ check_that "the second run continues the conversation without the prompt" grep -
 check_not "the second run drops the prompt" grep -qF -- "--continue finish the tests" "$sandbox/out"
 check_eq "the lease records the rung after the relaunch" context-down "$(tail -n 1 "$sandbox/lease-seen" | jq -r .rung)"
 check_eq "an embed-off file turns the search server's embeddings off on relaunch" 0 "$(cat "$sandbox/embed-env")"
-check_that "the ladder relaunch loads the lower-context preset" wait_for_request /models/load qwen3.8-27b-cc@32768
-check_that "and unloads the preset it replaces" wait_for_request /models/unload qwen3.8-27b-cc
-check_that "the second run passes the lower-context preset" grep -qF -- "--model qwen3.8-27b-cc@32768 --tools" "$sandbox/out"
 check_not "the ladder file is consumed" test -e "$relaunch_root/$(cat "$sandbox/claude-ppid")/ladder"
 
 new_sandbox
 malformed_status=0
-run_capture env STUB_CLAUDE_LADDER_MALFORMED=1 "$repo/bin/claude-ollama" 27b -p hi || malformed_status=$?
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture env STUB_CLAUDE_LADDER_MALFORMED=1 "$repo/bin/claude-ollama" 27b -p hi || malformed_status=$?
 check_eq "a malformed ladder file does not end the launcher" 0 "$malformed_status"
 check_eq "a malformed ladder file still lets claude run again" 2 "$(grep -c '^ARGS:' "$sandbox/out")"
 check_that "a malformed ladder file is reported as dropped" grep -qF "dropped malformed ladder" "$sandbox/err"
 
 new_sandbox
-stub_state_set '.loaded = [] | .loading = {} | .load_polls = 100000'
-dd if=/dev/zero of="$CLAUDE_OLLAMA_WEIGHTS_DIR/Qwen3.8-27B-UD-Q4_K_XL.gguf" bs=1 count=0 seek=17179869184 2>/dev/null
-dd if=/dev/zero of="$CLAUDE_OLLAMA_WEIGHTS_DIR/Qwen3-Embedding-0.6B-Q8_0.gguf" bs=1 count=0 seek=644245094 2>/dev/null
+pinned_tags | jq '.models |= map(if .name == "qwen3-embedding:0.6b" then . + {size: 644245094} else . end) | .models += [{name: "qwen3.8-27b-cc", size: 17179869184}]' > "$sandbox/tags.json"
 cat > "$sandbox/stubbin/sysctl" <<'EOF'
 #!/bin/sh
 echo "${STUB_MEMSIZE:-34359738368}"
@@ -1424,12 +1472,12 @@ cat > "$sandbox/stubbin/vm_stat" <<'EOF'
 printf 'Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages active:  100000.\nPages wired down: 100000.\n'
 EOF
 chmod +x "$sandbox/stubbin/sysctl" "$sandbox/stubbin/vm_stat"
-printf '%s\n' '{"architecture":"qwen3","metadata":{"qwen3.block_count":64,"qwen3.attention.head_count_kv":8,"qwen3.attention.key_length":128,"qwen3.attention.value_length":128}}' > "$sandbox/inspect-json"
+printf '  Model\n    architecture        qwen3\n\n  Metadata\n    qwen3.attention.head_count_kv       8\n    qwen3.attention.key_length          128\n    qwen3.block_count                   64\n' > "$sandbox/show-verbose"
 last_session_lease() { grep '"name":"session"' "$sandbox/lease-seen" | tail -n 1; }
 fit_line="claude-ollama: memory fit: model 16.0 GiB + kv 8.0 GiB + embedding 0.6 GiB = 24.6 GiB of 28.9 GiB free"
 incidents_dir="$sandbox/home/.local/share/claude-custom/console/incidents"
 relaunch_root="$HOME/.claude-ollama/relaunch"
-run_capture "$repo/bin/claude-ollama" 27b -p hi
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "a launch prints the memory fit before claude starts" grep -qxF "$fit_line" "$sandbox/err"
 check_eq "a fitting launch keeps the embeddings on" 1 "$(cat "$sandbox/embed-env")"
 check_eq "a fitting launch holds its lease on no rung" null "$(last_session_lease | jq -r .rung)"
@@ -1437,12 +1485,12 @@ ladder_args="$(for _ in $(seq 25); do [ -s "$sandbox/ladder-args" ] && break; sl
 check_that "the ladder knows the model and the embedding model for its recovery fit" contains "$ladder_args" "--model qwen3.8-27b-cc --embedding qwen3-embedding:0.6b"
 check_that "the ladder knows the lease script" contains "$ladder_args" "--lease-bin $repo/bin/ollama-lease"
 check_not "a fitting launch names no rung to the ladder" contains "$ladder_args" "--rung"
-run_capture env CLAUDE_OLLAMA_FIT=0 "$repo/bin/claude-ollama" 27b -p hi
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture env CLAUDE_OLLAMA_FIT=0 "$repo/bin/claude-ollama" 27b -p hi
 check_not "CLAUDE_OLLAMA_FIT=0 skips the memory fit" grep -q "memory fit" "$sandbox/err"
 check_that "CLAUDE_OLLAMA_FIT=0 still launches" grep -q '^ARGS:' "$sandbox/out"
 
 rm -f "$sandbox/lease-seen" "$sandbox/ladder-args"
-STUB_MEMSIZE=29276800000 run_capture "$repo/bin/claude-ollama" 27b -p hi
+STUB_MEMSIZE=29276800000 STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "a launch short by the embedding model prints the fit" grep -qxF "claude-ollama: memory fit: model 16.0 GiB + kv 8.0 GiB + embedding 0.6 GiB = 24.6 GiB of 24.2 GiB free" "$sandbox/err"
 check_that "and starts on the embeddings-off rung" grep -qxF "claude-ollama: ladder embeddings-off: does not fit with the embedding model (0.4 GiB short)" "$sandbox/err"
 check_eq "the embeddings-off start turns the search embeddings off" 0 "$(cat "$sandbox/embed-env")"
@@ -1455,7 +1503,7 @@ check_not "no context-down line when the rung above fits" grep -q "ladder contex
 check_eq "the embeddings-off start keeps the profile settings" "$repo/ollama/settings.27b.json" "$(settings_arg)"
 
 rm -f "$sandbox/lease-seen" "$sandbox/ladder-args"
-STUB_MEMSIZE=25276800000 run_capture "$repo/bin/claude-ollama" 27b -p hi
+STUB_MEMSIZE=25276800000 STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "a launch short by more than the embedding model steps to embeddings-off first" grep -qxF "claude-ollama: ladder embeddings-off: does not fit with the embedding model (4.1 GiB short)" "$sandbox/err"
 check_that "then to the next lower context" grep -qxF "claude-ollama: ladder context-down: does not fit at num_ctx 65536 (3.5 GiB short); starting at 32768" "$sandbox/err"
 check_that "the context-down start uses a per-launch settings file" contains "$(settings_arg)" "$HOME/.claude-ollama/launch-settings/"
@@ -1465,27 +1513,11 @@ check_eq "the lease records the lower num_ctx" 32768 "$(last_session_lease | jq 
 ladder_args="$(for _ in $(seq 25); do [ -s "$sandbox/ladder-args" ] && break; sleep 0.2; done; cat "$sandbox/ladder-args" 2>/dev/null)"
 check_that "the ladder is told both rungs in effect" contains "$ladder_args" "--rung embeddings-off --rung context-down"
 check_that "the ladder keeps the full context as its recovery target" contains "$ladder_args" "--context 65536"
-nothing_fits_status=0
-STUB_MEMSIZE=21276800000 run_capture "$repo/bin/claude-ollama" 27b -p hi || nothing_fits_status=$?
-check_that "a launch nothing fits names the shortfall" grep -qxF "claude-ollama: memory fit: still 3.2 GiB short at num_ctx 32768 with the embeddings off" "$sandbox/err"
-check_that "a launch nothing fits says how to override" grep -qxF "claude-ollama: not starting: the model does not fit in memory (set CLAUDE_OLLAMA_FIT=0 to start anyway)" "$sandbox/err"
-check_eq "a launch nothing fits exits 1" 1 "$nothing_fits_status"
-check_not "a launch nothing fits never runs claude" grep -q '^ARGS:' "$sandbox/out"
-STUB_MEMSIZE=21276800000 CLAUDE_OLLAMA_FIT=0 run_capture "$repo/bin/claude-ollama" 27b -p hi
-check_that "CLAUDE_OLLAMA_FIT=0 starts a launch that does not fit" grep -q '^ARGS:' "$sandbox/out"
-stub_state_set '.loaded = ["qwen3.8-27b-cc"] | .loading = {}'
-STUB_MEMSIZE=21276800000 run_capture "$repo/bin/claude-ollama" 27b -p hi
-check_not "a model the router already holds counts its own weights as free, so it is not short of itself" grep -q "ladder\|not starting" "$sandbox/err"
-check_that "and the launch runs claude" grep -q '^ARGS:' "$sandbox/out"
-stub_state_set '.loaded = [] | .loading = {} | .load_polls = 100000'
-unfit_spike_status=0
-STUB_MEMSIZE=21276800000 CLAUDE_OLLAMA_MOCK_SPIKE="$sandbox/stubbin/mock-spike" run_capture "$repo/bin/claude-ollama" mock-spike 27b --runs 2 </dev/null || unfit_spike_status=$?
-check_eq "a mock-spike whose model does not fit exits 1" 1 "$unfit_spike_status"
-check_that "a mock-spike whose model does not fit says why" grep -qxF "claude-ollama: not starting: the model does not fit in memory (set CLAUDE_OLLAMA_FIT=0 to start anyway)" "$sandbox/err"
-check_not "a mock-spike whose model does not fit never runs the spike" grep -q '^SPIKE:' "$sandbox/out"
-stub_state_set '.load_polls = 0'
+STUB_MEMSIZE=21276800000 STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_that "a launch nothing fits warns and still starts" grep -qxF "claude-ollama: memory fit: still 3.2 GiB short at num_ctx 32768 with the embeddings off" "$sandbox/err"
+check_that "the launch nothing fits still runs claude" grep -q '^ARGS:' "$sandbox/out"
 rm -f "$sandbox/stubbin/sysctl"
-run_capture "$repo/bin/claude-ollama" 27b -p hi
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "a fit that cannot be computed is reported, not fatal" grep -qxF "claude-ollama: memory fit: unknown (ollama lease: cannot read the free memory)" "$sandbox/err"
 check_that "and the launch goes on" grep -q '^ARGS:' "$sandbox/out"
 cat > "$sandbox/stubbin/sysctl" <<'EOF'
@@ -1495,7 +1527,7 @@ EOF
 chmod +x "$sandbox/stubbin/sysctl"
 
 rm -f "$sandbox/lease-seen" "$sandbox/laddered" "$sandbox/laddered-up" "$sandbox/relaunch-entries"
-run_capture env STUB_CLAUDE_LADDER_ONCE=1 STUB_CLAUDE_EMBED_OFF=1 STUB_CLAUDE_LADDER_UP=embeddings-off STUB_CLAUDE_LADDER_UP_AFTER_LADDER=1 "$repo/bin/claude-ollama" 27b "finish the tests"
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture env STUB_CLAUDE_LADDER_ONCE=1 STUB_CLAUDE_EMBED_OFF=1 STUB_CLAUDE_LADDER_UP=embeddings-off STUB_CLAUDE_LADDER_UP_AFTER_LADDER=1 "$repo/bin/claude-ollama" 27b "finish the tests"
 check_eq "a ladder-up with a handoff sentinel starts claude a third time" 3 "$(grep -c '^ARGS:' "$sandbox/out")"
 check_that "the handoff relaunch announces the recovered rung" grep -qxF "claude-ollama: ladder up: embeddings-off recovered (20 minutes without an incident and the memory fits)" "$sandbox/err"
 check_eq "the recovered rung turns the search embeddings back on" 1 "$(cat "$sandbox/embed-env")"
@@ -1506,14 +1538,14 @@ check_eq "the third run keeps the ladder settings file" "$(settings_arg | sed -n
 check_that "the third run resumes the handoff" grep -qF -- "--tools Bash,Read,Edit,Write,Skill,TaskStop /handoff go on" "$sandbox/out"
 
 rm -f "$sandbox/lease-seen" "$sandbox/laddered" "$sandbox/laddered-up" "$sandbox/relaunch-entries"
-run_capture env STUB_CLAUDE_LADDER_ONCE=1 STUB_CLAUDE_LADDER_UP=context-down STUB_CLAUDE_LADDER_UP_AFTER_LADDER=1 "$repo/bin/claude-ollama" 27b -p hi
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture env STUB_CLAUDE_LADDER_ONCE=1 STUB_CLAUDE_LADDER_UP=context-down STUB_CLAUDE_LADDER_UP_AFTER_LADDER=1 "$repo/bin/claude-ollama" 27b -p hi
 check_that "a context-down recovery is announced" grep -qxF "claude-ollama: ladder up: context-down recovered (20 minutes without an incident and the memory fits)" "$sandbox/err"
 check_eq "the recovered run returns to the profile settings" "$repo/ollama/settings.27b.json" "$(settings_arg | tail -n 1)"
 check_eq "the lease is back on no rung" null "$(last_session_lease | jq -r .rung)"
 check_eq "the lease is back on the full num_ctx" 65536 "$(last_session_lease | jq -r .num_ctx)"
 
 rm -f "$sandbox/lease-seen" "$sandbox/laddered" "$sandbox/laddered-up" "$sandbox/relaunch-entries"
-run_capture env STUB_CLAUDE_LADDER_ONCE=1 STUB_CLAUDE_LADDER_UP=embeddings-off STUB_CLAUDE_LADDER_UP_NO_HANDOFF=1 "$repo/bin/claude-ollama" 27b -p hi
+STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_two" run_capture env STUB_CLAUDE_LADDER_ONCE=1 STUB_CLAUDE_LADDER_UP=embeddings-off STUB_CLAUDE_LADDER_UP_NO_HANDOFF=1 "$repo/bin/claude-ollama" 27b -p hi
 check_eq "a ladder relaunch alone starts claude twice" 2 "$(grep -c '^ARGS:' "$sandbox/out")"
 check_not "a ladder-up is never honoured on a ladder relaunch" grep -q "ladder up" "$sandbox/err"
 check_that "the ladder-up file waits for the next handoff relaunch" grep -q "ladder-up" <<< "$(tail -n 1 "$sandbox/relaunch-entries")"
@@ -1556,7 +1588,7 @@ zeros="$(printf '0%.0s' $(seq 64))"
 ones="$(printf '1%.0s' $(seq 64))"
 jq --arg zeros "$zeros" --arg ones "$ones" --arg ts "$(jq -rn 'now - 7200 | todate')" \
   '.host = "work-laptop" | .ts = $ts | .commit = "abc1234def5678" | .hooks["tdd-guard.py"] = $zeros | .hooks["only-there.sh"] = $ones
-   | .models["27b"].digest = "sha256:theirs" | .server = {build: 1, settings: {"cache-type-k": "f16"}}' "$sync_beacon" > "$sandbox/theirs.json"
+   | .models["27b"].digest = "sha256:theirs" | .server_env = {OLLAMA_KV_CACHE_TYPE: "f16"}' "$sync_beacon" > "$sandbox/theirs.json"
 run_capture "$sandbox/repo/bin/claude-custom" sync-check --against "$sandbox/theirs.json"
 check_eq "sync-check against a differing beacon exits 1" 1 "$?"
 check_that "a differing commit is listed" grep -qxF "commit: local $short_head vs beacon abc1234 (work-laptop, 2h)" "$sandbox/out"
@@ -1564,8 +1596,8 @@ check_that "differing hooks are listed" grep -qE "^hooks: local [0-9a-f]{12} vs 
 check_that "the changed hook is named" grep -qxF "  tdd-guard.py: local $(shasum -a 256 "$repo/shared/hooks/tdd-guard.py" | cut -c1-12) vs beacon 000000000000" "$sandbox/out"
 check_that "a hook only in the beacon is named" grep -qxF "  only-there.sh: local none vs beacon 111111111111" "$sandbox/out"
 check_that "differing models are listed" grep -qE "^models: local [0-9a-f]{12} vs beacon [0-9a-f]{12} \(work-laptop, 2h\)$" "$sandbox/out"
-check_that "the changed model is spelled out" grep -qxF "  27b: local qwen3.8-27b-cc mismatch vs beacon qwen3.8-27b-cc sha256:theirs" "$sandbox/out"
-check_that "a differing server section is listed" grep -qE "^server: local [0-9a-f]{12} vs beacon [0-9a-f]{12} \(work-laptop, 2h\)$" "$sandbox/out"
+check_that "the changed model is spelled out" grep -qxF "  27b: local qwen3.8-27b-cc missing vs beacon qwen3.8-27b-cc sha256:theirs" "$sandbox/out"
+check_that "a differing server env is listed" grep -qE "^server_env: local [0-9a-f]{12} vs beacon [0-9a-f]{12} \(work-laptop, 2h\)$" "$sandbox/out"
 check_not "an equal section is not listed" grep -q '^sandbox: local' "$sandbox/out"
 check_not "an equal model is not spelled out" grep -q '^  35b:' "$sandbox/out"
 run_capture "$sandbox/repo/bin/claude-custom" sync-check --against

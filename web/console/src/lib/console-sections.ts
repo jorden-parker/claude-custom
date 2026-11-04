@@ -43,7 +43,7 @@ export const CONSOLE_SECTIONS: readonly ConsoleSection[] = [
   {
     href: "/logs",
     title: "Logs",
-    summary: "Model server log, live",
+    summary: "Ollama server log, live",
     group: "Observe",
   },
   {
@@ -67,7 +67,7 @@ export const CONSOLE_SECTIONS: readonly ConsoleSection[] = [
   {
     href: "/server",
     title: "Server",
-    summary: "Model server settings and reload",
+    summary: "Ollama server settings and reload",
     group: "Configure",
   },
   {

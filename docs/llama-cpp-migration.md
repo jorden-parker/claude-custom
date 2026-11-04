@@ -216,20 +216,7 @@ later.
 Each phase ends green (`make test`), on main, and usable. Tests come first in
 each step (tdd-guard enforces it).
 
-Status (2026-11-04): Phases 1 to 8 are done, on the integration branch
-`t3/migrate-to-llama-cpp`, in the commits after `d21c99f`. The owner chose to
-migrate without waiting for the Phase 0 numbers; the bench-off still runs as a
-check afterwards.
-
-| Phase | Done in                                                                                       |
-| ----- | --------------------------------------------------------------------------------------------- |
-| 1, 2  | `f48bfbc`, `2e664fc`, `0baf503` (plan 002)                                                    |
-| 3, 4  | `24eff9e`..`5f6cf90`, `62abe09`, `258b59e`, merged `0897685`; `88a4ee9`, `901315f` (plan 003) |
-| 5, 6  | `f100685`..`6dc5b6a`, merged `ce270b6` (plan 004)                                             |
-| 7     | `9486a11`, `28daa81`, `2949818` (plan 005)                                                    |
-| 8     | `4aa590b` and the plan 006 commits after it                                                   |
-
-### Phase 0: measure on the work laptop (go/no-go) (skipped; the bench-off runs after the migration)
+### Phase 0: measure on the work laptop (go/no-go)
 
 One rerunnable command, nothing else changes.
 
@@ -258,7 +245,7 @@ prompt re-processing" lines in a 30-minute session. Record the numbers in
 `docs/backend-bench.md`. If the gate fails, stop here and file the result; retry
 on a newer llama.cpp build.
 
-### Phase 1: one backend module (done)
+### Phase 1: one backend module
 
 - New `bin/lib/model-server.sh` (sourced, bash 3.2) with the only functions the
   rest of the harness calls: `server_url`, `server_up`, `server_build`,
@@ -271,7 +258,7 @@ on a newer llama.cpp build.
 - Move callers of `ollama-server.sh` onto it in the same phase. This is the seam
   every later phase uses, so later diffs stay local.
 
-### Phase 2: weights and presets from `sizes.json` (done)
+### Phase 2: weights and presets from `sizes.json`
 
 - `sizes.json`: every size gets a `gguf` block (`repo`, `revision`, `file`,
   optional `mmproj`, optional `mtp` file), and `renderer`/`parser` go away. The
@@ -290,7 +277,7 @@ on a newer llama.cpp build.
   preset sections (`27b@49152`), rendered on demand into
   `~/.claude-ollama/presets/`, since a running model's context cannot change.
 
-### Phase 3: the server as a LaunchAgent (done)
+### Phase 3: the server as a LaunchAgent
 
 - `go/internal/agent` manages `local.llama-server`: `ProgramArguments` is
   `llama-server --models-preset <rendered file> --port 11435 --log-file ... --metrics`,
@@ -304,7 +291,7 @@ on a newer llama.cpp build.
 - Doctor: `ok   llama-server <build> on 127.0.0.1:11435`, a warn below build
   9200, and a fail when a size's preset is missing from `GET /models`.
 
-### Phase 4: the launcher (done)
+### Phase 4: the launcher
 
 - Pull and create become download and verify. `refresh_parameters` goes away
   (presets are rendered, not created).
@@ -320,7 +307,7 @@ on a newer llama.cpp build.
 - `code-search.py` calls `/v1/embeddings` and checks `GET /models` instead of
   `/api/ps`.
 
-### Phase 5: incidents (done)
+### Phase 5: incidents
 
 - Record a real llama-server log from a work-laptop session, cut a fixture
   (`fixtures/server-log.txt`, never `*.log`), and rewrite `CAUSE_RULES` and
@@ -332,7 +319,7 @@ on a newer llama.cpp build.
 - `why.py` keeps its verdicts; its `fix:` lines name `server.ini` keys
   (`ctx-checkpoints`, `models-max`) instead of `OLLAMA_*` variables.
 
-### Phase 6: the other tools (done)
+### Phase 6: the other tools
 
 - `bin/messages-proxy`: forward `/v1/messages`, `/v1/messages/count_tokens`,
   `/v1/models`, `/health`, `/models` (GET only); drop `/api/*`.
@@ -345,14 +332,14 @@ on a newer llama.cpp build.
   settings plus the build), `ollama/rescue.py`, `bin/mock-spike`,
   `bin/messages-bench` defaults, the picker's "Set up embedding model" row.
 
-### Phase 7: the console (done)
+### Phase 7: the console
 
 - Models page on `GET /models` and the weights manager; Server page edits
   `server.ini` keys through the agent; `/api/server/ping` uses `/health`; the
   residency card reads `memory` from `GET /models`. `console-smoke` covers every
   page.
 
-### Phase 8: remove Ollama (done)
+### Phase 8: remove Ollama
 
 - Delete `ollama/server.env`, the Modelfile template and rendered files, the
   registry code, the `ollama` stubs in every test, and Ollama-only switches
@@ -386,52 +373,17 @@ on a newer llama.cpp build.
 
 ## Open questions
 
-Answered by plan 002's Step 0, run against Homebrew's `llama-server` build 11429
-(`b11429-d81235049`) on a 16 GB Mac with small Qwen3 chat and embedding GGUFs,
-and by the plans that followed:
-
 1. Does one router serve a chat preset and an embedding preset together, or does
    the embedding model need its own `llama-server --embeddings` on a second
-   port? **One router serves both.** Each preset runs as its own child process,
-   so the embedding section (`embeddings = true`, `pooling = last`) sits beside
-   the chat presets and `/v1/embeddings` works while a chat model is loaded. A
-   `:` in a section name is parsed as `repo:quant`, so the section is
-   `[qwen3-embedding-0.6b]` with `alias = qwen3-embedding:0.6b`.
+   port?
 2. Does `/v1/messages` honour `thinking: {"type": "disabled"}` for Qwen 3.8's
    template, or must a preset set `reasoning = off` (then a profile's
-   `thinking: true` needs its own preset section)? **The presets decide.** Chat
-   presets set `reasoning = off` and return no thinking block; each size has a
-   `<model>@think` section with `reasoning = on`, and a profile's
-   `thinking: true` switches the session to it. The profiles still send
-   `CLAUDE_CODE_EXTRA_BODY` `{"thinking":{"type":"disabled"}}`, which is
-   harmless.
+   `thinking: true` needs its own preset section)?
 3. Can `POST /models/load` take arguments such as a context size, or are preset
-   sections the only way (the plan assumes sections)? **Sections are used.** A
-   running model's context can't change, so every context a session can ask for
-   is a `<model>@<ctx>` section (the ladder's lower step, and each profile
-   override's context in the user presets). `GET /models` reports `status.value`
-   (`unloaded`, `loading`, `loaded`) and, for a loaded model, `meta.size` and
-   `meta.n_ctx`, but no memory figure; `/health` stays 200 while a model loads.
-   Clearing a slot (`/slots/0?action=erase`) returns 501 in router mode without
-   `--slot-save-path`, so the cache is cleared by unloading and reloading the
-   preset.
-4. Is there a GGUF of the `35b-coding` build worth keeping? **No.** No pinned
-   GGUF of the NVFP4 coding build exists, so `35b-coding` and the `-gguf` sizes
-   were removed. The sizes are `27b` (Qwen3.8-27B `UD-Q4_K_XL`), `35b`
-   (Qwen3.6-35B-A3B `UD-Q4_K_XL`) and `3b` (`ibm-granite/granite-4.2-3b-GGUF`,
-   `Q4_K_M`).
+   sections the only way (the plan assumes sections)?
+4. Is there a GGUF of the `35b-coding` build worth keeping?
 5. Which llama.cpp build to pin, and is Homebrew current enough or does the
-   harness build from a tag? **Homebrew.** `brew install llama.cpp` was at build
-   11429; the minimum is 9200 (MTP and the router need it), which
-   `claude-custom install` and `doctor` check, and `doctor` reports the running
-   build from `/props`. A source build at a pinned tag is deferred unless the
-   bench shows the packaged build is slow.
-
-`forcing full prompt re-processing` is logged only at verbosity 4. The
-LaunchAgent does not pass `--verbosity 4`, to keep the log small, so the
-incident watcher relies on `reprefilled/prompt-eval` (a prompt eval count close
-to the context or to the previous request's total) and keeps
-`reprefilled/full-reprocess` for a log that has it.
+   harness build from a tag?
 
 ## Sources
 

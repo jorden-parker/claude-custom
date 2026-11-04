@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -95,13 +96,6 @@ func TestViewListsSizesAndModels(t *testing.T) {
 	}
 }
 
-func TestViewTitleNamesNoOllama(t *testing.T) {
-	view := New(configured, embedding).View().Content
-	if strings.Contains(view, "Ollama") || !strings.Contains(view, "Pick a local model") {
-		t.Fatalf("title should be the llama-server picker's:\n%s", view)
-	}
-}
-
 func TestViewUsesAltScreen(t *testing.T) {
 	if !New(configured, embedding).View().AltScreen {
 		t.Fatal("inline rendering leaves a copy of the menu behind after each setup run")
@@ -126,7 +120,7 @@ func TestEmbeddingSetupResultShowsInView(t *testing.T) {
 }
 
 func TestEmbeddingSetupCommandSendsOutputToStderr(t *testing.T) {
-	cmd := setupCommand(embeddingSetup(), io.Discard)
+	cmd := setupCommand(embeddingSetup(embedding), io.Discard)
 	if cmd.Stdout != os.Stderr {
 		t.Fatal("setup output must go to stderr; stdout carries the chosen size")
 	}
@@ -149,27 +143,18 @@ func TestEnterOnEmbeddingRowPullsWithoutChoosing(t *testing.T) {
 	}
 }
 
-func TestEmbeddingSetupRunsLauncherPrepareEmbedding(t *testing.T) {
-	argsFile := filepath.Join(t.TempDir(), "args")
-	fakeLauncher(t, `printf '%s\n' "$*" > "`+argsFile+`"`)
-	cmd := setupCommand(embeddingSetup(), io.Discard)
-	cmd.Stdout = io.Discard
-	if err := cmd.Run(); err != nil {
-		t.Fatal(err)
-	}
-	got, err := os.ReadFile(argsFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(got) != "prepare-embedding\n" {
-		t.Fatalf("launcher got args %q", got)
+func TestEmbeddingSetupOnlyPulls(t *testing.T) {
+	got := setupCommand(embeddingSetup(embedding), io.Discard).Args
+	want := []string{"sh", "-c", `ollama pull "$1"`, "sh", embedding}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %q, want %q", got, want)
 	}
 }
 
 func TestEmbeddingSetupFailureShowsOllamaError(t *testing.T) {
-	fakeLauncher(t, "printf 'Error: pull model manifest: file does not exist\\n' >&2; exit 1")
+	fakeOllama(t, "printf 'Error: pull model manifest: file does not exist\\n' >&2; exit 1")
 	var output strings.Builder
-	cmd := setupCommand(embeddingSetup(), &output)
+	cmd := setupCommand(embeddingSetup(embedding), &output)
 	cmd.Stdout = io.Discard
 	msg := setupResult("embedding model", cmd.Run(), output.String())
 	if got := setupStatus(msg); got != "embedding model setup failed: pull model manifest: file does not exist" {
@@ -178,9 +163,9 @@ func TestEmbeddingSetupFailureShowsOllamaError(t *testing.T) {
 }
 
 func TestEmbeddingSetupFailureWithoutOllamaErrorShowsExitStatus(t *testing.T) {
-	fakeLauncher(t, "exit 3")
+	fakeOllama(t, "exit 3")
 	var output strings.Builder
-	cmd := setupCommand(embeddingSetup(), &output)
+	cmd := setupCommand(embeddingSetup(embedding), &output)
 	msg := setupResult("embedding model", cmd.Run(), output.String())
 	if got := setupStatus(msg); got != "embedding model setup failed: exit status 3" {
 		t.Fatalf("got %q", got)
@@ -261,11 +246,11 @@ func assertDetailsShareColumn(t *testing.T, view string, details []string) {
 	}
 }
 
-func fakeLauncher(t *testing.T, body string) {
+func fakeOllama(t *testing.T, body string) {
 	t.Helper()
 	dir := t.TempDir()
 	script := "#!/bin/sh\n" + body + "\n"
-	if err := os.WriteFile(filepath.Join(dir, "claude-ollama"), []byte(script), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "ollama"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))

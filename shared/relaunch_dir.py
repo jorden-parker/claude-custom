@@ -18,7 +18,7 @@ REQUESTS = {
     "ladder": {"rung": (str,), "context": (int,), "reason": (str,)},
     "ladder-up": {"rung": (str,), "reason": (str,)},
 }
-FLAGS = ("embed-off",)
+FLAGS = ("embed-off", "heartbeat-fast")
 EXIT_ABSENT = 1
 EXIT_USAGE = 2
 EXIT_NO_FOLDER = 3

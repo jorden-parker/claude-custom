@@ -1,7 +1,7 @@
 import { connection, NextResponse } from "next/server";
-import { modelServerHealth } from "@/lib/model-server-health";
+import { ollamaIsUp } from "@/lib/ollama-health";
 
 export async function GET() {
   await connection();
-  return NextResponse.json(await modelServerHealth());
+  return NextResponse.json({ up: await ollamaIsUp() });
 }

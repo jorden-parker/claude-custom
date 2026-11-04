@@ -4,101 +4,49 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"maps"
-	"os"
 	"os/exec"
-	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/jordenparker/claude-custom/go/internal/agent/launchd"
 	"github.com/jordenparker/claude-custom/go/internal/agent/variables"
 )
 
-const defaultModelsMax = "2"
-
-var ErrNoServer = errors.New("llama-server not found; run brew install llama.cpp, or pass -llama-server")
+var ErrAppRunning = errors.New("the Ollama app is running its own server; quit it from the menu bar, then rerun")
 
 type Setup struct {
-	Path          string
-	Server        launchd.Server
-	Recommended   map[string]string
-	OverridesPath string
-	Render        func() *exec.Cmd
-	Reload        func() *exec.Cmd
-	StopBrew      func() *exec.Cmd
-	BrewLoaded    bool
+	Path       string
+	Agent      launchd.Agent
+	ServerEnv  map[string]string
+	Reload     func() *exec.Cmd
+	StopBrew   func() *exec.Cmd
+	BrewLoaded bool
+	AppRunning bool
 }
 
-func (setup Setup) Values() (map[string]string, error) {
-	overrides, err := variables.Load(setup.OverridesPath)
+func ServerEnv(setup Setup, out io.Writer) error {
+	if setup.AppRunning {
+		return ErrAppRunning
+	}
+	current, _, err := launchd.Load(setup.Path)
 	if err != nil {
-		return nil, fmt.Errorf("reading %s: %w", setup.OverridesPath, err)
+		return fmt.Errorf("reading %s: %w", setup.Path, err)
 	}
-	return variables.Effective(setup.Recommended, overrides), nil
-}
-
-func (setup Setup) server(values map[string]string) launchd.Server {
-	server := setup.Server
-	server.ModelsMax = values[variables.ModelsMax]
-	if server.ModelsMax == "" {
-		server.ModelsMax = defaultModelsMax
-	}
-	return server
-}
-
-func Save(setup Setup, values map[string]string) (bool, error) {
-	if setup.Server.Program == "" {
-		return false, ErrNoServer
-	}
-	if err := variables.Save(setup.OverridesPath, variables.Overrides(setup.Recommended, values)); err != nil {
-		return false, fmt.Errorf("saving %s: %w", setup.OverridesPath, err)
-	}
-	if err := run(setup.Render(), "rendering the user presets"); err != nil {
-		return false, err
-	}
-	if err := os.MkdirAll(filepath.Dir(setup.Server.LogFile), 0o700); err != nil {
-		return false, err
-	}
-	written, err := launchd.Save(setup.Path, setup.server(values).Agent())
-	if err != nil {
-		return false, fmt.Errorf("saving %s: %w", setup.Path, err)
-	}
-	return written, nil
-}
-
-func Agent(setup Setup, out io.Writer) error {
-	values, err := setup.Values()
-	if err != nil {
-		return err
-	}
-	return saveAndReload(setup, values, "", out)
-}
-
-func Set(setup Setup, sets map[string]string, out io.Writer) error {
-	values, err := setup.Values()
-	if err != nil {
-		return err
-	}
-	maps.Copy(values, sets)
-	return saveAndReload(setup, values, "set "+strings.Join(slices.Sorted(maps.Keys(sets)), " ")+"; ", out)
-}
-
-func saveAndReload(setup Setup, values map[string]string, change string, out io.Writer) error {
-	written, err := Save(setup, values)
-	if err != nil {
-		return err
-	}
+	env, changed := variables.WithServerEnv(current, setup.ServerEnv)
 	if setup.BrewLoaded {
-		if err := run(setup.StopBrew(), "stopping brew services llama.cpp"); err != nil {
+		if err := run(setup.StopBrew(), "stopping brew services ollama"); err != nil {
 			return err
 		}
-		fmt.Fprintf(out, "stopped brew services llama.cpp; the %s agent runs the server now\n", launchd.Label)
+		fmt.Fprintf(out, "stopped brew services ollama; the %s agent runs the server now\n", setup.Agent.Label)
 	}
-	if err := run(setup.Reload(), "reloading "+launchd.Label); err != nil {
+	agent := setup.Agent
+	agent.Env = env
+	if err := launchd.Save(setup.Path, agent); err != nil {
+		return fmt.Errorf("saving %s: %w", setup.Path, err)
+	}
+	if err := run(setup.Reload(), "reloading "+setup.Agent.Label); err != nil {
 		return err
 	}
-	fmt.Fprintf(out, "%s%s; reloaded %s\n", change, describe(setup.Path, written), launchd.Label)
+	fmt.Fprintf(out, "%s: set %s; reloaded %s\n", setup.Path, describe(changed), setup.Agent.Label)
 	return nil
 }
 
@@ -110,9 +58,9 @@ func run(command *exec.Cmd, action string) error {
 	return nil
 }
 
-func describe(path string, written bool) string {
-	if written {
-		return "wrote " + path
+func describe(changed []string) string {
+	if len(changed) == 0 {
+		return "no new values"
 	}
-	return path + " unchanged"
+	return strings.Join(changed, " ")
 }

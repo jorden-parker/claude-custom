@@ -12,9 +12,6 @@ from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "shared"))
-from model_server import server_url
-
 DEFAULT_SINCE_MINUTES = 120
 COMMAND_LINE_CAP = 80
 LOG_TAIL_LINES = 60
@@ -44,6 +41,8 @@ def parse_args(argv):
     parser.add_argument("--lease-bin", required=True)
     parser.add_argument("--session-dir", required=True)
     parser.add_argument("--state-dir", required=True)
+    parser.add_argument("--ollama-url", required=True)
+    parser.add_argument("--server-env", required=True)
     parser.add_argument("--out")
     parser.add_argument("--since", type=int, default=DEFAULT_SINCE_MINUTES, help="minutes of proxy log to summarise")
     return parser.parse_args(argv)
@@ -69,7 +68,7 @@ def cap_tail(lines, limit):
     return [f"... {len(lines) - limit} earlier lines hidden"] + lines[-limit:]
 
 
-def run_command(argv, empty_ok=False):
+def run_command(argv):
     try:
         completed = subprocess.run(argv, capture_output=True, text=True, timeout=COMMAND_TIMEOUT_SECONDS)
     except FileNotFoundError:
@@ -81,9 +80,7 @@ def run_command(argv, empty_ok=False):
     lines = (completed.stdout + completed.stderr).splitlines()
     if completed.returncode != 0:
         lines.append(f"exit {completed.returncode}")
-    if lines or empty_ok:
-        return lines
-    return unavailable(f"{' '.join(argv)} printed nothing")
+    return lines or unavailable(f"{' '.join(argv)} printed nothing")
 
 
 def read_lines(path):
@@ -114,35 +111,38 @@ def fingerprint_section(options):
     return cap_head(run_command([options.fingerprint_bin]), COMMAND_LINE_CAP)
 
 
+def server_env_lines(path):
+    lines = read_lines(path)
+    if isinstance(lines, tuple):
+        return unavailable(f"no running Ollama server env ({lines[1]})")
+    kept = [line for line in lines if line.startswith("OLLAMA_")]
+    return cap_head(kept, COMMAND_LINE_CAP) or unavailable("the running server sets no OLLAMA_* variable")
+
+
 def fetch_json(url):
     with urllib.request.urlopen(url, timeout=HTTP_TIMEOUT_SECONDS) as response:
         return json.loads(response.read())
 
 
-def props_lines(props):
-    return [f"{key}: {props[key]}" for key in ("build_info", "role", "max_instances") if key in props]
-
-
-def model_line(entry):
-    status = (entry.get("status") or {}).get("value", "?")
-    meta = entry.get("meta") or {}
-    parts = [f"n_ctx {meta['n_ctx']}" if meta.get("n_ctx") else None,
-             f"{meta['size'] / GIB:.1f} GiB" if isinstance(meta.get("size"), (int, float)) and meta["size"] else None]
+def runner_line(entry):
+    name = entry.get("name", "?")
+    vram = entry.get("size_vram")
+    context = entry.get("context_length")
+    parts = [f"{vram / GIB:.1f} GiB vram" if isinstance(vram, (int, float)) else None, f"context {context}" if context else None]
     details = ", ".join(part for part in parts if part)
-    line = f"{entry.get('id', '?')} {status}"
-    return f"{line} ({details})" if details else line
+    return f"{name} ({details})" if details else name
+
+
+def runner_lines(ollama_url):
+    try:
+        models = fetch_json(ollama_url.rstrip("/") + "/api/ps").get("models") or []
+    except (OSError, urllib.error.URLError, ValueError) as error:
+        return unavailable(f"{ollama_url}/api/ps: {getattr(error, 'reason', error)}")
+    return [runner_line(entry) for entry in models] or ["no model loaded"]
 
 
 def server_section(options):
-    url = server_url().rstrip("/")
-    try:
-        props = fetch_json(url + "/props")
-        models = fetch_json(url + "/models").get("data") or []
-    except (OSError, urllib.error.URLError, ValueError, AttributeError) as error:
-        return [f"server: {url}"] + unavailable(f"{url}: {getattr(error, 'reason', error)}")
-    presets = [entry for entry in models if entry.get("source", "preset") == "preset"]
-    lines = [f"server: {url}"] + [line.replace("build_info:", "build:") for line in props_lines(props)]
-    return lines + ["models:"] + ([model_line(entry) for entry in presets] or ["no preset listed"])
+    return ["server env:"] + server_env_lines(options.server_env) + ["runners:"] + runner_lines(options.ollama_url)
 
 
 def lease_rung(lines):
@@ -154,7 +154,7 @@ def lease_rung(lines):
 
 
 def lease_section(options):
-    lines = run_command([options.lease_bin, "holders"], empty_ok=True)
+    lines = run_command([options.lease_bin, "holders"])
     if is_unavailable(lines):
         return lines
     holders = [line for line in lines if line and not line.startswith("exit ")]
@@ -287,7 +287,7 @@ def launcher_log_section(options):
 def server_log_section(options):
     lines = run_command([options.launcher, "logs", "--path"])
     if is_unavailable(lines) or lines[-1].startswith("exit "):
-        return unavailable("no llama-server log found (" + "; ".join(lines) + ")")
+        return unavailable("no Ollama server log found (" + "; ".join(lines) + ")")
     return file_tail(lines[0].strip(), LOG_TAIL_LINES)
 
 
@@ -348,12 +348,12 @@ def sections(options):
         ("Doctor", doctor_section(options)),
         ("Print config", print_config_section(options)),
         ("Sync fingerprint", fingerprint_section(options)),
-        ("Server and models", server_section(options)),
+        ("Server env and runners", server_section(options)),
         ("Lease holders and rung", lease_section(options)),
         (f"Incidents (last {INCIDENT_ROWS} rows)", incidents_section(options)),
         (f"Messages proxy (last {options.since} min)", proxy_section(options)),
         ("Launcher log tail", launcher_log_section(options)),
-        ("Server log tail", server_log_section(options)),
+        ("Ollama server log tail", server_log_section(options)),
         ("Newest handoff note", handoff_section(options)),
         ("Free memory", memory_section(options)),
     ]

@@ -7,8 +7,6 @@ trap 'rm -rf "$sandbox"' EXIT
 
 mkdir -p "$sandbox/.claude" "$sandbox/stubs"
 cp "$verify" "$sandbox/.claude/verify"
-mkdir -p "$sandbox/shared/testing"
-cp "$(dirname "$verify")/../shared/testing/test-guard" "$(dirname "$verify")/../shared/testing/test-guard.sb" "$sandbox/shared/testing/"
 cat > "$sandbox/stubs/make" <<STUB
 #!/bin/sh
 echo "make \$*" >> "$sandbox/run.log"
@@ -25,8 +23,7 @@ for test in shared/hooks/edit-check.test.sh shared/hooks/fallow-a.test.sh shared
   personal/install.test.sh bin/claude-ollama.test.sh bin/claude-ollama-doctor.test.sh bin/claude-ollama-qwen.test.sh bin/ollama-profiles.test.sh .claude/verify.test.sh \
   shared/hooks/hook_state.test.sh shared/hooks/tdd-guard.test.sh shared/hooks/context-budget.test.sh \
   ollama/drafts/opener.test.sh ollama/incidents/watcher.test.sh ollama/incidents/incident_log.test.sh shared/mcp/repo-tools.test.sh ollama/rescue.test.sh bin/ollama-lease.test.sh \
-  shared/hooks/hook_sandbox.test.sh shared/hooks/stop-verify.test.sh \
-  bin/lib/model-server.test.sh shared/testing/stub-llama-server.test.sh shared/model_server.test.sh; do
+  shared/hooks/hook_sandbox.test.sh shared/hooks/stop-verify.test.sh; do
   add_test "$test"
 done
 
@@ -66,9 +63,7 @@ check_ran 'the hook sandbox module runs the hooks it confines' "$checks|$hook_sa
 check_ran 'the hook sandbox profile runs the hooks it confines' "$checks|$hook_sandbox_tests" shared/hooks/hook-sandbox.sb
 check_ran 'installer runs install and launcher tests' "$checks|bin/claude-ollama.test.sh|personal/install.test.sh|" bin/claude-custom
 check_ran 'ollama config runs the launcher, doctor and qwen tests' "$checks|bin/claude-ollama-doctor.test.sh|bin/claude-ollama-qwen.test.sh|bin/claude-ollama.test.sh|" ollama/sizes.json
-check_ran 'a launcher library runs every test that sources it' "$checks|bin/claude-ollama-doctor.test.sh|bin/claude-ollama-qwen.test.sh|bin/claude-ollama.test.sh|bin/lib/model-server.test.sh|bin/ollama-lease.test.sh|" bin/lib/size-profile.sh
-check_ran 'the stub llama-server runs every test built on it' "$checks|bin/lib/model-server.test.sh|shared/model_server.test.sh|shared/testing/stub-llama-server.test.sh|" shared/testing/stub-llama-lib.sh
-check_ran 'the python model server module runs its sibling test' "$checks|shared/model_server.test.sh|" shared/model_server.py
+check_ran 'a launcher library runs every test that sources it' "$checks|bin/claude-ollama-doctor.test.sh|bin/claude-ollama-qwen.test.sh|bin/claude-ollama.test.sh|bin/ollama-lease.test.sh|" bin/lib/size-profile.sh
 check_ran 'the rescue report runs its tests and the launcher tests' "$checks|bin/claude-ollama.test.sh|ollama/rescue.test.sh|" ollama/rescue.py
 check_ran 'the residency lease runs its sibling test' "$checks|bin/ollama-lease.test.sh|" bin/ollama-lease
 check_ran 'the doctor runs its sibling test' "$checks|bin/claude-ollama-doctor.test.sh|" bin/claude-ollama-doctor

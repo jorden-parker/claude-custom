@@ -8,15 +8,15 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { gigabytes, namesToRemove, totalBytes, type WeightFile } from "@/lib/model-display";
+import { gigabytes, namesToRemove, totalBytes, type InstalledModel } from "@/lib/model-display";
 
 type PruneConfirmProps = {
-  files: WeightFile[];
+  models: InstalledModel[];
   onConfirm: (names: string[]) => void;
   onCancel: () => void;
 };
 
-export function PruneConfirm({ files, onConfirm, onCancel }: PruneConfirmProps) {
+export function PruneConfirm({ models, onConfirm, onCancel }: PruneConfirmProps) {
   return (
     <AlertDialog
       open
@@ -28,22 +28,22 @@ export function PruneConfirm({ files, onConfirm, onCancel }: PruneConfirmProps) 
     >
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Remove weight files</AlertDialogTitle>
+          <AlertDialogTitle>Remove Models</AlertDialogTitle>
           <AlertDialogDescription>
-            {files.length} files, {gigabytes(totalBytes(files))} GB freed.
+            {models.length} models, {gigabytes(totalBytes(models))} GB freed.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <ul className="flex flex-col gap-1 font-mono text-xs">
-          {files.map((file) => (
-            <li key={file.name}>
-              {file.name} <span className="text-muted-foreground">{gigabytes(file.bytes)} GB</span>
+          {models.map((model) => (
+            <li key={model.name}>
+              {model.name} <span className="text-muted-foreground">{gigabytes(model.bytes)} GB</span>
             </li>
           ))}
         </ul>
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction variant="destructive" onClick={() => onConfirm(namesToRemove(files))}>
-            Remove weight files
+          <AlertDialogAction variant="destructive" onClick={() => onConfirm(namesToRemove(models))}>
+            Remove Models
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

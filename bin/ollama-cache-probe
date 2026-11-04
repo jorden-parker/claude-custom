@@ -12,19 +12,19 @@ from dataclasses import dataclass
 from pathlib import Path
 
 REPO_DIR = Path(os.path.realpath(__file__)).parents[1]
-sys.path.insert(0, str(REPO_DIR / "shared"))
-
-import model_server
-
-SIZES_FILE = REPO_DIR / "ollama" / "sizes.json"
-DEFAULT_SIZE = "27b"
+PROFILE_DIR = REPO_DIR / "ollama"
+SIZES_FILE = PROFILE_DIR / "sizes.json"
+DEFAULT_MODEL = "27b"
+DEFAULT_BASE_URL = "http://localhost:11434"
 DEFAULT_PREFIX_TOKENS = 20000
+DEFAULT_SIDE_MODEL = "qwen3.5:4b"
+FALLBACK_CONTEXT_TOKENS = 65536
 CHARS_PER_TOKEN = 4
 LATE_EDIT_FRACTION = 0.8
 EARLY_EDIT_CHAR = 40
 SAME_PREFIX_LIMIT = 0.5
 REUSED_PERCENT = 80.0
-PROBE_MAX_TOKENS = 1
+NANOSECONDS_PER_SECOND = 1_000_000_000
 FILLER_LINE = "Section {number}: fixed filler text so every probe run sends the same bytes.\n"
 QUESTION_ONE = "Question one: summarise section one in one sentence."
 QUESTION_TWO = "Question two: summarise section two in one sentence."
@@ -32,6 +32,7 @@ ANSWER_ONE = "Section one is filler text about the probe."
 UNRELATED_PROMPT = "Reply with the word OK."
 TABLE_HEADER = ("scenario", "prompt", "evaluated", "hit %", "prefill s")
 REPLAY_HEADER = ("request", "prompt", "cached", "hit %", "prefill s")
+REPLAY_MAX_TOKENS = 1
 ANTHROPIC_VERSION = "2023-06-01"
 BASIS_TOKEN_COUNT = "token_count"
 BASIS_PREFILL_TIME = "prefill_time"
@@ -50,6 +51,8 @@ class Probe:
     base_url: str
     model: str
     prefix: str
+    side_model: str
+    num_ctx: int
 
 
 @dataclass
@@ -69,17 +72,33 @@ def positive_int(text):
 
 
 def parse_args(argv):
-    parser = argparse.ArgumentParser(description="Measure how much prompt prefill llama-server's cache skips.")
-    parser.add_argument("model", nargs="?", default=default_preset(), help="a llama-server preset id (default: the 27b's, %(default)s)")
+    parser = argparse.ArgumentParser(description="Measure how much prompt prefill Ollama's cache skips.")
+    parser.add_argument("model", nargs="?", default=DEFAULT_MODEL, help="a size (27b, 35b) or a model name")
     parser.add_argument("--prefix-tokens", type=positive_int, default=DEFAULT_PREFIX_TOKENS)
-    parser.add_argument("--base-url", default=model_server.server_url(), help="llama-server to probe (default: $LLAMA_SERVER_URL, else %(default)s)")
+    parser.add_argument("--side-model", default=DEFAULT_SIDE_MODEL)
+    parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
     parser.add_argument("--replay", help="folder of recorded /v1/messages bodies (messages-proxy --record) to send in ts order")
     parser.add_argument("--json", action="store_true")
     return parser.parse_args(argv)
 
 
-def default_preset():
-    return json.loads(SIZES_FILE.read_text())[DEFAULT_SIZE]["model"]
+def is_configured_size(size):
+    return (PROFILE_DIR / f"settings.{size}.json").is_file() and (PROFILE_DIR / f"Modelfile.{size}").is_file()
+
+
+def context_tokens(size_or_model):
+    sizes = json.loads(SIZES_FILE.read_text())
+    return sizes.get(size_or_model, {}).get("context", FALLBACK_CONTEXT_TOKENS)
+
+
+def resolve_model(argument):
+    if not is_configured_size(argument):
+        return argument
+    settings_path = PROFILE_DIR / f"settings.{argument}.json"
+    model = json.loads(settings_path.read_text()).get("model")
+    if not model:
+        raise ProbeError(f'{settings_path} has no "model" key')
+    return model
 
 
 def build_prefix(prefix_tokens):
@@ -116,6 +135,11 @@ def post_json(base_url, path, payload, headers=None):
         return json.loads(response.read())
 
 
+def get_json(base_url, path):
+    with urllib.request.urlopen(base_url + path, timeout=30) as response:
+        return json.loads(response.read())
+
+
 def user_message(content):
     return {"role": "user", "content": content}
 
@@ -128,30 +152,33 @@ def question_prompt(prefix, question):
     return f"{prefix}\n{question}"
 
 
-def send_messages(probe, body):
-    started = time.monotonic()
-    response = post_json(probe.base_url, "/v1/messages", body, {"anthropic-version": ANTHROPIC_VERSION, "x-api-key": "local"})
-    usage = response.get("usage") or {}
-    return usage, time.monotonic() - started
-
-
-def send_chat(probe, messages):
-    body = {"model": probe.model, "max_tokens": PROBE_MAX_TOKENS, "stream": False, "temperature": 0, "messages": messages}
-    usage, seconds = send_messages(probe, body)
-    return {"evaluated": usage.get("input_tokens", 0), "prefill_seconds": seconds}
+def send_chat(probe, model, messages):
+    response = post_json(
+        probe.base_url,
+        "/api/chat",
+        {
+            "model": model,
+            "messages": messages,
+            "stream": False,
+            "options": {"num_ctx": probe.num_ctx, "num_predict": 1, "temperature": 0},
+        },
+    )
+    return {
+        "evaluated": response.get("prompt_eval_count", 0),
+        "prefill_seconds": response.get("prompt_eval_duration", 0) / NANOSECONDS_PER_SECOND,
+    }
 
 
 def ask(probe, prefix, question):
-    return send_chat(probe, [user_message(question_prompt(prefix, question))])
+    return send_chat(probe, probe.model, [user_message(question_prompt(prefix, question))])
 
 
-def reload_model(probe):
-    model_server.unload(probe.model)
-    model_server.load(probe.model)
+def unload_model(probe):
+    post_json(probe.base_url, "/api/chat", {"model": probe.model, "messages": [], "keep_alive": 0})
 
 
 def cold(probe):
-    reload_model(probe)
+    unload_model(probe)
     return ask(probe, probe.prefix, QUESTION_ONE)
 
 
@@ -161,7 +188,7 @@ def growing_chat(probe):
         assistant_message(ANSWER_ONE),
         user_message(QUESTION_TWO),
     ]
-    return send_chat(probe, messages)
+    return send_chat(probe, probe.model, messages)
 
 
 def same_prefix(probe):
@@ -178,28 +205,38 @@ def early_edit(probe):
 
 def eviction(probe):
     ask(probe, probe.prefix, QUESTION_TWO)
-    send_chat(probe, [user_message(UNRELATED_PROMPT)])
+    send_chat(probe, probe.model, [user_message(UNRELATED_PROMPT)])
     return ask(probe, probe.prefix, QUESTION_TWO)
 
 
-SCENARIOS = [
-    Scenario("Cold", cold, "unloading and reloading the model, then processing the whole prompt (slowest step)"),
-    Scenario(
-        "Growing chat",
-        growing_chat,
-        "sending the prompt plus one more chat turn",
-        estimate_tokens(ANSWER_ONE + QUESTION_TWO),
-        estimated=True,
-    ),
-    Scenario("Same prefix", same_prefix, "sending the same prompt again"),
-    Scenario("Late edit", late_edit, "sending the prompt with a change near the end"),
-    Scenario("Early edit", early_edit, "sending the prompt with a change near the start"),
-    Scenario("Eviction", eviction, "sending an unrelated prompt, then the prompt again"),
-]
+def side_model(probe):
+    send_chat(probe, probe.side_model, [user_message(UNRELATED_PROMPT)])
+    return ask(probe, probe.prefix, QUESTION_TWO)
 
 
-def measure_scenarios(probe):
-    return [measure(probe, scenario, index, len(SCENARIOS)) for index, scenario in enumerate(SCENARIOS, 1)]
+def scenario_list(has_side_model):
+    scenarios = [
+        Scenario("Cold", cold, "unloading and reloading the model, then processing the whole prompt (slowest step)"),
+        Scenario(
+            "Growing chat",
+            growing_chat,
+            "sending the prompt plus one more chat turn",
+            estimate_tokens(ANSWER_ONE + QUESTION_TWO),
+            estimated=True,
+        ),
+        Scenario("Same prefix", same_prefix, "sending the same prompt again"),
+        Scenario("Late edit", late_edit, "sending the prompt with a change near the end"),
+        Scenario("Early edit", early_edit, "sending the prompt with a change near the start"),
+        Scenario("Eviction", eviction, "sending an unrelated prompt, then the prompt again"),
+    ]
+    if has_side_model:
+        scenarios.append(Scenario("Side model", side_model, "asking the side model, then the main prompt again"))
+    return scenarios
+
+
+def measure_scenarios(probe, has_side_model):
+    scenarios = scenario_list(has_side_model)
+    return [measure(probe, scenario, index, len(scenarios)) for index, scenario in enumerate(scenarios, 1)]
 
 
 def measure(probe, scenario, index, total):
@@ -257,7 +294,7 @@ def build_rows(measurements, basis):
 
 def warn_full_counts():
     print(
-        "ollama-cache-probe: warning: this llama-server appears to report full prompt counts "
+        "ollama-cache-probe: warning: this Ollama appears to report full prompt counts "
         "(Same prefix re-evaluated most of the prompt), so hit % uses prefill time per token",
         file=sys.stderr,
     )
@@ -272,8 +309,8 @@ def warn_negative_hits(rows):
             )
 
 
-def run_scenarios(probe):
-    measurements = measure_scenarios(probe)
+def run_scenarios(probe, has_side_model):
+    measurements = measure_scenarios(probe, has_side_model)
     basis = BASIS_PREFILL_TIME if cache_counts_look_full(measurements) else BASIS_TOKEN_COUNT
     if basis == BASIS_PREFILL_TIME:
         warn_full_counts()
@@ -282,13 +319,16 @@ def run_scenarios(probe):
     return basis, rows
 
 
-def loaded_models():
-    return [entry.get("id", "?") for entry in model_server.entries() if entry.get("status", {}).get("value") == "loaded"]
+def lists_model(base_url, name):
+    return name in [entry.get("name") for entry in get_json(base_url, "/api/tags").get("models", [])]
 
 
-def loaded_context(model):
-    found = model_server.entry(model) or {}
-    return found.get("meta", {}).get("n_ctx")
+def loaded_models(base_url):
+    return [entry.get("name", "?") for entry in get_json(base_url, "/api/ps").get("models", [])]
+
+
+def is_loaded(model, loaded):
+    return model in loaded or model in [name.removesuffix(":latest") for name in loaded]
 
 
 def note_loaded_model(model):
@@ -321,9 +361,9 @@ def print_table(basis, rows):
         print(format_row(table_cells(row)))
 
 
-def print_settings(probe, prefix_tokens, loaded: list[str], n_ctx):
+def print_settings(probe, prefix_tokens, loaded: list[str]):
     print(f"server: {probe.base_url}")
-    print(f"model: {probe.model}  n_ctx: {n_ctx or 'unknown'}  prefix: ~{prefix_tokens} tokens ({len(probe.prefix)} chars)")
+    print(f"model: {probe.model}  num_ctx: {probe.num_ctx}  prefix: ~{prefix_tokens} tokens ({len(probe.prefix)} chars)")
     print(f"loaded before run: {', '.join(loaded) or 'none'}")
     print(flush=True)
 
@@ -343,8 +383,7 @@ def cache_verdict(rows):
         return f"Cache: works; {timing}."
     return (
         f"Cache: NOT reused; {timing}. Every turn re-processes the whole prompt. "
-        "Check the preset's cache-reuse and ctx-checkpoints in ~/.claude-ollama/presets/models.ini "
-        "(ollama-agent -set ctx-checkpoints=256) and rerun."
+        "Try a GGUF (non-MLX) build of the model."
     )
 
 
@@ -357,22 +396,28 @@ def growing_verdict(rows):
 def eviction_verdict(rows):
     if is_reused(row_named(rows, "Eviction")):
         return "Eviction: the cache survived an unrelated request."
-    return (
-        "Eviction: an unrelated request wiped the cache. Give llama-server more prompt cache "
-        "(ollama-agent -set cache-ram=16384) and rerun."
-    )
+    return "Eviction: an unrelated request wiped the cache. Set OLLAMA_NUM_PARALLEL=2, restart Ollama and rerun."
 
 
-def print_verdict(rows):
+def side_model_verdict(rows, side_model):
+    row = row_named(rows, "Side model")
+    if row is None:
+        return f"Side model: skipped ({side_model} is not pulled)."
+    if is_reused(row):
+        return f"Side model: using {side_model} kept the main model's cache."
+    return f"Side model: using {side_model} wiped the main model's cache."
+
+
+def print_verdict(rows, side_model):
     print()
-    for line in (cache_verdict(rows), growing_verdict(rows), eviction_verdict(rows)):
+    for line in (cache_verdict(rows), growing_verdict(rows), eviction_verdict(rows), side_model_verdict(rows, side_model)):
         print(line)
 
 
-def json_report(args, probe, loaded: list[str], n_ctx, basis, rows):
+def json_report(args, probe, loaded: list[str], basis, rows):
     return {
         "model": probe.model,
-        "n_ctx": n_ctx,
+        "num_ctx": probe.num_ctx,
         "prefix_tokens": args.prefix_tokens,
         "loaded_models": loaded,
         "hit_basis": basis,
@@ -395,16 +440,18 @@ def replay_body(probe, path):
         raise ProbeError(f"{path}: {error}") from error
     if not isinstance(body, dict):
         raise ProbeError(f"{path} does not hold a JSON object")
-    body.update({"model": probe.model, "stream": False, "max_tokens": PROBE_MAX_TOKENS, "temperature": 0})
+    body.update({"model": probe.model, "stream": False, "max_tokens": REPLAY_MAX_TOKENS, "temperature": 0})
     return body
 
 
 def send_replay(probe, body):
-    usage, seconds = send_messages(probe, body)
+    started = time.monotonic()
+    response = post_json(probe.base_url, "/v1/messages", body, {"anthropic-version": ANTHROPIC_VERSION, "x-api-key": "local"})
+    usage = response.get("usage") or {}
     return {
         "prompt_tokens": usage.get("input_tokens", 0) + (usage.get("cache_read_input_tokens") or 0),
         "cached_tokens": usage.get("cache_read_input_tokens"),
-        "prefill_seconds": seconds,
+        "prefill_seconds": time.monotonic() - started,
     }
 
 
@@ -451,10 +498,10 @@ def print_replay_table(rows):
 
 def replay_report(args, probe):
     paths = replay_paths(args.replay)
-    reload_model(probe)
+    unload_model(probe)
     rows = replay_rows(probe, paths)
     if args.json:
-        report = {"model": probe.model, "n_ctx": loaded_context(probe.model), "replay_dir": args.replay, "replay": rows, "pairs": len(rows) - 1, "reused_pairs": reused_pairs(rows)}
+        report = {"model": probe.model, "num_ctx": probe.num_ctx, "replay_dir": args.replay, "replay": rows, "pairs": len(rows) - 1, "reused_pairs": reused_pairs(rows)}
         print(json.dumps(report, indent=2))
     else:
         print(f"server: {probe.base_url}")
@@ -464,51 +511,49 @@ def replay_report(args, probe):
 
 
 def make_probe(args):
-    return Probe(base_url=args.base_url, model=args.model, prefix=build_prefix(args.prefix_tokens))
-
-
-def require_server(base_url):
-    if not model_server.up():
-        raise ProbeError(f"cannot reach llama-server at {base_url}: start it, then rerun")
+    return Probe(
+        base_url=args.base_url,
+        model=resolve_model(args.model),
+        prefix=build_prefix(args.prefix_tokens),
+        side_model=args.side_model,
+        num_ctx=context_tokens(args.model),
+    )
 
 
 def report(args):
     probe = make_probe(args)
     if args.replay:
-        replay_paths(args.replay)
-    require_server(probe.base_url)
-    if args.replay:
         return replay_report(args, probe)
-    loaded = loaded_models()
-    if probe.model in loaded:
+    has_side_model = lists_model(probe.base_url, probe.side_model)
+    loaded = loaded_models(probe.base_url)
+    if is_loaded(probe.model, loaded):
         note_loaded_model(probe.model)
-    basis, rows = run_scenarios(probe)
-    n_ctx = loaded_context(probe.model)
+    if not args.json:
+        print_settings(probe, args.prefix_tokens, loaded)
+    basis, rows = run_scenarios(probe, has_side_model)
     if args.json:
-        print(json.dumps(json_report(args, probe, loaded, n_ctx, basis, rows), indent=2))
+        print(json.dumps(json_report(args, probe, loaded, basis, rows), indent=2))
     else:
-        print_settings(probe, args.prefix_tokens, loaded, n_ctx)
         print_table(basis, rows)
-        print_verdict(rows)
+        print_verdict(rows, probe.side_model)
     return 0
 
 
 def main(argv=None):
     args = parse_args(argv)
-    os.environ["LLAMA_SERVER_URL"] = args.base_url
     try:
         return report(args)
     except ProbeError as error:
         print(f"ollama-cache-probe: {error}", file=sys.stderr)
         return 1
     except urllib.error.HTTPError as error:
-        print(f"ollama-cache-probe: llama-server answered HTTP {error.code} at {error.url} (is {args.model} a preset?)", file=sys.stderr)
+        print(f"ollama-cache-probe: Ollama answered HTTP {error.code} at {error.url} (is the model pulled?)", file=sys.stderr)
         return 1
     except urllib.error.URLError as error:
-        print(f"ollama-cache-probe: cannot reach llama-server at {args.base_url} ({error.reason})", file=sys.stderr)
+        print(f"ollama-cache-probe: cannot reach Ollama at {args.base_url} ({error.reason})", file=sys.stderr)
         return 1
-    except (OSError, http.client.HTTPException, model_server.ModelServerError) as error:
-        print(f"ollama-cache-probe: request to llama-server at {args.base_url} failed ({error})", file=sys.stderr)
+    except (OSError, http.client.HTTPException) as error:
+        print(f"ollama-cache-probe: request to Ollama at {args.base_url} failed ({error})", file=sys.stderr)
         return 1
 
 

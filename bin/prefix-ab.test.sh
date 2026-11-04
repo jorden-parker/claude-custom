@@ -19,7 +19,6 @@ from pathlib import Path
 config_path, log_path, port_path = sys.argv[1:4]
 config = json.loads(Path(config_path).read_text())
 pending = list(config["responses"])
-loaded = set(config.get("loaded", []))
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -34,33 +33,13 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def model_entry(self, name):
-        if not config.get("router", True):
-            return {"id": name, "object": "model", "meta": {"n_ctx": 65536}}
-        return {"id": name, "aliases": [], "status": {"value": "loaded" if name in loaded else "unloaded"}}
-
-    def do_GET(self):
-        if self.path == "/health":
-            self.reply({"status": "ok"})
-        elif self.path == "/models":
-            self.reply({"data": [self.model_entry(name) for name in sorted(set(config.get("models", [])) | loaded)]})
-        else:
-            self.send_error(404)
-
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        with open(log_path, "a") as log:
+            log.write(json.dumps(body, sort_keys=True) + "\n")
         with open(log_path + ".meta", "a") as meta:
             meta.write("\t".join([self.path, self.headers.get("x-api-key") or "", self.headers.get("authorization") or ""]) + "\n")
-        if self.path == "/models/load":
-            loaded.add(body["model"])
-            self.reply({"success": True})
-        elif self.path == "/models/unload":
-            loaded.discard(body["model"])
-            self.reply({"success": True})
-        elif self.path == "/v1/messages":
-            with open(log_path, "a") as log:
-                log.write(json.dumps(body, sort_keys=True) + "\n")
-            loaded.add(body["model"])
+        if self.path == "/v1/messages":
             input_tokens, cached = pending.pop(0) if pending else [0, None]
             self.reply({"usage": {"input_tokens": input_tokens, "cache_read_input_tokens": cached, "output_tokens": 1}})
         else:
@@ -98,8 +77,6 @@ start_stub() {
   stop_stub
   run_dir="$(mktemp -d "$tmp/run.XXXXXX")"
   printf '%s' "$1" > "$run_dir/config.json"
-  : > "$run_dir/requests.log"
-  : > "$run_dir/requests.log.meta"
   python3 "$tmp/stub.py" "$run_dir/config.json" "$run_dir/requests.log" "$run_dir/port" 2> "$run_dir/stub.err" &
   stub_pid=$!
   for _ in $(seq 600); do
@@ -136,31 +113,25 @@ has_row() { printf '%s\n' "$1" | grep -Eq -- "$2"; }
 request_at() { sed -n "${1}p" "$run_dir/requests.log"; }
 meta_at() { sed -n "${1}p" "$run_dir/requests.log.meta"; }
 request_count() { wc -l < "$run_dir/requests.log" | tr -d ' '; }
-meta_paths() { cut -f1 "$run_dir/requests.log.meta" | tr '\n' ' '; }
-body_meta_at() { grep -n '^/v1/messages' "$run_dir/requests.log.meta" | sed -n "${1}p" | cut -d: -f2-; }
 system_texts_at() { request_at "$1" | jq -c '[.system[].text]'; }
-run_ab() { MODEL_LOAD_POLL=0.01 MODEL_LOAD_TIMEOUT=5 "$prefix_ab" --record "$tmp/record" --model qwen3.8-27b-cc --base-url "$base_url" "$@"; }
+run_ab() { "$prefix_ab" --record "$tmp/record" --model qwen3.8-27b-cc --base-url "$base_url" "$@"; }
 
 original_system='["The session began on Monday 2026-11-02.","You are a terse assistant.","Keep replies short."]'
 stabilized_system='["You are a terse assistant.","Keep replies short.\nThe session began on Monday 2026-11-02."]'
 
-router_cycle="/models/unload /models/load /v1/messages /v1/messages /v1/messages "
-loaded_model='"models": ["qwen3.8-27b-cc"], "loaded": ["qwen3.8-27b-cc"]'
-
-start_stub "{$loaded_model, \"responses\": [[1000, 0], [910, 100], [920, 100], [1000, 0], [110, 900], [70, 950]]}"
+start_stub '{"responses": [[1000, 0], [910, 100], [920, 100], [1000, 0], [110, 900], [70, 950]]}'
 table="$(run_ab 2> "$tmp/table.err")"
 status=$?
 check "exits 0" [ "$status" -eq 0 ]
-check "sends three bodies per pass" [ "$(request_count)" = 6 ]
-check "by default it unloads and reloads the model through /models before each pass" [ "$(meta_paths)" = "$router_cycle$router_cycle" ]
-check "it asks no Ollama route" [ -z "$(grep '^/api/' "$run_dir/requests.log.meta")" ]
-check "it never erases a slot on a router server" [ -z "$(grep '^/slots' "$run_dir/requests.log.meta")" ]
-check "the verbatim pass sends the recorded system untouched" [ "$(system_texts_at 2)" = "$original_system" ]
-check "the stabilized pass moves the volatile line after the stable prefix" [ "$(system_texts_at 5)" = "$stabilized_system" ]
-check "the stabilized pass keeps the messages" [ "$(request_at 5 | jq -r '.messages[0].content')" = "second turn" ]
-check "bodies go in ts order" [ "$(request_at 1 | jq -r '.messages[0].content')" = "first turn" ]
-check "the model is substituted" [ "$(request_at 1 | jq -r .model)" = qwen3.8-27b-cc ]
-check "one token without streaming" [ "$(request_at 1 | jq -c '[.max_tokens, .stream]')" = '[1,false]' ]
+check "sends an unload, three bodies, an unload and three bodies" [ "$(request_count)" = 8 ]
+check "unloads the model before the verbatim pass" [ "$(request_at 1 | jq -r .keep_alive)" = 0 ]
+check "unloads the model before the stabilized pass" [ "$(request_at 5 | jq -r .keep_alive)" = 0 ]
+check "the verbatim pass sends the recorded system untouched" [ "$(system_texts_at 3)" = "$original_system" ]
+check "the stabilized pass moves the volatile line after the stable prefix" [ "$(system_texts_at 7)" = "$stabilized_system" ]
+check "the stabilized pass keeps the messages" [ "$(request_at 7 | jq -r '.messages[0].content')" = "second turn" ]
+check "bodies go in ts order" [ "$(request_at 2 | jq -r '.messages[0].content')" = "first turn" ]
+check "the model is substituted" [ "$(request_at 2 | jq -r .model)" = qwen3.8-27b-cc ]
+check "one token without streaming" [ "$(request_at 2 | jq -c '[.max_tokens, .stream]')" = '[1,false]' ]
 check "the table names the basis" has_row "$table" "^hit % basis: cached token count"
 check "the table has a header" has_row "$table" "^request +verbatim +stabilized"
 check "the first request is the baseline in both columns" has_row "$table" "^zzz-first +- +-"
@@ -187,8 +158,8 @@ check "a lower stabilized hit rate is no gain" has_row "$worse" "^stabilize: no 
 
 start_stub '{"responses": [[1000, 0], [910, 100], [1000, 0], [110, 900]]}'
 limited="$(run_ab --limit 2 2>/dev/null)"
-check "--limit replays only the first N bodies" [ "$(request_count)" = 4 ]
-check "--limit keeps the ts order" [ "$(request_at 2 | jq -r '.messages[0].content')" = "second turn" ]
+check "--limit replays only the first N bodies" [ "$(request_count)" = 6 ]
+check "--limit keeps the ts order" [ "$(request_at 3 | jq -r '.messages[0].content')" = "second turn" ]
 check "--limit still prints a verdict" has_row "$limited" "^stabilize: worth it"
 
 start_stub '{"responses": [[1000, null], [1010, null], [1020, null], [1000, null], [1010, null], [1020, null]]}'
@@ -198,30 +169,25 @@ check "without cached counts each later request still gets a number" has_row "$t
 
 first_responses='{"responses": [[1000, 0], [910, 100], [920, 100], [1000, 0], [110, 900], [70, 950]]}'
 
-start_stub '{"router": false, "models": ["qwen3.8-27b-cc"], "responses": [[1000, 0], [910, 100], [920, 100], [1000, 0], [110, 900], [70, 950]]}'
-run_ab --unload llama-slots >/dev/null 2>&1
-check "--unload llama-slots on a one-model server erases slot 0 before each pass" [ "$(meta_paths)" = "/slots/0?action=erase /v1/messages /v1/messages /v1/messages /slots/0?action=erase /v1/messages /v1/messages /v1/messages " ]
-
-start_stub "{$loaded_model, \"responses\": []}"
-run_ab --unload llama-slots >/dev/null 2>&1
-check "--unload llama-slots on a router server reloads the model" [ "$(meta_paths)" = "$router_cycle$router_cycle" ]
-
 start_stub "$first_responses"
-run_ab --unload ollama >/dev/null 2>&1
-check "--unload ollama is still accepted" [ "$(meta_at 1 | cut -f1)" = /api/chat ]
+run_ab --unload llama-slots >/dev/null 2>&1
+check "--unload llama-slots erases slot 0 before the verbatim pass" [ "$(meta_at 1 | cut -f1)" = '/slots/0?action=erase' ]
+check "--unload llama-slots erases slot 0 before the stabilized pass" [ "$(meta_at 5 | cut -f1)" = '/slots/0?action=erase' ]
+check "--unload llama-slots sends the same number of requests" [ "$(request_count)" = 8 ]
 
 start_stub "$first_responses"
 run_ab --unload none >/dev/null 2>&1
-check "--unload none sends only the bodies" [ "$(meta_paths)" = "/v1/messages /v1/messages /v1/messages /v1/messages /v1/messages /v1/messages " ]
+check "--unload none sends only the bodies" [ "$(request_count)" = 6 ]
+check "--unload none starts with a message" [ "$(meta_at 1 | cut -f1)" = '/v1/messages' ]
 
 start_stub "$first_responses"
 run_ab --auth-token bench-token >/dev/null 2>&1
-check "--auth-token is sent as x-api-key" [ "$(body_meta_at 1 | cut -f2)" = 'bench-token' ]
-check "--auth-token is sent as a bearer token" [ "$(body_meta_at 1 | cut -f3)" = 'Bearer bench-token' ]
+check "--auth-token is sent as x-api-key" [ "$(meta_at 2 | cut -f2)" = 'bench-token' ]
+check "--auth-token is sent as a bearer token" [ "$(meta_at 2 | cut -f3)" = 'Bearer bench-token' ]
 
 start_stub "$first_responses"
 run_ab >/dev/null 2>&1
-check "the default token is local" [ "$(body_meta_at 1 | cut -f2)" = 'local' ]
+check "the default token is local" [ "$(meta_at 2 | cut -f2)" = 'local' ]
 
 bogus_status=0
 run_ab --unload bogus >/dev/null 2>&1 || bogus_status=$?
@@ -236,10 +202,7 @@ check "an empty record dir says so" grep -q "no .json bodies" "$tmp/empty.err"
 unreachable_status=0
 "$prefix_ab" --record "$tmp/record" --model m --base-url http://127.0.0.1:9 > /dev/null 2> "$tmp/unreachable.err" || unreachable_status=$?
 check "an unreachable server exits 1" [ "$unreachable_status" -eq 1 ]
-check "an unreachable server gets a clear message" grep -q "cannot reach llama-server at http://127.0.0.1:9" "$tmp/unreachable.err"
-
-LLAMA_SERVER_URL=http://127.0.0.1:9 "$prefix_ab" --help > "$tmp/help.out" 2>&1
-check "the default server is LLAMA_SERVER_URL" grep -qF "http://127.0.0.1:9" "$tmp/help.out"
+check "an unreachable server gets a clear message" grep -q "cannot reach Ollama" "$tmp/unreachable.err"
 
 stop_stub
 if [ "$failures" -ne 0 ]; then

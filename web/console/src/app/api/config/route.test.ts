@@ -25,7 +25,7 @@ describe("GET /api/config", () => {
     fs.mkdirSync(path.join(repo, "ollama"));
     fs.mkdirSync(path.join(repo, "bin"));
     fs.writeFileSync(path.join(repo, "ollama", "settings.27b.json"), "{}");
-    fs.writeFileSync(path.join(repo, "ollama", "sizes.json"), JSON.stringify({ "27b": {} }));
+    fs.writeFileSync(path.join(repo, "ollama", "Modelfile.27b"), "");
     fs.writeFileSync(path.join(repo, "bin", "claude-ollama"), STUB_LAUNCHER, { mode: 0o755 });
     process.env.CLAUDE_CUSTOM_HOME = repo;
   });

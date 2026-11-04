@@ -5,7 +5,7 @@ describe("settingsPathFor", () => {
   it("uses the personal overlay for claude-code and the size profile for Ollama", () => {
     expect(settingsPathFor("/repo", "claude-code")).toBe("/repo/personal/settings.tokens.json");
     expect(settingsPathFor("/repo", "ollama-27b")).toBe("/repo/ollama/settings.27b.json");
-    expect(settingsPathFor("/repo", "ollama-3b")).toBe("/repo/ollama/settings.3b.json");
+    expect(settingsPathFor("/repo", "ollama-35b-coding")).toBe("/repo/ollama/settings.35b-coding.json");
   });
 });
 

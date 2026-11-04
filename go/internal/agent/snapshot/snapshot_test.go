@@ -1,90 +1,108 @@
 package snapshot
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
-	"slices"
-	"strings"
+	"reflect"
 	"testing"
 
 	"github.com/jordenparker/claude-custom/go/internal/agent/launchd"
-	"github.com/jordenparker/claude-custom/go/internal/agent/variables"
 )
 
-var recommended = map[string]string{"cache-type-k": "q8_0", variables.ModelsMax: "2"}
+var recommended = map[string]string{"OLLAMA_KEEP_ALIVE": "30m", "OLLAMA_MAX_LOADED_MODELS": "2"}
 
-func paths(t *testing.T) (string, string) {
-	dir := t.TempDir()
-	return filepath.Join(dir, "local.llama-server.plist"), filepath.Join(dir, "server.local.ini")
-}
-
-func find(t *testing.T, state Snapshot, name string) Setting {
+func writePlist(t *testing.T, env map[string]string) string {
 	t.Helper()
-	at := slices.IndexFunc(state.Variables, func(setting Setting) bool { return setting.Name == name })
-	if at < 0 {
-		t.Fatalf("%s missing from %+v", name, state.Variables)
+	path := filepath.Join(t.TempDir(), "local.ollama.plist")
+	agent := launchd.Agent{Label: launchd.Label, Program: "/opt/homebrew/bin/ollama", LogPath: "/tmp/ollama.log", Env: env}
+	if err := launchd.Save(path, agent); err != nil {
+		t.Fatal(err)
 	}
-	return state.Variables[at]
+	return path
 }
 
-func TestBuildWithoutAgentOrOverridesShowsTheRecommendedValues(t *testing.T) {
-	plist, overrides := paths(t)
-	state, err := Build(plist, overrides, recommended, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if state.Exists || state.Path != plist || state.Overrides != overrides || state.Conflicts == nil {
-		t.Fatalf("state %+v", state)
-	}
-	setting := find(t, state, "cache-type-k")
-	if setting.Current != "q8_0" || setting.Set || setting.Recommended != "q8_0" || setting.Summary == "" {
-		t.Fatalf("setting %+v", setting)
-	}
-}
-
-func TestBuildMarksOverriddenKeys(t *testing.T) {
-	plist, overrides := paths(t)
-	t.Setenv("CLAUDE_CONSOLE_STATE_DIR", t.TempDir())
-	if err := variables.Save(overrides, map[string]string{variables.ModelsMax: "3"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := launchd.Save(plist, launchd.Server{Program: "/bin/llama-server", ModelsMax: "3"}.Agent()); err != nil {
-		t.Fatal(err)
-	}
-	state, err := Build(plist, overrides, recommended, []string{"brew services also runs llama.cpp"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	setting := find(t, state, variables.ModelsMax)
-	if !state.Exists || setting.Current != "3" || !setting.Set || setting.Recommended != "2" || len(state.Conflicts) != 1 {
-		t.Fatalf("state %+v, setting %+v", state, setting)
-	}
-}
-
-func TestBuildReportsABrokenOverridesFile(t *testing.T) {
-	plist, overrides := paths(t)
-	if err := os.WriteFile(overrides, []byte("[*]\nbroken\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := Build(plist, overrides, recommended, nil); err == nil {
-		t.Fatal("expected an error")
-	}
-}
-
-func TestJSONKeysStayStable(t *testing.T) {
-	plist, overrides := paths(t)
-	state, err := Build(plist, overrides, recommended, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	data, err := json.Marshal(state)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, key := range []string{`"path"`, `"exists"`, `"overrides"`, `"variables"`, `"conflicts"`, `"name"`, `"summary"`, `"current"`, `"set"`, `"recommended"`} {
-		if !strings.Contains(string(data), key) {
-			t.Errorf("missing %s in %s", key, data)
+func variableNamed(t *testing.T, snap Snapshot, name string) Variable {
+	t.Helper()
+	for _, variable := range snap.Variables {
+		if variable.Name == name {
+			return variable
 		}
+	}
+	t.Fatalf("no variable %s in %v", name, snap.Variables)
+	return Variable{}
+}
+
+func TestBuildReadsCurrentValuesFromThePlist(t *testing.T) {
+	path := writePlist(t, map[string]string{"OLLAMA_KEEP_ALIVE": "5m"})
+	snap, err := Build(path, recommended, nil)
+	if err != nil || !snap.Exists || snap.Path != path {
+		t.Fatalf("got %+v, %v", snap, err)
+	}
+	keepAlive := variableNamed(t, snap, "OLLAMA_KEEP_ALIVE")
+	want := Variable{Name: "OLLAMA_KEEP_ALIVE", Summary: "how long an idle model stays loaded (-1 = forever)", Current: "5m", Set: true, Recommended: "30m"}
+	if keepAlive != want {
+		t.Fatalf("got %+v, want %+v", keepAlive, want)
+	}
+	maxLoaded := variableNamed(t, snap, "OLLAMA_MAX_LOADED_MODELS")
+	if maxLoaded.Set || maxLoaded.Current != "" || maxLoaded.Recommended != "2" {
+		t.Fatalf("got %+v", maxLoaded)
+	}
+}
+
+func TestBuildListsVariablesInTheTUIOrder(t *testing.T) {
+	path := writePlist(t, map[string]string{"OLLAMA_CUSTOM": "x"})
+	snap, err := Build(path, recommended, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := make([]string, 0, len(snap.Variables))
+	for _, variable := range snap.Variables {
+		names = append(names, variable.Name)
+	}
+	last := names[len(names)-1]
+	if names[0] != "OLLAMA_KEEP_ALIVE" || last != "OLLAMA_CUSTOM" || len(names) != 12 {
+		t.Fatalf("got %v", names)
+	}
+}
+
+func TestBuildWithMissingPlistMarksEverythingUnset(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "missing.plist")
+	snap, err := Build(path, recommended, nil)
+	if err != nil || snap.Exists {
+		t.Fatalf("got %+v, %v", snap, err)
+	}
+	for _, variable := range snap.Variables {
+		if variable.Set {
+			t.Fatalf("%s is set without a plist", variable.Name)
+		}
+	}
+	if variableNamed(t, snap, "OLLAMA_KEEP_ALIVE").Recommended != "30m" {
+		t.Fatal("recommended values should still show")
+	}
+}
+
+func TestBuildPassesConflictsThrough(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "missing.plist")
+	snap, err := Build(path, recommended, []string{"brew services also runs ollama"})
+	if err != nil || !reflect.DeepEqual(snap.Conflicts, []string{"brew services also runs ollama"}) {
+		t.Fatalf("got %+v, %v", snap.Conflicts, err)
+	}
+}
+
+func TestBuildUsesAnEmptyListWithoutConflicts(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "missing.plist")
+	snap, err := Build(path, recommended, nil)
+	if err != nil || snap.Conflicts == nil || len(snap.Conflicts) != 0 {
+		t.Fatalf("got %#v, %v", snap.Conflicts, err)
+	}
+}
+
+func TestBuildReportsAPlistThatIsNotValid(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "bad.plist")
+	if err := os.WriteFile(path, []byte("<plist><dict><key>EnvironmentVariables"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Build(path, recommended, nil); err == nil {
+		t.Fatal("expected an error")
 	}
 }

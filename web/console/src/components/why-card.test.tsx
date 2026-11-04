@@ -23,7 +23,7 @@ const WHY_JSON = [
   ' "verdict": "evicted",',
   ' "summary": "the model left memory twice",',
   ' "evidence": "2 evicted rows, last 14:02:11",',
-  ' "fix": "models-max = 2",',
+  ' "fix": "OLLAMA_MAX_LOADED_MODELS=2",',
   ' "prefix": {"percent": 80, "stable": 8, "requests": 10},',
   ' "diverging": [{"section": "system", "count": 2}],',
   ' "incidents": {"evicted": 2},',
@@ -74,7 +74,7 @@ describe("WhyCard", () => {
       "2 evicted rows, last 14:02:11",
     );
     expect(screen.getByLabelText("fix").textContent).toBe(
-      "models-max = 2",
+      "OLLAMA_MAX_LOADED_MODELS=2",
     );
     expect(screen.getByLabelText("prefix hit rate").textContent).toBe(
       "80% of 10 requests stable through tools",

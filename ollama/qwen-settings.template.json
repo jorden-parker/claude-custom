@@ -17,15 +17,15 @@
   "privacy": { "usageStatisticsEnabled": false },
   "telemetry": { "enabled": false },
   "security": { "auth": { "selectedType": "openai" } },
-  "env": { "LLAMA_SERVER_API_KEY": "llama-server" },
+  "env": { "OLLAMA_API_KEY": "ollama" },
   "model": { "name": "MODEL" },
   "modelProviders": {
     "openai": [
       {
         "id": "MODEL",
-        "name": "MODEL (llama-server)",
-        "baseUrl": "http://127.0.0.1:11435/v1",
-        "envKey": "LLAMA_SERVER_API_KEY",
+        "name": "MODEL (Ollama)",
+        "baseUrl": "http://127.0.0.1:11434/v1",
+        "envKey": "OLLAMA_API_KEY",
         "generationConfig": {
           "contextWindowSize": 65536,
           "timeout": 1800000,

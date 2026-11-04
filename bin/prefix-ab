@@ -12,11 +12,8 @@ import urllib.request
 from pathlib import Path
 
 REPO_DIR = Path(os.path.realpath(__file__)).parents[1]
-sys.path.insert(0, str(REPO_DIR / "shared"))
-
-import model_server
-
 PROXY_SCRIPT = REPO_DIR / "bin" / "messages-proxy"
+DEFAULT_BASE_URL = "http://localhost:11434"
 ANTHROPIC_VERSION = "2023-06-01"
 REPLAY_MAX_TOKENS = 1
 UNLOAD_OLLAMA = "ollama"
@@ -45,9 +42,9 @@ def parse_args(argv):
     parser = argparse.ArgumentParser(description="Replay recorded /v1/messages bodies verbatim and through the prefix stabiliser, and compare cache hit rates.")
     parser.add_argument("--record", required=True, help="folder of recorded bodies (messages-proxy --record)")
     parser.add_argument("--model", required=True)
-    parser.add_argument("--base-url", default=model_server.server_url(), help="server to replay against (default: $LLAMA_SERVER_URL, else %(default)s)")
+    parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
     parser.add_argument("--limit", type=positive_int, help="replay only the first N bodies in ts order")
-    parser.add_argument("--unload", choices=[UNLOAD_OLLAMA, UNLOAD_LLAMA_SLOTS, UNLOAD_NONE], default=UNLOAD_LLAMA_SLOTS, help="how to clear the server's prompt cache before each pass (llama-slots: reload the preset on a router llama-server, else erase slot 0)")
+    parser.add_argument("--unload", choices=[UNLOAD_OLLAMA, UNLOAD_LLAMA_SLOTS, UNLOAD_NONE], default=UNLOAD_OLLAMA, help="how to clear the server's prompt cache before each pass")
     parser.add_argument("--auth-token", default=DEFAULT_AUTH_TOKEN)
     parser.add_argument("--json", action="store_true")
     return parser.parse_args(argv)
@@ -88,24 +85,11 @@ def post_json(base_url, path, payload, headers=None):
         return json.loads(response.read())
 
 
-def is_router_preset(model):
-    found = model_server.entry(model)
-    return bool(found) and "status" in found
-
-
-def clear_llama_cache(base_url, model):
-    if is_router_preset(model):
-        model_server.unload(model)
-        model_server.load(model)
-    else:
-        post_json(base_url, "/slots/0?action=erase", {})
-
-
 def clear_cache(base_url, model, unload_kind):
     if unload_kind == UNLOAD_OLLAMA:
         post_json(base_url, "/api/chat", {"model": model, "messages": [], "keep_alive": 0})
     elif unload_kind == UNLOAD_LLAMA_SLOTS:
-        clear_llama_cache(base_url, model)
+        post_json(base_url, "/slots/0?action=erase", {})
 
 
 def request_headers(auth_token):
@@ -231,20 +215,19 @@ def print_table(args, report):
 
 def main(argv=None):
     args = parse_args(argv)
-    os.environ["LLAMA_SERVER_URL"] = args.base_url
     try:
         report = compare(args, load_proxy_module())
     except PrefixAbError as error:
         print(f"prefix-ab: {error}", file=sys.stderr)
         return 1
     except urllib.error.HTTPError as error:
-        print(f"prefix-ab: the server answered HTTP {error.code} at {error.url} (is {args.model} a preset?)", file=sys.stderr)
+        print(f"prefix-ab: Ollama answered HTTP {error.code} at {error.url} (is the model pulled?)", file=sys.stderr)
         return 1
     except urllib.error.URLError as error:
-        print(f"prefix-ab: cannot reach llama-server at {args.base_url} ({error.reason})", file=sys.stderr)
+        print(f"prefix-ab: cannot reach Ollama at {args.base_url} ({error.reason})", file=sys.stderr)
         return 1
-    except (OSError, http.client.HTTPException, model_server.ModelServerError) as error:
-        print(f"prefix-ab: request to llama-server at {args.base_url} failed ({error})", file=sys.stderr)
+    except (OSError, http.client.HTTPException) as error:
+        print(f"prefix-ab: request to Ollama at {args.base_url} failed ({error})", file=sys.stderr)
         return 1
     if args.json:
         print(json.dumps(report, indent=2))

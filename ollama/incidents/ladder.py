@@ -38,6 +38,7 @@ def reprefilled_after(kind):
 
 RUNGS = (
     ("embeddings-off", reprefilled_after("embed"), "re-prefills after an embed request"),
+    ("heartbeat", reprefilled_after("expired"), "re-prefills after a keep-alive expiry"),
     ("context-down", lambda row: row.get("cause") == "truncated", "truncated prompts"),
 )
 DESCRIPTIONS = {name: description for name, _, description in RUNGS}
@@ -234,6 +235,8 @@ class Ladder:
     def fire(self, name, reason):
         if name == "embeddings-off":
             self.folder.raise_flag("embed-off")
+        elif name == "heartbeat":
+            self.folder.raise_flag("heartbeat-fast")
         elif name == "context-down":
             self.lower_context(reason)
         self.log.record(incident(now_iso(), "degraded", f"{name}: {reason}", rule=f"ladder/{name}"))

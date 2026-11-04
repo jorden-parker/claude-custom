@@ -14,10 +14,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent
 DEFAULT_REVIEWER = SCRIPT_DIR / "pr-review-local"
 DEFAULT_SCENARIOS = REPO_ROOT / "eval" / "pr-review" / "scenarios"
-sys.path.insert(0, str(REPO_ROOT / "shared"))
-
-import model_server
-
+DEFAULT_BASE_URL = "http://localhost:11434"
 TEMP_PREFIX = "pr-review-eval-"
 LINE_WINDOW = 3
 PRAISE = "praise"
@@ -92,7 +89,7 @@ def parse_args(argv):
         description="Run pr-review-local on each eval scenario and print a scorecard. Arguments after -- go to the reviewer."
     )
     parser.add_argument("--model", required=True)
-    parser.add_argument("--base-url", default=model_server.server_url())
+    parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
     parser.add_argument("--reviewer", type=Path, default=DEFAULT_REVIEWER)
     parser.add_argument("--scenarios", type=Path, default=DEFAULT_SCENARIOS)
     parser.add_argument("--scenario", action="append")

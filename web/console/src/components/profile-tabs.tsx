@@ -16,7 +16,7 @@ import type { ProfileDetail } from "@/lib/profile-base";
 import {
   CONTEXT_CAP,
   CONTEXT_MINIMUM,
-  LOCAL_MCP_SERVERS,
+  OLLAMA_MCP_SERVERS,
   OUTPUT_TOKENS_RANGE,
   PARAMETER_RANGES,
   PROFILE_ENV_FIELDS,
@@ -234,7 +234,7 @@ export function ProfileMcpHooksTab({ detail, draft, update }: ProfileTabProps) {
             Claude Code uses the MCP servers in your own settings.
           </p>
         ) : (
-          LOCAL_MCP_SERVERS.map((name) => (
+          OLLAMA_MCP_SERVERS.map((name) => (
             <McpSwitch
               key={name}
               name={name}

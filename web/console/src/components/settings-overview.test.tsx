@@ -1,10 +1,6 @@
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PROFILE_ENV_FIELDS } from "@/lib/profile-rules";
 import { SettingsOverview } from "./settings-overview";
-
-const labelOf = (key: string) =>
-  PROFILE_ENV_FIELDS.find((field) => field.key === key)?.label ?? key;
 
 const PROFILES = [
   {
@@ -25,7 +21,7 @@ const PROFILES = [
     overrides: 2,
     env: {
       CLAUDE_OLLAMA_LEASE: "0",
-      CLAUDE_OLLAMA_HANDOFF_PCT: "60",
+      CLAUDE_OLLAMA_LEASE_HEARTBEAT: "60",
       CLAUDE_OLLAMA_TEST_AFTER_EDIT: "0",
     },
   },
@@ -62,25 +58,25 @@ describe("SettingsOverview", () => {
     );
     render(<SettingsOverview />);
 
-    await screen.findByText(labelOf("CLAUDE_OLLAMA_LEASE"));
+    await screen.findByText("Hold an Ollama residency lease and heartbeat");
     expect(
       document.querySelector('[data-slot="table-container"] table'),
     ).not.toBeNull();
     const lease = rowFor("CLAUDE_OLLAMA_LEASE");
     expect(lease.getAllByRole("cell").map((cell) => cell.textContent)).toEqual([
-      `${labelOf("CLAUDE_OLLAMA_LEASE")}CLAUDE_OLLAMA_LEASE`,
+      "Hold an Ollama residency lease and heartbeatCLAUDE_OLLAMA_LEASE",
       "on",
       "n/a",
       "off",
       "default",
     ]);
     expect(
-      rowFor("CLAUDE_OLLAMA_HANDOFF_PCT")
+      rowFor("CLAUDE_OLLAMA_LEASE_HEARTBEAT")
         .getAllByRole("cell")
         .map((cell) => cell.textContent),
     ).toEqual([
-      `${labelOf("CLAUDE_OLLAMA_HANDOFF_PCT")}CLAUDE_OLLAMA_HANDOFF_PCT`,
-      "70",
+      "Seconds between keep-alive heartbeatsCLAUDE_OLLAMA_LEASE_HEARTBEAT",
+      "120",
       "n/a",
       "60",
       "default",
@@ -142,7 +138,7 @@ describe("SettingsOverview", () => {
     }
     expect(
       screen.getAllByRole("row", {
-        name: /^(Prompt and context|Guards|Model residency|Diagnostics|Browser)$/,
+        name: /^(Prompt and context|Guards|Ollama residency|Diagnostics|Browser)$/,
       }),
     ).toHaveLength(5);
   });

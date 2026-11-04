@@ -26,14 +26,14 @@ export type ProfileSummary = {
 };
 
 const CLAUDE_CODE_PROFILE = "claude-code";
-const LOCAL_PROFILE_PREFIX = "ollama-";
+const OLLAMA_PREFIX = "ollama-";
 const HISTORY_KIND = "profile";
 const EMPTY_TEXT = "{}\n";
 
 export function profileIds(): string[] {
   return [
     CLAUDE_CODE_PROFILE,
-    ...listSizes().map((size) => `${LOCAL_PROFILE_PREFIX}${size}`),
+    ...listSizes().map((size) => `${OLLAMA_PREFIX}${size}`),
   ];
 }
 
@@ -46,7 +46,7 @@ export function profileKind(id: string): ProfileKind {
 }
 
 export function sizeOfProfile(id: string): string | null {
-  return id.startsWith(LOCAL_PROFILE_PREFIX) ? id.slice(LOCAL_PROFILE_PREFIX.length) : null;
+  return id.startsWith(OLLAMA_PREFIX) ? id.slice(OLLAMA_PREFIX.length) : null;
 }
 
 export function profileTitle(id: string): string {

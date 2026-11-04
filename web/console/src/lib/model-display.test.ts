@@ -4,34 +4,33 @@ import {
   namesToRemove,
   sizeStateOf,
   totalBytes,
+  type InstalledModel,
   type SizeStatus,
-  type WeightFile,
 } from "./model-display";
 
 describe("model display helpers", () => {
   const size = (overrides: Partial<SizeStatus>): SizeStatus => ({
     size: "27b",
     model: "qwen3.8-27b-cc",
-    file: "Qwen3.8-27B-UD-Q4_K_XL.gguf",
-    state: "pinned",
+    base: "qwen3.8:27b-mlx",
+    installed: true,
+    class: "profile",
     ...overrides,
   });
 
-  it("tells installed, missing, partial and mismatched sizes apart", () => {
+  it("tells installed, missing and mismatched sizes apart", () => {
     expect(sizeStateOf(size({}))).toBe("installed");
-    expect(sizeStateOf(size({ state: null }))).toBe("missing");
-    expect(sizeStateOf(size({ state: "orphan" }))).toBe("missing");
-    expect(sizeStateOf(size({ state: "partial" }))).toBe("partial");
-    expect(sizeStateOf(size({ state: "mismatch" }))).toBe("mismatch");
+    expect(sizeStateOf(size({ installed: false, class: null }))).toBe("missing");
+    expect(sizeStateOf(size({ class: "mismatch" }))).toBe("mismatch");
   });
 
   it("lists the names to remove, in order, and their total size", () => {
-    const files: WeightFile[] = [
-      { name: "Old-Q4_K_M.gguf", state: "orphan", size: null, bytes: 1_500_000_000 },
-      { name: "Half.gguf.part", state: "partial", size: "27b", bytes: 2_000_000_000 },
+    const models: InstalledModel[] = [
+      { name: "a:latest", class: "orphan", bytes: 1_500_000_000, loaded: false },
+      { name: "b/c:7b", class: "third-party", bytes: 2_000_000_000, loaded: true },
     ];
 
-    expect(namesToRemove(files)).toEqual(["Old-Q4_K_M.gguf", "Half.gguf.part"]);
-    expect(gigabytes(totalBytes(files))).toBe("3.5");
+    expect(namesToRemove(models)).toEqual(["a:latest", "b/c:7b"]);
+    expect(gigabytes(totalBytes(models))).toBe("3.5");
   });
 });

@@ -22,35 +22,19 @@ describe("configuredSizes", () => {
     fs.writeFileSync(path.join(profileDir, name), "");
   }
 
-  function writeSizes(sizes: string[]) {
-    fs.writeFileSync(path.join(profileDir, "sizes.json"), JSON.stringify(Object.fromEntries(sizes.map((size) => [size, {}]))));
-  }
-
-  it("lists sorted sizes that have a settings file and a sizes.json entry", () => {
+  it("lists sorted sizes that have both a settings file and a Modelfile", () => {
     touch("settings.35b.json");
+    touch("Modelfile.35b");
     touch("settings.27b.json");
-    writeSizes(["27b", "35b"]);
+    touch("Modelfile.27b");
     expect(configuredSizes(repo)).toEqual(["27b", "35b"]);
   });
 
-  it("leaves out a size missing either the settings file or its entry", () => {
+  it("leaves out a size missing either file", () => {
     touch("settings.27b.json");
+    touch("Modelfile.27b");
     touch("settings.9b.json");
-    writeSizes(["27b", "4b"]);
-    expect(configuredSizes(repo)).toEqual(["27b"]);
-  });
-
-  it("lists nothing when sizes.json is missing or unreadable", () => {
-    touch("settings.27b.json");
-    expect(configuredSizes(repo)).toEqual([]);
-    touch("sizes.json");
-    expect(configuredSizes(repo)).toEqual([]);
-  });
-
-  it("never needs a Modelfile", () => {
-    touch("settings.27b.json");
-    writeSizes(["27b"]);
-    expect(fs.existsSync(path.join(profileDir, "Modelfile.27b"))).toBe(false);
+    touch("Modelfile.4b");
     expect(configuredSizes(repo)).toEqual(["27b"]);
   });
 

@@ -4,139 +4,194 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { modelsSnapshot, type ModelsDeps } from "./models";
 import type { RunOnceResult } from "./run-once";
-import { closedPortUrl, startStubLlama, STUB_MODELS, type StubLlama } from "./stub-llama-test-support";
 
 const LISTING = [
-  "pinned   Qwen3.8-27B-UD-Q4_K_XL.gguf 27b",
-  "mismatch Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf 35b",
-  "candidate    Qwen3.8-27B-UD-Q4_K_XL.gguf.next",
-  "orphan   Old-Model-Q4_K_M.gguf",
-  "partial  Half-Model.gguf.part",
-  "a line that is not a listing",
+  "profile      qwen3.8-27b-cc",
+  "mismatch     qwen3.6-35b-cc",
+  "third-party  someone/model:latest",
+  "orphan       old-cc:latest",
 ].join("\n");
+
+const TAGS = {
+  models: [
+    { name: "qwen3.8-27b-cc", size: 18_000_000_000 },
+    { name: "qwen3.6-35b-cc", size: 20_000_000_000 },
+    { name: "someone/model:latest", size: 2_000_000_000 },
+    { name: "old-cc:latest", size: 1_000_000_000 },
+  ],
+};
+
+const PS = { models: [{ name: "qwen3.8-27b-cc", size_vram: 18_000_000_000 }] };
 
 describe("modelsSnapshot", () => {
   let repo: string;
-  let weights: string;
   let argvs: string[][];
-  let stub: StubLlama | null;
 
   beforeEach(() => {
     repo = fs.mkdtempSync(path.join(os.tmpdir(), "models-"));
-    weights = path.join(repo, "weights");
     fs.mkdirSync(path.join(repo, "ollama"));
-    fs.mkdirSync(weights);
-    fs.writeFileSync(path.join(weights, "Qwen3.8-27B-UD-Q4_K_XL.gguf"), "x".repeat(2048));
-    fs.writeFileSync(path.join(weights, "Old-Model-Q4_K_M.gguf"), "x".repeat(512));
-    writeSizes({
-      "27b": { model: "qwen3.8-27b-cc", file: "Qwen3.8-27B-UD-Q4_K_XL.gguf" },
-      "35b": { model: "qwen3.6-35b-cc", file: "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf" },
-    });
-    fs.writeFileSync(
-      path.join(repo, "ollama", "embedding.json"),
-      JSON.stringify({ model: "qwen3-embedding:0.6b", gguf: { file: "Qwen3-Embedding-0.6B-Q8_0.gguf" } }),
-    );
+    writeSize("27b", "qwen3.8-27b-cc", "qwen3.8:27b-mlx");
+    writeSize("35b", "qwen3.6-35b-cc", "qwen3.6:35b-mlx");
     argvs = [];
-    stub = null;
   });
 
-  afterEach(async () => {
-    await stub?.stop();
+  afterEach(() => {
     fs.rmSync(repo, { recursive: true, force: true });
   });
 
-  function writeSizes(sizes: Record<string, { model: string; file: string }>) {
-    const entries = Object.entries(sizes).map(([size, { model, file }]) => {
-      fs.writeFileSync(path.join(repo, "ollama", `settings.${size}.json`), JSON.stringify({ model }));
-      return [size, { model, gguf: { file } }];
-    });
-    fs.writeFileSync(path.join(repo, "ollama", "sizes.json"), JSON.stringify(Object.fromEntries(entries)));
+  function writeSize(size: string, model: string, base: string) {
+    fs.writeFileSync(path.join(repo, "ollama", `settings.${size}.json`), JSON.stringify({ model }));
+    fs.writeFileSync(path.join(repo, "ollama", `Modelfile.${size}`), `FROM ${base}\n`);
   }
 
-  async function deps(overrides: Partial<ModelsDeps> = {}): Promise<ModelsDeps> {
-    stub = await startStubLlama({ models: STUB_MODELS, loaded: ["qwen3.8-27b-cc"] });
+  function deps(overrides: Partial<ModelsDeps> = {}): ModelsDeps {
     return {
       repoDir: repo,
-      serverUrl: stub.url,
-      weightsDir: weights,
+      ollamaUrl: "http://localhost:11434",
       runOnce: async (argv): Promise<RunOnceResult> => {
         argvs.push([...argv]);
         return { code: 0, stdout: LISTING, stderr: "" };
       },
+      fetch: fakeFetch({ "/api/tags": TAGS, "/api/ps": PS }),
       ...overrides,
     };
   }
 
-  it("joins the sizes, the server's presets and the weight files", async () => {
-    const snapshot = await modelsSnapshot(await deps());
+  it("merges sizes, installed models and prunable names", async () => {
+    const snapshot = await modelsSnapshot(deps());
 
-    expect(argvs).toEqual([[`${repo}/bin/ollama-models`, "list"]]);
-    expect(snapshot.server).toBe("up");
-    expect(snapshot.serverUrl).toBe(stub?.url);
+    expect(argvs).toEqual([
+      [`${repo}/bin/ollama-models`, "list"],
+      [`${repo}/bin/claude-ollama`, "--print-config", "27b"],
+    ]);
+    expect(snapshot.ollama).toBe("up");
     expect(snapshot.sizes).toEqual([
-      { size: "27b", model: "qwen3.8-27b-cc", file: "Qwen3.8-27B-UD-Q4_K_XL.gguf", state: "pinned" },
-      { size: "35b", model: "qwen3.6-35b-cc", file: "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf", state: "mismatch" },
+      { size: "27b", model: "qwen3.8-27b-cc", base: "qwen3.8:27b-mlx", installed: true, class: "profile" },
+      { size: "35b", model: "qwen3.6-35b-cc", base: "qwen3.6:35b-mlx", installed: true, class: "mismatch" },
     ]);
-    expect(snapshot.presets).toEqual([
-      { id: "qwen3.8-27b-cc", aliases: [], status: "loaded", bytes: 17_000_000_000 },
-      { id: "qwen3.8-27b-cc@think", aliases: [], status: "unloaded", bytes: null },
-      { id: "qwen3-embedding-0.6b", aliases: ["qwen3-embedding:0.6b"], status: "unloaded", bytes: null },
+    expect(snapshot.models).toEqual([
+      { name: "qwen3.8-27b-cc", class: "profile", bytes: 18_000_000_000, loaded: true },
+      { name: "qwen3.6-35b-cc", class: "mismatch", bytes: 20_000_000_000, loaded: false },
+      { name: "someone/model:latest", class: "third-party", bytes: 2_000_000_000, loaded: false },
+      { name: "old-cc:latest", class: "orphan", bytes: 1_000_000_000, loaded: false },
     ]);
-    expect(snapshot.files).toEqual([
-      { name: "Qwen3.8-27B-UD-Q4_K_XL.gguf", state: "pinned", size: "27b", bytes: 2048 },
-      { name: "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf", state: "mismatch", size: "35b", bytes: 0 },
-      { name: "Qwen3.8-27B-UD-Q4_K_XL.gguf.next", state: "candidate", size: null, bytes: 0 },
-      { name: "Old-Model-Q4_K_M.gguf", state: "orphan", size: null, bytes: 512 },
-      { name: "Half-Model.gguf.part", state: "partial", size: null, bytes: 0 },
-    ]);
-    expect(snapshot.prunable).toEqual(["Old-Model-Q4_K_M.gguf", "Half-Model.gguf.part"]);
+    expect(snapshot.prunable).toEqual(["someone/model:latest", "old-cc:latest"]);
   });
 
-  it("marks a size missing when its file is not listed", async () => {
-    const snapshot = await modelsSnapshot(await deps({ runOnce: async () => ({ code: 0, stdout: "", stderr: "" }) }));
+  it("marks a size missing when its model is not in the list", async () => {
+    const snapshot = await modelsSnapshot(deps({ runOnce: async () => ({ code: 0, stdout: "", stderr: "" }) }));
 
     expect(snapshot.sizes[0]).toEqual({
       size: "27b",
       model: "qwen3.8-27b-cc",
-      file: "Qwen3.8-27B-UD-Q4_K_XL.gguf",
-      state: null,
+      base: "qwen3.8:27b-mlx",
+      installed: false,
+      class: null,
     });
   });
 
-  it("matches a size's half-downloaded file as partial", async () => {
-    const listing = "partial Qwen3.8-27B-UD-Q4_K_XL.gguf.part 27b";
-    const snapshot = await modelsSnapshot(await deps({ runOnce: async () => ({ code: 0, stdout: listing, stderr: "" }) }));
+  it("matches a size model with or without the :latest tag", async () => {
+    const listing = "profile      qwen3.8-27b-cc:latest";
+    const snapshot = await modelsSnapshot(deps({ runOnce: async () => ({ code: 0, stdout: listing, stderr: "" }) }));
 
-    expect(snapshot.sizes[0]?.state).toBe("partial");
+    expect(snapshot.sizes[0]).toMatchObject({ installed: true, class: "profile" });
   });
 
-  it("reports the embedding preset's file state and server status by its alias", async () => {
-    const listing = "pinned Qwen3-Embedding-0.6B-Q8_0.gguf embedding";
-    const snapshot = await modelsSnapshot(await deps({ runOnce: async () => ({ code: 0, stdout: listing, stderr: "" }) }));
+  it("does not match a different tag of the size model", async () => {
+    const listing = "profile      qwen3.8-27b-cc:7b";
+    const snapshot = await modelsSnapshot(deps({ runOnce: async () => ({ code: 0, stdout: listing, stderr: "" }) }));
 
-    expect(snapshot.embedding).toEqual({
-      model: "qwen3-embedding:0.6b",
-      file: "Qwen3-Embedding-0.6B-Q8_0.gguf",
-      state: "pinned",
-      status: "unloaded",
+    expect(snapshot.sizes[0]?.installed).toBe(false);
+  });
+
+  it("reports Ollama as down with empty lists when it does not answer", async () => {
+    const snapshot = await modelsSnapshot(deps({ fetch: async () => { throw new TypeError("fetch failed"); } }));
+
+    expect(snapshot).toEqual({
+      ollama: "down",
+      sizes: [],
+      models: [],
+      prunable: [],
+      embedding: { name: null, installed: false },
     });
+    expect(argvs).toEqual([]);
   });
 
-  it("reports no embedding without an embedding file", async () => {
-    fs.rmSync(path.join(repo, "ollama", "embedding.json"));
+  it("reads the embedding model name from print-config of the first size", async () => {
+    const snapshot = await modelsSnapshot(deps({ runOnce: printConfigRunner("embedding model: test-embed:0.6b\n") }));
 
-    const snapshot = await modelsSnapshot(await deps());
-
-    expect(snapshot.embedding).toEqual({ model: null, file: null, state: null, status: null });
+    expect(snapshot.embedding).toEqual({ name: "test-embed:0.6b", installed: false });
   });
 
-  it("keeps the files and sizes but lists no presets when the server is down", async () => {
-    const snapshot = await modelsSnapshot(await deps({ serverUrl: await closedPortUrl() }));
+  it("marks the embedding model installed when its name is in the tags", async () => {
+    const tags = { models: [{ name: "test-embed:0.6b", size: 1_000_000 }] };
+    const snapshot = await modelsSnapshot(
+      deps({
+        runOnce: printConfigRunner("embedding model: test-embed:0.6b\n"),
+        fetch: fakeFetch({ "/api/tags": tags, "/api/ps": PS }),
+      }),
+    );
 
-    expect(snapshot.server).toBe("down");
-    expect(snapshot.presets).toEqual([]);
-    expect(snapshot.sizes).toHaveLength(2);
-    expect(snapshot.files).toHaveLength(5);
-    expect(snapshot.embedding.status).toBeNull();
+    expect(snapshot.embedding).toEqual({ name: "test-embed:0.6b", installed: true });
+  });
+
+  it("matches the embedding model with or without the :latest tag", async () => {
+    const tags = { models: [{ name: "test-embed:latest", size: 1_000_000 }] };
+    const snapshot = await modelsSnapshot(
+      deps({
+        runOnce: printConfigRunner("embedding model: test-embed\n"),
+        fetch: fakeFetch({ "/api/tags": tags, "/api/ps": PS }),
+      }),
+    );
+
+    expect(snapshot.embedding).toEqual({ name: "test-embed", installed: true });
+  });
+
+  it("reports no embedding name when print-config has no embedding line", async () => {
+    const snapshot = await modelsSnapshot(deps({ runOnce: printConfigRunner("model: qwen\n") }));
+
+    expect(snapshot.embedding).toEqual({ name: null, installed: false });
+  });
+
+  it("runs print-config once per repo across snapshots", async () => {
+    const runner = printConfigRunner("embedding model: test-embed:0.6b\n");
+    const countingDeps = deps({
+      runOnce: async (argv, options) => {
+        argvs.push([...argv]);
+        return runner(argv, options);
+      },
+    });
+
+    await modelsSnapshot(countingDeps);
+    const second = await modelsSnapshot(countingDeps);
+
+    expect(argvs.filter((argv) => argv.includes("--print-config"))).toHaveLength(1);
+    expect(second.embedding.name).toBe("test-embed:0.6b");
+  });
+
+  it("asks Ollama with the configured URL", async () => {
+    const urls: string[] = [];
+    await modelsSnapshot(deps({ ollamaUrl: "http://127.0.0.1:9999", fetch: fakeFetch({ "/api/tags": TAGS, "/api/ps": PS }, urls) }));
+
+    expect(urls).toContain("http://127.0.0.1:9999/api/tags");
   });
 });
+
+function printConfigRunner(printConfig: string): ModelsDeps["runOnce"] {
+  return async (argv): Promise<RunOnceResult> => ({
+    code: 0,
+    stdout: argv.includes("--print-config") ? printConfig : LISTING,
+    stderr: "",
+  });
+}
+
+function fakeFetch(routes: Record<string, unknown>, seen: string[] = []): ModelsDeps["fetch"] {
+  return async (url) => {
+    seen.push(url);
+    const route = new URL(url).pathname;
+    if (!(route in routes)) {
+      throw new Error(`no route ${route}`);
+    }
+    return Response.json(routes[route]);
+  };
+}

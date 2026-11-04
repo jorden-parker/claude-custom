@@ -422,11 +422,6 @@ review_in_work() {
 
 start_stub
 : > "$tmp/requests.log"
-(cd "$tmp/work" && PATH="$tmp/stubbin:$PATH" LLAMA_SERVER_URL="http://127.0.0.1:$port" "$reviewer" --model stub-model 7 > "$tmp/default-url.md" 2> /dev/null)
-check_that "without --base-url the reviewer asks LLAMA_SERVER_URL" test -s "$tmp/requests.log"
-: > "$tmp/requests.log"
-: > "$tmp/fallow.log"
-: > "$tmp/fallow-env.log"
 review_in_work 7 --log-dir "$tmp/logs" > "$tmp/report.md" 2> "$tmp/err"
 check_eq "exit status" 0 "$?"
 check_that "verdict is REQUEST CHANGES" grep -q '^\*\*Verdict:\*\* REQUEST CHANGES\. Adds a widget; one blocking bug\.$' "$tmp/report.md"

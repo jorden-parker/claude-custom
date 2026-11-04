@@ -6,16 +6,16 @@ import {
   within,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { WeightFile } from "@/lib/model-display";
+import type { InstalledModel } from "@/lib/model-display";
 import { PruneConfirm } from "./prune-confirm";
 
-const files: WeightFile[] = [
-  { name: "Old-Model-Q4_K_M.gguf", state: "orphan", size: null, bytes: 1_000_000_000 },
-  { name: "Half-Model.gguf.part", state: "partial", size: null, bytes: 2_000_000_000 },
+const models: InstalledModel[] = [
+  { name: "old-cc:latest", class: "orphan", bytes: 1_000_000_000, loaded: false },
+  { name: "someone/model:latest", class: "third-party", bytes: 2_000_000_000, loaded: false },
 ];
 
 async function renderDialog(onConfirm = vi.fn(), onCancel = vi.fn()) {
-  render(<PruneConfirm files={files} onConfirm={onConfirm} onCancel={onCancel} />);
+  render(<PruneConfirm models={models} onConfirm={onConfirm} onCancel={onCancel} />);
   return within(await screen.findByRole("alertdialog"));
 }
 
@@ -27,24 +27,24 @@ describe("PruneConfirm", () => {
   it("titles the dialog and states the count and the space freed", async () => {
     const dialog = await renderDialog();
 
-    expect(dialog.getByRole("heading", { name: "Remove weight files" })).toBeTruthy();
-    expect(dialog.getByText("2 files, 3.0 GB freed.")).toBeTruthy();
+    expect(dialog.getByRole("heading", { name: "Remove Models" })).toBeTruthy();
+    expect(dialog.getByText("2 models, 3.0 GB freed.")).toBeTruthy();
   });
 
   it("lists each name with its size", async () => {
     const dialog = await renderDialog();
 
-    expect(dialog.getByText(/Old-Model-Q4_K_M\.gguf/)).toBeTruthy();
-    expect(dialog.getByText(/Half-Model\.gguf\.part/)).toBeTruthy();
+    expect(dialog.getByText(/old-cc:latest/)).toBeTruthy();
+    expect(dialog.getByText(/someone\/model:latest/)).toBeTruthy();
   });
 
   it("removes the listed names when the action is chosen", async () => {
     const onConfirm = vi.fn();
     const dialog = await renderDialog(onConfirm);
 
-    fireEvent.click(dialog.getByRole("button", { name: "Remove weight files" }));
+    fireEvent.click(dialog.getByRole("button", { name: "Remove Models" }));
 
-    expect(onConfirm).toHaveBeenCalledWith(["Old-Model-Q4_K_M.gguf", "Half-Model.gguf.part"]);
+    expect(onConfirm).toHaveBeenCalledWith(["old-cc:latest", "someone/model:latest"]);
   });
 
   it("cancels through the Cancel button", async () => {

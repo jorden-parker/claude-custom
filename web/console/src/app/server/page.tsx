@@ -1,15 +1,13 @@
 import { PageHeading } from "@/components/page-heading";
 import { ResidencyCard } from "@/components/residency-card";
-import { ServerIdentity } from "@/components/server-identity";
-import { ServerSettingsEditor } from "@/components/server-settings-editor";
+import { ServerEnvEditor } from "@/components/server-env-editor";
 
 export default function ServerPage() {
   return (
     <>
       <PageHeading title="Server" />
-      <ServerIdentity />
       <ResidencyCard />
-      <ServerSettingsEditor />
+      <ServerEnvEditor />
     </>
   );
 }
