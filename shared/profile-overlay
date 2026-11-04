@@ -2,6 +2,7 @@
 set -u
 
 env_catalogue="$(dirname "$0")/profile-env.json"
+preset_keys="$(dirname "$0")/../ollama/preset-keys.json"
 
 fail() {
   echo "profile-overlay: $1" >&2
@@ -9,7 +10,7 @@ fail() {
 }
 
 usage() {
-  echo "usage: profile-overlay settings BASE PROFILE OUT | compose BASE OUT [--fetch-domain HOST]... [--profile FILE] [--context N] [--proxy-url URL] | tools BASE_LIST PROFILE | env PROFILE | mcp PROFILE NAME | parameters PROFILE < LINES | sandbox-off | summary PROFILE | check PROFILE" >&2
+  echo "usage: profile-overlay settings BASE PROFILE OUT | compose BASE OUT [--fetch-domain HOST]... [--profile FILE] [--context N] [--proxy-url URL] | tools BASE_LIST PROFILE | env PROFILE | mcp PROFILE NAME | parameters PROFILE < LINES | preset-parameters PROFILE < LINES | sandbox-off | summary PROFILE | check PROFILE" >&2
   exit 2
 }
 
@@ -38,14 +39,31 @@ headroom_value() {
   jq -r --arg name "$1" '.[$name]' "$(dirname "$0")/../ollama/headroom.json"
 }
 
+refuse_thinking_with_context() {
+  if [ "$(printf '%s\n' "$2" | jq -r '.thinking == true and has("context")')" = true ]; then
+    fail "$1 sets thinking and a context; no preset has both, so drop one"
+  fi
+}
+
 profile_layer() {
   layer_profile="$1"
   claude="$2"
+  ladder_context="${3:-null}"
   default_output_tokens=0
   if [ "$claude" = false ]; then
     default_output_tokens="$(headroom_value output_tokens)"
   fi
-  jq --argjson profile "$layer_profile" --argjson claude "$claude" --argjson defaultOutputTokens "$default_output_tokens" '
+  jq --argjson profile "$layer_profile" --argjson claude "$claude" --argjson defaultOutputTokens "$default_output_tokens" --argjson ladderContext "$ladder_context" '
+    def retarget($from; $to):
+      .model = $to
+      | .availableModels = ((.availableModels // []) | map(if . == $from then $to else . end))
+      | .env = ((.env // {}) | with_entries(if (.key | test("^ANTHROPIC_DEFAULT_[A-Z]+_MODEL$")) and .value == $from then .value = $to else . end));
+    def preset_suffix:
+      if $profile.thinking == true then "@think"
+      elif $ladderContext != null then "@\($ladderContext)"
+      elif ($profile | has("output_tokens")) or (($profile.parameters // {}) | length > 0) then "@profile"
+      elif ($profile | has("context")) then "@\($profile.context)"
+      else "" end;
     def clear_rule($name):
       .permissions.allow = ((.permissions.allow // []) - [$name])
       | .permissions.ask = ((.permissions.ask // []) - [$name])
@@ -65,6 +83,7 @@ profile_layer() {
     | if ($profile | has("context")) then .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS = (if $profile.context > $outputTokens then $profile.context | tostring else error("context must exceed the output tokens") end)
       else . end
     | if (($claude | not) and $profile.thinking == true) then del(.env.CLAUDE_CODE_EXTRA_BODY) else . end
+    | if ($claude | not) and (.model | type) == "string" and preset_suffix != "" then retarget(.model; .model + preset_suffix) else . end
   '
 }
 
@@ -97,6 +116,7 @@ is_claude_code_profile() {
 
 write_settings() {
   profile="$(read_profile "$2")" || exit 1
+  [ "$(is_claude_code_profile "$2")" = true ] || refuse_thinking_with_context "$2" "$profile"
   settings="$(profile_layer "$profile" "$(is_claude_code_profile "$2")" < "$1")" || fail "could not write $3"
   save_settings "$settings" "$3"
 }
@@ -104,15 +124,18 @@ write_settings() {
 compose_profile_layer() {
   profile='{}'
   claude=false
+  ladder_context=null
   if [ -n "$compose_profile" ]; then
     profile="$(read_profile "$compose_profile")" || exit 1
     claude="$(is_claude_code_profile "$compose_profile")"
+    [ "$claude" = true ] || refuse_thinking_with_context "$compose_profile" "$profile"
   fi
   if [ -n "$compose_context" ]; then
     profile="$(printf '%s\n' "$profile" | jq -c --argjson context "$compose_context" '.context = $context' 2>/dev/null)" ||
       fail "--context needs a whole number, got $compose_context"
+    ladder_context="$compose_context"
   fi
-  printf '%s\n' "$1" | profile_layer "$profile" "$claude"
+  printf '%s\n' "$1" | profile_layer "$profile" "$claude" "$ladder_context"
 }
 
 compose_settings() {
@@ -198,6 +221,21 @@ merge_parameters() {
   '
 }
 
+merge_preset_parameters() {
+  profile="$(read_profile "$1")" || exit 1
+  jq -Rrn --argjson profile "$profile" --slurpfile keys "$preset_keys" '
+    ([inputs | select(length > 0) | capture("^(?<key>[^ =]+) = (?<value>.*)$")]) as $base
+    | (($profile.parameters // {}) | to_entries | map({key: ($keys[0][.key] // .key), value: (.value | tostring)}) | from_entries) as $parameters
+    | (if ($profile | has("context")) then {"ctx-size": ($profile.context | tostring)} else {} end) as $context
+    | (if ($profile | has("output_tokens")) then {"n-predict": ($profile.output_tokens | tostring)} else {} end) as $output
+    | ($parameters + $context + $output) as $overrides
+    | ($base | map(.key)) as $names
+    | ($base | map({key, value: ($overrides[.key] // .value)}))
+      + ($overrides | to_entries | map(select(.key as $key | ($names | index($key)) == null)))
+    | .[] | "\(.key) = \(.value)"
+  '
+}
+
 sandbox_off_requested() {
   machine_config="${XDG_CONFIG_HOME:-$HOME/.config}/claude-custom"
   if [ -e "$machine_config/sandbox-off" ]; then
@@ -251,6 +289,10 @@ case "$1" in
   parameters)
     [ $# -eq 2 ] || usage
     merge_parameters "$2"
+    ;;
+  preset-parameters)
+    [ $# -eq 2 ] || usage
+    merge_preset_parameters "$2"
     ;;
   sandbox-off)
     [ $# -eq 1 ] || usage

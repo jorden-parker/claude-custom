@@ -171,4 +171,41 @@ check_eq "compose refuses a symlinked profile" 1 "$(status_of "$script" compose 
 check_eq "compose refuses an unknown layer" 2 "$(status_of "$script" compose "$ollama_base" "$tmp/composed.json" --colour red)"
 check_eq "compose needs a base and an output" 2 "$(status_of "$script" compose "$ollama_base")"
 
+model_base="$tmp/model-base.json"
+printf '%s\n' '{"model":"qwen3.8-27b-cc","availableModels":["qwen3.8-27b-cc"],"permissions":{"allow":[],"ask":[],"deny":[]},"env":{"CLAUDE_CODE_MAX_CONTEXT_TOKENS":"65536","CLAUDE_CODE_MAX_OUTPUT_TOKENS":"8192","ANTHROPIC_DEFAULT_HAIKU_MODEL":"qwen3.8-27b-cc","ANTHROPIC_DEFAULT_OPUS_MODEL":"qwen3.8-27b-cc","ANTHROPIC_BASE_URL":"http://127.0.0.1:11435"}}' > "$model_base"
+model_for() {
+  printf '%s' "$2" > "$tmp/profiles/$1.json"
+  "$script" settings "$model_base" "$tmp/profiles/$1.json" "$tmp/out-model.json" && jq -r '"\(.model) \(.availableModels | join(",")) \(.env.ANTHROPIC_DEFAULT_HAIKU_MODEL) \(.env.ANTHROPIC_DEFAULT_OPUS_MODEL)"' "$tmp/out-model.json"
+}
+compose_model() {
+  "$script" compose "$model_base" "$tmp/composed.json" "$@" && jq -r .model "$tmp/composed.json"
+}
+check_eq "no override keeps the size's preset" "qwen3.8-27b-cc qwen3.8-27b-cc qwen3.8-27b-cc qwen3.8-27b-cc" "$(model_for ollama-27b '{"tools":{"Glob":"allow"}}')"
+check_eq "thinking points the session and its side model at the @think preset" "qwen3.8-27b-cc@think qwen3.8-27b-cc@think qwen3.8-27b-cc@think qwen3.8-27b-cc@think" "$(model_for ollama-27b '{"thinking":true}')"
+check_eq "thinking false keeps the size's preset" qwen3.8-27b-cc "$(model_for ollama-27b '{"thinking":false}' | cut -d' ' -f1)"
+check_eq "a context override points at the @<ctx> preset" "qwen3.8-27b-cc@49152 qwen3.8-27b-cc@49152 qwen3.8-27b-cc@49152 qwen3.8-27b-cc@49152" "$(model_for ollama-27b '{"context":49152}')"
+check_eq "output_tokens points at the @profile preset" qwen3.8-27b-cc@profile "$(model_for ollama-27b '{"output_tokens":4096}' | cut -d' ' -f1)"
+check_eq "parameters point at the @profile preset" qwen3.8-27b-cc@profile "$(model_for ollama-27b '{"parameters":{"temperature":0.5}}' | cut -d' ' -f1)"
+check_eq "a context with parameters takes the @profile preset, which carries the context" qwen3.8-27b-cc@profile "$(model_for ollama-27b '{"context":49152,"parameters":{"temperature":0.5}}' | cut -d' ' -f1)"
+check_eq "the claude-code profile never changes the model" qwen3.8-27b-cc "$(model_for claude-code '{"context":49152,"thinking":true}' | cut -d' ' -f1)"
+check_eq "thinking with a context is refused, since no such preset is rendered" 1 "$(printf '%s' '{"thinking":true,"context":49152}' > "$tmp/profiles/ollama-27b.json"; status_of "$script" settings "$model_base" "$tmp/profiles/ollama-27b.json" "$tmp/out-model.json")"
+check_eq "and the refusal says why" "profile-overlay: $tmp/profiles/ollama-27b.json sets thinking and a context; no preset has both, so drop one" "$("$script" settings "$model_base" "$tmp/profiles/ollama-27b.json" "$tmp/out-model.json" 2>&1)"
+check_eq "a ladder context layer points at its @<ctx> preset" qwen3.8-27b-cc@32768 "$(compose_model --context 32768)"
+printf '%s' '{"parameters":{"temperature":0.5}}' > "$tmp/profiles/ollama-27b.json"
+check_eq "a ladder context wins over the @profile preset" qwen3.8-27b-cc@32768 "$(compose_model --profile "$tmp/profiles/ollama-27b.json" --context 32768)"
+printf '%s' '{"thinking":true}' > "$tmp/profiles/ollama-27b.json"
+check_eq "@think wins over a ladder context" qwen3.8-27b-cc@think "$(compose_model --profile "$tmp/profiles/ollama-27b.json" --context 32768)"
+check_eq "the proxy layer leaves the preset alone" qwen3.8-27b-cc "$(compose_model --proxy-url http://127.0.0.1:48001)"
+
+preset_lines="$(printf 'ctx-size = 65536\nn-predict = 8192\ntemp = 0.7\ntop-k = 20\nreasoning = off\n')"
+printf '%s' '{"context":32768,"output_tokens":4096,"parameters":{"temperature":0.6,"min_p":0.05}}' > "$tmp/profiles/preset.json"
+check_eq "preset-parameters maps the profile onto preset keys and adds new ones" "ctx-size = 32768
+n-predict = 4096
+temp = 0.6
+top-k = 20
+reasoning = off
+min-p = 0.05" "$(printf '%s\n' "$preset_lines" | "$script" preset-parameters "$tmp/profiles/preset.json")"
+check_eq "preset-parameters without a profile keeps the preset values" "$preset_lines" "$(printf '%s\n' "$preset_lines" | "$script" preset-parameters "$tmp/profiles/absent.json")"
+check_eq "preset-parameters refuses a symlinked profile" 1 "$(printf '%s\n' "$preset_lines" | status_of "$script" preset-parameters "$tmp/linked/claude-code.json")"
+
 if [ "$failures" -eq 0 ]; then echo "all passed"; else echo "$failures failed"; exit 1; fi
