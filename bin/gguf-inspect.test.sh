@@ -87,6 +87,7 @@ CASES = {
     "uint-template": {"template_uint32": 7},
     "hybrid": {"extra_uint32": (("qwen3.block_count", 8), ("qwen3.attention.head_count_kv", 4), ("qwen3.attention.key_length", 256), ("qwen3.full_attention_interval", 4))},
     "layer-heads": {"extra_uint32": (("qwen3.block_count", 4), ("qwen3.attention.key_length", 128)), "extra_arrays": (("qwen3.attention.head_count_kv", (0, 0, 0, 2)),)},
+    "many-arrays": {"extra_arrays": tuple((f"qwen3.list_{index:02d}", tuple(range(4096))) for index in range(20)) + (("qwen3.list_long", tuple(range(5000))),)},
 }
 
 Path(sys.argv[1]).write_bytes(build(**CASES[sys.argv[2]]))
@@ -108,7 +109,7 @@ expect_status() {
   fi
 }
 
-for case_name in valid bad-magic version-2 huge-string evil-key overlap misaligned unknown-type url-template duplicate-architecture escape-value named-template case-collision uint-template hybrid layer-heads; do
+for case_name in valid bad-magic version-2 huge-string evil-key overlap misaligned unknown-type url-template duplicate-architecture escape-value named-template case-collision uint-template hybrid layer-heads many-arrays; do
   python3 "$tmp/make.py" "$tmp/$case_name.gguf" "$case_name" || fail "the writer builds $case_name"
 done
 
@@ -179,6 +180,10 @@ json_value() { jq -r "$1" "$tmp/out" 2>/dev/null; }
 [ "$(json_value .file_size)" = "$(wc -c < "$tmp/hybrid.gguf" | tr -d ' ')" ] || fail "--json carries the file size"
 expect_status 0 "--json passes a per-layer head count" "$tmp/layer-heads.gguf" --json
 [ "$(json_value '.metadata["qwen3.attention.head_count_kv"] | join(",")')" = 0,0,0,2 ] || fail "--json carries a per-layer head count as a list"
+expect_status 0 "--json passes a file with many long arrays" "$tmp/many-arrays.gguf" --json
+[ "$(json_value '.metadata["qwen3.list_00"] | length')" = 4096 ] || fail "--json keeps the values of the first arrays"
+[ "$(json_value '.metadata["qwen3.list_19"].count')" = 4096 ] || fail "--json keeps only a count once 65536 values are kept in total"
+[ "$(json_value '.metadata["qwen3.list_long"].count')" = 5000 ] || fail "--json keeps only a count for an array over 4096 values"
 expect_status 1 "--json still fails a bad file" "$tmp/evil-key.gguf" --json
 [ "$(json_value '.failures | length')" -ge 1 ] || fail "--json lists the failures"
 expect_status 1 "--json of a malformed header fails" "$tmp/bad-magic.gguf" --json

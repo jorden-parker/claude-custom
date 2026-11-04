@@ -19,7 +19,8 @@ MAX_ALIGNMENT = 4096
 MAX_TENSOR_COUNT = 20000
 MAX_KEYVALUE_COUNT = 10000
 MAX_ARRAY_COUNT = 10_000_000
-MAX_KEPT_ARRAY_COUNT = 65536
+MAX_KEPT_ARRAY_COUNT = 4096
+MAX_KEPT_TOTAL = 65536
 MAX_STRING_BYTES = 16 * 1024 * 1024
 MAX_NAME_BYTES = 256
 MAX_DIMS = 4
@@ -179,6 +180,7 @@ class Reader:
     def __init__(self, data):
         self.data = data
         self.position = 0
+        self.kept_values = 0
 
     def require(self, count):
         if count > len(self.data) - self.position:
@@ -223,8 +225,9 @@ def read_array(reader):
     if element_type == STRING_TYPE:
         for _ in range(count):
             reader.string()
-    elif element_type in SCALAR_FORMATS and count <= MAX_KEPT_ARRAY_COUNT:
+    elif element_type in SCALAR_FORMATS and count <= MAX_KEPT_ARRAY_COUNT and reader.kept_values + count <= MAX_KEPT_TOTAL:
         code = SCALAR_FORMATS[element_type][0]
+        reader.kept_values += count
         return ArrayValue(element_type, count, tuple(reader.unpack(code) for _ in range(count)))
     elif element_type in SCALAR_FORMATS:
         reader.skip(count * struct.calcsize("<" + SCALAR_FORMATS[element_type][0]))
