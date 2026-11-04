@@ -64,7 +64,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m Model) selectRow() (tea.Model, tea.Cmd) {
 	if m.onEmbeddingRow() {
 		m.status = "pulling " + m.embedding + "…"
-		return m, runSetup(embeddingSetup(m.embedding))
+		return m, runSetup(embeddingSetup())
 	}
 	m.chosen = true
 	return m, tea.Quit

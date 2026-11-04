@@ -136,16 +136,27 @@ check "inspect fires nothing when the three are spread over half an hour" equals
 check "inspect fires nothing on rows no rung is bound to" equals none "$(python3 "$ladder" --inspect "$tmp/unattributed.jsonl")"
 
 {
+  row reprefilled 2026-05-01T10:00:00Z embed
+  row reprefilled 2026-05-01T10:01:00Z embed
+  row reprefilled 2026-05-01T10:02:00Z embed
+  row reprefilled 2026-05-01T10:03:00Z expired
+  row reprefilled 2026-05-01T10:04:00Z expired
+  row reprefilled 2026-05-01T10:05:00Z expired
+  row truncated 2026-05-01T10:06:00Z
+  row truncated 2026-05-01T10:07:00Z
+  row truncated 2026-05-01T10:08:00Z
+} > "$tmp/both.jsonl"
+check "inspect lists every rung that would fire and their pending recoveries, last rung first" equals "embeddings-off: 3 re-prefills after an embed request within 10 minutes
+context-down: 3 truncated prompts within 10 minutes
+up context-down: 20 minutes without truncated prompts
+up embeddings-off: 20 minutes without re-prefills after an embed request" "$(python3 "$ladder" --inspect "$tmp/both.jsonl")"
+
+{
   row reprefilled 2026-05-01T10:00:00Z expired
   row reprefilled 2026-05-01T10:01:00Z expired
   row reprefilled 2026-05-01T10:02:00Z expired
-  row truncated 2026-05-01T10:03:00Z
-  row truncated 2026-05-01T10:04:00Z
-  row truncated 2026-05-01T10:05:00Z
-} > "$tmp/both.jsonl"
-check "inspect lists every rung that would fire and the recoverable one's pending recovery" equals "heartbeat: 3 re-prefills after a keep-alive expiry within 10 minutes
-context-down: 3 truncated prompts within 10 minutes
-up context-down: 20 minutes without truncated prompts" "$(python3 "$ladder" --inspect "$tmp/both.jsonl")"
+} > "$tmp/expired.jsonl"
+check "inspect fires nothing on re-prefills after a keep-alive expiry" equals none "$(python3 "$ladder" --inspect "$tmp/expired.jsonl")"
 
 new_session
 cat "$tmp/embed.jsonl" "$tmp/unattributed.jsonl" > "$tmp/incidents.jsonl"
@@ -161,19 +172,16 @@ check "a row no rung is bound to gets a ladder note" grep -q '"kind": "ladder"' 
 check "the note says which rows were not bound" grep -q '"note": "reprefilled after load: no rung"' "$tmp/incidents.jsonl"
 check "the same kind of row is noted once" equals 1 "$(grep -c 'reprefilled after load' "$tmp/incidents.jsonl")"
 check "a row without a preceding event is noted as such" grep -q '"note": "reprefilled: no rung"' "$tmp/incidents.jsonl"
-check "no heartbeat marker without expiry evidence" test ! -e "$tmp/relaunch/heartbeat-fast"
 check "no ladder file without truncation evidence" test ! -e "$tmp/relaunch/ladder"
 
 new_session
-{
-  row reprefilled 2026-05-01T10:00:00Z expired
-  row reprefilled 2026-05-01T10:01:00Z expired
-  row reprefilled 2026-05-01T10:02:00Z expired
-} > "$tmp/incidents.jsonl"
+cp "$tmp/expired.jsonl" "$tmp/incidents.jsonl"
 run_once
-check "heartbeat writes the marker that halves the heartbeat interval" test -e "$tmp/relaunch/heartbeat-fast"
-check "heartbeat appends its degraded row" equals "ladder/heartbeat" "$(field_of_cause degraded rule < "$tmp/incidents.jsonl")"
-check "heartbeat writes no embed-off file" test ! -e "$tmp/relaunch/embed-off"
+check "expiry evidence appends no degraded row" equals 0 "$(rows_with cause degraded < "$tmp/incidents.jsonl")"
+check "expiry evidence is noted as bound to no rung" grep -q '"note": "reprefilled after expired: no rung"' "$tmp/incidents.jsonl"
+check "expiry evidence is noted once" equals 1 "$(grep -c 'reprefilled after expired' "$tmp/incidents.jsonl")"
+check "expiry evidence raises no flag" equals "" "$(ls "$tmp/relaunch" | grep -v '^claude.pid$')"
+check "expiry evidence writes no ladder file" test ! -e "$tmp/relaunch/ladder"
 
 mkdir -p "$tmp/stubbin"
 cat > "$tmp/stubbin/ps" <<EOF
