@@ -135,7 +135,29 @@ while IFS= read -r block; do
   check_that "$name is a GGUF from unsloth, ibm-granite or Qwen at a pinned revision, with a sha256 in model-digests.json" is_pinned_gguf "$block"
   check_that "$name names that GGUF as its base" names_its_gguf "$block"
 done < <(pinned_gguf_blocks)
+check_eq "model-digests.json pins exactly the sizes' and the embedding model's GGUF files" \
+  "$({ jq -r '.[].gguf | "\(.repo)/\(.file)"' "$repo/ollama/sizes.json"; jq -r '.gguf | "\(.repo)/\(.file)"' "$repo/ollama/embedding.json"; } | sort -u)" \
+  "$(jq -r 'keys[]' "$digests" | sort)"
 check_that ".gitignore keeps downloaded GGUF weights out of git" grep -qx 'ollama/weights/' "$repo/.gitignore"
+
+ollama_pattern='\bollama (pull|create|show|rm|cp|list|ps|serve|run)\b|/api/(tags|ps|generate|chat|embed|version|show|pull)'
+unallowed_ollama_lines() {
+  local hit file text
+  while IFS= read -r hit; do
+    file="${hit%%:*}"
+    text="${hit#*:*:}"
+    case "$file:$text" in
+      "bin/claude-custom:"*"(ollama rm NAME for each, then brew uninstall ollama)"*) ;;
+      "bin/prefix-ab:"*'post_json(base_url, "/api/chat", {"model": model, "messages": [], "keep_alive": 0})'*) ;;
+      "bin/prefix-ab.test.sh:"*'"--unload ollama is still accepted"'*) ;;
+      "bin/messages-proxy.test.sh:"*'"an Ollama route is refused"'*) ;;
+      "shared/testing/stub-llama-server.test.sh:"*'"an unknown route is a 404"'*) ;;
+      "shared/mcp/code-search.test.sh:"*'"a failed embedding no longer names ollama commands"'*) ;;
+      *) printf '%s\n' "$hit" ;;
+    esac
+  done < <(cd "$repo" && grep -rInE --exclude='backend-bench-off*' --exclude='backend-bench-report*' --exclude=check-config "$ollama_pattern" bin shared web/console/src/lib)
+}
+check_eq "bin, shared and web/console/src/lib run no ollama command and call no Ollama API path, outside the bench-off" "" "$(unallowed_ollama_lines)"
 
 check_eq "rendered profiles are current" 0 "$("$repo/bin/ollama-profiles" --check >/dev/null 2>&1; echo $?)"
 

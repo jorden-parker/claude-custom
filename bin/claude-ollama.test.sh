@@ -759,7 +759,7 @@ STUB_DOCTOR_EXIT=1 run_capture env CLAUDE_OLLAMA_DOCTOR_BIN="$sandbox/stubbin/do
 check_eq "claude-ollama doctor exits with the doctor's status" 1 "$?"
 check_that "claude-ollama doctor runs bin/claude-ollama-doctor with the size" grep -qxF "DOCTOR: 27b" "$sandbox/out"
 check_not "doctor does not launch claude" grep -q '^ARGS:' "$sandbox/out"
-check_not "doctor does not apply server.env" grep -sqxF -- "-apply" "$sandbox/agent.log"
+check_not "doctor does not apply the LaunchAgent" grep -sqxF -- "-apply" "$sandbox/agent.log"
 run_capture env CLAUDE_OLLAMA_DOCTOR_BIN="$sandbox/stubbin/doctor" "$repo/bin/claude-ollama" doctor </dev/null
 check_that "claude-ollama doctor without a size uses the default" grep -qxF "DOCTOR: 27b" "$sandbox/out"
 run_capture "$repo/bin/claude-ollama" doctor 35b

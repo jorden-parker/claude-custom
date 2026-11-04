@@ -47,7 +47,7 @@ new_sandbox() {
   sandboxes="$sandboxes $sandbox"
   export HOME="$sandbox/home"
   mkdir -p "$HOME" "$sandbox/stubbin"
-  unset ZDOTDIR XDG_CONFIG_HOME CLAUDE_CONFIG_DIR STUB_AGENT_EXIT STUB_LLAMA_BUILD STUB_OLLAMA_LOADED
+  unset ZDOTDIR XDG_CONFIG_HOME CLAUDE_CONFIG_DIR STUB_AGENT_EXIT STUB_LLAMA_BUILD STUB_OLD_AGENT_LOADED
   export LLAMA_SERVER_URL=http://127.0.0.1:9
   export CLAUDE_OLLAMA_AGENT="$sandbox/stubbin/ollama-agent"
   export SHELL=/bin/zsh
@@ -73,7 +73,7 @@ EOF
 #!/bin/sh
 echo "\$*" >> "$sandbox/launchctl.log"
 case "\$1 \$2" in
-  "print gui/"*/local.ollama) [ -n "\${STUB_OLLAMA_LOADED:-}" ] ;;
+  "print gui/"*/local.ollama) [ -n "\${STUB_OLD_AGENT_LOADED:-}" ] ;;
   "print "*) exit 1 ;;
 esac
 EOF
@@ -404,7 +404,7 @@ check_not "install says nothing about Ollama models when local.ollama is not loa
 check_not "install downloads no weights" test -e "$HOME/.claude-ollama/weights"
 
 new_sandbox
-STUB_OLLAMA_LOADED=1 run_capture "$installer" install
+STUB_OLD_AGENT_LOADED=1 run_capture "$installer" install
 check_eq "install with local.ollama loaded exit status" 0 "$?"
 check_that "install boots out local.ollama" grep -qxF "bootout gui/$uid/local.ollama" "$sandbox/launchctl.log"
 check_eq "install prints one line on removing the Ollama models" 1 "$(grep -c 'ollama rm' "$sandbox/err")"
