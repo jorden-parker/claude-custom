@@ -845,11 +845,11 @@ case "${1:-}" in
     echo "usage: claude-ollama [size] [claude args...]"
     echo "qwen [size] [qwen args...]: launch Qwen Code (brew install qwen-code) on the size's model, in macOS Seatbelt with ollama/qwen-sandbox.sb, with the same MCP servers"
     echo "qwen --print-config [size]: print the resolved settings and the qwen command"
-    echo "qwen doctor [size]: check qwen, the model, context sizes, the settings template and Ollama"
+    echo "qwen doctor [size]: check qwen, the model, context sizes, the settings template and llama-server"
     echo "sizes: $(configured_sizes | tr '\n' ' ' | sed 's/ $//')"
     echo "no size: pick one in a menu (or $default_size without a terminal)"
     echo "sandbox: Bash runs in Claude Code's sandbox (cmux, gh, short and git push run outside it, each after a prompt)"
-    echo "doctor [size]: check models, context sizes, hooks, Ollama, the server env and the launch beacon"
+    echo "doctor [size]: check llama-server, its presets and weights, context sizes, hooks, memory fit and the launch beacon"
     echo "--print-config [size]: print the resolved settings and the claude command"
     echo "logs [-n LINES|--path]: follow the llama-server log, or print its path"
     echo "why [--since MINUTES] [--json]: name the most likely cause of the last bad run from the proxy log and the incidents, with one fix"
@@ -864,8 +864,8 @@ case "${1:-}" in
     echo "fetch domains: list hostnames in ~/.config/claude-custom/fetch-domains to give sessions WebFetch for them"
     echo "prepare [size]: download and verify the size's pinned GGUF and stop, without starting claude"
     echo "prepare-embedding: download and verify the semantic_search embedding GGUF and stop, without starting claude"
-    echo "speed-check: check thinking is off and bench the GGUF sizes against the MLX ones, then print a verdict"
-    echo "thinking-check: check thinking is off on the MLX sizes and print PASS or FAIL"
+    echo "speed-check: check thinking on the @think presets and bench each size on llama-server, then print a verdict"
+    echo "thinking-check: check @think presets think and the plain presets do not, and print PASS or FAIL"
     exit 0 ;;
 esac
 

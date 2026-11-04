@@ -1,7 +1,8 @@
 # model-picker
 
-A terminal menu for choosing which Ollama profile `claude-ollama` launches.
-Built with [Bubble Tea](https://charm.land/libs/), Bubbles and Lip Gloss.
+A terminal menu for choosing which size `claude-ollama` launches on
+llama-server. Built with [Bubble Tea](https://charm.land/libs/), Bubbles and Lip
+Gloss.
 
 ## Run
 

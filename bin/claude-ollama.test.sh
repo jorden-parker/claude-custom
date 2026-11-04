@@ -1024,6 +1024,7 @@ run_capture env CLAUDE_OLLAMA_RESCUE_BIN="$sandbox/stubbin/rescue" "$repo/bin/cl
 check_that "rescue without a size uses the default size" contains "$(cat "$sandbox/rescue-args" 2>/dev/null)" "--size 27b"
 run_capture "$repo/bin/claude-ollama" --help
 check_that "usage lists rescue" grep -q '^rescue ' "$sandbox/out"
+check_not "usage names neither Ollama nor the MLX sizes" grep -qE 'Ollama|MLX' "$sandbox/out"
 cmux_socket="$sandbox/cmux.sock"
 /usr/bin/python3 -c 'import socket, sys; socket.socket(socket.AF_UNIX).bind(sys.argv[1])' "$cmux_socket"
 cat > "$sandbox/stubbin/cmux" <<'EOF'

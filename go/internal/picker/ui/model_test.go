@@ -95,6 +95,13 @@ func TestViewListsSizesAndModels(t *testing.T) {
 	}
 }
 
+func TestViewTitleNamesNoOllama(t *testing.T) {
+	view := New(configured, embedding).View().Content
+	if strings.Contains(view, "Ollama") || !strings.Contains(view, "Pick a local model") {
+		t.Fatalf("title should be the llama-server picker's:\n%s", view)
+	}
+}
+
 func TestViewUsesAltScreen(t *testing.T) {
 	if !New(configured, embedding).View().AltScreen {
 		t.Fatal("inline rendering leaves a copy of the menu behind after each setup run")

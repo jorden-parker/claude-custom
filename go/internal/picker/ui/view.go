@@ -20,7 +20,7 @@ var (
 
 func (m Model) View() tea.View {
 	var b strings.Builder
-	b.WriteString(titleStyle.Render("Pick an Ollama model") + "\n\n")
+	b.WriteString(titleStyle.Render("Pick a local model") + "\n\n")
 	for i, profile := range m.profiles {
 		b.WriteString(m.row(profile, i == m.cursor) + "\n")
 	}
