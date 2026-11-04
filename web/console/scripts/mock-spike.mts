@@ -3,6 +3,10 @@ import os from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { mockSystemPrompt } from "../src/lib/mock-spike/catalog.ts";
+import {
+  chatCompletionsUrl,
+  chatStreamEvents,
+} from "../src/lib/mock-spike/chat-stream.ts";
 import { DEFAULT_PRESET_ID, presetIds } from "../src/lib/mock-spike/presets.ts";
 import {
   isPatchLine,
@@ -10,7 +14,8 @@ import {
   type ReplyScore,
 } from "../src/lib/mock-spike/score.ts";
 
-const DEFAULT_BASE_URL = "http://localhost:11434";
+const DEFAULT_BASE_URL =
+  process.env.LLAMA_SERVER_URL || "http://127.0.0.1:11435";
 const DEFAULT_RUNS = 3;
 const MAX_REPLY_TOKENS = 2000;
 const SOUND_PATCH_SHARE = 0.9;
@@ -46,13 +51,6 @@ type RunResult = {
   totalSeconds: number;
   tokensPerSecond: number | null;
   reply: string;
-};
-
-type ChatChunk = {
-  message?: { content?: string };
-  done?: boolean;
-  eval_count?: number;
-  eval_duration?: number;
 };
 
 function usage(): never {
@@ -138,13 +136,13 @@ async function streamChat(
   let printed = 0;
   let firstPatchSeconds: number | null = null;
   let tokensPerSecond: number | null = null;
-  for await (const chunk of chatChunks(body)) {
-    reply += chunk.message?.content ?? "";
+  for await (const event of chatStreamEvents(body)) {
+    reply += event.content;
     printed = printCompleteLines(reply, printed);
     if (firstPatchSeconds === null && replyHasPatch(reply)) {
       firstPatchSeconds = secondsSince(started);
     }
-    tokensPerSecond = tokensPerSecondOf(chunk) ?? tokensPerSecond;
+    tokensPerSecond = event.tokensPerSecond ?? tokensPerSecond;
   }
   printCompleteLines(reply + "\n", printed);
   return {
@@ -159,14 +157,14 @@ async function requestChat(
   options: Options,
   brief: string,
 ): Promise<ReadableStream<Uint8Array>> {
-  const response = await fetch(`${options.baseUrl}/api/chat`, {
+  const url = chatCompletionsUrl(options.baseUrl);
+  const response = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
       model: options.model,
       stream: true,
-      think: false,
-      options: { num_predict: MAX_REPLY_TOKENS },
+      max_tokens: MAX_REPLY_TOKENS,
       messages: [
         { role: "system", content: mockSystemPrompt(options.preset) },
         { role: "user", content: BRIEFS[brief] },
@@ -175,29 +173,9 @@ async function requestChat(
   });
   if (!response.ok || !response.body) {
     const detail = (await response.text()).trim();
-    throw new Error(
-      `${options.baseUrl}/api/chat answered ${response.status}: ${detail}`,
-    );
+    throw new Error(`${url} answered ${response.status}: ${detail}`);
   }
   return response.body;
-}
-
-async function* chatChunks(
-  body: ReadableStream<Uint8Array>,
-): AsyncGenerator<ChatChunk> {
-  const decoder = new TextDecoder();
-  const reader = body.getReader();
-  let pending = "";
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) return;
-    pending += decoder.decode(value, { stream: true });
-    const lines = pending.split("\n");
-    pending = lines.pop() ?? "";
-    for (const line of lines.filter((line) => line.trim())) {
-      yield JSON.parse(line) as ChatChunk;
-    }
-  }
 }
 
 function printCompleteLines(reply: string, printed: number): number {
@@ -218,11 +196,6 @@ function replyHasPatch(reply: string): boolean {
 
 function secondsSince(started: bigint): number {
   return Number(process.hrtime.bigint() - started) / NANOS_PER_SECOND;
-}
-
-function tokensPerSecondOf(chunk: ChatChunk): number | null {
-  if (!chunk.done || !chunk.eval_count || !chunk.eval_duration) return null;
-  return chunk.eval_count / (chunk.eval_duration / NANOS_PER_SECOND);
 }
 
 function seconds(value: number | null): string {
