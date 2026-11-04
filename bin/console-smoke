@@ -58,12 +58,7 @@ prepare_scratch() {
 }
 
 server_alive() {
-  local state
-  state="$(ps -o stat= -p "$server_pid" 2>/dev/null)"
-  case "$state" in
-    ''|Z*) return 1 ;;
-  esac
-  return 0
+  kill -0 "$server_pid" 2>/dev/null
 }
 
 start_model_server() {
