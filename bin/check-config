@@ -49,11 +49,11 @@ for settings in "$repo"/ollama/settings.*.json; do
     "$(jq -c .modelOverrides "$settings")"
   check_eq "${settings##*/} lists only its main model in availableModels" \
     "$(jq -c '[.model]' "$settings")" "$(jq -c '.availableModels' "$settings")"
-  check_eq "${settings##*/} waits the full 30 minutes for a silent Ollama stream" "1800000 1800000" \
+  check_eq "${settings##*/} waits the full 30 minutes for a silent llama-server stream" "1800000 1800000" \
     "$(jq -r '[.env.CLAUDE_STREAM_IDLE_TIMEOUT_MS, .env.API_TIMEOUT_MS] | join(" ")' "$settings")"
-  check_eq "${settings##*/} keeps the prompt prefix stable so Ollama reuses its cache" "0 off" \
+  check_eq "${settings##*/} keeps the prompt prefix stable so llama-server reuses its cache" "0 off" \
     "$(jq -r '[.env.CLAUDE_CODE_ATTRIBUTION_HEADER, .env.CLAUDE_CODE_TOTAL_TOKENS_REMINDER] | join(" ")' "$settings")"
-  check_eq "${settings##*/} asks Ollama for no thinking, since Claude Code's adaptive thinking reaches Ollama as effort high (a profile's thinking:true drops it)" \
+  check_eq "${settings##*/} asks llama-server for no thinking, since Claude Code's adaptive thinking would otherwise reach it as effort high (a profile's thinking:true drops it)" \
     '{"thinking":{"type":"disabled"}}' \
     "$(jq -r .env.CLAUDE_CODE_EXTRA_BODY "$settings" | jq -c .)"
   check_eq "${settings##*/} sends no telemetry, error reports, surveys, feedback drafts, update checks or marketplace installs home" "1 1 1 1 1 1 0 1 0 off 0" \
@@ -73,18 +73,18 @@ for settings in "$repo"/ollama/settings.*.json; do
     "$(jq '.sandbox.filesystem.denyRead | (["~/.ssh", "~/.aws", "~/.config/gh", "~/.npmrc", "~/Library/Keychains", "~/.claude", "~/.qwen", "~/.local/share/claude-custom", "~/.config/context7"] - .) == []' "$settings")"
   check_eq "${settings##*/} unsets the GitHub and Shortcut tokens for sandboxed commands" '["GH_TOKEN","GITHUB_TOKEN","SHORTCUT_API_TOKEN"]' \
     "$(jq -c '[.sandbox.credentials.envVars[] | select(.mode == "deny") | .name]' "$settings")"
-  check_eq "${settings##*/} starts in default mode with auto mode off, since its classifier would call Ollama for a Claude model" "default disable" \
+  check_eq "${settings##*/} starts in default mode with auto mode off, since its classifier would call llama-server for a Claude model" "default disable" \
     "$(jq -r '[.permissions.defaultMode, .permissions.disableAutoMode] | join(" ")' "$settings")"
   check_eq "${settings##*/} asks before a commit, a push and a command that leaves the sandbox, and before nothing else" '["Bash(git commit *)","Bash(git push *)","Bash(dangerouslyDisableSandbox:true)"]' \
     "$(jq -c .permissions.ask "$settings")"
 done
 
 qwen_template="$repo/ollama/qwen-settings.template.json"
-check_eq "the Qwen Code profile talks to Ollama as an OpenAI endpoint with a placeholder key" "openai OLLAMA_API_KEY ollama" \
-  "$(jq -r '[.security.auth.selectedType, .modelProviders.openai[0].envKey, .env.OLLAMA_API_KEY] | join(" ")' "$qwen_template")"
-check_eq "the Qwen Code profile asks Ollama for no thinking, which /v1/chat/completions reads as reasoning_effort" none \
+check_eq "the Qwen Code profile talks to llama-server as an OpenAI endpoint with a placeholder key" "openai LLAMA_SERVER_API_KEY llama-server" \
+  "$(jq -r '[.security.auth.selectedType, .modelProviders.openai[0].envKey, .env.LLAMA_SERVER_API_KEY] | join(" ")' "$qwen_template")"
+check_eq "the Qwen Code profile asks llama-server for no thinking, which /v1/chat/completions reads as reasoning_effort" none \
   "$(jq -r '.modelProviders.openai[0].generationConfig.extra_body.reasoning_effort' "$qwen_template")"
-check_eq "the Qwen Code profile waits the full 30 minutes for a silent Ollama stream" "1800000 1800000" \
+check_eq "the Qwen Code profile waits the full 30 minutes for a silent llama-server stream" "1800000 1800000" \
   "$(jq -r '.modelProviders.openai[0].generationConfig | [.timeout, .streamIdleTimeoutMs] | join(" ")' "$qwen_template")"
 check_eq "the Qwen Code profile sends nothing home and never self-updates" "false false false" \
   "$(jq -r '[.privacy.usageStatisticsEnabled, .telemetry.enabled, .general.enableAutoUpdate] | map(tostring) | join(" ")' "$qwen_template")"

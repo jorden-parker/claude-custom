@@ -117,14 +117,7 @@ check_eq "an MCP server not named stays enabled" true "$("$script" mcp "$tmp/pro
 check_eq "without a profile every MCP server stays enabled" true "$("$script" mcp "$tmp/profiles/absent.json" dev)"
 
 printf '%s' '{"context":32768,"parameters":{"temperature":0.6,"min_p":0.05}}' > "$tmp/profiles/params.json"
-check_eq "parameters merge over the Modelfile values and add new keys" "num_ctx 32768
-temperature 0.6
-top_k 20
-min_p 0.05" "$(printf 'num_ctx 65536\ntemperature 0.7\ntop_k 20\n' | "$script" parameters "$tmp/profiles/params.json")"
-printf '%s' '{"output_tokens":4096}' > "$tmp/profiles/output.json"
-check_eq "output_tokens replaces the Modelfile num_predict" "num_ctx 65536
-num_predict 4096" "$(printf 'num_ctx 65536\nnum_predict 8192\n' | "$script" parameters "$tmp/profiles/output.json")"
-check_eq "parameters without a profile keep the Modelfile values" "num_ctx 65536" "$(printf 'num_ctx 65536\n' | "$script" parameters "$tmp/profiles/absent.json")"
+check_eq "the Ollama parameters subcommand is gone" 2 "$(printf 'num_ctx 65536\n' | "$script" parameters "$tmp/profiles/params.json" >/dev/null 2>&1; echo $?)"
 
 xdg="$tmp/xdg"
 mkdir -p "$xdg/claude-custom/profiles"

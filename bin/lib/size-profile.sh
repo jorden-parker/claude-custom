@@ -52,10 +52,6 @@ preset_ctx_size() {
   preset_parameters | sed -n 's/^ctx-size = //p'
 }
 
-modelfile_parameters() {
-  sed -n 's/^PARAMETER //p' "$profile_dir/Modelfile.$size" | "$profile_overlay" parameters "$profile_file"
-}
-
 profile_context_tokens() {
   jq -r .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS "$launch_settings"
 }

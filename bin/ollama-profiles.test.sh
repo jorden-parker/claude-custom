@@ -79,9 +79,7 @@ ctx-size = 8192
 embeddings = true
 pooling = last" "$(section "$profiles/models.ini" qwen3-embedding-0.6b)"
 check_eq "every chat section turns reasoning on or off" "$(grep -c '^\[.*-cc' "$profiles/models.ini")" "$(grep -cE '^reasoning = (on|off)$' "$profiles/models.ini")"
-check_eq "the transitional Modelfile imports the pinned GGUF from ./weights" "FROM ./weights/Qwen3.8-27B-UD-Q4_K_XL.gguf
-PARAMETER num_ctx 65536
-PARAMETER num_predict 8192" "$(head -n 3 "$profiles/Modelfile.27b")"
+check_not "render writes no Modelfile" sh -c "ls '$profiles' | grep -q '^Modelfile'"
 check_eq "the 27b context tokens are the full ctx-size, since Claude Code keeps the output and a margin under them itself" 65536 "$(jq -r .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS "$profiles/settings.27b.json")"
 check_eq "the output tokens come from the size's output_tokens" 8192 "$(jq -r .env.CLAUDE_CODE_MAX_OUTPUT_TOKENS "$profiles/settings.27b.json")"
 check_eq "the 35b context tokens are its full ctx-size too" 98304 "$(jq -r .env.CLAUDE_CODE_MAX_CONTEXT_TOKENS "$profiles/settings.35b.json")"
@@ -218,9 +216,6 @@ check_eq "new size preset" "model = @WEIGHTS@/nine.gguf
 ctx-size = 16384
 n-predict = 8192
 reasoning = off" "$(section "$profiles/models.ini" qwen3.5-9b-cc)"
-check_eq "new size transitional Modelfile" "FROM ./weights/nine.gguf
-PARAMETER num_ctx 16384
-PARAMETER num_predict 8192" "$(cat "$profiles/Modelfile.9b")"
 check_eq "a size without output_tokens takes the headroom default" 8192 "$(jq -r .env.CLAUDE_CODE_MAX_OUTPUT_TOKENS "$profiles/settings.9b.json")"
 check_eq "a size's own output_tokens caps its replies" "n-predict = 4096" "$(section "$profiles/models.ini" qwen3.5-9b-short-cc | grep '^n-predict')"
 check_eq "a size's own output_tokens reaches its settings" 4096 "$(jq -r .env.CLAUDE_CODE_MAX_OUTPUT_TOKENS "$profiles/settings.9b-short.json")"
@@ -249,10 +244,10 @@ check_that "check ignores JSON formatting" sh -c "jq -c . '$profiles/settings.9b
 sed 's/16384/8192/' "$profiles/models.ini" > "$sandbox/stale.ini" && mv "$sandbox/stale.ini" "$profiles/models.ini"
 check_eq "check without prettier still fails on stale presets" 1 "$(bare_generate --check >/dev/null 2>&1; echo $?)"
 
-rm -f "$profiles/Modelfile.9b"
+rm -f "$profiles/settings.9b.json"
 check_eq "render without prettier fails" 1 "$(bare_generate >/dev/null 2>&1; echo $?)"
 check_that "render without prettier says how to fix it" sh -c "CLAUDE_CUSTOM_REPO='$sandbox' '$bare_repo/bin/ollama-profiles' 2>&1 | grep -q 'pnpm install'"
-check_not "render without prettier leaves files unwritten" test -f "$profiles/Modelfile.9b"
+check_not "render without prettier leaves files unwritten" test -f "$profiles/settings.9b.json"
 generate >/dev/null
 
 jq -n --argjson a "$(gguf_size big qwen3.8-27b-cc 65536)" --argjson b "$(gguf_size tiny qwen3.5-tiny-cc 8192)" '{"27b": $a, "tiny": $b}' > "$profiles/sizes.json"

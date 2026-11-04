@@ -118,7 +118,9 @@ check_eq "the rendered settings name the size's model" "qwen3.8-27b-cc qwen3.8-2
   "$(jq -r '[.model.name, .modelProviders.openai[0].id] | join(" ")' "$qwen_home/settings.json")"
 check_eq "and point it at llama-server's OpenAI endpoint by address, since the sandbox resolves names only from /etc/hosts" "http://127.0.0.1:11435/v1" "$(jq -r '.modelProviders.openai[0].baseUrl' "$qwen_home/settings.json")"
 check_eq "and carry the preset's ctx-size as the context window" 65536 "$(jq -r '.modelProviders.openai[0].generationConfig.contextWindowSize' "$qwen_home/settings.json")"
-check_eq "and ask Ollama for no thinking" none "$(jq -r '.modelProviders.openai[0].generationConfig.extra_body.reasoning_effort' "$qwen_home/settings.json")"
+check_eq "and use a placeholder key that names no Ollama variable" "LLAMA_SERVER_API_KEY llama-server" \
+  "$(jq -r '[.modelProviders.openai[0].envKey, .env.LLAMA_SERVER_API_KEY] | join(" ")' "$qwen_home/settings.json")"
+check_eq "and ask llama-server for no thinking" none "$(jq -r '.modelProviders.openai[0].generationConfig.extra_body.reasoning_effort' "$qwen_home/settings.json")"
 check_eq "and turn cross-session messaging off, whose socket the sandbox would refuse" false "$(jq -r '.agents.crossSessionMessaging' "$qwen_home/settings.json")"
 check_that "the global QWEN.md starts with the preferences" \
   test "$(head -1 "$qwen_home/QWEN.md")" = "$(head -1 "$repo/shared/preferences/PREFERENCES.md")"

@@ -8,7 +8,6 @@ shared_dir="$data_dir/shared/settings"
 personal_dir="$data_dir/personal"
 sizes_file="$profile_dir/sizes.json"
 settings_template="$profile_dir/profile-template.json"
-modelfile_template="$profile_dir/profile-template.Modelfile"
 extra_hooks_file="$profile_dir/hooks.extra.json"
 headroom_file="$profile_dir/headroom.json"
 personal_template="$personal_dir/settings.tokens.template.json"
@@ -92,17 +91,6 @@ render_personal() {
 gguf_file() {
   jq -er --arg size "$1" '.[$size].gguf.file // empty' "$sizes_file" ||
     { echo "ollama-profiles: size $1 has no gguf file in sizes.json" >&2; return 1; }
-}
-
-render_parameters() {
-  jq -r --arg size "$1" '.[$size].parameters // {} | to_entries | sort_by(.key)[] | "PARAMETER \(.key) \(.value)"' "$sizes_file"
-}
-
-render_modelfile() {
-  local file
-  file="$(gguf_file "$1")" || return 1
-  sed -e "s|{{BASE}}|./weights/$file|" -e "s|{{CONTEXT}}|$(field "$1" context)|" -e "s|{{OUTPUT_TOKENS}}|$(output_tokens "$1")|" "$modelfile_template"
-  render_parameters "$1"
 }
 
 lower_context() {
@@ -199,7 +187,6 @@ render_all() {
   local size
   for size in $(sizes); do
     render_settings "$size" > "$1/settings.$size.json" || return 1
-    render_modelfile "$size" > "$1/Modelfile.$size" || return 1
   done
   render_models_ini > "$1/models.ini" || return 1
   render_personal > "$1/settings.tokens.json"
@@ -225,10 +212,7 @@ rendered_matches() {
 }
 
 check_size() {
-  local size="$2" status=0
-  rendered_matches "$1/settings.$size.json" "$profile_dir/settings.$size.json" || status=1
-  rendered_matches "$1/Modelfile.$size" "$profile_dir/Modelfile.$size" || status=1
-  return "$status"
+  rendered_matches "$1/settings.$2.json" "$profile_dir/settings.$2.json"
 }
 
 check_unlisted() {
@@ -255,14 +239,13 @@ check_profiles() {
 
 write_size() {
   cp "$1/settings.$2.json" "$profile_dir/settings.$2.json"
-  cp "$1/Modelfile.$2" "$profile_dir/Modelfile.$2"
 }
 
 remove_unlisted() {
   local file size
   for file in "$profile_dir"/settings.*.json; do
     size="$(size_of_settings "$file")"
-    is_listed "$size" || rm -f "$file" "$profile_dir/Modelfile.$size"
+    is_listed "$size" || rm -f "$file"
   done
 }
 

@@ -10,7 +10,7 @@ fail() {
 }
 
 usage() {
-  echo "usage: profile-overlay settings BASE PROFILE OUT | compose BASE OUT [--fetch-domain HOST]... [--profile FILE] [--context N] [--proxy-url URL] | tools BASE_LIST PROFILE | env PROFILE | mcp PROFILE NAME | parameters PROFILE < LINES | preset-parameters PROFILE < LINES | sandbox-off | summary PROFILE | check PROFILE" >&2
+  echo "usage: profile-overlay settings BASE PROFILE OUT | compose BASE OUT [--fetch-domain HOST]... [--profile FILE] [--context N] [--proxy-url URL] | tools BASE_LIST PROFILE | env PROFILE | mcp PROFILE NAME | preset-parameters PROFILE < LINES | sandbox-off | summary PROFILE | check PROFILE" >&2
   exit 2
 }
 
@@ -206,21 +206,6 @@ mcp_enabled() {
   printf '%s\n' "$profile" | jq -r --arg name "$2" 'if .mcp[$name] == false then "false" else "true" end'
 }
 
-merge_parameters() {
-  profile="$(read_profile "$1")" || exit 1
-  jq -Rrn --argjson profile "$profile" '
-    ([inputs | select(length > 0) | capture("^(?<key>[^ ]+) (?<value>.+)$")]) as $base
-    | (($profile.parameters // {}) | with_entries(.value |= tostring)) as $parameters
-    | (if ($profile | has("context")) then {num_ctx: ($profile.context | tostring)} else {} end) as $context
-    | (if ($profile | has("output_tokens")) then {num_predict: ($profile.output_tokens | tostring)} else {} end) as $output
-    | ($parameters + $context + $output) as $overrides
-    | ($base | map(.key)) as $keys
-    | ($base | map({key, value: ($overrides[.key] // .value)}))
-      + ($overrides | to_entries | map(select(.key as $key | ($keys | index($key)) == null)))
-    | .[] | "\(.key) \(.value)"
-  '
-}
-
 merge_preset_parameters() {
   profile="$(read_profile "$1")" || exit 1
   jq -Rrn --argjson profile "$profile" --slurpfile keys "$preset_keys" '
@@ -285,10 +270,6 @@ case "$1" in
   mcp)
     [ $# -eq 3 ] || usage
     mcp_enabled "$2" "$3"
-    ;;
-  parameters)
-    [ $# -eq 2 ] || usage
-    merge_parameters "$2"
     ;;
   preset-parameters)
     [ $# -eq 2 ] || usage

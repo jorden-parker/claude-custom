@@ -1,3 +1,0 @@
-FROM {{BASE}}
-PARAMETER num_ctx {{CONTEXT}}
-PARAMETER num_predict {{OUTPUT_TOKENS}}
