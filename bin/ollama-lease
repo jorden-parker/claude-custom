@@ -218,14 +218,18 @@ presets_text() {
 }
 
 preset_weights() {
-  presets_text | awk -v id="$1" '
-    function finish() { if (matched && weights != "") { print weights; found = 1; exit } }
-    /^\[/ { finish(); section = substr($0, 2, length($0) - 2); matched = (section == id); weights = ""; next }
+  preset_value "$1" model
+}
+
+preset_value() {
+  presets_text | awk -v id="$1" -v wanted="$2" '
+    function finish() { if (matched && setting != "") { print setting; found = 1; exit } }
+    /^\[/ { finish(); section = substr($0, 2, length($0) - 2); matched = (section == id); setting = ""; next }
     {
       split($0, parts, "="); key = parts[1]; gsub(/[ \t]/, "", key)
       value = substr($0, index($0, "=") + 1); gsub(/^[ \t]+|[ \t]+$/, "", value)
       if (key == "alias" && value == id) matched = 1
-      if (key == "model") weights = value
+      if (key == wanted) setting = value
     }
     END { if (!found) finish(); exit found ? 0 : 1 }'
 }
@@ -239,6 +243,15 @@ weights_of() {
 
 file_bytes() {
   stat -f %z "$1" 2>/dev/null || stat -c %s "$1"
+}
+
+preset_bytes() {
+  local weights projector bytes
+  weights="$(weights_of "$1")" || return 1
+  bytes="$(file_bytes "$weights")"
+  projector="$(preset_value "$1" mmproj)" || { printf '%s' "$bytes"; return 0; }
+  [ -f "$projector" ] || { echo "ollama lease: $projector is missing (run claude-ollama prepare)" >&2; return 1; }
+  printf '%s' "$((bytes + $(file_bytes "$projector")))"
 }
 
 kv_bytes_per_element() {
@@ -289,11 +302,11 @@ same_weights_loaded() {
 }
 
 resident_bytes() {
-  local id sibling total=0 weights
+  local id sibling total=0 bytes
   for id in "$@"; do
     for sibling in $(same_weights_loaded "$id"); do
-      weights="$(weights_of "$sibling" 2>/dev/null)" || continue
-      total=$((total + $(file_bytes "$weights")))
+      bytes="$(preset_bytes "$sibling" 2>/dev/null)" || continue
+      total=$((total + bytes))
     done
   done
   printf '%s' "$total"
@@ -336,8 +349,8 @@ fit() {
   local weights model_bytes kv_bytes embedding_bytes=0 estimate=exact free
   [ -n "$model" ] && [ -n "$num_ctx" ] || usage
   weights="$(weights_of "$model")" || exit 1
-  model_bytes="$(file_bytes "$weights")"
-  kv_bytes="$(exact_kv_bytes "$weights")" || { kv_bytes="$(rough_kv_bytes "$model_bytes")"; estimate=rough; }
+  model_bytes="$(preset_bytes "$model")" || exit 1
+  kv_bytes="$(exact_kv_bytes "$weights")" || { kv_bytes="$(rough_kv_bytes "$(file_bytes "$weights")")"; estimate=rough; }
   if [ -n "$embedding_model" ]; then
     weights="$(weights_of "$embedding_model")" || exit 1
     embedding_bytes="$(file_bytes "$weights")"

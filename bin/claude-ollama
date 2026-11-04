@@ -435,6 +435,7 @@ start_messages_proxy() {
   local proxy_mode_args=()
   [ "${CLAUDE_OLLAMA_PROXY_RECORD:-}" != 1 ] || proxy_mode_args=(--record "$proxy_record_dir")
   [ "${CLAUDE_OLLAMA_PROXY_STABILIZE:-}" != 1 ] || proxy_mode_args+=(--stabilize)
+  mmproj_spec "$size" >/dev/null || proxy_mode_args+=(--images-as-note)
   nohup "$(messages_proxy)" --upstream "$upstream" --port 0 --port-file "$proxy_port_file" \
     --log "$(proxy_log_dir)/requests.jsonl" --watch-pid "$$" ${proxy_mode_args[@]+"${proxy_mode_args[@]}"} >/dev/null 2>&1 &
   if ! wait_for_proxy_port; then

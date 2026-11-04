@@ -33,7 +33,7 @@ cat >"$sandbox/profile/sizes.json" <<'EOF'
     "base": "org/Big-GGUF/big.gguf",
     "model": "big-cc",
     "context": 65536,
-    "gguf": { "repo": "org/Big-GGUF", "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "file": "big.gguf" }
+    "gguf": { "repo": "org/Big-GGUF", "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "file": "big.gguf", "mmproj": { "file": "mmproj.gguf", "local": "Big-mmproj.gguf" } }
   },
   "35b": {
     "base": "org/Wide-GGUF/wide.gguf",
@@ -53,12 +53,14 @@ EOF
 cat >"$sandbox/profile/model-digests.json" <<EOF
 {
   "org/Big-GGUF/big.gguf": "$(sha_of big-weights)",
+  "org/Big-GGUF/mmproj.gguf": "$(sha_of big-mmproj)",
   "org/Wide-GGUF/wide.gguf": "$(sha_of wide-weights)",
   "org/Embed-GGUF/embed.gguf": "$(sha_of embed-weights)"
 }
 EOF
 
 printf 'big-weights' >"$sandbox/weights/big.gguf"
+printf 'big-mmproj' >"$sandbox/weights/Big-mmproj.gguf"
 printf 'tampered' >"$sandbox/weights/wide.gguf"
 printf 'embed-weights' >"$sandbox/weights/embed.gguf"
 printf 'old' >"$sandbox/weights/retired.gguf"
@@ -72,8 +74,8 @@ case "\$*" in
   *hf.test/api/models/org/Big-GGUF/revision/main*) printf '{"id":"org/Big-GGUF","sha":"dddddddddddddddddddddddddddddddddddddddd"}' ;;
   *hf.test/api/models/org/Wide-GGUF/revision/main*) printf '{"id":"org/Wide-GGUF","sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}' ;;
   *hf.test/api/models/org/Embed-GGUF/revision/main*) printf '{"id":"org/Embed-GGUF","sha":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}' ;;
-  *hf.test/api/models/org/Big-GGUF/tree/dddddddddddddddddddddddddddddddddddddddd*) printf '[{"type":"file","path":"README.md"},{"type":"file","path":"big.gguf","lfs":{"oid":"$(sha_of new-big)","size":7}}]' ;;
-  *hf.test/api/models/org/Big-GGUF/tree/ffffffffffffffffffffffffffffffffffffffff*) printf '[{"type":"file","path":"big.gguf","lfs":{"oid":"$(sha_of pinned-big)","size":10}}]' ;;
+  *hf.test/api/models/org/Big-GGUF/tree/dddddddddddddddddddddddddddddddddddddddd*) printf '[{"type":"file","path":"README.md"},{"type":"file","path":"big.gguf","lfs":{"oid":"$(sha_of new-big)","size":7}},{"type":"file","path":"mmproj.gguf","lfs":{"oid":"$(sha_of new-mmproj)","size":10}}]' ;;
+  *hf.test/api/models/org/Big-GGUF/tree/ffffffffffffffffffffffffffffffffffffffff*) printf '[{"type":"file","path":"big.gguf","lfs":{"oid":"$(sha_of pinned-big)","size":10}},{"type":"file","path":"mmproj.gguf","lfs":{"oid":"$(sha_of pinned-mmproj)","size":13}}]' ;;
   *hf.test/api/models/org/Embed-GGUF/tree/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee*) printf '[{"type":"file","path":"embed.gguf","lfs":{"oid":"$(sha_of new-embed)","size":9}}]' ;;
   *hf.test/api/models/org/Wide-GGUF/tree/*) printf '[{"type":"file","path":"README.md"}]' ;;
   *) exit 22 ;;
@@ -87,13 +89,14 @@ chmod +x "$sandbox/stubbin/curl" "$sandbox/stubbin/ollama-profiles"
 
 listing="$("$script" list)"
 check "list marks a size's weights that match their pin" grep -Eq '^pinned +big.gguf$' <<<"$listing"
+check "list marks a size's vision projector that matches its pin, by its local name" grep -Eq '^pinned +Big-mmproj.gguf$' <<<"$listing"
 check "list marks the embedding weights that match their pin" grep -Eq '^pinned +embed.gguf$' <<<"$listing"
 check "list marks weights that miss their pin" grep -Eq '^mismatch +wide.gguf$' <<<"$listing"
 check "list marks a GGUF no pin names as an orphan" grep -Eq '^orphan +retired.gguf$' <<<"$listing"
 check "list marks an unfinished download as partial" grep -Eq '^partial +big.gguf.part$' <<<"$listing"
 check "list marks an upgrade candidate" grep -Eq '^candidate +big.gguf.next$' <<<"$listing"
-check "list prints one line per file" test "$(wc -l <<<"$listing" | tr -d ' ')" = 6
-check "list caches each file's sha256" test "$(wc -l <"$CLAUDE_OLLAMA_SHA_CACHE" | tr -d ' ')" = 3
+check "list prints one line per file" test "$(wc -l <<<"$listing" | tr -d ' ')" = 7
+check "list caches each file's sha256" test "$(wc -l <"$CLAUDE_OLLAMA_SHA_CACHE" | tr -d ' ')" = 4
 mkdir -p "$sandbox/failing-shasum"
 printf '#!/bin/sh\nexit 1\n' >"$sandbox/failing-shasum/shasum"
 chmod +x "$sandbox/failing-shasum/shasum"
@@ -162,6 +165,7 @@ check "an unanswered API is no failure" test "$(HF_ENDPOINT=https://hf.none "$sc
 pin_listing="$("$script" pin 27b)"
 check "pin writes the repo's main revision into sizes.json" test "$(jq -r '.["27b"].gguf.revision' "$sandbox/profile/sizes.json")" = dddddddddddddddddddddddddddddddddddddddd
 check "pin writes the LFS sha256 into model-digests.json" test "$(jq -r '.["org/Big-GGUF/big.gguf"]' "$sandbox/profile/model-digests.json")" = "$(sha_of new-big)"
+check "pin writes the vision projector's LFS sha256 at the same revision" test "$(jq -r '.["org/Big-GGUF/mmproj.gguf"]' "$sandbox/profile/model-digests.json")" = "$(sha_of new-mmproj)"
 check "pin keeps the other pins" test "$(jq -r '.["org/Wide-GGUF/wide.gguf"]' "$sandbox/profile/model-digests.json")" = "$(sha_of wide-weights)"
 check "pin keeps the other sizes" test "$(jq -r '.["35b"].gguf.revision' "$sandbox/profile/sizes.json")" = bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 check "pin renders the profiles" test "$(cat "$sandbox/profiles.log")" = rendered
@@ -170,6 +174,7 @@ check "pin prints the size, revision and sha256" test "$pin_listing" = "27b dddd
 "$script" pin 27b --revision ffffffffffffffffffffffffffffffffffffffff >/dev/null
 check "pin --revision pins that revision" test "$(jq -r '.["27b"].gguf.revision' "$sandbox/profile/sizes.json")" = ffffffffffffffffffffffffffffffffffffffff
 check "pin --revision reads that revision's sha256" test "$(jq -r '.["org/Big-GGUF/big.gguf"]' "$sandbox/profile/model-digests.json")" = "$(sha_of pinned-big)"
+check "and that revision's projector sha256" test "$(jq -r '.["org/Big-GGUF/mmproj.gguf"]' "$sandbox/profile/model-digests.json")" = "$(sha_of pinned-mmproj)"
 
 "$script" pin embedding >/dev/null
 check "pin embedding writes embedding.json" test "$(jq -r .gguf.revision "$sandbox/profile/embedding.json")" = eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee

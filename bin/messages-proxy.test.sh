@@ -519,6 +519,24 @@ check "a stream cut mid-way keeps the chunks already sent" grep -q 'cut_chunk_on
 check "a stream cut mid-way gets no 502 body" lacks_text "upstream failed" "$run_dir/cut.out"
 check "a stream cut mid-way gets no 502 status line" lacks_text "502" "$run_dir/cut.out"
 stop_proxy
+stop_upstream
+
+start_upstream && start_proxy --images-as-note --record "$run_dir/record"
+cat > "$run_dir/image.json" <<'JSON'
+{"model":"stub","system":"Be brief.","messages":[{"role":"user","content":[{"type":"text","text":"What is this?"},{"type":"image","source":{"type":"base64","media_type":"image/png","data":"iVBORw0KGgo="}}]},{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"shot.png"}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"iVBORw0KGgo="}}]}]}]}
+JSON
+send "$run_dir/image.json" "$run_dir/image.out"
+image_upstream="$(printf '%s' "$(upstream_row 1)" | jq -r .body)"
+check "--images-as-note forwards no image block" [ "$(printf '%s' "$image_upstream" | jq '[.. | objects | select(.type? == "image")] | length')" = 0 ]
+check "a pasted image becomes a text note in its place" [ "$(printf '%s' "$image_upstream" | jq -r '.messages[0].content[1].type + ": " + .messages[0].content[1].text')" = "text: [image omitted: this model cannot see images; ask the user to describe it]" ]
+check "an image a tool returned becomes the same note" [ "$(printf '%s' "$image_upstream" | jq -r '.messages[2].content[0].content[0].text')" = "[image omitted: this model cannot see images; ask the user to describe it]" ]
+check "the rest of the body is kept" [ "$(printf '%s' "$image_upstream" | jq -c '.messages[0].content[0], .system')" = "$(jq -c '.messages[0].content[0], .system' "$run_dir/image.json")" ]
+check "the row counts the images turned into notes" [ "$(row_field "$(log_row 1)" .images_as_note)" = 2 ]
+check "--record keeps the original body with its images" cmp -s "$run_dir/record/$(row_field "$(log_row 1)" .request_id).json" "$run_dir/image.json"
+python3 "$tmp/body.py" "Sunday 2026-11-01" "hello" > "$run_dir/plain.json"
+send "$run_dir/plain.json" "$run_dir/plain.out"
+check "a body without images is forwarded byte-for-byte" upstream_body_is 2 "$run_dir/plain.json"
+stop_proxy
 
 if [ "$failures" -eq 0 ]; then
   echo "all passed"

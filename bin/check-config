@@ -135,8 +135,19 @@ while IFS= read -r block; do
   check_that "$name is a GGUF from unsloth, ibm-granite or Qwen at a pinned revision, with a sha256 in model-digests.json" is_pinned_gguf "$block"
   check_that "$name names that GGUF as its base" names_its_gguf "$block"
 done < <(pinned_gguf_blocks)
-check_eq "model-digests.json pins exactly the sizes' and the embedding model's GGUF files" \
-  "$({ jq -r '.[].gguf | "\(.repo)/\(.file)"' "$repo/ollama/sizes.json"; jq -r '.gguf | "\(.repo)/\(.file)"' "$repo/ollama/embedding.json"; } | sort -u)" \
+is_pinned_projector() {
+  jq -e --slurpfile digests "$digests" '
+    (.mmproj.file | test("^[A-Za-z0-9._-]+\\.gguf$"))
+    and (.mmproj.local | test("^[A-Za-z0-9._-]+\\.gguf$"))
+    and ($digests[0]["\(.repo)/\(.mmproj.file)"] // "" | test("^[0-9a-f]{64}$"))' <<<"$1" >/dev/null
+}
+while IFS=' ' read -r size gguf; do
+  check_that "size $size's vision projector is a pinned GGUF in the size's repo, with a sha256 in model-digests.json" is_pinned_projector "$gguf"
+done < <(jq -r 'to_entries[] | select(.value.gguf.mmproj) | "\(.key) \(.value.gguf | tojson)"' "$repo/ollama/sizes.json")
+check_eq "every weights file has its own name in the weights folder, since every repo calls its projector mmproj" "" \
+  "$({ jq -r '.[].gguf | .file, (.mmproj.local // empty)' "$repo/ollama/sizes.json"; jq -r .gguf.file "$repo/ollama/embedding.json"; } | sort | uniq -d)"
+check_eq "model-digests.json pins exactly the sizes', their projectors' and the embedding model's GGUF files" \
+  "$({ jq -r '.[].gguf | "\(.repo)/\(.file)", (select(.mmproj) | "\(.repo)/\(.mmproj.file)")' "$repo/ollama/sizes.json"; jq -r '.gguf | "\(.repo)/\(.file)"' "$repo/ollama/embedding.json"; } | sort -u)" \
   "$(jq -r 'keys[]' "$digests" | sort)"
 check_that ".gitignore keeps downloaded GGUF weights out of git" grep -qx 'ollama/weights/' "$repo/.gitignore"
 while IFS=' ' read -r size template; do

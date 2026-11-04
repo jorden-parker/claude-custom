@@ -189,6 +189,7 @@ make_gguf() {
   python3 "$tmp/make-gguf.py" "$tmp/weights/$1" "$2" "$3"
 }
 make_gguf dense.gguf 17179869184 '{"block_count": 64, "attention.head_count_kv": 8, "attention.key_length": 128, "attention.value_length": 128}'
+dd if=/dev/zero of="$tmp/weights/seeing-mmproj.gguf" bs=1 count=0 seek=927607488 2>/dev/null
 make_gguf hybrid.gguf 17179869184 '{"block_count": 64, "attention.head_count_kv": 8, "attention.key_length": 128, "attention.value_length": 128, "full_attention_interval": 4}'
 layer_heads="$(jq -cn '[range(64) | if . % 4 == 3 then 8 else 0 end]')"
 make_gguf layers.gguf 17179869184 "{\"block_count\": 64, \"attention.head_count_kv\": $layer_heads, \"attention.key_length\": 128}"
@@ -199,6 +200,7 @@ write_presets() {
   printf '[*]\ncache-type-k = %s\n\n' "$1" > "$presets"
   printf '[%s]\nmodel = %s\n\n' dense-cc "$tmp/weights/dense.gguf" dense-cc@think "$tmp/weights/dense.gguf" hybrid-cc "$tmp/weights/hybrid.gguf" \
     layers-cc "$tmp/weights/layers.gguf" bare-cc "$tmp/weights/bare.gguf" gone-cc "$tmp/weights/gone.gguf" >> "$presets"
+  printf '[seeing-cc]\nmodel = %s\nmmproj = %s\n\n' "$tmp/weights/dense.gguf" "$tmp/weights/seeing-mmproj.gguf" >> "$presets"
   printf '[qwen3-embedding-0.6b]\nalias = qwen3-embedding:0.6b\nmodel = %s\n' "$tmp/weights/embed.gguf" >> "$presets"
 }
 write_presets q8_0
@@ -227,6 +229,8 @@ check_eq "fit says it fits" true "$(fit_field fits)"
 check_eq "fit prints the margin" 4668889498 "$(fit_field margin_bytes)"
 check_eq "fit names the estimate exact when every field is known" exact "$(fit_field estimate)"
 
+run "$lease" fit --model seeing-cc --num-ctx 65536
+check_eq "a preset with a vision projector counts its bytes with the model's" $((17179869184 + 927607488)) "$(fit_field model_bytes)"
 run "$lease" fit --model hybrid-cc --num-ctx 65536
 check_eq "a hybrid model counts only every fourth layer's KV cache" 2147483648 "$(fit_field kv_bytes)"
 check_eq "and is still exact" exact "$(fit_field estimate)"
@@ -259,6 +263,9 @@ check_eq "a loaded model and embedding count their weights files as free memory,
 jq -n '{models_max: 2, models: {"dense-cc": {}, "dense-cc@think": {}, "other-cc": {}}, loaded: ["dense-cc@think"]}' > "$state"
 run "$lease" fit --model dense-cc --num-ctx 65536
 check_eq "a loaded preset of the same weights, such as the @think one a session ran, counts as free memory too" $((31082938368 + 17179869184)) "$(fit_field free_bytes)"
+jq '.models["seeing-cc"] = {} | .loaded = ["seeing-cc"]' "$state" > "$state.next" && mv "$state.next" "$state"
+run "$lease" fit --model seeing-cc --num-ctx 65536
+check_eq "a loaded preset with a projector gets the projector's bytes back too" $((31082938368 + 17179869184 + 927607488)) "$(fit_field free_bytes)"
 jq '.loaded = ["dense-cc@think", "dense-cc", "other-cc"]' "$state" > "$state.next" && mv "$state.next" "$state"
 run "$lease" idle-siblings --model dense-cc --pid $$
 check_eq "idle-siblings exits 0" 0 "$?"

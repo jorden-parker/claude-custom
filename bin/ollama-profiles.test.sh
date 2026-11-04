@@ -58,7 +58,8 @@ section() {
 
 check_eq "check passes on current files" 0 "$(exit_status_of --check)"
 check_eq "the presets start with server.ini's [*] section" "$(section "$profiles/server.ini" '*')" "$(section "$profiles/models.ini" '*')"
-check_eq "the 27b preset loads the pinned GGUF from the weights dir and its chat template from the templates dir, at the full context, with its sampling keys, thinking off" "model = @WEIGHTS@/Qwen3.8-27B-UD-Q4_K_XL.gguf
+check_eq "the 27b preset loads the pinned GGUF and its vision projector from the weights dir and its chat template from the templates dir, at the full context, with its sampling keys, thinking off" "model = @WEIGHTS@/Qwen3.8-27B-UD-Q4_K_XL.gguf
+mmproj = @WEIGHTS@/Qwen3.8-27B-mmproj-F16.gguf
 chat-template-file = @TEMPLATES@/qwen3.8-27b.jinja
 ctx-size = 65536
 n-predict = 8192
@@ -74,6 +75,10 @@ check_eq "the 27b ladder step is the next lower size's context" "$(section "$pro
 check_eq "the 35b ladder step is the 27b context" "ctx-size = 65536" "$(section "$profiles/models.ini" qwen3.6-35b-cc@65536 | grep '^ctx-size')"
 check_not "a size without a chat_template keeps the GGUF's own template" sh -c "grep -q '^chat-template-file' <<'EOF'
 $(section "$profiles/models.ini" qwen3.6-35b-cc)
+EOF"
+check_eq "the 35b loads its own vision projector" "mmproj = @WEIGHTS@/Qwen3.6-35B-A3B-mmproj-F16.gguf" "$(section "$profiles/models.ini" qwen3.6-35b-cc | grep '^mmproj')"
+check_not "a size without a projector loads none" sh -c "grep -q '^mmproj' <<'EOF'
+$(section "$profiles/models.ini" granite4.2-3b-cc)
 EOF"
 check_eq "the 35b keeps its presence penalty" "presence-penalty = 1.5" "$(section "$profiles/models.ini" qwen3.6-35b-cc | grep '^presence-penalty')"
 check_eq "the smallest size steps down to 75% of its context" "ctx-size = 24576" "$(section "$profiles/models.ini" granite4.2-3b-cc@24576 | grep '^ctx-size')"

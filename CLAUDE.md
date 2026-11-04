@@ -232,7 +232,8 @@ before changing how any file gets applied.
   section `[qwen3-embedding-0.6b]` with `alias = qwen3-embedding:0.6b`; weights
   paths are `@WEIGHTS@/<file>`, a size's optional `chat_template` adds
   `chat-template-file = @TEMPLATES@/<file>` from `ollama/templates/` to each of
-  its sections, and sampling keys map through `ollama/preset-keys.json`), and
+  its sections, a size's `gguf.mmproj` adds `mmproj = @WEIGHTS@/<local>` to each
+  of its sections, and sampling keys map through `ollama/preset-keys.json`), and
   `personal/settings.tokens.json` from `personal/settings.tokens.template.json`.
   The 27b's template is its pinned GGUF's own with one change: a system message
   after the first non-system one renders as a system turn instead of
@@ -447,7 +448,15 @@ before changing how any file gets applied.
   `curl -C -`), keeps it only when its sha256 equals the pin and
   `bin/gguf-inspect` passes it, and `bin/claude-ollama` runs it before every
   launch and exits 1 when it fails; `doctor` reports a missing or mismatched
-  file.
+  file. A size that can see images (the 27b and 35b) also pins its vision
+  projector as `gguf.mmproj` (`file`, the repo's name, and `local`, a name
+  unique in the weights folder, since both repos call it `mmproj-F16.gguf`); its
+  `<repo>/<file>` digest sits in `ollama/model-digests.json` too, and fetch,
+  `doctor` (`vision projector` line), `ollama-models list` and `pin` and the
+  memory fit (model bytes are the GGUF plus the projector) all count it. A size
+  without one (the 3b) gets `--images-as-note` on its messages proxy, which
+  replaces each `image` block (also inside a `tool_result`) with a text note,
+  since llama-server answers 500 to an image without a projector.
 - Go module `go/` (all three apps; `go/cmd/model-picker/`,
   `go/cmd/claude-tools/`, `go/cmd/ollama-agent/`): `cd go && go test ./...`. One
   test: `cd go && go test ./internal/tools/ui -run TestSwitching`. Run the
@@ -1278,7 +1287,10 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   settings with `env.ANTHROPIC_BASE_URL` pointed at the proxy (the proxy layer
   of `compose_launch_settings`); when the port never appears it warns and keeps
   the direct URL. By default it only observes: no rewriting, no tool pruning.
-  `--stabilize` (the launcher passes it only when
+  `--images-as-note` (passed for a size without a vision projector) replaces
+  each `image` block with a one-line text note, re-serialising the body only
+  when one was found, and adds `images_as_note` (the count) to the row;
+  `--record` keeps the original. `--stabilize` (the launcher passes it only when
   `CLAUDE_OLLAMA_PROXY_STABILIZE=1`) adds the prefix stabiliser: when two
   consecutive requests differ inside `system` by a span that, widened to whole
   lines, is at most 400 bytes with the rest identical, each changed line's text
@@ -1396,9 +1408,10 @@ files over 1 MB and secrets, then lint-staged runs Prettier on staged
   `{model_bytes, kv_bytes, embedding_bytes, total_bytes, free_bytes, fits, margin_bytes, estimate}`:
   `M` and `E` are preset ids (or aliases) looked up in the user presets (else
   `ollama/models.ini` with the weights folder filled in), and the model and
-  embedding bytes are the size of each preset's GGUF file (exit 1 naming
-  `claude-ollama prepare` when it is missing); the KV bytes are `num_ctx` times
-  the per-token K and V widths read from `bin/gguf-inspect --json`
+  embedding bytes are the size of each preset's GGUF file plus its `mmproj` file
+  when the preset names one (exit 1 naming `claude-ollama prepare` when it is
+  missing); the KV bytes are `num_ctx` times the per-token K and V widths read
+  from `bin/gguf-inspect --json`
   (`block_count / full_attention_interval * head_count_kv * (key_length + value_length)`,
   or the sum over a per-layer `head_count_kv` array) times the bytes per element
   of the server's `cache-type-k` (f16 2, q8_0 1, q4_0 0.5), or 25% of the model

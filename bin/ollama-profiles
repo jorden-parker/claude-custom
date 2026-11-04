@@ -104,6 +104,7 @@ preset_lines() {
     --arg weights "$weights_placeholder" --arg templates "$templates_placeholder" --slurpfile keys "$preset_keys_file" '
     .[$size] as $spec
     | "model = \($weights)/\($spec.gguf.file)",
+      ($spec.gguf.mmproj.local // empty | "mmproj = \($weights)/\(.)"),
       ($spec.chat_template // empty | "chat-template-file = \($templates)/\(.)"),
       "ctx-size = \($context)",
       "n-predict = \($output)",

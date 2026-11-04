@@ -108,6 +108,10 @@ size_gguf() {
   jq -er --arg size "$1" '.[$size].gguf // empty | "\(.repo) \(.revision) \(.file)"' "$profile_dir/sizes.json" 2>/dev/null
 }
 
+mmproj_spec() {
+  jq -er --arg size "$1" '.[$size].gguf // empty | select(.mmproj) | "\(.repo) \(.revision) \(.mmproj.file) \(.mmproj.local)"' "$profile_dir/sizes.json" 2>/dev/null
+}
+
 embedding_gguf() {
   jq -er '.gguf // empty | "\(.repo) \(.revision) \(.file)"' "$embedding_file" 2>/dev/null
 }
@@ -123,17 +127,19 @@ gguf_pin() {
 }
 
 gguf_file_ok() {
-  local repo revision file path pin
-  read -r repo revision file <<<"$1"
-  path="$(weights_dir)/$file"
+  local repo revision file local_name path pin
+  read -r repo revision file local_name <<<"$1"
+  path="$(weights_dir)/${local_name:-$file}"
   pin="$(gguf_pin "$repo" "$file")"
   [ -n "$pin" ] && [ -f "$path" ] && [ "$(file_sha256 "$path")" = "$pin" ]
 }
 
 weights_ok() {
-  local spec
+  local spec projector
   spec="$(size_gguf "$1")" || return 1
-  gguf_file_ok "$spec"
+  gguf_file_ok "$spec" || return 1
+  projector="$(mmproj_spec "$1")" || return 0
+  gguf_file_ok "$projector"
 }
 
 reject_weights() {
@@ -143,14 +149,15 @@ reject_weights() {
 }
 
 fetch_gguf() {
-  local repo revision file dir pin part actual
-  read -r repo revision file <<<"$1"
+  local repo revision file local_name dir pin part actual saved
+  read -r repo revision file local_name <<<"$1"
   gguf_file_ok "$1" && return 0
   pin="$(gguf_pin "$repo" "$file")"
   [ -n "$pin" ] || { echo "model-server: $repo/$file has no pin in ollama/model-digests.json; refusing to download" >&2; return 1; }
   dir="$(weights_dir)"
+  saved="$dir/${local_name:-$file}"
   mkdir -p "$dir"
-  part="$dir/$file.part"
+  part="$saved.part"
   echo "model-server: downloading $repo/$file (pinned $revision)" >&2
   if ! curl -fL --retry 3 -C - -o "$part" "${HF_ENDPOINT:-https://huggingface.co}/$repo/resolve/$revision/$file"; then
     echo "model-server: the download of $file stopped; run the same command again to resume it" >&2
@@ -158,15 +165,17 @@ fetch_gguf() {
   fi
   actual="$(shasum -a 256 "$part" | cut -d' ' -f1)"
   [ "$actual" = "$pin" ] || reject_weights "$file has sha256 $actual, but ollama/model-digests.json pins $pin; not keeping it" "$part" || return 1
-  mv "$part" "$dir/$file"
-  remember_sha256 "$dir/$file" "$(file_stamp "$dir/$file")" "$actual" 2>/dev/null || true
-  "$repo_dir/bin/gguf-inspect" "$dir/$file" >&2 || reject_weights "$file failed inspection; not keeping it" "$dir/$file"
+  mv "$part" "$saved"
+  remember_sha256 "$saved" "$(file_stamp "$saved")" "$actual" 2>/dev/null || true
+  "$repo_dir/bin/gguf-inspect" "$saved" >&2 || reject_weights "$file failed inspection; not keeping it" "$saved"
 }
 
 fetch_weights() {
-  local spec
+  local spec projector
   spec="$(size_gguf "$1")" || { echo "model-server: size $1 has no pinned gguf in sizes.json" >&2; return 1; }
-  fetch_gguf "$spec"
+  fetch_gguf "$spec" || return 1
+  projector="$(mmproj_spec "$1")" || return 0
+  fetch_gguf "$projector"
 }
 
 fetch_embedding_weights() {

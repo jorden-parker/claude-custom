@@ -177,7 +177,8 @@ if [ -n "\${STUB_SHASUM_DIGEST:-}" ]; then
 fi
 name="\${3##*/}"
 name="\${name%.part}"
-echo "\$(jq -r --arg name "/\$name" 'to_entries[] | select(.key | endswith(\$name)) | .value' "$repo/ollama/model-digests.json" | head -n 1)  \$3"
+key="\$(jq -r --arg name "\$name" 'first(.[].gguf | select(.mmproj.local? == \$name) | "\(.repo)/\(.mmproj.file)") // empty' "$repo/ollama/sizes.json")"
+echo "\$(jq -r --arg name "/\$name" --arg key "\$key" 'if \$key != "" then .[\$key] else first(to_entries[] | select(.key | endswith(\$name)) | .value) end' "$repo/ollama/model-digests.json")  \$3"
 EOF
   cat > "$sandbox/stubbin/gguf-inspect" <<EOF
 #!/bin/sh
@@ -209,7 +210,7 @@ EOF
   export CLAUDE_OLLAMA_WEIGHTS_DIR="$sandbox/weights"
   export CLAUDE_OLLAMA_SERVER_WAIT=5
   mkdir -p "$CLAUDE_OLLAMA_WEIGHTS_DIR"
-  for weights_file in $(jq -r '.[] | .gguf.file // empty' "$repo/ollama/sizes.json") "$(jq -r .gguf.file "$repo/ollama/embedding.json")"; do
+  for weights_file in $(jq -r '.[] | .gguf.file // empty, .gguf.mmproj.local // empty' "$repo/ollama/sizes.json") "$(jq -r .gguf.file "$repo/ollama/embedding.json")"; do
     : > "$CLAUDE_OLLAMA_WEIGHTS_DIR/$weights_file"
   done
   default_stub_state > "$stub_state"
@@ -1007,6 +1008,10 @@ check_that "CLAUDE_OLLAMA_PROXY_STABILIZE=1 passes --stabilize to the proxy" con
 rm -f "$sandbox/proxy-args"
 run_capture env -u CLAUDE_OLLAMA_PROXY "$repo/bin/claude-ollama" 27b -p hi
 check_not "the proxy records nothing by default" contains "$(cat "$sandbox/proxy-args")" "--record"
+check_not "a size with a vision projector gets its images" contains "$(cat "$sandbox/proxy-args")" "--images-as-note"
+rm -f "$sandbox/proxy-args"
+run_capture env -u CLAUDE_OLLAMA_PROXY "$repo/bin/claude-ollama" 3b -p hi
+check_that "a size without a vision projector has the proxy turn images into a note" contains "$(cat "$sandbox/proxy-args" 2>/dev/null)" "--images-as-note"
 cat > "$sandbox/stubbin/rescue" <<EOF
 #!/bin/sh
 printf '%s\n' "\$*" > "$sandbox/rescue-args"

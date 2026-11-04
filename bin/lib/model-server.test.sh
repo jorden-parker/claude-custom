@@ -57,13 +57,17 @@ ln -s "$real_repo/shared/profile-overlay" "$repo/shared/profile-overlay"
 write_gguf "$hf_root/org/Tiny-GGUF/resolve/abc123/tiny.gguf" valid
 write_gguf "$hf_root/org/Embed-GGUF/resolve/def456/embed.gguf" valid
 write_gguf "$hf_root/org/Bad-GGUF/resolve/0ff1ce/bad.gguf" bad
+write_gguf "$hf_root/org/Tiny-GGUF/resolve/abc123/mmproj.gguf" valid
+printf 'projector' >> "$hf_root/org/Tiny-GGUF/resolve/abc123/mmproj.gguf"
 tiny_sha="$(sha_of "$hf_root/org/Tiny-GGUF/resolve/abc123/tiny.gguf")"
 embed_sha="$(sha_of "$hf_root/org/Embed-GGUF/resolve/def456/embed.gguf")"
 bad_sha="$(sha_of "$hf_root/org/Bad-GGUF/resolve/0ff1ce/bad.gguf")"
+mmproj_sha="$(sha_of "$hf_root/org/Tiny-GGUF/resolve/abc123/mmproj.gguf")"
 cat > "$repo/ollama/sizes.json" <<'EOF'
 {
   "tiny": {"base": "org/Tiny-GGUF/tiny.gguf", "model": "tiny-cc", "context": 16384, "gguf": {"repo": "org/Tiny-GGUF", "revision": "abc123", "file": "tiny.gguf"}},
   "wrong": {"base": "org/Tiny-GGUF/tiny.gguf", "model": "wrong-cc", "context": 16384, "gguf": {"repo": "org/Tiny-GGUF", "revision": "abc123", "file": "wrong.gguf"}},
+  "seeing": {"base": "org/Tiny-GGUF/tiny.gguf", "model": "seeing-cc", "context": 16384, "gguf": {"repo": "org/Tiny-GGUF", "revision": "abc123", "file": "tiny.gguf", "mmproj": {"file": "mmproj.gguf", "local": "Tiny-mmproj.gguf"}}},
   "bad": {"base": "org/Bad-GGUF/bad.gguf", "model": "bad-cc", "context": 16384, "gguf": {"repo": "org/Bad-GGUF", "revision": "0ff1ce", "file": "bad.gguf"}}
 }
 EOF
@@ -72,8 +76,8 @@ printf 'more bytes' >> "$hf_root/org/Tiny-GGUF/resolve/abc123/wrong.gguf"
 cat > "$repo/ollama/embedding.json" <<'EOF'
 {"model": "embed:0.6b", "gguf": {"repo": "org/Embed-GGUF", "revision": "def456", "file": "embed.gguf"}}
 EOF
-jq -n --arg tiny "$tiny_sha" --arg embed "$embed_sha" --arg bad "$bad_sha" \
-  '{"org/Tiny-GGUF/tiny.gguf": $tiny, "org/Tiny-GGUF/wrong.gguf": $tiny, "org/Embed-GGUF/embed.gguf": $embed, "org/Bad-GGUF/bad.gguf": $bad}' > "$repo/ollama/model-digests.json"
+jq -n --arg tiny "$tiny_sha" --arg embed "$embed_sha" --arg bad "$bad_sha" --arg mmproj "$mmproj_sha" \
+  '{"org/Tiny-GGUF/mmproj.gguf": $mmproj, "org/Tiny-GGUF/tiny.gguf": $tiny, "org/Tiny-GGUF/wrong.gguf": $tiny, "org/Embed-GGUF/embed.gguf": $embed, "org/Bad-GGUF/bad.gguf": $bad}' > "$repo/ollama/model-digests.json"
 printf '[*]\nn-gpu-layers = 99\ncache-ram = 8192\nflash-attn = on\n' > "$repo/ollama/server.ini"
 
 cat > "$sandbox/hf.py" <<'PY'
@@ -210,6 +214,14 @@ check_eq "and keeps no file" no "$(outcome test -e "$sandbox/weights/wrong.gguf"
 check_eq "a file that fails gguf-inspect is not kept" no "$(outcome fetch_weights bad)"
 check_eq "and is removed" no "$(outcome test -e "$sandbox/weights/bad.gguf")"
 check_eq "fetch_weights refuses a size without a gguf block" "model-server: size nope has no pinned gguf in sizes.json" "$(fetch_weights nope 2>&1 >/dev/null)"
+fetch_weights tiny >/dev/null 2>&1
+check_eq "weights_ok is false while a size's vision projector is missing" no "$(outcome weights_ok seeing)"
+check_eq "fetch_weights also downloads the size's vision projector" yes "$(outcome fetch_weights seeing)"
+check_eq "it asked for the projector at the pinned revision" "/org/Tiny-GGUF/resolve/abc123/mmproj.gguf" "$(tail -n 1 "$sandbox/hf.log")"
+check_eq "and keeps it under its local name, since every repo calls it mmproj" yes "$(outcome test -f "$sandbox/weights/Tiny-mmproj.gguf")"
+check_eq "weights_ok is true once both match their pins" yes "$(outcome weights_ok seeing)"
+check_eq "mmproj_spec names the repo, revision, file and local name" "org/Tiny-GGUF abc123 mmproj.gguf Tiny-mmproj.gguf" "$(mmproj_spec seeing)"
+check_eq "mmproj_spec fails for a size without a projector" no "$(outcome mmproj_spec tiny)"
 check_eq "fetch_embedding_weights fetches the embedding GGUF" yes "$(outcome fetch_embedding_weights)"
 check_eq "and keeps it beside the size weights" yes "$(outcome test -f "$sandbox/weights/embed.gguf")"
 

@@ -85,7 +85,8 @@ if [ -n "\${STUB_SHASUM_DIGEST:-}" ]; then
   exit 0
 fi
 name="\${3##*/}"
-echo "\$(jq -r --arg name "/\$name" 'to_entries[] | select(.key | endswith(\$name)) | .value' "$repo/ollama/model-digests.json" | head -n 1)  \$3"
+key="\$(jq -r --arg name "\$name" 'first(.[].gguf | select(.mmproj.local? == \$name) | "\(.repo)/\(.mmproj.file)") // empty' "$repo/ollama/sizes.json")"
+echo "\$(jq -r --arg name "/\$name" --arg key "\$key" 'if \$key != "" then .[\$key] else first(to_entries[] | select(.key | endswith(\$name)) | .value) end' "$repo/ollama/model-digests.json")  \$3"
 EOF
   write_stub gguf-inspect <<EOF
 #!/bin/sh
@@ -113,7 +114,7 @@ new_sandbox() {
   export CLAUDE_OLLAMA_WEIGHTS_DIR="$sandbox/weights"
   write_stubs
   mkdir -p "$CLAUDE_OLLAMA_WEIGHTS_DIR"
-  for weights_file in $(jq -r '.[] | .gguf.file // empty' "$repo/ollama/sizes.json") "$(jq -r .gguf.file "$repo/ollama/embedding.json")"; do
+  for weights_file in $(jq -r '.[] | .gguf.file // empty, .gguf.mmproj.local // empty' "$repo/ollama/sizes.json") "$(jq -r .gguf.file "$repo/ollama/embedding.json")"; do
     : > "$CLAUDE_OLLAMA_WEIGHTS_DIR/$weights_file"
   done
   default_stub_state > "$stub_state"
@@ -144,6 +145,7 @@ check_that "doctor reports the server build and address" grep -qxF "ok   llama-s
 check_that "doctor reports the size's preset" grep -qxF "ok   preset qwen3.8-27b-cc listed" "$sandbox/out"
 check_that "doctor reports the embedding preset" grep -qxF "ok   preset qwen3-embedding:0.6b listed" "$sandbox/out"
 check_that "doctor reports the weights match their pin" grep -qxF "ok   weights Qwen3.8-27B-UD-Q4_K_XL.gguf (sha256 matches)" "$sandbox/out"
+check_that "doctor reports the vision projector matches its pin" grep -qxF "ok   vision projector Qwen3.8-27B-mmproj-F16.gguf (sha256 matches)" "$sandbox/out"
 check_that "doctor reports the embedding weights" grep -qxF "ok   embedding weights Qwen3-Embedding-0.6B-Q8_0.gguf (sha256 matches)" "$sandbox/out"
 check_that "doctor reports the user presets are current" grep -qxF "ok   user presets current" "$sandbox/out"
 check_that "doctor reports context sizes agree" grep -qxF "ok   num_ctx 65536 matches CLAUDE_CODE_MAX_CONTEXT_TOKENS 65536; Claude Code compacts at 44344 tokens" "$sandbox/out"
@@ -216,6 +218,11 @@ run_doctor
 check_eq "doctor with missing weights exit status" 1 "$?"
 check_that "doctor fails missing weights" grep -qxF "fail weights Qwen3.8-27B-UD-Q4_K_XL.gguf missing (claude-ollama prepare 27b)" "$sandbox/out"
 check_that "doctor warns about missing embedding weights" grep -qxF "warn embedding weights Qwen3-Embedding-0.6B-Q8_0.gguf missing (claude-ollama prepare-embedding)" "$sandbox/out"
+
+new_sandbox
+rm -f "$CLAUDE_OLLAMA_WEIGHTS_DIR/Qwen3.8-27B-mmproj-F16.gguf"
+run_doctor
+check_that "doctor fails a missing vision projector" grep -qxF "fail vision projector Qwen3.8-27B-mmproj-F16.gguf missing (claude-ollama prepare 27b)" "$sandbox/out"
 
 new_sandbox
 stub_state_set 'del(.models["qwen3.8-27b-cc"])'

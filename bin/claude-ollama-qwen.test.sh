@@ -74,11 +74,12 @@ EOF
   write_stub shasum <<EOF
 #!/bin/sh
 name="\${3##*/}"
-echo "\$(jq -r --arg name "/\$name" 'to_entries[] | select(.key | endswith(\$name)) | .value' "$repo/ollama/model-digests.json" | head -n 1)  \$3"
+key="\$(jq -r --arg name "\$name" 'first(.[].gguf | select(.mmproj.local? == \$name) | "\(.repo)/\(.mmproj.file)") // empty' "$repo/ollama/sizes.json")"
+echo "\$(jq -r --arg name "/\$name" --arg key "\$key" 'if \$key != "" then .[\$key] else first(to_entries[] | select(.key | endswith(\$name)) | .value) end' "$repo/ollama/model-digests.json")  \$3"
 EOF
   export CLAUDE_OLLAMA_WEIGHTS_DIR="$sandbox/weights"
   mkdir -p "$CLAUDE_OLLAMA_WEIGHTS_DIR"
-  for weights_file in $(jq -r '.[] | .gguf.file // empty' "$repo/ollama/sizes.json"); do
+  for weights_file in $(jq -r '.[] | .gguf.file // empty, .gguf.mmproj.local // empty' "$repo/ollama/sizes.json"); do
     : > "$CLAUDE_OLLAMA_WEIGHTS_DIR/$weights_file"
   done
   [ -n "$system_tools" ] || build_system_tools

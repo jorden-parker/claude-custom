@@ -73,9 +73,13 @@ check_weights_file() {
 }
 
 check_weights() {
-  local spec
+  local spec projector status=0
   spec="$(size_gguf "$size")" || { report fail "size $size has no pinned gguf in ollama/sizes.json"; return 1; }
-  check_weights_file weights "$spec" "claude-ollama prepare $size" fail
+  check_weights_file weights "$spec" "claude-ollama prepare $size" fail || status=1
+  if projector="$(mmproj_spec "$size")"; then
+    check_weights_file "vision projector" "$projector" "claude-ollama prepare $size" fail || status=1
+  fi
+  return "$status"
 }
 
 check_embedding_weights() {
