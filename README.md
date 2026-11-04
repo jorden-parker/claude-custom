@@ -23,6 +23,10 @@ changes are in [install](docs/install.md).
 - `claude`: the personal overlay (hooks, token discipline, Claude Code's own
   sandbox on).
 - `claude-ollama [27b|35b]`: Claude Code on a local model.
+- `bin/model-monitor`: a live view of the loaded models, what each runner is
+  doing, the sessions using them, the last request and recent incidents.
+- `bin/model-stop [--dry-run] [--keep-ollama] [--sessions]`: unload every model
+  and stop the harness helpers, bench servers and the Ollama server.
 - `claude-tools`: edit which built-in tools Claude Code loads.
 - `make test`: every test suite, the one CI runs. The Stop hook runs only the
   tests for the files the agent edited.

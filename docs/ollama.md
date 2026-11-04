@@ -234,6 +234,68 @@ ok   ollama reachable at http://localhost:11434
 ok   server env OLLAMA_FLASH_ATTENTION=1
 ```
 
+### Watching and stopping the models
+
+`bin/model-monitor` redraws one screen every 2 seconds (`--interval N` to change
+it, `--once` to print a single report and exit, Ctrl-C to quit). It shows:
+
+- the models Ollama has loaded (`/api/ps`): size, how much sits on the GPU or
+  CPU, context length and how long until each unloads;
+- each `ollama runner` process with its CPU and memory use, marked `busy` at 20%
+  CPU or more. Ollama does not report requests in progress, so a busy runner is
+  the sign that a model is generating;
+- the sessions holding a residency lease (`claude-ollama`, reviews, benches):
+  model, context, degrade rung and how long each has run. Leases whose process
+  died are skipped;
+- the proxy's last request: when it came, the prompt size and where it stopped
+  matching the previous prompt (`stable` when it matched);
+- the current session's last three incidents.
+
+When Ollama is down the models section reads `ollama: not answering at <url>`
+and the rest still shows.
+
+```
+model monitor  12:48:18  http://127.0.0.1:11434
+
+MODEL                                 SIZE     WHERE  CONTEXT  UNLOADS IN
+qwen3.8:27b-cc                    18.6 GiB  100% GPU    65536  3m59s
+qwen3-embedding:0.6b               0.6 GiB       CPU     8192  29s
+
+runners:
+  runner pid 4242    187.5% CPU    0.9 GiB RSS  busy
+
+sessions:
+  session    pid 4395    qwen3.8:27b-cc               ctx 65536  for 5m0s
+
+proxy: last request 5s ago: 49376 bytes, diverged at message:3
+
+incidents:
+  1m0s ago  evicted: unload qwen3.8
+```
+
+`bin/model-stop` frees the machine. In order, it stops:
+
+1. the running `claude-ollama` sessions, only with `--sessions`;
+2. the harness helpers: messages proxy, incident watcher, degrade ladder, draft
+   opener, code-search indexer, lease heartbeat and the console server;
+3. the bench servers: `backend-bench-off serve-only` cells, `llama-server`,
+   vllm, `mlx_lm.server`, oMLX, MTPLX, Rapid-MLX and mistral.rs;
+4. every loaded model, through a `keep_alive: 0` request (`/api/generate`, or
+   `/api/embed` for an embedding model);
+5. the Ollama server, unless `--keep-ollama`: `launchctl bootout` for the
+   `local.ollama` LaunchAgent, `brew services stop ollama` for the Homebrew
+   service, then any `ollama serve`, `ollama runner` or Ollama app process still
+   running.
+
+Each process gets SIGTERM and 5 seconds before SIGKILL. Processes are matched by
+command line, so a process of your own with one of those names (say, a
+`llama-server` you started by hand) stops too; `--dry-run` prints every pid,
+model and command it would touch and changes nothing. After a full stop the
+LaunchAgent is unloaded and Ollama stays down until something starts it again
+(`ollama-agent -apply`,
+`launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/local.ollama.plist`, or
+`brew services start ollama`).
+
 ### Trusted models
 
 Every model the harness pulls comes from the Ollama library and is pinned by the
