@@ -47,7 +47,9 @@ new_sandbox() {
   sandboxes="$sandboxes $sandbox"
   export HOME="$sandbox/home"
   mkdir -p "$HOME" "$sandbox/stubbin"
-  unset ZDOTDIR XDG_CONFIG_HOME CLAUDE_CONFIG_DIR STUB_OLLAMA_SHOW_EXIT STUB_OLLAMA_PULL_EXIT STUB_OLLAMA_PID STUB_OLLAMA_ENV STUB_AGENT_EXIT
+  unset ZDOTDIR XDG_CONFIG_HOME CLAUDE_CONFIG_DIR STUB_AGENT_EXIT STUB_LLAMA_BUILD STUB_OLLAMA_LOADED
+  export LLAMA_SERVER_URL=http://127.0.0.1:9
+  export CLAUDE_OLLAMA_AGENT="$sandbox/stubbin/ollama-agent"
   export SHELL=/bin/zsh
   cat > "$sandbox/stubbin/claude" <<EOF
 #!/bin/sh
@@ -58,18 +60,22 @@ EOF
   cat > "$sandbox/stubbin/ollama" <<EOF
 #!/bin/sh
 echo "\$*" >> "$sandbox/ollama.log"
-if [ "\$1" = show ]; then exit "\${STUB_OLLAMA_SHOW_EXIT:-0}"; fi
-if [ "\$1" = pull ]; then exit "\${STUB_OLLAMA_PULL_EXIT:-0}"; fi
-exit 0
 EOF
   cat > "$sandbox/stubbin/pgrep" <<'EOF'
 #!/bin/sh
-[ -n "${STUB_OLLAMA_PID:-}" ] || exit 1
-echo "$STUB_OLLAMA_PID"
+exit 1
 EOF
-  cat > "$sandbox/stubbin/ps" <<'EOF'
+  cat > "$sandbox/stubbin/llama-server" <<'EOF'
 #!/bin/sh
-echo "ollama serve ${STUB_OLLAMA_ENV:-}"
+echo "version: ${STUB_LLAMA_BUILD:-11429} (d81235049) (build ${STUB_LLAMA_BUILD:-11429})"
+EOF
+  cat > "$sandbox/stubbin/launchctl" <<EOF
+#!/bin/sh
+echo "\$*" >> "$sandbox/launchctl.log"
+case "\$1 \$2" in
+  "print gui/"*/local.ollama) [ -n "\${STUB_OLLAMA_LOADED:-}" ] ;;
+  "print "*) exit 1 ;;
+esac
 EOF
   printf '#!/bin/sh\necho Darwin\n' > "$sandbox/stubbin/uname"
   cat > "$sandbox/stubbin/ollama-agent" <<EOF
@@ -87,7 +93,7 @@ chmod +x node_modules/.bin/ctx7
 printf '{"version":"%s"}\n' "\$(sed -n 's/.*"ctx7": *"\([^"]*\)".*/\1/p' package.json)" > node_modules/ctx7/package.json
 EOF
   chmod +x "$sandbox/stubbin/npm"
-  chmod +x "$sandbox/stubbin/claude" "$sandbox/stubbin/ollama" "$sandbox/stubbin/pgrep" "$sandbox/stubbin/ps" "$sandbox/stubbin/uname" "$sandbox/stubbin/ollama-agent"
+  chmod +x "$sandbox/stubbin/claude" "$sandbox/stubbin/ollama" "$sandbox/stubbin/pgrep" "$sandbox/stubbin/llama-server" "$sandbox/stubbin/launchctl" "$sandbox/stubbin/uname" "$sandbox/stubbin/ollama-agent"
   link_system_tools
   export PATH="$sandbox/stubbin:$sandbox/sysbin"
 }
@@ -386,47 +392,48 @@ ln -s "$sandbox/elsewhere.fish" "$HOME/.config/fish/functions/claude.fish"
 run_capture "$installer" install
 check_that "fish function link pointing elsewhere is kept" test -L "$HOME/.config/fish/functions/claude.fish"
 
+uid="$(id -u)"
+
 new_sandbox
 run_capture "$installer" install
-check_that "ollama show is run for 27b base" grep -qxF "show qwen3.8:27b-mlx" "$sandbox/ollama.log"
-check_that "ollama create 27b model" grep -qxF "create qwen3.8-27b-cc -f $repo/ollama/Modelfile.27b" "$sandbox/ollama.log"
-check_not "no 9b model is created" grep -qF "qwen3.8-9b-cc" "$sandbox/ollama.log"
-check_that "ollama show is run for 35b base" grep -qxF "show qwen3.6:35b-mlx" "$sandbox/ollama.log"
-check_that "ollama create 35b model" grep -qxF "create qwen3.6-35b-cc -f $repo/ollama/Modelfile.35b" "$sandbox/ollama.log"
+check_eq "install with llama-server exit status" 0 "$?"
+check_eq "install applies the llama-server LaunchAgent once" "-apply" "$(cat "$sandbox/agent.log")"
+check_that "install renders the user presets" test -s "$HOME/.claude-ollama/presets/models.ini"
+check_not "install leaves an unloaded local.ollama alone" grep -sqF "bootout gui/$uid/local.ollama" "$sandbox/launchctl.log"
+check_not "install says nothing about Ollama models when local.ollama is not loaded" grep -qF "ollama rm" "$sandbox/err"
+check_not "install downloads no weights" test -e "$HOME/.claude-ollama/weights"
 
 new_sandbox
-STUB_OLLAMA_SHOW_EXIT=1 run_capture "$installer" install
-check_eq "missing base model exit status" 0 "$?"
-check_not "missing base model skips create" grep -q '^create ' "$sandbox/ollama.log"
-check_that "missing base model message" grep -qF "ollama pull qwen3.8:27b-mlx" "$sandbox/err"
-
-server_env_values="$(tr '\n' ' ' < "$repo/ollama/server.env")"
-agent_stub() { echo "$sandbox/stubbin/ollama-agent"; }
-
-new_sandbox
-STUB_OLLAMA_PID=4242 STUB_OLLAMA_ENV="OLLAMA_KEEP_ALIVE=30m" CLAUDE_OLLAMA_AGENT="$(agent_stub)" run_capture "$installer" install
-check_eq "stale server env exit status" 0 "$?"
-check_eq "stale server env is applied once" "-apply" "$(cat "$sandbox/agent.log")"
-check_that "stale server env says it restarts" grep -qF "restarting it" "$sandbox/err"
+STUB_OLLAMA_LOADED=1 run_capture "$installer" install
+check_eq "install with local.ollama loaded exit status" 0 "$?"
+check_that "install boots out local.ollama" grep -qxF "bootout gui/$uid/local.ollama" "$sandbox/launchctl.log"
+check_eq "install prints one line on removing the Ollama models" 1 "$(grep -c 'ollama rm' "$sandbox/err")"
+check_that "the hint names brew uninstall ollama" grep -qF "brew uninstall ollama" "$sandbox/err"
+check_not "install never runs ollama itself" test -e "$sandbox/ollama.log"
 
 new_sandbox
-STUB_OLLAMA_PID=4242 STUB_OLLAMA_ENV="$server_env_values" CLAUDE_OLLAMA_AGENT="$(agent_stub)" run_capture "$installer" install
-check_not "current server env is left running" test -e "$sandbox/agent.log"
-
-new_sandbox
-CLAUDE_OLLAMA_AGENT="$(agent_stub)" run_capture "$installer" install
-check_not "no running server is not started" test -e "$sandbox/agent.log"
-
-new_sandbox
-STUB_OLLAMA_PID=4242 STUB_AGENT_EXIT=1 CLAUDE_OLLAMA_AGENT="$(agent_stub)" run_capture "$installer" install
-check_eq "failed restart keeps the install passing" 0 "$?"
-check_that "failed restart message" grep -qF "skip: could not restart Ollama" "$sandbox/err"
-
-new_sandbox
-rm "$sandbox/stubbin/ollama"
+rm "$sandbox/stubbin/llama-server"
 run_capture "$installer" install
-check_eq "no ollama on PATH exit status" 0 "$?"
-check_not "no ollama on PATH prints nothing about ollama" grep -q 'ollama' "$sandbox/err"
+check_eq "install without llama-server exit status" 0 "$?"
+check_that "install without llama-server names brew install llama.cpp" grep -qF "brew install llama.cpp" "$sandbox/err"
+check_not "install without llama-server applies no LaunchAgent" test -e "$sandbox/agent.log"
+check_that "install without llama-server still links claude-ollama" test -L "$HOME/.local/bin/claude-ollama"
+
+new_sandbox
+STUB_LLAMA_BUILD=9100 run_capture "$installer" install
+check_eq "install with an old llama-server exit status" 0 "$?"
+check_that "install warns about an old llama-server build" grep -qF "llama-server build 9100 is below 9200; run: brew upgrade llama.cpp" "$sandbox/err"
+
+new_sandbox
+STUB_AGENT_EXIT=1 run_capture "$installer" install
+check_eq "failed apply keeps the install passing" 0 "$?"
+check_that "failed apply message" grep -qF "skip: could not apply the llama-server LaunchAgent; run: claude-custom agent -apply" "$sandbox/err"
+
+new_sandbox
+printf '#!/bin/sh\necho Linux\n' > "$sandbox/stubbin/uname"
+run_capture "$installer" install
+check_not "install off macOS applies no LaunchAgent" test -e "$sandbox/agent.log"
+check_not "install off macOS calls no launchctl" test -e "$sandbox/launchctl.log"
 
 new_sandbox
 run_capture "$installer" install
@@ -495,8 +502,12 @@ check_eq "uninstall on untouched home creates nothing" "$before" "$(find "$HOME"
 new_sandbox
 run_capture "$installer" install
 rm -f "$sandbox/ollama.log"
+mkdir -p "$HOME/Library/LaunchAgents"
+printf '<plist/>\n' > "$HOME/Library/LaunchAgents/local.llama-server.plist"
 run_capture "$installer" uninstall
 check_not "uninstall never calls ollama" test -s "$sandbox/ollama.log"
+check_that "uninstall boots out local.llama-server" grep -qxF "bootout gui/$uid/local.llama-server" "$sandbox/launchctl.log"
+check_not "uninstall removes the llama-server LaunchAgent" test -e "$HOME/Library/LaunchAgents/local.llama-server.plist"
 check_that "uninstall closing message" grep -qF "open a new terminal; current shells keep the claude function until they exit" "$sandbox/out"
 
 new_sandbox

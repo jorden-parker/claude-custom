@@ -2,6 +2,10 @@
 set -u
 
 repo_dir="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+. "$repo_dir/bin/lib/model-server.sh"
+minimum_server_build=9200
+server_label="local.llama-server"
+retired_server_label="local.ollama"
 status=0
 wired=""
 
@@ -297,34 +301,6 @@ check_ollama_profiles() {
   "$repo_dir/bin/ollama-profiles" --check || { echo "fail: ollama profiles are stale; run bin/ollama-profiles" >&2; status=1; }
 }
 
-refresh_ollama_models() {
-  command -v ollama >/dev/null 2>&1 || return 0
-  local modelfile size base name verb='pull'
-  for modelfile in "$repo_dir"/ollama/Modelfile.*; do
-    [ -f "$modelfile" ] || continue
-    size="${modelfile##*/Modelfile.}"
-    base="$(sed -n 's/^FROM //p' "$modelfile")"
-    if [[ "$base" == ./weights/* ]]; then
-      echo "skip: $base is a pinned GGUF; claude-ollama $size downloads and imports it on first launch" >&2
-      continue
-    fi
-    name="$(jq -r .model "$repo_dir/ollama/settings.$size.json")"
-    if [ -z "$name" ] || [ "$name" = null ]; then
-      echo "fail: no model name in ollama/settings.$size.json" >&2
-      status=1
-      continue
-    fi
-    if ! ollama show "$base" >/dev/null 2>&1; then
-      echo "skip: ollama base model $base not available; run 'ollama $verb $base' (and make sure 'ollama serve' is running), then re-run claude-custom install" >&2
-      continue
-    fi
-    if ! ollama create "$name" -f "$modelfile"; then
-      echo "fail: ollama create $name" >&2
-      status=1
-    fi
-  done
-}
-
 guard_repo_path() {
   case "$repo_dir" in
     *"'"*) echo "claude-custom path must not contain a single quote" >&2; exit 2 ;;
@@ -342,32 +318,43 @@ remove_session_packages() {
   rm -rf "$HOME/.local/share/claude-custom/sandbox-runtime" "$HOME/.local/share/claude-custom/shortcut-cli"
 }
 
-running_ollama_env() {
-  local pid
-  pid="$(pgrep -x ollama | head -n 1)" || true
-  [ -n "$pid" ] || return 1
-  if [ -r "/proc/$pid/environ" ]; then
-    tr '\0' '\n' < "/proc/$pid/environ"
-  else
-    ps -Eo command -p "$pid" | tr ' ' '\n'
+on_macos() {
+  [ "$(uname)" = Darwin ]
+}
+
+launchd_domain() {
+  printf 'gui/%s\n' "$(id -u)"
+}
+
+retire_ollama_agent() {
+  launchctl print "$(launchd_domain)/$retired_server_label" >/dev/null 2>&1 || return 0
+  launchctl bootout "$(launchd_domain)/$retired_server_label" 2>/dev/null || true
+  echo "install: stopped the Ollama LaunchAgent $retired_server_label; your Ollama models stay on disk until you remove them (ollama rm NAME for each, then brew uninstall ollama)" >&2
+}
+
+warn_old_server_build() {
+  local build
+  build="$(server_build || echo 0)"
+  [ "$build" -ge "$minimum_server_build" ] 2>/dev/null && return 0
+  echo "warn: llama-server build $build is below $minimum_server_build; run: brew upgrade llama.cpp" >&2
+}
+
+install_model_server() {
+  on_macos || return 0
+  retire_ollama_agent
+  if ! command -v llama-server >/dev/null 2>&1; then
+    echo "skip: llama-server not installed; run: brew install llama.cpp, then claude-custom install" >&2
+    return 0
   fi
+  warn_old_server_build
+  "$repo_dir/bin/ollama-profiles" --user-presets >/dev/null || { echo "fail: could not write the llama-server user presets" >&2; status=1; return 0; }
+  "${CLAUDE_OLLAMA_AGENT:-$repo_dir/bin/ollama-agent}" -apply >&2 || echo "skip: could not apply the llama-server LaunchAgent; run: claude-custom agent -apply" >&2
 }
 
-server_env_is_current() {
-  local wanted
-  while IFS= read -r wanted; do
-    [ -n "$wanted" ] || continue
-    printf '%s\n' "$1" | grep -qxF "$wanted" || return 1
-  done < "$repo_dir/ollama/server.env"
-}
-
-restart_stale_ollama_server() {
-  [ "$(uname)" = Darwin ] || return 0
-  local running
-  running="$(running_ollama_env)" || return 0
-  server_env_is_current "$running" && return 0
-  echo "install: the Ollama server lacks ollama/server.env values; restarting it" >&2
-  "${CLAUDE_OLLAMA_AGENT:-$repo_dir/bin/ollama-agent}" -apply >&2 || echo "skip: could not restart Ollama; run: claude-custom agent -apply" >&2
+remove_model_server() {
+  on_macos || return 0
+  launchctl bootout "$(launchd_domain)/$server_label" 2>/dev/null || true
+  rm -f "$HOME/Library/LaunchAgents/$server_label.plist"
 }
 
 sync_fingerprint="$repo_dir/bin/sync-fingerprint"
@@ -393,10 +380,9 @@ install_all() {
   retire_plan_001_fish_link
   wire_shells
   check_ollama_profiles
-  refresh_ollama_models
   build_go_apps
   install_ctx7_cli
-  restart_stale_ollama_server
+  install_model_server
   remove_session_packages
   write_launch_beacon
   print_activation
@@ -505,6 +491,7 @@ uninstall_all() {
   remove_import_lines
   remove_retired_imports
   rm -rf "$ctx7_home"
+  remove_model_server
   echo "open a new terminal; current shells keep the claude function until they exit"
 }
 
