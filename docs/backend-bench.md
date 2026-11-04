@@ -69,10 +69,11 @@ server on every model, and `bin/backend-bench-off report` rebuilds the page.
 Every run also replays up to `BENCH_REPLAY_LIMIT` (30) recorded bodies from
 `BENCH_REPLAY_DIR` (default `~/.claude-ollama/proxy/record`, filled by a session
 launched with `CLAUDE_OLLAMA_PROXY_RECORD=1`; `BENCH_REPLAY_DIR=` turns it off)
-through `bin/prefix-ab`, clearing the cache first (`/api/chat` keep-alive 0 on
-Ollama, `/slots/0?action=erase` on llama-server, nothing on oMLX and vllm-mlx).
-The page's "Replay cache hit %" row shows the verbatim mean. It is shown, not
-judged by the decision rule.
+through `bin/prefix-ab`, clearing the cache first (`--unload ollama`, an
+`/api/chat` keep-alive 0, on Ollama; `--unload llama-slots` on llama-server,
+which unloads and reloads a router preset or else erases slot 0; nothing on oMLX
+and vllm-mlx). The page's "Replay cache hit %" row shows the verbatim mean. It
+is shown, not judged by the decision rule.
 
 The console's Benchmarks page (`claude-ollama ui`, then `/benchmarks`) can run
 one cell (`bench-off-run`) and rebuild the report (`bench-off-report`), and
@@ -111,8 +112,8 @@ drop.
   same `ANTHROPIC_BASE_URL`, so the winning server must serve it too, under the
   name every profile uses: `qwen3-4b-cc`.
 - The embedding model (`qwen3-embedding:0.6b`) is not benchmarked.
-  `semantic_search` keeps calling Ollama's `/api/embed` whichever server runs
-  the chat model.
+  `semantic_search` keeps calling the harness's llama-server `/v1/embeddings`
+  whichever server runs the chat model.
 
 ## MTP
 
@@ -160,9 +161,10 @@ treat it as a guide, not an exact speed-up.
   it starts. The page flags any run that was on battery or in Low Power Mode.
   Peak memory is the whole machine's (active, wired and compressed pages from
   `vm_stat`), so close other apps.
-- Known difference: Ollama keeps its own server settings (`ollama/server.env`:
-  flash attention, q8_0 KV cache) and chat-template handling. The other servers
-  use their defaults: fp16 KV cache and the template shipped with the weights.
+- Known difference: Ollama keeps whatever settings its own service runs with
+  (the harness no longer configures it) and its own chat-template handling. The
+  other servers use their defaults: fp16 KV cache and the template shipped with
+  the weights.
 
 ## How each server runs
 
@@ -198,35 +200,27 @@ model it could be judged on, else "Stay on Ollama". Before switching, confirm
 with a real Claude Code session of about 20 tool-using turns on the winner, with
 no malformed tool calls.
 
-## Ollama MLX vs Unsloth GGUF
+## Speed check on the harness's llama-server
 
-The `27b-gguf` and `35b-gguf` sizes run the same models as the MLX sizes, from
-Unsloth's Q4_K_XL GGUF files. Compare them on the work laptop with one command,
-plugged in and with no other `claude-ollama` session open:
+The harness itself now runs llama-server (see `docs/ollama.md`), so the old
+Ollama MLX vs Unsloth GGUF comparison is gone. To check the 27b and 35b sizes on
+the work laptop, plugged in and with no other `claude-ollama` session open:
 
 ```sh
 git pull && claude-ollama speed-check
 ```
 
-It stops with a one-line fix when Ollama is down, the laptop is on battery or in
-Low Power Mode, another session runs, or a GGUF import lacks 45 GB of disk, and
-it is safe to rerun: imported models and an interrupted download are kept. In
-order, it runs `claude-ollama prepare` for the four sizes, checks each GGUF
-model's `ollama show --modelfile` for `RENDERER` and `PARSER`, runs the plan 066
-thinking check (`bin/messages-bench --prefix-tokens 2000 --tool-trials 3` with
-`--thinking claude-code`, then `disabled`, on both MLX models), benches each
-pair back to back with `--thinking disabled --tool-trials 5`, and runs
-`bin/ollama-cache-probe SIZE --json` on all four sizes. It saves everything to
-`~/bench-results/speed-check-YYYYmmdd-HHMM.json` and prints a verdict, a `Next:`
-line and a block to paste back to Claude.
-
-A GGUF size is better for its model when, at the 60k prefix, its warm TTFT is
-lower than the MLX size's, its warm decode t/s is at least 90% of MLX's, its
-tool calls are 5/5, and its cache-probe verdict says the cache is reused. The
-owner may make a GGUF size the default in a separate change. If none is better,
-keep the sizes as options or remove them. The `ollama show --modelfile` lines
-must show `RENDERER` and `PARSER`; without them Ollama would use the file's own
-template, and the size must not be used.
+It stops with a one-line fix when llama-server is down, the laptop is on battery
+or in Low Power Mode, another session runs, or a download lacks 45 GB of disk,
+and it is safe to rerun: downloaded weights and an interrupted download are
+kept. In order, it downloads the 27b and 35b weights, checks that each size's
+`@think` preset thinks and its plain preset does not
+(`bin/messages-bench --prefix-tokens 2000 --tool-trials 3`), benches each size
+with `--tool-trials 5`, and runs `bin/ollama-cache-probe` on each preset. It
+saves everything to `~/bench-results/speed-check-YYYYmmdd-HHMM.json` and prints
+a verdict line per size (warm TTFT and decode at the 60k prefix, or what failed:
+tool calls missed, prompt cache not reused), a `Next:` line and a block to paste
+back to Claude.
 
 ## oMLX facts (fill in when oMLX wins)
 
