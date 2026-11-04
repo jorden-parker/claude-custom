@@ -180,7 +180,7 @@ run_once
 check "expiry evidence appends no degraded row" equals 0 "$(rows_with cause degraded < "$tmp/incidents.jsonl")"
 check "expiry evidence is noted as bound to no rung" grep -q '"note": "reprefilled after expired: no rung"' "$tmp/incidents.jsonl"
 check "expiry evidence is noted once" equals 1 "$(grep -c 'reprefilled after expired' "$tmp/incidents.jsonl")"
-check "expiry evidence raises no flag" equals "" "$(ls "$tmp/relaunch" | grep -v '^claude.pid$')"
+check "expiry evidence raises no flag" equals "" "$(find "$tmp/relaunch" -mindepth 1 ! -name claude.pid)"
 check "expiry evidence writes no ladder file" test ! -e "$tmp/relaunch/ladder"
 
 mkdir -p "$tmp/stubbin"
