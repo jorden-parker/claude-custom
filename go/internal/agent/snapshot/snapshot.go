@@ -7,7 +7,7 @@ import (
 	"github.com/jordenparker/claude-custom/go/internal/agent/variables"
 )
 
-type Variable struct {
+type Setting struct {
 	Name        string `json:"name"`
 	Summary     string `json:"summary"`
 	Current     string `json:"current"`
@@ -16,36 +16,43 @@ type Variable struct {
 }
 
 type Snapshot struct {
-	Path      string     `json:"path"`
-	Exists    bool       `json:"exists"`
-	Variables []Variable `json:"variables"`
-	Conflicts []string   `json:"conflicts"`
+	Path      string    `json:"path"`
+	Exists    bool      `json:"exists"`
+	Overrides string    `json:"overrides"`
+	Variables []Setting `json:"variables"`
+	Conflicts []string  `json:"conflicts"`
 }
 
-func Build(path string, serverEnv map[string]string, conflicts []string) (Snapshot, error) {
-	current, exists, err := launchd.Load(path)
+func Build(plist, overridesPath string, recommended map[string]string, conflicts []string) (Snapshot, error) {
+	_, exists, err := launchd.Load(plist)
 	if err != nil {
-		return Snapshot{}, fmt.Errorf("reading %s: %w", path, err)
+		return Snapshot{}, fmt.Errorf("reading %s: %w", plist, err)
+	}
+	overrides, err := variables.Load(overridesPath)
+	if err != nil {
+		return Snapshot{}, fmt.Errorf("reading %s: %w", overridesPath, err)
 	}
 	return Snapshot{
-		Path:      path,
+		Path:      plist,
 		Exists:    exists,
-		Variables: variablesFor(current, serverEnv),
+		Overrides: overridesPath,
+		Variables: settingsFor(recommended, overrides),
 		Conflicts: nonNil(conflicts),
 	}, nil
 }
 
-func variablesFor(current, serverEnv map[string]string) []Variable {
-	names := variables.Names(current, serverEnv)
-	found := make([]Variable, 0, len(names))
+func settingsFor(recommended, overrides map[string]string) []Setting {
+	current := variables.Effective(recommended, overrides)
+	names := variables.Names(current)
+	found := make([]Setting, 0, len(names))
 	for _, name := range names {
-		value, set := current[name]
-		found = append(found, Variable{
+		_, set := overrides[name]
+		found = append(found, Setting{
 			Name:        name,
 			Summary:     variables.Summary(name),
-			Current:     value,
+			Current:     current[name],
 			Set:         set,
-			Recommended: serverEnv[name],
+			Recommended: recommended[name],
 		})
 	}
 	return found

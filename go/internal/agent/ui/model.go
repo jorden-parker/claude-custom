@@ -11,15 +11,13 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/jordenparker/claude-custom/go/internal/agent/apply"
 	"github.com/jordenparker/claude-custom/go/internal/agent/launchd"
 	"github.com/jordenparker/claude-custom/go/internal/agent/variables"
 )
 
 type Config struct {
-	Agent     launchd.Agent
-	Path      string
-	ServerEnv map[string]string
-	Reload    func() *exec.Cmd
+	apply.Setup
 	Conflicts []string
 }
 
@@ -28,6 +26,7 @@ type Model struct {
 	names          []string
 	values         map[string]string
 	saved          map[string]string
+	agentWritten   bool
 	cursor         int
 	editing        bool
 	input          textinput.Model
@@ -44,22 +43,26 @@ type reloadedMsg struct {
 }
 
 func New(config Config) (Model, error) {
-	onDisk, found, err := launchd.Load(config.Path)
+	values, err := config.Values()
+	if err != nil {
+		return Model{}, err
+	}
+	_, found, err := launchd.Load(config.Path)
 	if err != nil {
 		return Model{}, fmt.Errorf("reading %s: %w", config.Path, err)
 	}
 	m := Model{
-		config: config,
-		names:  variables.Names(onDisk, config.ServerEnv),
-		values: maps.Clone(onDisk),
-		saved:  onDisk,
-		input:  textinput.New(),
-		keys:   newKeyMap(),
-		help:   help.New(),
+		config:       config,
+		names:        variables.Names(values),
+		values:       values,
+		saved:        maps.Clone(values),
+		agentWritten: found,
+		input:        textinput.New(),
+		keys:         newKeyMap(),
+		help:         help.New(),
 	}
 	if !found {
-		m.values = maps.Clone(config.ServerEnv)
-		m.status = "No agent yet; values come from server.env. Press w to create it."
+		m.status = "No agent yet; values come from server.ini. Press w to create it."
 	}
 	return m, nil
 }
@@ -75,7 +78,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.help.SetWidth(msg.Width)
 		return m, nil
 	case reloadedMsg:
-		m.status = reloadStatus(m.config.Agent.Label, msg)
+		m.status = reloadStatus(launchd.Label, msg)
 		return m, nil
 	case tea.KeyPressMsg:
 		if m.editing {
@@ -103,8 +106,6 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.moveCursor(1)
 	case key.Matches(msg, m.keys.Edit):
 		return m.startEdit()
-	case key.Matches(msg, m.keys.Unset):
-		delete(m.values, m.selected())
 	case key.Matches(msg, m.keys.Reset):
 		m.resetSelected()
 	case key.Matches(msg, m.keys.Save):
@@ -151,7 +152,7 @@ func (m *Model) setSelected(value string) {
 }
 
 func (m *Model) resetSelected() {
-	m.setSelected(m.config.ServerEnv[m.selected()])
+	m.setSelected(m.config.Recommended[m.selected()])
 }
 
 func (m Model) selected() string {
@@ -163,7 +164,7 @@ func (m *Model) moveCursor(delta int) {
 }
 
 func (m Model) dirty() bool {
-	return !maps.Equal(m.values, m.saved)
+	return !m.agentWritten || !maps.Equal(m.values, m.saved)
 }
 
 func (m Model) quit() (tea.Model, tea.Cmd) {
@@ -176,14 +177,13 @@ func (m Model) quit() (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) save() bool {
-	agent := m.config.Agent
-	agent.Env = maps.Clone(m.values)
-	if err := launchd.Save(m.config.Path, agent); err != nil {
+	if _, err := apply.Save(m.config.Setup, m.values); err != nil {
 		m.status = "Save failed: " + err.Error()
 		return false
 	}
 	m.saved = maps.Clone(m.values)
-	m.status = "Saved " + m.config.Path
+	m.agentWritten = true
+	m.status = "Saved " + m.config.OverridesPath + " and " + m.config.Path
 	return true
 }
 
@@ -191,7 +191,7 @@ func (m Model) apply() (tea.Model, tea.Cmd) {
 	if !m.save() {
 		return m, nil
 	}
-	m.status = "Reloading " + m.config.Agent.Label + "…"
+	m.status = "Reloading " + launchd.Label + "…"
 	return m, reload(m.config.Reload())
 }
 

@@ -24,7 +24,7 @@ var (
 
 func (m Model) View() tea.View {
 	var b strings.Builder
-	b.WriteString(titleStyle.Render("Ollama LaunchAgent") + "\n")
+	b.WriteString(titleStyle.Render("llama-server LaunchAgent") + "\n")
 	b.WriteString(mutedStyle.Render(m.config.Path) + "\n")
 	for _, conflict := range m.config.Conflicts {
 		b.WriteString(warningStyle.Render("! "+conflict) + "\n")
@@ -78,11 +78,11 @@ func (m Model) unsavedMarker(name string) string {
 
 func (m Model) details(name string) string {
 	summary := variables.Summary(name)
-	recommended, listed := m.config.ServerEnv[name]
+	recommended, listed := m.config.Recommended[name]
 	if !listed || m.values[name] == recommended {
 		return summary
 	}
-	hint := "server.env: " + recommended
+	hint := "server.ini: " + recommended
 	if summary == "" {
 		return hint
 	}

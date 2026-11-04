@@ -151,9 +151,13 @@ render_embedding_preset() {
     "pooling = last"' "$embedding_file"
 }
 
+shared_server_section() {
+  awk '/^\[/ { on = ($0 == "[*]") } on' "$1" | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}'
+}
+
 render_models_ini() {
   local size
-  cat "$server_ini"
+  shared_server_section "$server_ini"
   echo
   for size in $(sizes); do
     render_size_presets "$size" || return 1
@@ -286,7 +290,7 @@ with_rendered() {
 }
 
 usage() {
-  echo "usage: ollama-profiles [--check | --user-presets [--out FILE] [--profiles-dir DIR]]" >&2
+  echo "usage: ollama-profiles [--check | --user-presets [--check] [--out FILE] [--profiles-dir DIR]]" >&2
   exit 2
 }
 
@@ -325,9 +329,35 @@ add_profile_presets() {
   printf '[%s]\n%s\n\n' "$model@profile" "$lines" >> "$presets"
 }
 
+merge_server_overrides() {
+  [ -f "$2" ] || { cat "$1"; return 0; }
+  awk -v overrides="$2" '
+    BEGIN {
+      section = ""
+      while ((getline line < overrides) > 0) {
+        if (line ~ /^\[/) { section = line; continue }
+        if (section != "[*]" || line !~ /=/) continue
+        key = line; sub(/[ \t]*=.*/, "", key); gsub(/^[ \t]+/, "", key)
+        value = line; sub(/^[^=]*=[ \t]*/, "", value)
+        order[++count] = key; wanted[key] = value
+      }
+    }
+    function flush_extras(   i) {
+      for (i = 1; i <= count; i++) if (!(order[i] in done)) { print order[i] " = " wanted[order[i]]; done[order[i]] = 1 }
+    }
+    /^\[/ { if (in_star) flush_extras(); in_star = ($0 == "[*]"); print; next }
+    in_star && /=/ {
+      key = $0; sub(/[ \t]*=.*/, "", key)
+      if (key in wanted) { print key " = " wanted[key]; done[key] = 1; next }
+    }
+    in_star && !NF { flush_extras() }
+    { print }
+  ' "$1"
+}
+
 render_user_presets() {
-  local presets="$1" profiles="$2" weights="$3" content size
-  content="$(cat "$models_ini")" || return 1
+  local presets="$1" profiles="$2" weights="$3" overrides="$4" content size
+  content="$(merge_server_overrides "$models_ini" "$overrides")" || return 1
   printf '%s\n' "${content//$weights_placeholder/$weights}" > "$presets"
   for size in $(sizes); do
     add_profile_presets "$presets" "$size" "$profiles/ollama-$size.json" || return 1
@@ -335,8 +365,11 @@ render_user_presets() {
 }
 
 write_user_presets() {
-  local out="$HOME/.claude-ollama/presets/models.ini" profiles="${XDG_CONFIG_HOME:-$HOME/.config}/claude-custom/profiles" rendered status=0
+  local out="$HOME/.claude-ollama/presets/models.ini" profiles="${XDG_CONFIG_HOME:-$HOME/.config}/claude-custom/profiles" rendered status=0 finish=install_user_presets
   while [ $# -gt 0 ]; do
+    case "$1" in
+      --check) finish=check_user_presets; shift; continue ;;
+    esac
     [ $# -ge 2 ] || usage
     case "$1" in
       --out) out="$2" ;;
@@ -346,13 +379,22 @@ write_user_presets() {
     shift 2
   done
   rendered="$(mktemp)"
-  if render_user_presets "$rendered" "$profiles" "${CLAUDE_OLLAMA_WEIGHTS_DIR:-$HOME/.claude-ollama/weights}"; then
-    install_user_presets "$rendered" "$out" || status=1
+  if render_user_presets "$rendered" "$profiles" "${CLAUDE_OLLAMA_WEIGHTS_DIR:-$HOME/.claude-ollama/weights}" "${out%/*}/server.local.ini"; then
+    "$finish" "$rendered" "$out" || status=1
   else
     status=1
   fi
   rm -f "$rendered"
   return "$status"
+}
+
+check_user_presets() {
+  if [ -f "$2" ] && cmp -s "$1" "$2"; then
+    echo current
+    return 0
+  fi
+  echo stale
+  return 1
 }
 
 install_user_presets() {
