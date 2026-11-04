@@ -15,7 +15,7 @@ import type { FileState, SizeStatus, WeightFile } from "./model-display";
 
 const LIST_OPTIONS: RunOnceOptions = { timeoutMs: 10_000, maxBytes: 1024 * 1024 };
 const PRUNABLE_STATES = new Set<FileState>(["orphan", "partial"]);
-const LIST_LINE = /^(pinned|mismatch|orphan|partial)\s+(\S+)(?:\s+(\S+))?\s*$/;
+const LIST_LINE = /^(pinned|mismatch|candidate|orphan|partial)\s+(\S+)(?:\s+(\S+))?\s*$/;
 const PARTIAL_SUFFIX = ".part";
 
 export type ModelsDeps = {

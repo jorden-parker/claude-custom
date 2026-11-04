@@ -32,20 +32,27 @@ describe("parseDoctorLine", () => {
 
 describe("parseOutdatedLine", () => {
   it("reads a current size as ok", () => {
-    expect(parseOutdatedLine("27b current")).toEqual({ level: "ok", text: "27b current" });
+    expect(parseOutdatedLine("current  27b")).toEqual({ level: "ok", text: "27b current" });
   });
 
   it("reads a behind size as a failure, keeping its old and new revisions", () => {
-    expect(parseOutdatedLine("35b behind (a483e9e → 5d1c0f2)")).toEqual({
+    expect(parseOutdatedLine("behind   35b (a483e9e → 5d1c0f2)")).toEqual({
       level: "fail",
       text: "35b behind (a483e9e → 5d1c0f2)",
     });
   });
 
+  it("reads an unknown size as a warning, keeping its reason", () => {
+    expect(parseOutdatedLine("unknown  27b (no revision at https://huggingface.co)")).toEqual({
+      level: "warn",
+      text: "27b unknown (no revision at https://huggingface.co)",
+    });
+  });
+
   it("gives null for a line that is not an outdated line", () => {
     expect(parseOutdatedLine("Checking current revisions")).toBeNull();
-    expect(parseOutdatedLine("27b behind")).toBeNull();
-    expect(parseOutdatedLine("27b current now")).toBeNull();
+    expect(parseOutdatedLine("behind 27b")).toBeNull();
+    expect(parseOutdatedLine("27b current")).toBeNull();
     expect(parseOutdatedLine("")).toBeNull();
   });
 });
@@ -87,9 +94,9 @@ describe("checksFromLines", () => {
         "fail server setting cache-ram = 8192 not set",
         "fail server setting models-max = 2 not set",
         "     fix: claude-custom agent -apply",
-        "27b current",
-        "35b behind (a483e9e → 5d1c0f2)",
-        "fix: bin/model-upgrade 35b",
+        "current  27b",
+        "behind   35b (a483e9e → 5d1c0f2)",
+        "     fix: bin/model-upgrade 35b",
         "1 behind: run the fix lines above",
       ]),
     ).toEqual({

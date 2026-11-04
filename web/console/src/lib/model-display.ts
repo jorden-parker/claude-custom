@@ -1,4 +1,4 @@
-export type FileState = "pinned" | "mismatch" | "orphan" | "partial";
+export type FileState = "pinned" | "mismatch" | "candidate" | "orphan" | "partial";
 
 export type SizeStatus = {
   size: string;

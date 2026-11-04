@@ -9,6 +9,7 @@ import { closedPortUrl, startStubLlama, STUB_MODELS, type StubLlama } from "./st
 const LISTING = [
   "pinned   Qwen3.8-27B-UD-Q4_K_XL.gguf 27b",
   "mismatch Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf 35b",
+  "candidate    Qwen3.8-27B-UD-Q4_K_XL.gguf.next",
   "orphan   Old-Model-Q4_K_M.gguf",
   "partial  Half-Model.gguf.part",
   "a line that is not a listing",
@@ -85,6 +86,7 @@ describe("modelsSnapshot", () => {
     expect(snapshot.files).toEqual([
       { name: "Qwen3.8-27B-UD-Q4_K_XL.gguf", state: "pinned", size: "27b", bytes: 2048 },
       { name: "Qwen3.6-35B-A3B-UD-Q4_K_XL.gguf", state: "mismatch", size: "35b", bytes: 0 },
+      { name: "Qwen3.8-27B-UD-Q4_K_XL.gguf.next", state: "candidate", size: null, bytes: 0 },
       { name: "Old-Model-Q4_K_M.gguf", state: "orphan", size: null, bytes: 512 },
       { name: "Half-Model.gguf.part", state: "partial", size: null, bytes: 0 },
     ]);
@@ -135,7 +137,7 @@ describe("modelsSnapshot", () => {
     expect(snapshot.server).toBe("down");
     expect(snapshot.presets).toEqual([]);
     expect(snapshot.sizes).toHaveLength(2);
-    expect(snapshot.files).toHaveLength(4);
+    expect(snapshot.files).toHaveLength(5);
     expect(snapshot.embedding.status).toBeNull();
   });
 });

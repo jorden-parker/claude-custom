@@ -3,7 +3,8 @@ export type DoctorCheck = { level: DoctorLevel; text: string; fixes?: string[] }
 export type DoctorSummary = Record<DoctorLevel, number>;
 
 const CHECK_LINE = /^(ok|warn|fail)\s+(.*)$/;
-const OUTDATED_LINE = /^([a-z0-9][a-z0-9.-]*)\s+(current|behind \(.+\))$/;
+const OUTDATED_LINE = /^(current|behind|unknown)\s+([a-z0-9][a-z0-9.-]*)(?:\s+(\(.+\)))?$/;
+const OUTDATED_LEVEL: Record<string, DoctorLevel> = { current: "ok", behind: "fail", unknown: "warn" };
 const FIX_LINE = /^\s*fix: (.+)$/;
 
 export function parseDoctorLine(line: string): DoctorCheck | null {
@@ -13,10 +14,11 @@ export function parseDoctorLine(line: string): DoctorCheck | null {
 
 export function parseOutdatedLine(line: string): DoctorCheck | null {
   const match = OUTDATED_LINE.exec(line.trim());
-  if (match === null) {
+  if (match === null || (match[1] === "current") !== (match[3] === undefined)) {
     return null;
   }
-  return { level: match[2] === "current" ? "ok" : "fail", text: `${match[1]} ${match[2]}` };
+  const detail = match[3] === undefined ? "" : ` ${match[3]}`;
+  return { level: OUTDATED_LEVEL[match[1]], text: `${match[2]} ${match[1]}${detail}` };
 }
 
 function parseFixLine(line: string): string | null {
