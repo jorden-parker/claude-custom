@@ -1,5 +1,5 @@
 #!/bin/bash
-. "$(dirname "${BASH_SOURCE[0]}")/size-profile.sh"
+. "$(dirname "${BASH_SOURCE[0]}")/model-server.sh"
 lease_bin="${CLAUDE_OLLAMA_LEASE_BIN:-$repo_dir/bin/ollama-lease}"
 bytes_per_gib=1073741824
 fit_json=""
@@ -7,6 +7,10 @@ fit_margin=""
 
 lease_on() {
   [ "${CLAUDE_OLLAMA_LEASE:-}" != 0 ]
+}
+
+embedding_model_fits() {
+  [ "$(models_max)" -ge 2 ] 2>/dev/null
 }
 
 fit_on() {

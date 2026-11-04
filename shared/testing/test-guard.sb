@@ -1,0 +1,6 @@
+(version 1)
+(allow default)
+(deny file-write* (subpath (string-append (param "HOME_DIR") "/Library/LaunchAgents")))
+(deny file-write* (subpath (string-append (param "HOME_DIR") "/.claude-ollama")))
+(deny network-outbound (remote ip "*:11435"))
+(deny process-exec (literal "/bin/launchctl"))

@@ -1,9 +1,10 @@
 package profiles
 
 import (
-	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -16,7 +17,15 @@ type Profile struct {
 	Base  string
 }
 
+type sizeEntry struct {
+	Base string `json:"base"`
+}
+
 func Load(dir string) ([]Profile, error) {
+	sizes, err := readSizes(filepath.Join(dir, "sizes.json"))
+	if err != nil {
+		return nil, err
+	}
 	settingsPaths, err := filepath.Glob(filepath.Join(dir, "settings.*.json"))
 	if err != nil {
 		return nil, err
@@ -25,29 +34,32 @@ func Load(dir string) ([]Profile, error) {
 	var found []Profile
 	for _, settingsPath := range settingsPaths {
 		size := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(settingsPath), "settings."), ".json")
-		modelfilePath := filepath.Join(dir, "Modelfile."+size)
-		if _, err := os.Stat(modelfilePath); err != nil {
+		entry, configured := sizes[size]
+		if !configured {
 			continue
 		}
-		profile, err := loadProfile(size, settingsPath, modelfilePath)
+		model, err := readModel(settingsPath)
 		if err != nil {
 			return nil, err
 		}
-		found = append(found, profile)
+		found = append(found, Profile{Size: size, Model: model, Base: entry.Base})
 	}
 	return found, nil
 }
 
-func loadProfile(size, settingsPath, modelfilePath string) (Profile, error) {
-	model, err := readModel(settingsPath)
-	if err != nil {
-		return Profile{}, err
+func readSizes(sizesPath string) (map[string]sizeEntry, error) {
+	data, err := os.ReadFile(sizesPath)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
 	}
-	base, err := readBase(modelfilePath)
 	if err != nil {
-		return Profile{}, err
+		return nil, err
 	}
-	return Profile{Size: size, Model: model, Base: base}, nil
+	var sizes map[string]sizeEntry
+	if err := json.Unmarshal(data, &sizes); err != nil {
+		return nil, fmt.Errorf("%s: %w", sizesPath, err)
+	}
+	return sizes, nil
 }
 
 func readModel(settingsPath string) (string, error) {
@@ -65,19 +77,4 @@ func readModel(settingsPath string) (string, error) {
 		return "", fmt.Errorf("%s: no model name", settingsPath)
 	}
 	return settings.Model, nil
-}
-
-func readBase(modelfilePath string) (string, error) {
-	file, err := os.Open(modelfilePath)
-	if err != nil {
-		return "", err
-	}
-	defer file.Close()
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		if base, ok := strings.CutPrefix(scanner.Text(), "FROM "); ok {
-			return strings.TrimSpace(base), nil
-		}
-	}
-	return "", fmt.Errorf("%s: no FROM line", modelfilePath)
 }

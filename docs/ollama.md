@@ -625,8 +625,7 @@ console's copy.
 | `CLAUDE_OLLAMA_LADDER`          | 1       | Degrade rung by rung on incident evidence                            |
 | `CLAUDE_OLLAMA_TEST_AFTER_EDIT` | suggest | After each edit: suggest the test, or run it (`0`, `suggest`, `run`) |
 | `CLAUDE_OLLAMA_EDIT_NUDGE`      | 1       | Nudge wasteful edits                                                 |
-| `CLAUDE_OLLAMA_LEASE`           | 1       | Hold an Ollama residency lease and heartbeat                         |
-| `CLAUDE_OLLAMA_LEASE_HEARTBEAT` | 120     | Seconds between keep-alive heartbeats, 30 to 600                     |
+| `CLAUDE_OLLAMA_LEASE`           | 1       | Hold a residency lease                                               |
 | `CLAUDE_OLLAMA_FIT`             | 1       | Check memory fit before launch                                       |
 | `CLAUDE_OLLAMA_TELEMETRY`       | 0       | Session telemetry                                                    |
 | `CLAUDE_OLLAMA_INCIDENTS`       | 1       | Record Ollama incidents                                              |

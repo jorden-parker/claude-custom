@@ -22,7 +22,7 @@ configured_sizes() {
 }
 
 is_configured_size() {
-  [ -f "$profile_dir/settings.$1.json" ] && [ -f "$profile_dir/Modelfile.$1" ]
+  [ -f "$profile_dir/settings.$1.json" ] && jq -e --arg size "$1" 'has($size)' "$profile_dir/sizes.json" >/dev/null 2>&1
 }
 
 use_size() {
@@ -36,8 +36,8 @@ size_model() {
   jq -r .model "$settings_file"
 }
 
-base_model() {
-  sed -n 's/^FROM //p' "$profile_dir/Modelfile.$size"
+resident_models() {
+  printf '%s\n' "$(size_model)" "$embedding_model"
 }
 
 preset_section() {
@@ -81,14 +81,6 @@ profile_summary() {
 load_profile() {
   "$profile_overlay" check "$profile_file" || exit 1
   eval "$("$profile_overlay" env "$profile_file")"
-}
-
-pinned_models() {
-  printf '%s\n' "$(base_model)" "$embedding_model"
-}
-
-pinned_digest() {
-  jq -r --arg name "$1" '.[$name] // empty' "$profile_dir/model-digests.json"
 }
 
 fetch_domains() {

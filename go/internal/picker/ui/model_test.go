@@ -5,7 +5,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 
@@ -120,7 +119,7 @@ func TestEmbeddingSetupResultShowsInView(t *testing.T) {
 }
 
 func TestEmbeddingSetupCommandSendsOutputToStderr(t *testing.T) {
-	cmd := setupCommand(embeddingSetup(embedding), io.Discard)
+	cmd := setupCommand(embeddingSetup(), io.Discard)
 	if cmd.Stdout != os.Stderr {
 		t.Fatal("setup output must go to stderr; stdout carries the chosen size")
 	}
@@ -143,18 +142,27 @@ func TestEnterOnEmbeddingRowPullsWithoutChoosing(t *testing.T) {
 	}
 }
 
-func TestEmbeddingSetupOnlyPulls(t *testing.T) {
-	got := setupCommand(embeddingSetup(embedding), io.Discard).Args
-	want := []string{"sh", "-c", `ollama pull "$1"`, "sh", embedding}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("got %q, want %q", got, want)
+func TestEmbeddingSetupRunsLauncherPrepareEmbedding(t *testing.T) {
+	argsFile := filepath.Join(t.TempDir(), "args")
+	fakeLauncher(t, `printf '%s\n' "$*" > "`+argsFile+`"`)
+	cmd := setupCommand(embeddingSetup(), io.Discard)
+	cmd.Stdout = io.Discard
+	if err := cmd.Run(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "prepare-embedding\n" {
+		t.Fatalf("launcher got args %q", got)
 	}
 }
 
 func TestEmbeddingSetupFailureShowsOllamaError(t *testing.T) {
-	fakeOllama(t, "printf 'Error: pull model manifest: file does not exist\\n' >&2; exit 1")
+	fakeLauncher(t, "printf 'Error: pull model manifest: file does not exist\\n' >&2; exit 1")
 	var output strings.Builder
-	cmd := setupCommand(embeddingSetup(embedding), &output)
+	cmd := setupCommand(embeddingSetup(), &output)
 	cmd.Stdout = io.Discard
 	msg := setupResult("embedding model", cmd.Run(), output.String())
 	if got := setupStatus(msg); got != "embedding model setup failed: pull model manifest: file does not exist" {
@@ -163,9 +171,9 @@ func TestEmbeddingSetupFailureShowsOllamaError(t *testing.T) {
 }
 
 func TestEmbeddingSetupFailureWithoutOllamaErrorShowsExitStatus(t *testing.T) {
-	fakeOllama(t, "exit 3")
+	fakeLauncher(t, "exit 3")
 	var output strings.Builder
-	cmd := setupCommand(embeddingSetup(embedding), &output)
+	cmd := setupCommand(embeddingSetup(), &output)
 	msg := setupResult("embedding model", cmd.Run(), output.String())
 	if got := setupStatus(msg); got != "embedding model setup failed: exit status 3" {
 		t.Fatalf("got %q", got)
@@ -246,11 +254,11 @@ func assertDetailsShareColumn(t *testing.T, view string, details []string) {
 	}
 }
 
-func fakeOllama(t *testing.T, body string) {
+func fakeLauncher(t *testing.T, body string) {
 	t.Helper()
 	dir := t.TempDir()
 	script := "#!/bin/sh\n" + body + "\n"
-	if err := os.WriteFile(filepath.Join(dir, "ollama"), []byte(script), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "claude-ollama"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))

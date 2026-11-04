@@ -5,7 +5,7 @@ import (
 	"strconv"
 )
 
-var BrewLabels = []string{"sh.brew.ollama", "homebrew.mxcl.ollama"}
+var BrewLabels = []string{"homebrew.mxcl.llama.cpp"}
 
 const (
 	reloadScript = `launchctl bootout "$1" 2>/dev/null

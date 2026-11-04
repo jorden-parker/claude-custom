@@ -5,7 +5,6 @@ real_python3="$(command -v python3)"
 failures=0
 sandboxes=""
 system_tools=""
-healthy_server_env="OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_KEEP_ALIVE=30m OLLAMA_MAX_LOADED_MODELS=2 OLLAMA_NUM_PARALLEL=1"
 
 remove_sandboxes() {
   local dir
@@ -16,7 +15,24 @@ remove_sandboxes() {
   done
 }
 
-trap remove_sandboxes EXIT
+. "$repo/shared/testing/stub-llama-lib.sh"
+stub_dir="$(made="$(mktemp -d)" && cd "$made" && pwd -P)" || exit 1
+stub_state="$stub_dir/state.json"
+sandboxes="$sandboxes $stub_dir"
+trap 'stop_stub_llama; remove_sandboxes' EXIT
+
+default_stub_state() {
+  awk '/^\[/ && $0 != "[*]" { print substr($0, 2, length($0) - 2) }' "$repo/ollama/models.ini" |
+    jq -Rn '{models_max: 2, models: ([inputs | {key: ., value: (if . == "qwen3-embedding-0.6b" then {aliases: ["qwen3-embedding:0.6b"]} else {} end)}] | from_entries)}'
+}
+
+stub_state_set() {
+  jq "$1" "$stub_state" > "$stub_state.new" && mv "$stub_state.new" "$stub_state"
+}
+
+default_stub_state > "$stub_state"
+start_stub_llama "$stub_state" || exit 1
+stub_url="$LLAMA_SERVER_URL"
 
 fail() {
   echo "FAIL: $1"
@@ -43,10 +59,6 @@ check_not() {
   fi
 }
 
-pinned_tags() {
-  jq '{models: [to_entries[] | {name: .key, digest: .value}]}' "$repo/ollama/model-digests.json"
-}
-
 build_system_tools() {
   local entry name
   system_tools="$(made="$(mktemp -d)" && cd "$made" && pwd -P)" || exit 1
@@ -66,25 +78,19 @@ write_stub() {
 }
 
 write_stubs() {
-  write_stub ollama <<EOF
+  write_stub shasum <<EOF
 #!/bin/sh
-echo "\$*" >> "$sandbox/ollama.log"
-if [ "\$1" = show ] && [ "\$3" = --verbose ]; then cat "$sandbox/show-verbose" 2>/dev/null; fi
-[ "\$1" = show ] && exit "\${STUB_OLLAMA_SHOW_EXIT:-0}"
+if [ -n "\${STUB_SHASUM_DIGEST:-}" ]; then
+  echo "\$STUB_SHASUM_DIGEST  \$3"
+  exit 0
+fi
+name="\${3##*/}"
+echo "\$(jq -r --arg name "/\$name" 'to_entries[] | select(.key | endswith(\$name)) | .value' "$repo/ollama/model-digests.json" | head -n 1)  \$3"
+EOF
+  write_stub gguf-inspect <<EOF
+#!/bin/sh
+case "\$*" in *--json*) cat "$sandbox/inspect-json" 2>/dev/null ;; esac
 exit 0
-EOF
-  write_stub curl <<EOF
-#!/bin/sh
-case "\$*" in *api/tags*) cat "$sandbox/tags.json" ;; esac
-exit "\${STUB_CURL_EXIT:-0}"
-EOF
-  write_stub pgrep <<'EOF'
-#!/bin/sh
-[ -n "${STUB_OLLAMA_PID:-}" ] && echo "$STUB_OLLAMA_PID"
-EOF
-  write_stub ps <<'EOF'
-#!/bin/sh
-echo "ollama serve ${STUB_OLLAMA_ENV:-}"
 EOF
   write_stub incident-watcher <<'EOF'
 #!/bin/sh
@@ -98,12 +104,21 @@ new_sandbox() {
   export HOME="$sandbox/home"
   mkdir -p "$HOME" "$sandbox/stubbin"
   unset NVM_DIR XDG_CONFIG_HOME CLAUDE_CONSOLE_STATE_DIRCLAUDE_TOOL_TELEMETRY CLAUDE_OLLAMA_TELEMETRY CMUX_SOCKET_PATH CLAUDE_OLLAMA_CMUX
-  unset STUB_OLLAMA_SHOW_EXIT STUB_OLLAMA_PID STUB_OLLAMA_ENV STUB_CURL_EXIT STUB_MEMSIZE CLAUDE_OLLAMA_LEASE CLAUDE_OLLAMA_FIT
+  unset STUB_SHASUM_DIGEST STUB_MEMSIZE STUB_WIRED_LIMIT_MB CLAUDE_OLLAMA_LEASE CLAUDE_OLLAMA_FIT
   export CLAUDE_OLLAMA_MANAGED_SETTINGS="$sandbox/managed-settings.json"
   export CLAUDE_OLLAMA_MEMINFO="$sandbox/no-meminfo"
   export CLAUDE_OLLAMA_INCIDENT_WATCHER="$sandbox/stubbin/incident-watcher"
+  export CLAUDE_OLLAMA_GGUF_INSPECT="$sandbox/stubbin/gguf-inspect"
+  export LLAMA_SERVER_PLIST="$sandbox/no-agent.plist"
+  export CLAUDE_OLLAMA_WEIGHTS_DIR="$sandbox/weights"
   write_stubs
-  pinned_tags > "$sandbox/tags.json"
+  mkdir -p "$CLAUDE_OLLAMA_WEIGHTS_DIR"
+  for weights_file in $(jq -r '.[] | .gguf.file // empty' "$repo/ollama/sizes.json") "$(jq -r .gguf.file "$repo/ollama/embedding.json")"; do
+    : > "$CLAUDE_OLLAMA_WEIGHTS_DIR/$weights_file"
+  done
+  default_stub_state > "$stub_state"
+  : > "$STUB_LLAMA_LOG"
+  "$repo/bin/ollama-profiles" --user-presets >/dev/null
   [ -n "$system_tools" ] || build_system_tools
   export PATH="$sandbox/stubbin:$system_tools"
 }
@@ -118,36 +133,35 @@ run_capture() {
 }
 
 run_doctor() {
-  STUB_OLLAMA_PID=42 STUB_OLLAMA_ENV="$healthy_server_env" run_capture "$@" "${doctor:-$repo/bin/claude-ollama-doctor}" 27b
+  run_capture "$@" "${doctor:-$repo/bin/claude-ollama-doctor}" 27b
 }
 
 new_sandbox
 run_doctor
 check_eq "doctor healthy exit status" 0 "$?"
 check_that "doctor reports jq" grep -qxF "ok   jq on PATH" "$sandbox/out"
-check_that "doctor reports the main model" grep -qxF "ok   model qwen3.8-27b-cc" "$sandbox/out"
-check_not "doctor no longer checks a side model" grep -q "side model" "$sandbox/out"
-check_that "doctor reports the embedding model" grep -qxF "ok   embedding model qwen3-embedding:0.6b" "$sandbox/out"
+check_that "doctor reports the server build and address" grep -qxF "ok   llama-server build 11429 on ${stub_url#http://}" "$sandbox/out"
+check_that "doctor reports the size's preset" grep -qxF "ok   preset qwen3.8-27b-cc listed" "$sandbox/out"
+check_that "doctor reports the embedding preset" grep -qxF "ok   preset qwen3-embedding:0.6b listed" "$sandbox/out"
+check_that "doctor reports the weights match their pin" grep -qxF "ok   weights Qwen3.8-27B-UD-Q4_K_XL.gguf (sha256 matches)" "$sandbox/out"
+check_that "doctor reports the embedding weights" grep -qxF "ok   embedding weights Qwen3-Embedding-0.6B-Q8_0.gguf (sha256 matches)" "$sandbox/out"
+check_that "doctor reports the user presets are current" grep -qxF "ok   user presets current" "$sandbox/out"
 check_that "doctor reports context sizes agree" grep -qxF "ok   num_ctx 65536 matches CLAUDE_CODE_MAX_CONTEXT_TOKENS 65536; Claude Code compacts at 44344 tokens" "$sandbox/out"
 check_that "doctor reports hooks" grep -qxF "ok   hook stop-verify.py present" "$sandbox/out"
-check_that "doctor reports reachability" grep -qxF "ok   ollama reachable at http://127.0.0.1:11434" "$sandbox/out"
-check_that "doctor reports server env" grep -qxF "ok   server env OLLAMA_KV_CACHE_TYPE=q8_0" "$sandbox/out"
 check_that "doctor reports no managed model allowlist" grep -qxF "ok   no managed availableModels restricts qwen3.8-27b-cc" "$sandbox/out"
-check_that "doctor reports a base that matches its pin" grep -qxF "ok   digest ./weights/Qwen3.8-27B-UD-Q4_K_XL.gguf matches its pin" "$sandbox/out"
 check_that "doctor reports the browser tools" grep -q 'browser tools' "$sandbox/out"
 check_not "doctor never mentions sandbox-runtime" grep -q 'sandbox-runtime' "$sandbox/out"
-check_not "doctor does not pull or create" grep -sqE '^(pull|create) ' "$sandbox/ollama.log"
-jq '.models |= map(if .name == "./weights/Qwen3.8-27B-UD-Q4_K_XL.gguf" then .digest = "0000" else . end)' "$sandbox/tags.json" > "$sandbox/tags.new" && mv "$sandbox/tags.new" "$sandbox/tags.json"
-run_doctor
-check_eq "doctor with a base that misses its pin exit status" 1 "$?"
-check_that "doctor fails a base that misses its pin" grep -qF "fail digest ./weights/Qwen3.8-27B-UD-Q4_K_XL.gguf is 0000, not the pinned" "$sandbox/out"
-pinned_tags > "$sandbox/tags.json"
+check_not "doctor loads no model" grep -q '"/models/load"' "$STUB_LLAMA_LOG"
+STUB_SHASUM_DIGEST=0000 run_doctor
+check_eq "doctor with weights that miss their pin exit status" 1 "$?"
+check_that "doctor fails weights that miss their pin" grep -qxF "fail weights Qwen3.8-27B-UD-Q4_K_XL.gguf does not match its pin (claude-ollama prepare 27b)" "$sandbox/out"
 
-run_doctor env HOMEBREW_PREFIX="$sandbox/brew"
+run_doctor
 check_that "doctor skips the classifier check without a server log" grep -qxF "ok   incident classifier not checked (no server log)" "$sandbox/out"
-mkdir -p "$sandbox/brew/var/log"
-cp "$repo/ollama/incidents/fixtures/server-log.txt" "$sandbox/brew/var/log/ollama.log"
-real_watcher=(env CLAUDE_OLLAMA_INCIDENT_WATCHER="$repo/ollama/incidents/watcher.py" HOMEBREW_PREFIX="$sandbox/brew")
+server_log="$HOME/.claude-ollama/logs/llama-server.log"
+mkdir -p "${server_log%/*}"
+cp "$repo/ollama/incidents/fixtures/server-log.txt" "$server_log"
+real_watcher=(env CLAUDE_OLLAMA_INCIDENT_WATCHER="$repo/ollama/incidents/watcher.py")
 run_doctor "${real_watcher[@]}"
 check_eq "doctor with a server log the classifier reads exit status" 0 "$?"
 check_that "doctor reports the classifier matches the server log" grep -qxF "ok   incident classifier matches the server log (rules: 6)" "$sandbox/out"
@@ -169,7 +183,7 @@ check_that "doctor warns when the session's skills overflow the listing budget" 
 rm -rf "$HOME/.claude/skills"
 for i in $(seq 60); do
   printf 'time=2026-11-02T15:00:%02d.000Z level=INFO source=sched.go:1 msg="runner did a new thing" model=qwen3.8-27b-cc\n' "$((i % 60))"
-done > "$sandbox/brew/var/log/ollama.log"
+done > "$server_log"
 run_doctor "${real_watcher[@]}"
 check_eq "doctor with a server log no rule matches exit status" 1 "$?"
 check_that "doctor fails when the classifier is blind to the server log" grep -qxF "fail incident classifier is blind to the server log format (update ollama/incidents/watcher.py rules)" "$sandbox/out"
@@ -197,12 +211,29 @@ run_doctor
 check_that "doctor warns about a tool schema nothing calls" grep -qxF "warn tool budget: drop WebFetch (saves 2.0 KiB per request): claude-ollama tool-budget" "$sandbox/out"
 
 new_sandbox
-STUB_OLLAMA_SHOW_EXIT=1 STUB_OLLAMA_PID=42 run_capture "$repo/bin/claude-ollama-doctor" 27b
-check_eq "doctor with missing models exit status" 1 "$?"
-check_that "doctor fails the main model" grep -qxF "fail model qwen3.8-27b-cc missing (run claude-ollama 27b to pull and create it)" "$sandbox/out"
-check_that "doctor fails the embedding model" grep -qxF "fail embedding model qwen3-embedding:0.6b missing (pick 'Set up embedding model' in claude-ollama)" "$sandbox/out"
-check_that "doctor fails server env" grep -qxF "fail server env OLLAMA_FLASH_ATTENTION=1 not set on the running server" "$sandbox/out"
-check_that "doctor names the fix for missing server env" grep -qxF "     fix: claude-custom agent -apply" "$sandbox/out"
+rm -f "$CLAUDE_OLLAMA_WEIGHTS_DIR/Qwen3.8-27B-UD-Q4_K_XL.gguf" "$CLAUDE_OLLAMA_WEIGHTS_DIR/Qwen3-Embedding-0.6B-Q8_0.gguf"
+run_doctor
+check_eq "doctor with missing weights exit status" 1 "$?"
+check_that "doctor fails missing weights" grep -qxF "fail weights Qwen3.8-27B-UD-Q4_K_XL.gguf missing (claude-ollama prepare 27b)" "$sandbox/out"
+check_that "doctor warns about missing embedding weights" grep -qxF "warn embedding weights Qwen3-Embedding-0.6B-Q8_0.gguf missing (claude-ollama prepare-embedding)" "$sandbox/out"
+
+new_sandbox
+stub_state_set 'del(.models["qwen3.8-27b-cc"])'
+run_doctor
+check_eq "doctor with the preset missing from the router exit status" 1 "$?"
+check_that "doctor fails a preset the router lacks" grep -qxF "fail preset qwen3.8-27b-cc not in llama-server's /models (claude-custom agent -apply)" "$sandbox/out"
+
+new_sandbox
+stub_state_set '.build = 9100'
+run_doctor
+check_eq "doctor with an old llama-server exits 0" 0 "$?"
+check_that "doctor warns about a build below 9200" grep -qxF "warn llama-server build 9100 on ${stub_url#http://} is below 9200 (brew upgrade llama.cpp)" "$sandbox/out"
+
+new_sandbox
+rm -f "$HOME/.claude-ollama/presets/models.ini"
+run_doctor
+check_eq "doctor with stale user presets exits 0" 0 "$?"
+check_that "doctor warns about stale user presets" grep -qxF "warn user presets stale: run claude-custom agent -apply" "$sandbox/out"
 
 new_sandbox
 copy_repo "$sandbox/repo"
@@ -230,10 +261,11 @@ check_eq "doctor with the model missing from the managed allowlist exits 0" 0 "$
 check_that "doctor warns the managed allowlist lacks the model" grep -qxF "warn managed availableModels lacks qwen3.8-27b-cc (ask your admin to add it; Claude Code substitutes a [1m] variant)" "$sandbox/out"
 
 new_sandbox
-STUB_CURL_EXIT=7 run_capture "$repo/bin/claude-ollama-doctor" 27b
+stub_state_set '.health_status = 503'
+run_doctor
 check_eq "doctor with no server exit status" 1 "$?"
-check_that "doctor fails when the server is unreachable" grep -qxF "fail ollama not reachable at http://127.0.0.1:11434 (brew services start ollama)" "$sandbox/out"
-check_that "doctor fails when no server process runs" grep -qxF "fail ollama server not running (brew services start ollama)" "$sandbox/out"
+check_that "doctor fails when the server is not answering" grep -qxF "fail llama-server not answering at $stub_url (claude-custom agent -apply, then claude-ollama logs)" "$sandbox/out"
+check_not "doctor checks no preset without a server" grep -q "preset qwen3.8-27b-cc" "$sandbox/out"
 
 new_sandbox
 nojq="$sandbox/nojq"
@@ -294,18 +326,26 @@ run_doctor env CLAUDE_OLLAMA_LEASE=0
 check_not "CLAUDE_OLLAMA_LEASE=0 skips the lease check" grep -q "lease holders" "$sandbox/out"
 
 new_sandbox
-pinned_tags | jq '.models |= map(if .name == "qwen3-embedding:0.6b" then . + {size: 644245094} else . end) | .models += [{name: "qwen3.8-27b-cc", size: 17179869184}]' > "$sandbox/tags.json"
+dd if=/dev/zero of="$CLAUDE_OLLAMA_WEIGHTS_DIR/Qwen3.8-27B-UD-Q4_K_XL.gguf" bs=1 count=0 seek=17179869184 2>/dev/null
+dd if=/dev/zero of="$CLAUDE_OLLAMA_WEIGHTS_DIR/Qwen3-Embedding-0.6B-Q8_0.gguf" bs=1 count=0 seek=644245094 2>/dev/null
 write_stub sysctl <<'EOF'
 #!/bin/sh
-echo "${STUB_MEMSIZE:-34359738368}"
+case "$*" in
+  *iogpu.wired_limit_mb*) echo "${STUB_WIRED_LIMIT_MB:-0}" ;;
+  *) echo "${STUB_MEMSIZE:-34359738368}" ;;
+esac
 EOF
 write_stub vm_stat <<'EOF'
 #!/bin/sh
 printf 'Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages active:  100000.\nPages wired down: 100000.\n'
 EOF
-printf '  Model\n    architecture        qwen3\n\n  Metadata\n    qwen3.attention.head_count_kv       8\n    qwen3.attention.key_length          128\n    qwen3.block_count                   64\n' > "$sandbox/show-verbose"
+printf '%s\n' '{"architecture":"qwen3","metadata":{"qwen3.block_count":64,"qwen3.attention.head_count_kv":8,"qwen3.attention.key_length":128,"qwen3.attention.value_length":128}}' > "$sandbox/inspect-json"
 run_doctor
 check_that "doctor reports a fitting memory as ok" grep -qxF "ok   memory fit: model 16.0 GiB + kv 8.0 GiB + embedding 0.6 GiB = 24.6 GiB of 28.9 GiB free" "$sandbox/out"
+check_that "doctor reads a zero wired limit as the default share of RAM" grep -qxF "ok   GPU wired limit 24.0 GiB (the default, 75% of RAM) covers model + kv 24.0 GiB" "$sandbox/out"
+run_doctor env STUB_WIRED_LIMIT_MB=20480
+check_eq "doctor with a low wired limit exits 0" 0 "$?"
+check_that "doctor warns when model and kv exceed the wired limit and prints the command" grep -qxF "warn GPU wired limit 20.0 GiB is below model + kv 24.0 GiB; raise it with: sudo sysctl iogpu.wired_limit_mb=26624" "$sandbox/out"
 run_doctor env STUB_MEMSIZE=29276800000
 check_that "doctor warns when the models do not fit" grep -qxF "warn memory fit: model 16.0 GiB + kv 8.0 GiB + embedding 0.6 GiB = 24.6 GiB of 24.2 GiB free (0.4 GiB short)" "$sandbox/out"
 run_doctor env CLAUDE_OLLAMA_FIT=0

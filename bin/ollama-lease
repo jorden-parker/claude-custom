@@ -1,12 +1,9 @@
 #!/bin/bash
 set -euo pipefail
+. "$(dirname "$(readlink -f "$0")")/lib/model-server.sh"
 
 lease_dir="${CLAUDE_OLLAMA_LEASE_DIR:-$HOME/.claude-ollama/lease}"
 lock_dir="$lease_dir/lease.lock"
-ollama_url="${OLLAMA_HOST:-http://127.0.0.1:11434}"
-case "$ollama_url" in http://*|https://*) ;; *) ollama_url="http://$ollama_url" ;; esac
-keep_alive="${CLAUDE_OLLAMA_KEEP_ALIVE:-30m}"
-heartbeat_seconds="${CLAUDE_OLLAMA_LEASE_HEARTBEAT:-120}"
 poll_seconds="${CLAUDE_OLLAMA_LEASE_POLL:-1}"
 refused_status=3
 lock_tries=200
@@ -17,20 +14,18 @@ num_ctx=""
 rung=""
 exclusive=""
 wait_seconds=""
-watch_pid=""
-fast_marker=""
 embedding_model=""
 meminfo="${CLAUDE_OLLAMA_MEMINFO:-/proc/meminfo}"
 rough_kv_share=0.25
 rough_kv_context=65536
+gguf_inspect="${CLAUDE_OLLAMA_GGUF_INSPECT:-$repo_dir/bin/gguf-inspect}"
 
 usage() {
   cat >&2 <<'EOF'
 usage: ollama-lease acquire NAME [--model M] [--pid N] [--num-ctx N] [--rung R] [--exclusive] [--wait SECONDS]
        ollama-lease release NAME [--pid N]
        ollama-lease holders
-       ollama-lease heartbeat --watch-pid N [--model M] [--fast-marker FILE]
-       ollama-lease fit --model M --num-ctx N [--embedding E]
+       ollama-lease fit --model ID --num-ctx N [--embedding ID]
 EOF
   exit 2
 }
@@ -48,8 +43,6 @@ parse_options() {
       --num-ctx) num_ctx="$(option_value "$@")"; shift 2 ;;
       --rung) rung="$(option_value "$@")"; shift 2 ;;
       --wait) wait_seconds="$(option_value "$@")"; shift 2 ;;
-      --watch-pid) watch_pid="$(option_value "$@")"; shift 2 ;;
-      --fast-marker) fast_marker="$(option_value "$@")"; shift 2 ;;
       --embedding) embedding_model="$(option_value "$@")"; shift 2 ;;
       --exclusive) exclusive=1; shift ;;
       *) usage ;;
@@ -131,28 +124,13 @@ blocking_holder() {
   fi
 }
 
-running_server_env() {
-  local pid
-  pid="$(pgrep -x ollama | head -n 1)" || true
-  [ -n "$pid" ] || return 1
-  if [ -r "/proc/$pid/environ" ]; then
-    tr '\0' '\n' < "/proc/$pid/environ"
-  else
-    ps -Eo command -p "$pid" | tr ' ' '\n'
-  fi
-}
-
-server_max_loaded_models() {
-  running_server_env 2>/dev/null | sed -n 's/^OLLAMA_MAX_LOADED_MODELS=//p' | head -n 1
-}
-
 distinct_model_count() {
   { other_holders | cut -f 3; printf '%s\n' "$model"; } | grep -v '^$' | sort -u | wc -l | tr -d ' '
 }
 
 models_fit() {
   local cap
-  cap="$(server_max_loaded_models)"
+  cap="$(models_max)"
   [ -n "$cap" ] && [ "$cap" -ge "$(distinct_model_count)" ] 2>/dev/null
 }
 
@@ -169,7 +147,7 @@ write_lease() {
 refusal() {
   local holder_name holder_pid_ holder_model
   IFS=$'\t' read -r holder_name holder_pid_ holder_model _ <<< "$1"
-  echo "ollama lease: held by $holder_name (pid $holder_pid_, model $holder_model); run after that session ends or set OLLAMA_MAX_LOADED_MODELS=2" >&2
+  echo "ollama lease: held by $holder_name (pid $holder_pid_, model $holder_model); run after that session ends or run claude-custom agent -set models-max=2" >&2
 }
 
 try_acquire() {
@@ -226,62 +204,70 @@ holders() {
   drop_lock
 }
 
-leased_model() {
-  holder_line "$lease_dir/$watch_pid.json" | cut -f 2
+presets_source() {
+  if [ -r "$user_presets_file" ]; then printf '%s' "$user_presets_file"; else printf '%s' "$profile_dir/models.ini"; fi
 }
 
-send_keep_alive() {
-  command -v curl >/dev/null 2>&1 || return 0
-  curl -s -o /dev/null -m 10 -X POST "$ollama_url/api/generate" \
-    -d "{\"model\":\"$1\",\"keep_alive\":\"$keep_alive\"}" >/dev/null 2>&1 || true
-}
-
-heartbeat_interval() {
-  if [ -n "$fast_marker" ] && [ -e "$fast_marker" ]; then
-    awk -v seconds="$heartbeat_seconds" 'BEGIN { print seconds / 2 }'
+presets_text() {
+  if [ -r "$user_presets_file" ]; then
+    cat "$user_presets_file"
   else
-    printf '%s' "$heartbeat_seconds"
+    sed "s|@WEIGHTS@|$(weights_dir)|g" "$profile_dir/models.ini"
   fi
 }
 
-heartbeat() {
-  local leased
-  [ -n "$watch_pid" ] || usage
-  while pid_alive "$watch_pid"; do
-    sleep "$(heartbeat_interval)"
-    pid_alive "$watch_pid" || break
-    leased="${model:-$(leased_model)}"
-    [ -z "$leased" ] || send_keep_alive "$leased"
-  done
+preset_weights() {
+  presets_text | awk -v id="$1" '
+    function finish() { if (matched && weights != "") { print weights; found = 1; exit } }
+    /^\[/ { finish(); section = substr($0, 2, length($0) - 2); matched = (section == id); weights = ""; next }
+    {
+      split($0, parts, "="); key = parts[1]; gsub(/[ \t]/, "", key)
+      value = substr($0, index($0, "=") + 1); gsub(/^[ \t]+|[ \t]+$/, "", value)
+      if (key == "alias" && value == id) matched = 1
+      if (key == "model") weights = value
+    }
+    END { if (!found) finish(); exit found ? 0 : 1 }'
 }
 
-model_bytes_of() {
-  local bytes
-  bytes="$(curl -s -m 10 "$ollama_url/api/tags" 2>/dev/null | jq -r --arg name "$1" --arg tagged "$1:latest" '.models[]? | select(.name == $name or .model == $name or .name == $tagged or .model == $tagged) | .size' 2>/dev/null | head -n 1)"
-  case "$bytes" in ''|*[!0-9]*) echo "ollama lease: /api/tags lists no $1" >&2; return 1 ;; esac
-  printf '%s' "$bytes"
+weights_of() {
+  local weights
+  weights="$(preset_weights "$1")" || { echo "ollama lease: no preset $1 in $(presets_source)" >&2; return 1; }
+  [ -f "$weights" ] || { echo "ollama lease: $weights is missing (run claude-ollama prepare)" >&2; return 1; }
+  printf '%s' "$weights"
 }
 
-show_metadata() {
-  ollama show "$model" --verbose 2>/dev/null | awk -v key="$1" '$1 ~ ("\\." key "$") { print $2; exit }'
+file_bytes() {
+  stat -f %z "$1" 2>/dev/null || stat -c %s "$1"
 }
 
 kv_bytes_per_element() {
-  case "$(running_server_env 2>/dev/null | sed -n 's/^OLLAMA_KV_CACHE_TYPE=//p' | head -n 1)" in
+  case "$(server_setting cache-type-k 2>/dev/null)" in
     q8_0) echo 1 ;;
     q4_0) echo 0.5 ;;
     *) echo 2 ;;
   esac
 }
 
+kv_head_widths() {
+  { "$gguf_inspect" "$1" --json 2>/dev/null || true; } | jq -er '
+    .architecture as $arch | .metadata as $meta
+    | def field($name): $meta[$arch + "." + $name];
+    field("attention.key_length") as $key
+    | (field("attention.value_length") // $key) as $value
+    | field("attention.head_count_kv") as $heads
+    | field("block_count") as $blocks
+    | (field("full_attention_interval") // 1) as $interval
+    | if ($key | type) != "number" then empty
+      elif ($heads | type) == "array" then ($heads | add) * ($key + $value)
+      elif ($heads | type) == "number" and ($blocks | type) == "number"
+        then (($blocks / $interval) | floor) * $heads * ($key + $value)
+      else empty end' 2>/dev/null
+}
+
 exact_kv_bytes() {
-  local layers kv_heads head_dim
-  layers="$(show_metadata block_count)"
-  kv_heads="$(show_metadata attention.head_count_kv)"
-  head_dim="$(show_metadata attention.key_length)"
-  [ -n "$layers" ] && [ -n "$kv_heads" ] && [ -n "$head_dim" ] || return 1
-  awk -v ctx="$num_ctx" -v layers="$layers" -v heads="$kv_heads" -v dim="$head_dim" -v per="$(kv_bytes_per_element)" \
-    'BEGIN { printf "%.0f", ctx * layers * 2 * heads * dim * per }'
+  local widths
+  widths="$(kv_head_widths "$1")" || return 1
+  awk -v ctx="$num_ctx" -v widths="$widths" -v per="$(kv_bytes_per_element)" 'BEGIN { printf "%.0f", ctx * widths * per }'
 }
 
 rough_kv_bytes() {
@@ -290,9 +276,13 @@ rough_kv_bytes() {
 }
 
 resident_bytes() {
-  curl -s -m 10 "$ollama_url/api/ps" 2>/dev/null | jq -r --args '[.models[]? | select((.name // .model) as $loaded
-    | $ARGS.positional | any(. as $wanted | $loaded == $wanted or $loaded == ($wanted + ":latest"))) | .size] | add // 0' "$@" 2>/dev/null \
-    | awk '/^[0-9]+$/ { found = $0 } END { print found + 0 }'
+  local id total=0 bytes
+  for id in "$@"; do
+    bytes="$(model_resident_bytes "$id" 2>/dev/null)" || continue
+    case "$bytes" in ''|*[!0-9]*) continue ;; esac
+    total=$((total + bytes))
+  done
+  printf '%s' "$total"
 }
 
 free_bytes_linux() {
@@ -317,11 +307,15 @@ free_bytes() {
 }
 
 fit() {
-  local model_bytes kv_bytes embedding_bytes=0 estimate=exact free
+  local weights model_bytes kv_bytes embedding_bytes=0 estimate=exact free
   [ -n "$model" ] && [ -n "$num_ctx" ] || usage
-  model_bytes="$(model_bytes_of "$model")" || exit 1
-  kv_bytes="$(exact_kv_bytes)" || { kv_bytes="$(rough_kv_bytes "$model_bytes")"; estimate=rough; }
-  [ -z "$embedding_model" ] || embedding_bytes="$(model_bytes_of "$embedding_model")" || exit 1
+  weights="$(weights_of "$model")" || exit 1
+  model_bytes="$(file_bytes "$weights")"
+  kv_bytes="$(exact_kv_bytes "$weights")" || { kv_bytes="$(rough_kv_bytes "$model_bytes")"; estimate=rough; }
+  if [ -n "$embedding_model" ]; then
+    weights="$(weights_of "$embedding_model")" || exit 1
+    embedding_bytes="$(file_bytes "$weights")"
+  fi
   free="$(free_bytes)" || exit 1
   free=$(( free + $(resident_bytes "$model" ${embedding_model:+"$embedding_model"}) ))
   jq -cn --argjson model "$model_bytes" --argjson kv "$kv_bytes" --argjson embedding "$embedding_bytes" \
@@ -347,7 +341,6 @@ case "$command_name" in
   acquire) acquire ;;
   release) release ;;
   holders) holders ;;
-  heartbeat) heartbeat ;;
   fit) fit ;;
   *) usage ;;
 esac

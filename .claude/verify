@@ -21,7 +21,7 @@ tests_for() {
     shared/mcp/github_tools.py) printf '%s\n' shared/mcp/repo-tools.test.sh ;;
     shared/mcp/mcp_stdio.py) printf '%s\n' shared/mcp/code-search.test.sh shared/mcp/repo-tools.test.sh shared/mcp/dev-server.test.sh ;;
     bin/lib/*) printf '%s\n' bin/claude-ollama.test.sh bin/claude-ollama-doctor.test.sh bin/claude-ollama-qwen.test.sh bin/ollama-lease.test.sh bin/lib/model-server.test.sh ;;
-    shared/testing/*) printf '%s\n' shared/testing/stub-llama-server.test.sh bin/lib/model-server.test.sh shared/model_server.test.sh ;;
+    shared/testing/*) printf '%s\n' shared/testing/test-guard.test.sh shared/testing/stub-llama-server.test.sh bin/lib/model-server.test.sh shared/model_server.test.sh ;;
     ollama/rescue.py) printf '%s\n' ollama/rescue.test.sh bin/claude-ollama.test.sh ;;
     bin/claude-tools | bin/ollama-agent) printf '%s\n' bin/claude-ollama.test.sh ;;
     ollama/*) printf '%s\n' bin/claude-ollama.test.sh bin/claude-ollama-doctor.test.sh bin/claude-ollama-qwen.test.sh ;;
@@ -60,6 +60,9 @@ status=0
 make --no-print-directory "$@" || status=1
 for test in $(printf '%s\n' "$tests" | sort -u); do
   [ -x "$test" ] || continue
-  "./$test" || status=1
+  case "$test" in
+    shared/hooks/* | shared/testing/test-guard.test.sh) "./$test" || status=1 ;;
+    *) shared/testing/test-guard "./$test" || status=1 ;;
+  esac
 done
 exit "$status"

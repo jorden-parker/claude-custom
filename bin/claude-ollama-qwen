@@ -3,13 +3,13 @@ set -euo pipefail
 
 repo_dir="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 . "$repo_dir/bin/lib/size-profile.sh"
-. "$repo_dir/bin/lib/ollama-server.sh"
+. "$repo_dir/bin/lib/model-server.sh"
 . "$repo_dir/bin/lib/doctor-checks.sh"
 qwen_home="$session_config_dir/qwen"
 qwen_profile_name="claude-ollama"
 
 qwen_args() {
-  printf '%s\n' --auth-type openai --openai-base-url "$ollama_url/v1" --openai-api-key ollama -m "$model" --approval-mode auto-edit --mcp-config "$(mcp_config)"
+  printf '%s\n' --auth-type openai --openai-base-url "$(server_url)/v1" --openai-api-key llama-server -m "$model" --approval-mode auto-edit --mcp-config "$(mcp_config)"
 }
 
 qwen_command() {
@@ -21,10 +21,10 @@ create_qwen_home() {
 }
 
 write_qwen_settings() {
-  jq --arg model "$model" --arg base_url "$ollama_url/v1" --argjson context "$(preset_ctx_size)" '
+  jq --arg model "$model" --arg base_url "$(server_url)/v1" --argjson context "$(preset_ctx_size)" '
     .model.name = $model
     | .modelProviders.openai[0].id = $model
-    | .modelProviders.openai[0].name = "\($model) (Ollama)"
+    | .modelProviders.openai[0].name = "\($model) (llama-server)"
     | .modelProviders.openai[0].baseUrl = $base_url
     | .modelProviders.openai[0].generationConfig.contextWindowSize = $context
   ' "$profile_dir/qwen-settings.template.json" > "$qwen_home/settings.json"
@@ -38,7 +38,8 @@ print_qwen_config() {
   echo "harness: qwen"
   echo "size: $size"
   echo "model: $model"
-  echo "base: $(base_model)"
+  echo "server: $(server_url)"
+  echo "weights: $(weights_path "$size")"
   echo "num_ctx: $(preset_ctx_size)"
   echo "context window: $(preset_ctx_size)"
   echo "qwen home: $qwen_home"
@@ -95,14 +96,13 @@ qwen_doctor() {
   local status=0
   report ok "jq on PATH"
   check_qwen_on_path || status=1
-  check_model_present model "$model" "run claude-ollama qwen $size to pull and create it" || status=1
-  check_digests || status=1
+  check_server || status=1
+  check_preset_listed "$model" || status=1
+  check_weights || status=1
   check_context_sizes || status=1
   check_qwen_template || status=1
   check_qwen_sandbox || status=1
   check_qwen_hooks
-  check_reachable || status=1
-  check_server_env || status=1
   check_gh_login
   exit "$status"
 }
