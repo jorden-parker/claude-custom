@@ -15,146 +15,169 @@ check() {
   fi
 }
 
-mkdir -p "$sandbox/stubbin"
-cp -R "$repo/ollama" "$sandbox/ollama"
-export OLLAMA_PROFILE_DIR="$sandbox/ollama"
-export OLLAMA_REGISTRY="https://registry.test"
+sha_of() {
+  printf '%s' "$1" | shasum -a 256 | cut -c1-64
+}
+
+mkdir -p "$sandbox/stubbin" "$sandbox/profile" "$sandbox/weights" "$sandbox/hf"
+export OLLAMA_PROFILE_DIR="$sandbox/profile"
+export CLAUDE_OLLAMA_WEIGHTS_DIR="$sandbox/weights"
+export CLAUDE_OLLAMA_SHA_CACHE="$sandbox/cache/weights-sha256.tsv"
+export HF_ENDPOINT="https://hf.test"
+export OLLAMA_PROFILES_BIN="$sandbox/stubbin/ollama-profiles"
 export PATH="$sandbox/stubbin:$PATH"
 
-cat >"$sandbox/stubbin/ollama" <<EOF
-#!/bin/sh
-echo "\$*" >> "$sandbox/ollama.log"
+cat >"$sandbox/profile/sizes.json" <<'EOF'
+{
+  "27b": {
+    "base": "org/Big-GGUF/big.gguf",
+    "model": "big-cc",
+    "context": 65536,
+    "gguf": { "repo": "org/Big-GGUF", "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "file": "big.gguf" }
+  },
+  "35b": {
+    "base": "org/Wide-GGUF/wide.gguf",
+    "model": "wide-cc",
+    "context": 98304,
+    "gguf": { "repo": "org/Wide-GGUF", "revision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "file": "wide.gguf" }
+  }
+}
 EOF
+cat >"$sandbox/profile/embedding.json" <<'EOF'
+{
+  "model": "embed:0.6b",
+  "context": 8192,
+  "gguf": { "repo": "org/Embed-GGUF", "revision": "cccccccccccccccccccccccccccccccccccccccc", "file": "embed.gguf" }
+}
+EOF
+cat >"$sandbox/profile/model-digests.json" <<EOF
+{
+  "org/Big-GGUF/big.gguf": "$(sha_of big-weights)",
+  "org/Wide-GGUF/wide.gguf": "$(sha_of wide-weights)",
+  "org/Embed-GGUF/embed.gguf": "$(sha_of embed-weights)"
+}
+EOF
+
+printf 'big-weights' >"$sandbox/weights/big.gguf"
+printf 'tampered' >"$sandbox/weights/wide.gguf"
+printf 'embed-weights' >"$sandbox/weights/embed.gguf"
+printf 'old' >"$sandbox/weights/retired.gguf"
+printf 'half' >"$sandbox/weights/big.gguf.part"
+printf 'next' >"$sandbox/weights/big.gguf.next"
+
 cat >"$sandbox/stubbin/curl" <<EOF
 #!/bin/sh
+echo "\$*" >> "$sandbox/curl.log"
 case "\$*" in
-  *api/tags*) cat "$sandbox/tags.json" ;;
-  *registry.test/v2/library/qwen3/manifests/8b*) printf 'manifest-body' ;;
-  *registry.test/v2/library/qwen3/manifests/4b*) printf 'a-newer-manifest' ;;
-  *registry.test/v2/library/qwen3/manifests/1b*) printf 'another-manifest' ;;
+  *hf.test/api/models/org/Big-GGUF/revision/main*) printf '{"id":"org/Big-GGUF","sha":"dddddddddddddddddddddddddddddddddddddddd"}' ;;
+  *hf.test/api/models/org/Wide-GGUF/revision/main*) printf '{"id":"org/Wide-GGUF","sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}' ;;
+  *hf.test/api/models/org/Embed-GGUF/revision/main*) printf '{"id":"org/Embed-GGUF","sha":"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}' ;;
+  *hf.test/api/models/org/Big-GGUF/tree/dddddddddddddddddddddddddddddddddddddddd*) printf '[{"type":"file","path":"README.md"},{"type":"file","path":"big.gguf","lfs":{"oid":"$(sha_of new-big)","size":7}}]' ;;
+  *hf.test/api/models/org/Big-GGUF/tree/ffffffffffffffffffffffffffffffffffffffff*) printf '[{"type":"file","path":"big.gguf","lfs":{"oid":"$(sha_of pinned-big)","size":10}}]' ;;
+  *hf.test/api/models/org/Embed-GGUF/tree/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee*) printf '[{"type":"file","path":"embed.gguf","lfs":{"oid":"$(sha_of new-embed)","size":9}}]' ;;
+  *hf.test/api/models/org/Wide-GGUF/tree/*) printf '[{"type":"file","path":"README.md"}]' ;;
   *) exit 22 ;;
 esac
 EOF
-chmod +x "$sandbox/stubbin/ollama" "$sandbox/stubbin/curl"
-
-pin_of() {
-  jq -r --arg name "$1" '.[$name]' "$OLLAMA_PROFILE_DIR/model-digests.json"
-}
-
-cat >"$sandbox/tags.json" <<EOF
-{"models": [
-  {"name": "qwen3.8:27b-mlx", "digest": "$(pin_of qwen3.8:27b-mlx)"},
-  {"name": "qwen3-embedding:0.6b", "digest": "0000"},
-  {"name": "qwen3.8-27b-cc:latest", "digest": "1111"},
-  {"name": "qwen3-4b-cc:latest", "digest": "2222"},
-  {"name": "qwen3.8-9b-distill-cc:latest", "digest": "3333"},
-  {"name": "hf.co/empero-ai/Qwen3.8-9B-Distill-GGUF:Q4_K_M", "digest": "4444"},
-  {"name": "qwen3-vl:8b-instruct-q4_K_M", "digest": "5555"}
-]}
+cat >"$sandbox/stubbin/ollama-profiles" <<EOF
+#!/bin/sh
+echo rendered >> "$sandbox/profiles.log"
 EOF
+chmod +x "$sandbox/stubbin/curl" "$sandbox/stubbin/ollama-profiles"
 
 listing="$("$script" list)"
-check "list marks a base that matches its pin" grep -Eq '^pinned +qwen3.8:27b-mlx$' <<<"$listing"
-check "list marks a base that misses its pin" grep -Eq '^mismatch +qwen3-embedding:0.6b$' <<<"$listing"
-check "list marks a profile model" grep -Eq '^profile +qwen3.8-27b-cc:latest$' <<<"$listing"
-check "list marks the retired side model as an orphan" grep -Eq '^orphan +qwen3-4b-cc:latest$' <<<"$listing"
-check "list marks a -cc model no profile uses" grep -Eq '^orphan +qwen3.8-9b-distill-cc:latest$' <<<"$listing"
-check "list marks a model from outside the Ollama library" grep -Eq '^third-party +hf.co/empero-ai/Qwen3.8-9B-Distill-GGUF:Q4_K_M$' <<<"$listing"
-check "list marks other library models" grep -Eq '^other +qwen3-vl:8b-instruct-q4_K_M$' <<<"$listing"
+check "list marks a size's weights that match their pin" grep -Eq '^pinned +big.gguf$' <<<"$listing"
+check "list marks the embedding weights that match their pin" grep -Eq '^pinned +embed.gguf$' <<<"$listing"
+check "list marks weights that miss their pin" grep -Eq '^mismatch +wide.gguf$' <<<"$listing"
+check "list marks a GGUF no pin names as an orphan" grep -Eq '^orphan +retired.gguf$' <<<"$listing"
+check "list marks an unfinished download as partial" grep -Eq '^partial +big.gguf.part$' <<<"$listing"
+check "list marks an upgrade candidate" grep -Eq '^candidate +big.gguf.next$' <<<"$listing"
+check "list prints one line per file" test "$(wc -l <<<"$listing" | tr -d ' ')" = 6
+check "list caches each file's sha256" test "$(wc -l <"$CLAUDE_OLLAMA_SHA_CACHE" | tr -d ' ')" = 3
+
+printf 'xxxxxxxxxxx' >"$sandbox/weights/big.gguf"
+touch -t 202001010000 "$sandbox/weights/big.gguf"
+check "a changed file is hashed again" grep -Eq '^mismatch +big.gguf$' <<<"$("$script" list)"
+printf 'big-weights' >"$sandbox/weights/big.gguf"
+
+check "an empty weights folder lists nothing" test -z "$(CLAUDE_OLLAMA_WEIGHTS_DIR="$sandbox/none" "$script" list)"
 
 "$script" prune </dev/null >"$sandbox/out" 2>&1
 check "prune with no answer refuses" test "$?" = 1
-check "prune without confirmation removes nothing" test ! -e "$sandbox/ollama.log"
+check "prune without confirmation removes nothing" test -f "$sandbox/weights/retired.gguf"
 
 printf 'n\n' | "$script" prune >"$sandbox/out" 2>&1
-check "prune declined removes nothing" test ! -e "$sandbox/ollama.log"
-
-"$script" prune --yes >"$sandbox/out" 2>&1
-check "prune exits 0" test "$?" = 0
-check "prune removes third-party and orphan models" test "$(cat "$sandbox/ollama.log")" = \
-  "rm qwen3-4b-cc:latest qwen3.8-9b-distill-cc:latest hf.co/empero-ai/Qwen3.8-9B-Distill-GGUF:Q4_K_M"
-rm -f "$sandbox/ollama.log"
+check "prune declined removes nothing" test -f "$sandbox/weights/big.gguf.part"
 
 printf 'y\n' | "$script" prune >"$sandbox/out" 2>&1
-check "prune confirmed removes the same models" grep -q '^rm qwen3-4b-cc:latest qwen3.8-9b-distill-cc:latest ' "$sandbox/ollama.log"
-check "prune lists what it will remove" grep -q 'hf.co/empero-ai/Qwen3.8-9B-Distill-GGUF:Q4_K_M' "$sandbox/out"
-rm -f "$sandbox/ollama.log"
+check "prune confirmed exits 0" test "$?" = 0
+check "prune lists what it removes" test "$(cat "$sandbox/out")" = "$(printf 'big.gguf.part\nretired.gguf\nRemove these files? [y/N] ')"
+check "prune removes the orphan" test ! -e "$sandbox/weights/retired.gguf"
+check "prune removes the partial download" test ! -e "$sandbox/weights/big.gguf.part"
+check "prune keeps pinned, mismatched and candidate files" test -f "$sandbox/weights/big.gguf" -a -f "$sandbox/weights/wide.gguf" -a -f "$sandbox/weights/big.gguf.next"
 
-"$script" prune --yes --only qwen3-4b-cc:latest >"$sandbox/out" 2>&1
-check "prune --only removes just the named prunable model" test "$(cat "$sandbox/ollama.log")" = "rm qwen3-4b-cc:latest"
-rm -f "$sandbox/ollama.log"
+check "prune with nothing to remove says so" test "$("$script" prune --yes)" = "nothing to prune"
 
-"$script" prune --yes --only qwen3.8:27b-mlx qwen3.8-9b-distill-cc:latest >"$sandbox/out" 2>&1
-check "prune --only skips a pinned model with a skipped line" grep -Fxq 'skipped qwen3.8:27b-mlx (not prunable)' "$sandbox/out"
-check "prune --only still removes the other named prunable model" test "$(cat "$sandbox/ollama.log")" = "rm qwen3.8-9b-distill-cc:latest"
-rm -f "$sandbox/ollama.log"
+printf 'old' >"$sandbox/weights/retired.gguf"
+printf 'old' >"$sandbox/weights/older.gguf"
+"$script" prune --yes --only retired.gguf big.gguf >"$sandbox/out" 2>&1
+check "prune --only skips a file that is not prunable" grep -Fxq 'skipped big.gguf (not prunable)' "$sandbox/out"
+check "prune --only removes the named prunable file" test ! -e "$sandbox/weights/retired.gguf"
+check "prune --only keeps the prunable files it was not given" test -f "$sandbox/weights/older.gguf"
+check "prune --only never removes a skipped file" test -f "$sandbox/weights/big.gguf"
 
-"$script" prune --yes --only qwen3.8:27b-mlx >"$sandbox/out" 2>&1
-check "prune --only with no prunable name runs no ollama rm" test ! -e "$sandbox/ollama.log"
-check "prune --only with no prunable name exits 0" test "$?" = 0
-
-"$script" prune --only qwen3-4b-cc:latest >/dev/null 2>&1 </dev/null
+check "prune --only with no prunable name says so" test "$("$script" prune --yes --only big.gguf | tail -n 1)" = "nothing to prune"
+check "prune --only refuses a path" test "$("$script" prune --yes --only ../profile/sizes.json | head -n 1)" = "skipped ../profile/sizes.json (not prunable)"
+"$script" prune --only older.gguf >/dev/null 2>&1 </dev/null
 check "prune --only without --yes is a usage error" test "$?" = 2
-check "prune --only without --yes runs no ollama rm" test ! -e "$sandbox/ollama.log"
-
 "$script" prune --yes --only >/dev/null 2>&1
 check "prune --yes --only with no names is a usage error" test "$?" = 2
-
-printf '{"models": [{"name": "qwen3-vl:8b-instruct-q4_K_M", "digest": "5555"}]}' >"$sandbox/tags.json"
-"$script" prune --yes >/dev/null
-check "prune with nothing to remove exits 0" test "$?" = 0
-check "prune with nothing to remove runs no ollama rm" test ! -e "$sandbox/ollama.log"
-
-"$script" pin qwen3:8b >/dev/null
-check "pin records the registry manifest sha256" test "$(pin_of qwen3:8b)" = \
-  "$(printf 'manifest-body' | shasum -a 256 | cut -c1-64)"
-check "pin keeps the other pins" test "$(pin_of qwen3.8:27b-mlx)" = "$(jq -r '.["qwen3.8:27b-mlx"]' "$repo/ollama/model-digests.json")"
-check "pin refuses a model outside the Ollama library" test "$("$script" pin hf.co/a/b:c 2>/dev/null; echo $?)" = 1
-check "pin fails when the registry has no such tag" test "$("$script" pin qwen3:nope 2>/dev/null; echo $?)" = 1
-check "a failed pin writes nothing" test "$(pin_of qwen3:nope)" = null
 check "an unknown command is a usage error" test "$("$script" frobnicate 2>/dev/null; echo $?)" = 2
 
-outdated_profile="$sandbox/outdated"
-mkdir -p "$outdated_profile"
-cat >"$outdated_profile/model-digests.json" <<EOF
-{
-  "qwen3:8b": "$(printf 'manifest-body' | shasum -a 256 | cut -c1-64)",
-  "qwen3:4b": "0000",
-  "qwen3:1b": "3333",
-  "qwen3:nope": "1111",
-  "./weights/Qwen3.8-27B.gguf": "2222"
-}
-EOF
-cat >"$outdated_profile/sizes.json" <<EOF
-{ "4b": { "base": "qwen3:4b", "model": "qwen3-4b-cc", "context": 32768 } }
-EOF
-
-outdated_listing="$(OLLAMA_PROFILE_DIR="$outdated_profile" "$script" outdated 2>&1)"
+outdated_listing="$("$script" outdated 2>&1)"
 outdated_status=$?
 line_after() {
   grep -A1 -E "$1" <<<"$outdated_listing" | tail -n 1
 }
-check "a behind base of a size is followed by the model-upgrade fix" test "$(line_after '^behind +qwen3:4b ')" = '     fix: bin/model-upgrade 4b'
-check "a behind pin no size uses is followed by the pin fix" test "$(line_after '^behind +qwen3:1b ')" = '     fix: bin/ollama-models pin qwen3:1b'
-check "a current pin has no fix line" test "$(line_after '^current +qwen3:8b$')" != '     fix: bin/ollama-models pin qwen3:8b'
-check "outdated ends with a count of the pins that need a fix" grep -Fxq '2 behind, 0 unpinned: run the fix lines above, then commit ollama/model-digests.json' <<<"$outdated_listing"
-check "outdated prints no count when every pin is current" test "$(OLLAMA_PROFILE_DIR="$outdated_profile" "$script" outdated qwen3:8b 2>&1)" = 'current  qwen3:8b'
-check "outdated marks a pin the registry still matches as current" grep -Eq '^current +qwen3:8b$' <<<"$outdated_listing"
-check "outdated marks a pin the registry moved past as behind" grep -Eq '^behind +qwen3:4b \(registry [0-9a-f]{12}, pin 0000\)$' <<<"$outdated_listing"
-check "outdated marks a name with no registry manifest as unknown" grep -Eq '^unknown +qwen3:nope \(no manifest at ' <<<"$outdated_listing"
-check "outdated skips a GGUF pin" grep -Fxq 'skipped  ./weights/Qwen3.8-27B.gguf (GGUF, pinned by file sha256)' <<<"$outdated_listing"
-check "outdated checks every pin after a behind one" grep -Eq '^unknown +qwen3:nope ' <<<"$outdated_listing"
-check "outdated exits 1 when a pin is behind" test "$outdated_status" = 1
-check "outdated NAME exits 0 when that pin is current" test "$(OLLAMA_PROFILE_DIR="$outdated_profile" "$script" outdated qwen3:8b >/dev/null 2>&1; echo $?)" = 0
-check "outdated NAME exits 1 when that pin is behind" test "$(OLLAMA_PROFILE_DIR="$outdated_profile" "$script" outdated qwen3:4b >/dev/null 2>&1; echo $?)" = 1
-check "outdated exits 0 when no pin is behind" test "$(OLLAMA_PROFILE_DIR="$outdated_profile" "$script" outdated qwen3:8b qwen3:nope >/dev/null 2>&1; echo $?)" = 0
+check "outdated marks a size whose repo moved on as behind" grep -Fxq 'behind   27b (aaaaaaaaaaaa → dddddddddddd)' <<<"$outdated_listing"
+check "a behind size is followed by the model-upgrade fix" test "$(line_after '^behind +27b ')" = '     fix: bin/model-upgrade 27b'
+check "outdated marks a size at the repo's main as current" grep -Fxq 'current  35b' <<<"$outdated_listing"
+check "outdated checks the embedding weights" grep -Fxq 'behind   embedding (cccccccccccc → eeeeeeeeeeee)' <<<"$outdated_listing"
+check "the behind embedding is followed by the pin fix" test "$(line_after '^behind +embedding ')" = '     fix: bin/ollama-models pin embedding'
+check "outdated ends with a count of what needs a fix" grep -Fxq '2 behind: run the fix lines above, then commit ollama/sizes.json and ollama/model-digests.json' <<<"$outdated_listing"
+check "outdated exits 1 when one is behind" test "$outdated_status" = 1
+check "outdated asks the Hugging Face API for main" grep -q 'https://hf.test/api/models/org/Big-GGUF/revision/main' "$sandbox/curl.log"
+check "outdated NAME checks only that size" test "$("$script" outdated 35b 2>&1)" = 'current  35b'
+check "outdated NAME exits 0 when it is current" test "$("$script" outdated 35b >/dev/null 2>&1; echo $?)" = 0
+check "outdated NAME exits 1 when it is behind" test "$("$script" outdated 27b >/dev/null 2>&1; echo $?)" = 1
+check "outdated names a size it does not know" grep -Fxq 'unknown  9b (not a size in ollama/sizes.json)' <<<"$("$script" outdated 9b 2>&1)"
+check "outdated exits 1 for a size it does not know" test "$("$script" outdated 9b >/dev/null 2>&1; echo $?)" = 1
+check "outdated says when the API has no answer" grep -Fxq 'unknown  27b (no revision at https://hf.none)' <<<"$(HF_ENDPOINT=https://hf.none "$script" outdated 27b 2>&1)"
+check "an unanswered API is no failure" test "$(HF_ENDPOINT=https://hf.none "$script" outdated 27b >/dev/null 2>&1; echo $?)" = 0
 
-unpinned_listing="$(OLLAMA_PROFILE_DIR="$outdated_profile" "$script" outdated qwen3:none 2>&1)"
-unpinned_status=$?
-check "outdated marks a name with no pin as unpinned" grep -Fxq 'unpinned qwen3:none (not in ollama/model-digests.json)' <<<"$unpinned_listing"
-check "outdated exits 1 for a name with no pin" test "$unpinned_status" = 1
-check "an unpinned name is followed by the pin fix" grep -Fxq '     fix: bin/ollama-models pin qwen3:none' <<<"$unpinned_listing"
-check "the count names the unpinned name" grep -Fxq '0 behind, 1 unpinned: run the fix lines above, then commit ollama/model-digests.json' <<<"$unpinned_listing"
+pin_listing="$("$script" pin 27b)"
+check "pin writes the repo's main revision into sizes.json" test "$(jq -r '.["27b"].gguf.revision' "$sandbox/profile/sizes.json")" = dddddddddddddddddddddddddddddddddddddddd
+check "pin writes the LFS sha256 into model-digests.json" test "$(jq -r '.["org/Big-GGUF/big.gguf"]' "$sandbox/profile/model-digests.json")" = "$(sha_of new-big)"
+check "pin keeps the other pins" test "$(jq -r '.["org/Wide-GGUF/wide.gguf"]' "$sandbox/profile/model-digests.json")" = "$(sha_of wide-weights)"
+check "pin keeps the other sizes" test "$(jq -r '.["35b"].gguf.revision' "$sandbox/profile/sizes.json")" = bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+check "pin renders the profiles" test "$(cat "$sandbox/profiles.log")" = rendered
+check "pin prints the size, revision and sha256" test "$pin_listing" = "27b dddddddddddddddddddddddddddddddddddddddd $(sha_of new-big)"
+
+"$script" pin 27b --revision ffffffffffffffffffffffffffffffffffffffff >/dev/null
+check "pin --revision pins that revision" test "$(jq -r '.["27b"].gguf.revision' "$sandbox/profile/sizes.json")" = ffffffffffffffffffffffffffffffffffffffff
+check "pin --revision reads that revision's sha256" test "$(jq -r '.["org/Big-GGUF/big.gguf"]' "$sandbox/profile/model-digests.json")" = "$(sha_of pinned-big)"
+
+"$script" pin embedding >/dev/null
+check "pin embedding writes embedding.json" test "$(jq -r .gguf.revision "$sandbox/profile/embedding.json")" = eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+check "pin embedding writes its sha256" test "$(jq -r '.["org/Embed-GGUF/embed.gguf"]' "$sandbox/profile/model-digests.json")" = "$(sha_of new-embed)"
+
+before="$(cat "$sandbox/profile/sizes.json" "$sandbox/profile/model-digests.json")"
+check "pin fails when the tree lists no such file" test "$("$script" pin 35b 2>/dev/null; echo $?)" = 1
+check "pin fails for a size it does not know" test "$("$script" pin 9b 2>/dev/null; echo $?)" = 1
+check "pin fails when the API has no answer" test "$(HF_ENDPOINT=https://hf.none "$script" pin 27b 2>/dev/null; echo $?)" = 1
+check "pin refuses a revision that is not a commit sha" test "$("$script" pin 27b --revision main 2>/dev/null; echo $?)" = 1
+check "a failed pin writes nothing" test "$(cat "$sandbox/profile/sizes.json" "$sandbox/profile/model-digests.json")" = "$before"
+check "pin with no size is a usage error" test "$("$script" pin 2>/dev/null; echo $?)" = 2
 
 if [ "$failures" -eq 0 ]; then
   echo "all passed"
