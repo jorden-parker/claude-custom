@@ -253,9 +253,9 @@ check_eq "and the estimate is rough" rough "$(fit_field estimate)"
 run "$lease" fit --model bare-cc --num-ctx 32768
 check_eq "the rough KV cache shrinks with num_ctx" 2147483648 "$(fit_field kv_bytes)"
 
-jq -n '{models_max: 2, models: {"dense-cc": {size: 17179869184}, "other-cc": {size: 1000}}, loaded: ["dense-cc", "other-cc"]}' > "$state"
-run "$lease" fit --model dense-cc --num-ctx 65536
-check_eq "a model already loaded counts as free memory, since its pages are already active or wired" $((31082938368 + 17179869184)) "$(fit_field free_bytes)"
+jq -n '{models_max: 2, models: {"dense-cc": {}, "other-cc": {}, "qwen3-embedding-0.6b": {aliases: ["qwen3-embedding:0.6b"]}}, loaded: ["dense-cc", "other-cc", "qwen3-embedding-0.6b"]}' > "$state"
+run "$lease" fit --model dense-cc --num-ctx 65536 --embedding qwen3-embedding:0.6b
+check_eq "a loaded model and embedding count their weights files as free memory, since the router's /models reports no size" $((31082938368 + 17179869184 + 644245094)) "$(fit_field free_bytes)"
 server_keeps 2
 
 mkdir -p "$tmp/proc"

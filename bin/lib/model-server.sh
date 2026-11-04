@@ -34,11 +34,6 @@ model_loaded() {
   [ "$(model_entry "$1" | jq -r '.status.value')" = loaded ]
 }
 
-model_resident_bytes() {
-  model_loaded "$1" || return 1
-  model_entry "$1" | jq -er '.meta.size // empty'
-}
-
 post_model_action() {
   curl -sf -m 30 -X POST "$(server_url)/models/$1" -H 'content-type: application/json' \
     -d "$(jq -cn --arg id "$2" '{model: $id}')" >/dev/null 2>&1

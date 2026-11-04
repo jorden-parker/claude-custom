@@ -54,13 +54,6 @@ def loaded(model_id):
     return bool(found) and found.get("status", {}).get("value") == "loaded"
 
 
-def resident_bytes(model_id):
-    found = entry(model_id)
-    if not found or found.get("status", {}).get("value") != "loaded":
-        return None
-    return found.get("meta", {}).get("size")
-
-
 def failure(error):
     return f"HTTP {error.code}" if isinstance(error, urllib.error.HTTPError) else str(error)
 

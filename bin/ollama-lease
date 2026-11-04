@@ -276,11 +276,11 @@ rough_kv_bytes() {
 }
 
 resident_bytes() {
-  local id total=0 bytes
+  local id total=0 weights
   for id in "$@"; do
-    bytes="$(model_resident_bytes "$id" 2>/dev/null)" || continue
-    case "$bytes" in ''|*[!0-9]*) continue ;; esac
-    total=$((total + bytes))
+    model_loaded "$id" || continue
+    weights="$(weights_of "$id" 2>/dev/null)" || continue
+    total=$((total + $(file_bytes "$weights")))
   done
   printf '%s' "$total"
 }

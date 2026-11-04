@@ -1400,6 +1400,7 @@ check_eq "a malformed ladder file still lets claude run again" 2 "$(grep -c '^AR
 check_that "a malformed ladder file is reported as dropped" grep -qF "dropped malformed ladder" "$sandbox/err"
 
 new_sandbox
+stub_state_set '.loaded = [] | .loading = {} | .load_polls = 100000'
 dd if=/dev/zero of="$CLAUDE_OLLAMA_WEIGHTS_DIR/Qwen3.8-27B-UD-Q4_K_XL.gguf" bs=1 count=0 seek=17179869184 2>/dev/null
 dd if=/dev/zero of="$CLAUDE_OLLAMA_WEIGHTS_DIR/Qwen3-Embedding-0.6B-Q8_0.gguf" bs=1 count=0 seek=644245094 2>/dev/null
 cat > "$sandbox/stubbin/sysctl" <<'EOF'
@@ -1460,11 +1461,17 @@ check_eq "a launch nothing fits exits 1" 1 "$nothing_fits_status"
 check_not "a launch nothing fits never runs claude" grep -q '^ARGS:' "$sandbox/out"
 STUB_MEMSIZE=21276800000 CLAUDE_OLLAMA_FIT=0 run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "CLAUDE_OLLAMA_FIT=0 starts a launch that does not fit" grep -q '^ARGS:' "$sandbox/out"
+stub_state_set '.loaded = ["qwen3.8-27b-cc"] | .loading = {}'
+STUB_MEMSIZE=21276800000 run_capture "$repo/bin/claude-ollama" 27b -p hi
+check_not "a model the router already holds counts its own weights as free, so it is not short of itself" grep -q "ladder\|not starting" "$sandbox/err"
+check_that "and the launch runs claude" grep -q '^ARGS:' "$sandbox/out"
+stub_state_set '.loaded = [] | .loading = {} | .load_polls = 100000'
 unfit_spike_status=0
 STUB_MEMSIZE=21276800000 CLAUDE_OLLAMA_MOCK_SPIKE="$sandbox/stubbin/mock-spike" run_capture "$repo/bin/claude-ollama" mock-spike 27b --runs 2 </dev/null || unfit_spike_status=$?
 check_eq "a mock-spike whose model does not fit exits 1" 1 "$unfit_spike_status"
 check_that "a mock-spike whose model does not fit says why" grep -qxF "claude-ollama: not starting: the model does not fit in memory (set CLAUDE_OLLAMA_FIT=0 to start anyway)" "$sandbox/err"
 check_not "a mock-spike whose model does not fit never runs the spike" grep -q '^SPIKE:' "$sandbox/out"
+stub_state_set '.load_polls = 0'
 rm -f "$sandbox/stubbin/sysctl"
 run_capture "$repo/bin/claude-ollama" 27b -p hi
 check_that "a fit that cannot be computed is reported, not fatal" grep -qxF "claude-ollama: memory fit: unknown (ollama lease: cannot read the free memory)" "$sandbox/err"
